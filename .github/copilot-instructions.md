@@ -4,16 +4,17 @@
 Restaurant management system built with Next.js 15, TypeScript, Supabase, and Tailwind CSS. Features order management (Kanban), kitchen display system (KDS), inventory control, productivity tracking, technical sheets, and label printing.
 
 ## Architecture
-- **Frontend**: Next.js App Router with client/server components
+- **Frontend**: Next.js 15 App Router with React 19, client/server components
 - **Backend**: Supabase (PostgreSQL + Auth + Realtime + Storage)
 - **UI**: shadcn/ui components on Radix UI primitives
 - **Styling**: Tailwind CSS with responsive design (desktop/tablet/mobile)
-- **Real-time**: Supabase Realtime for live updates (e.g., Kanban board changes)
+- **Real-time**: Supabase Realtime for live updates (e.g., Kanban board changes), configured with eventsPerSecond: 10
 
 ## Key Patterns
 - **Database Types**: Defined in `lib/supabase.ts` with Row/Insert/Update interfaces
 - **Order Statuses**: 7 statuses in Portuguese: 'criado' → 'em_preparo' → 'separacao' → 'conferencia' → 'saiu_entrega' → 'entrega_concluida' | 'cancelado'
-- **Permissions**: Role-based ('admin'/'user') with module-specific access (pedidos, producao, estoque, etc.)
+- **Permissions**: Role-based ('admin'/'user') with module-specific access ('pedidos', 'producao', 'estoque', 'inventario', 'fichas_tecnicas', 'etiquetas', 'compras', 'produtividade', 'admin', 'insumos')
+- **Units**: Insumos use specific units ('kg', 'g', 'lt', 'ml', 'un', 'cx', 'pct')
 - **Components**: Use `cn()` utility from `lib/utils.ts` for conditional classes
 - **API Routes**: Dynamic routes like `/api/export/[tabela]` for data export in CSV/XLSX, `/api/import/[tabela]` for imports, `/api/print/[type]/[id]` for printing
 - **Real-time Subscriptions**: `supabase.channel('table_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'table_name' }, callback).subscribe()`
@@ -31,7 +32,7 @@ Restaurant management system built with Next.js 15, TypeScript, Supabase, and Ta
 - **File Structure**: Pages in `src/app/(dashboard)/[module]/page.tsx`, components in `src/components/`, utilities in `src/lib/`
 - **Naming**: Kebab-case for files (e.g., `fichas-tecnicas`), camelCase for variables
 - **Icons**: Lucide React icons imported individually
-- **Forms**: React Hook Form with @hookform/resolvers for validation
+- **Forms**: React Hook Form with @hookform/resolvers (zod) for validation
 - **Currency**: Format with `new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })`
 - **Printing**: Support thermal, PDF, HTML formats via ESC/POS commands for labels
 

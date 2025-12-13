@@ -30,7 +30,7 @@ export default function LoginPage() {
       } else {
         setError("Email ou senha incorretos");
       }
-    } catch (err) {
+    } catch (_err) {
       setError("Erro ao fazer login. Tente novamente.");
     } finally {
       setLoading(false);

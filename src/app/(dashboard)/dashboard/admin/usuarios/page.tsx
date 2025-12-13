@@ -419,7 +419,7 @@ export default function UsuariosPage() {
               
               <div className="mt-6 p-4 bg-yellow-50 rounded-lg">
                 <p className="text-sm text-yellow-800">
-                  <strong>Nota:</strong> Selecione um usuário na aba "Usuários" para configurar suas permissões específicas.
+                  <strong>Nota:</strong> Selecione um usuário na aba Usuários para configurar suas permissões específicas.
                 </p>
               </div>
             </CardContent>

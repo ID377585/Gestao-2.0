@@ -1,15 +1,25 @@
-
-
 "use client";
 
 import React, { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+
+// ✅ Ajuste este import conforme seu projeto:
+// Se você já tem um client do Supabase em "@/lib/supabase", mantenha.
+// Caso não tenha, me diga qual arquivo você usa pra instanciar o supabase.
+import { supabase } from "@/lib/supabase";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -23,15 +33,26 @@ export default function ForgotPasswordPage() {
     setError("");
 
     try {
-      // TODO: Implementar reset de senha com Supabase
-      console.log("Password reset for:", email);
-      
-      // Simulação por enquanto
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      setSuccess(true);
+      // ✅ URL absoluta correta para Vercel/Preview/Localhost
+      // Depois que o usuário redefinir a senha, ele volta para /login
+      const redirectTo = `${window.location.origin}/login`;
 
-    } catch {
-      setError("Erro ao enviar email de recuperação. Tente novamente.");
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+        email,
+        { redirectTo }
+      );
+
+      if (resetError) {
+        throw resetError;
+      }
+
+      setSuccess(true);
+    } catch (err: any) {
+      // Mensagem amigável
+      const msg =
+        err?.message ||
+        "Erro ao enviar email de recuperação. Tente novamente.";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -58,16 +79,19 @@ export default function ForgotPasswordPage() {
             <CardContent>
               <div className="text-center space-y-4">
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-
-                  <Image src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/5bd453db-e56d-492e-9045-433bcf22a34d.png" alt="Sucesso" className="w-8 h-8" />
+                  <Image
+                    src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/5bd453db-e56d-492e-9045-433bcf22a34d.png"
+                    alt="Sucesso"
+                    width={32}
+                    height={32}
+                    className="w-8 h-8"
+                  />
                 </div>
                 <p className="text-sm text-gray-600">
                   Um email foi enviado para <strong>{email}</strong> com instruções para redefinir sua senha.
                 </p>
                 <Link href="/login">
-                  <Button className="w-full">
-                    Voltar para Login
-                  </Button>
+                  <Button className="w-full">Voltar para Login</Button>
                 </Link>
               </div>
             </CardContent>
@@ -117,8 +141,8 @@ export default function ForgotPasswordPage() {
                 />
               </div>
 
-              <Button 
-                type="submit" 
+              <Button
+                type="submit"
                 className="w-full bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-700 hover:to-green-700"
                 disabled={loading}
               >
@@ -126,8 +150,8 @@ export default function ForgotPasswordPage() {
               </Button>
 
               <div className="text-center">
-                <Link 
-                  href="/login" 
+                <Link
+                  href="/login"
                   className="text-sm text-blue-600 hover:text-blue-800"
                 >
                   ← Voltar para login

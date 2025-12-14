@@ -2,8 +2,6 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
-
 import { supabase } from "@/lib/supabase";
 
 import { Button } from "@/components/ui/button";
@@ -30,23 +28,19 @@ export default function ForgotPasswordPage() {
     setError("");
 
     try {
-      const redirectTo = `${window.location.origin}/login`;
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
 
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-        email,
-        { redirectTo }
-      );
-
-      if (resetError) {
-        setError(resetError.message || "Erro ao enviar email de recuperação.");
+      if (error) {
+        setError(error.message || "Erro ao enviar email de recuperação.");
+        setLoading(false);
         return;
       }
 
       setSuccess(true);
-    } catch (err: any) {
-      setError(
-        err?.message || "Erro ao enviar email de recuperação. Tente novamente."
-      );
+    } catch (err) {
+      setError("Erro ao enviar email de recuperação. Tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -56,13 +50,6 @@ export default function ForgotPasswordPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-green-50 flex items-center justify-center p-4">
         <div className="w-full max-w-md">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-green-600 rounded-xl flex items-center justify-center mx-auto mb-4">
-              <span className="text-white font-bold text-2xl">G2</span>
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">Gestão 2.0</h1>
-          </div>
-
           <Card>
             <CardHeader>
               <CardTitle className="text-green-600">Email Enviado!</CardTitle>
@@ -70,23 +57,11 @@ export default function ForgotPasswordPage() {
                 Verifique sua caixa de entrada e siga as instruções para redefinir sua senha.
               </CardDescription>
             </CardHeader>
-
             <CardContent>
               <div className="text-center space-y-4">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-                  <Image
-                    src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/5bd453db-e56d-492e-9045-433bcf22a34d.png"
-                    alt="Sucesso"
-                    width={32}
-                    height={32}
-                    className="w-8 h-8"
-                  />
-                </div>
-
                 <p className="text-sm text-gray-600">
-                  Um email foi enviado para <strong>{email}</strong> com instruções para redefinir sua senha.
+                  Um email foi enviado para <strong>{email}</strong>.
                 </p>
-
                 <Link href="/login">
                   <Button className="w-full">Voltar para Login</Button>
                 </Link>
@@ -101,24 +76,13 @@ export default function ForgotPasswordPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-green-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-green-600 rounded-xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white font-bold text-2xl">G2</span>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">Gestão 2.0</h1>
-          <p className="text-gray-600">Recuperar Senha</p>
-        </div>
-
-        {/* Reset Form */}
         <Card>
           <CardHeader>
             <CardTitle>Esqueci minha senha</CardTitle>
             <CardDescription>
-              Digite seu email para receber instruções de recuperação
+              Digite seu email para receber o link de recuperação
             </CardDescription>
           </CardHeader>
-
           <CardContent>
             <form onSubmit={handleResetPassword} className="space-y-4">
               {error && (
@@ -148,7 +112,10 @@ export default function ForgotPasswordPage() {
               </Button>
 
               <div className="text-center">
-                <Link href="/login" className="text-sm text-blue-600 hover:text-blue-800">
+                <Link
+                  href="/login"
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
                   ← Voltar para login
                 </Link>
               </div>

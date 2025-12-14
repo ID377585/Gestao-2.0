@@ -20,7 +20,8 @@ export interface Usuario {
 }
 
 // Simulação de armazenamento local
-let usuariosGlobais: Usuario[] = [
+
+const usuariosGlobais: Usuario[] = [
   {
     id: "1",
     name: "Admin User",
@@ -67,7 +68,9 @@ let usuariosGlobais: Usuario[] = [
   }
 ];
 
-let permissoesGlobais: Permissao[] = [
+
+
+let permissoesGlobais: Permissao[] = [ // eslint-disable-line prefer-const
   // Permissões do Admin User (acesso total)
   { userId: "1", modulo: "pedidos", podeVisualizar: true, podeEditar: true },
   { userId: "1", modulo: "producao", podeVisualizar: true, podeEditar: true },

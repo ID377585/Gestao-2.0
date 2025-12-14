@@ -1,7 +1,10 @@
+
+
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,7 +29,8 @@ export default function ForgotPasswordPage() {
       // Simulação por enquanto
       await new Promise(resolve => setTimeout(resolve, 2000));
       setSuccess(true);
-    } catch (err) {
+
+    } catch {
       setError("Erro ao enviar email de recuperação. Tente novamente.");
     } finally {
       setLoading(false);
@@ -54,7 +58,8 @@ export default function ForgotPasswordPage() {
             <CardContent>
               <div className="text-center space-y-4">
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-                  <img src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/5bd453db-e56d-492e-9045-433bcf22a34d.png" alt="Sucesso" className="w-8 h-8" />
+
+                  <Image src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/5bd453db-e56d-492e-9045-433bcf22a34d.png" alt="Sucesso" className="w-8 h-8" />
                 </div>
                 <p className="text-sm text-gray-600">
                   Um email foi enviado para <strong>{email}</strong> com instruções para redefinir sua senha.

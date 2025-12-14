@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setError("");
@@ -22,15 +22,15 @@ export default function LoginPage() {
     try {
       // TODO: Implementar autenticação com Supabase
       console.log("Login attempt:", { email, password });
-      
+
       // Simulação de login por enquanto
       if (email === "admin@gestao2.com" && password === "123456") {
         // Redirecionar para dashboard
-        window.location.href = "/dashboard/pedidos";
+        window.location.assign("/dashboard/pedidos");
       } else {
         setError("Email ou senha incorretos");
       }
-    } catch (_err) {
+    } catch {
       setError("Erro ao fazer login. Tente novamente.");
     } finally {
       setLoading(false);
@@ -53,9 +53,7 @@ export default function LoginPage() {
         <Card>
           <CardHeader>
             <CardTitle>Entrar no Sistema</CardTitle>
-            <CardDescription>
-              Digite suas credenciais para acessar o sistema
-            </CardDescription>
+            <CardDescription>Digite suas credenciais para acessar o sistema</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleLogin} className="space-y-4">
@@ -74,6 +72,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  autoComplete="email"
                 />
               </div>
 
@@ -86,11 +85,12 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="current-password"
                 />
               </div>
 
-              <Button 
-                type="submit" 
+              <Button
+                type="submit"
                 className="w-full bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-700 hover:to-green-700"
                 disabled={loading}
               >
@@ -98,10 +98,7 @@ export default function LoginPage() {
               </Button>
 
               <div className="text-center">
-                <Link 
-                  href="/forgot-password" 
-                  className="text-sm text-blue-600 hover:text-blue-800"
-                >
+                <Link href="/forgot-password" className="text-sm text-blue-600 hover:text-blue-800">
                   Esqueci minha senha
                 </Link>
               </div>

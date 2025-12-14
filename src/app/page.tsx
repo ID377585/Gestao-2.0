@@ -1,4 +1,6 @@
+
 import Link from "next/link";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -45,7 +47,9 @@ export default function HomePage() {
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
-                <img src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/1bc6e7d4-5053-4e56-aa37-3b0936891db5.png" alt="Ícone de pedidos" className="w-8 h-8" />
+
+
+                <Image src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/1bc6e7d4-5053-4e56-aa37-3b0936891db5.png" alt="Ícone de pedidos" width={32} height={32} />
               </div>
               <CardTitle>Gestão de Pedidos</CardTitle>
               <CardDescription>
@@ -65,7 +69,8 @@ export default function HomePage() {
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
-                <img src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/0b3aaeeb-3513-4bfe-ab18-4a9f97ab8a19.png" alt="Ícone de produção" className="w-8 h-8" />
+
+                <Image src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/0b3aaeeb-3513-4bfe-ab18-4a9f97ab8a19.png" alt="Ícone de produção" width={32} height={32} />
               </div>
               <CardTitle>KDS - Monitor de Cozinha</CardTitle>
               <CardDescription>
@@ -85,7 +90,8 @@ export default function HomePage() {
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center mb-4">
-                <img src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/154a078e-69ab-4aaf-91a5-8fa72cb9cdc9.png" alt="Ícone de estoque" className="w-8 h-8" />
+
+                <Image src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/154a078e-69ab-4aaf-91a5-8fa72cb9cdc9.png" alt="Ícone de estoque" width={32} height={32} />
               </div>
               <CardTitle>Controle de Estoque</CardTitle>
               <CardDescription>
@@ -105,7 +111,7 @@ export default function HomePage() {
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
-                <img src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/7fae28a9-eac2-46a9-8193-57bbe14dfcc7.png" alt="Ícone de produtividade" className="w-8 h-8" />
+                <Image src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/7fae28a9-eac2-46a9-8193-57bbe14dfcc7.png" alt="Ícone de produtividade" width={32} height={32} />
               </div>
               <CardTitle>Produtividade</CardTitle>
               <CardDescription>
@@ -125,7 +131,7 @@ export default function HomePage() {
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mb-4">
-                <img src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/66d1d304-9d4d-4a84-afef-b9cfc182934c.png" alt="Ícone de ficha técnica" className="w-8 h-8" />
+                <Image src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/66d1d304-9d4d-4a84-afef-b9cfc182934c.png" alt="Ícone de ficha técnica" width={32} height={32} />
               </div>
               <CardTitle>Ficha Técnica</CardTitle>
               <CardDescription>
@@ -145,7 +151,7 @@ export default function HomePage() {
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-4">
-                <img src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/a990a988-3c2a-4d70-a18e-5342d505fc5c.png" alt="Ícone de etiquetas" className="w-8 h-8" />
+                <Image src="https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/a990a988-3c2a-4d70-a18e-5342d505fc5c.png" alt="Ícone de etiquetas" width={32} height={32} />
               </div>
               <CardTitle>Sistema de Etiquetas</CardTitle>
               <CardDescription>

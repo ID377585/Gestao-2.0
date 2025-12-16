@@ -1,13 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -16,6 +29,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+
+/* =========================
+   ✅ MOCK USUÁRIO LOGADO
+   - Trocar depois pelo nome real do auth
+========================= */
+const USUARIO_LOGADO_NOME = "Admin User";
 
 // Interfaces
 interface TipoEtiqueta {
@@ -38,8 +57,8 @@ interface EtiquetaGerada {
   insumo: string;
   qtd: number;
   umd: string;
-  dataManip: string;
-  dataVenc: string;
+  dataManip: string; // ISO yyyy-mm-dd
+  dataVenc: string; // ISO yyyy-mm-dd
   loteMan: string;
   responsavel: string;
   alergenico?: string;
@@ -51,19 +70,97 @@ interface EtiquetaGerada {
   loteFab?: string;
   localEnvio?: string;
   localArmazenado?: string;
-  createdAt: string;
+  createdAt: string; // ISO datetime
 }
+
+// ✅ Cadastro de Insumos (EXEMPLO / MOCK)
+type UnidadeMedida = "kg" | "g" | "lt" | "ml" | "un" | "cx" | "pct";
+
+interface InsumoCadastro {
+  id: string;
+  nome: string;
+  umd: UnidadeMedida;
+  shelfLifeDias: number;
+
+  /* =========================
+     ✅ NOVOS CAMPOS (AUTOPREENCHIMENTO)
+  ========================= */
+  alergenico?: string;
+  armazenamento?: string;
+  ingredientes?: string;
+}
+
+const insumosCadastroExemplo: InsumoCadastro[] = [
+  {
+    id: "ins-1",
+    nome: "Cacau em pó",
+    umd: "g",
+    shelfLifeDias: 30,
+    alergenico: "Não contém",
+    armazenamento: "Local seco e fresco",
+    ingredientes: "Cacau em pó 100%",
+  },
+  {
+    id: "ins-2",
+    nome: "Ricota fresca",
+    umd: "kg",
+    shelfLifeDias: 3,
+    alergenico: "Contém leite",
+    armazenamento: "Refrigeração 0-4°C",
+    ingredientes: "Leite pasteurizado, fermento lácteo",
+  },
+  {
+    id: "ins-3",
+    nome: "Carne bovina",
+    umd: "kg",
+    shelfLifeDias: 2,
+    alergenico: "Não contém",
+    armazenamento: "Refrigeração 0-4°C",
+    ingredientes: "Carne bovina",
+  },
+  {
+    id: "ins-4",
+    nome: "Farinha de trigo",
+    umd: "kg",
+    shelfLifeDias: 90,
+    alergenico: "Contém glúten",
+    armazenamento: "Local seco e arejado",
+    ingredientes: "Farinha de trigo",
+  },
+  {
+    id: "ins-5",
+    nome: "Leite integral",
+    umd: "lt",
+    shelfLifeDias: 2,
+    alergenico: "Contém leite",
+    armazenamento: "Refrigeração 0-4°C",
+    ingredientes: "Leite integral",
+  },
+];
+
+// ✅ helpers de label (apenas visual)
+type TipoSel = "MANIPULACAO" | "REVALIDAR";
+
+const TIPO_LABEL: Record<TipoSel, string> = {
+  MANIPULACAO: "MANIPULAÇÃO",
+  REVALIDAR: "FABRICANTE",
+};
+
+const TIPO_LABEL_LONG: Record<TipoSel, string> = {
+  MANIPULACAO: "MANIPULAÇÃO",
+  REVALIDAR: "FABRICANTE",
+};
 
 // Dados de exemplo
 const tiposEtiqueta: TipoEtiqueta[] = [
   { id: "1", nome: "MANIPULACAO", descricao: "Etiqueta de manipulação padrão" },
-  { id: "2", nome: "REVALIDAR", descricao: "Etiqueta de revalidação com dados do fabricante" }
+  { id: "2", nome: "REVALIDAR", descricao: "Etiqueta com dados do fabricante" },
 ];
 
 const tamanhosEtiqueta: TamanhoEtiqueta[] = [
   { id: "1", nome: "Pequena", largura: 5.0, altura: 3.0 },
   { id: "2", nome: "Média", largura: 10.0, altura: 6.0 },
-  { id: "3", nome: "Grande", largura: 15.0, altura: 10.0 }
+  { id: "3", nome: "Grande", largura: 15.0, altura: 10.0 },
 ];
 
 const etiquetasGeradasExemplo: EtiquetaGerada[] = [
@@ -83,7 +180,7 @@ const etiquetasGeradasExemplo: EtiquetaGerada[] = [
     ingredientes: "Farinha, água, fermento, sal",
     localEnvio: "Padaria São João",
     localArmazenado: "Estoque Seco",
-    createdAt: "2024-01-15T08:30:00"
+    createdAt: "2024-01-15T08:30:00",
   },
   {
     id: 2,
@@ -104,109 +201,927 @@ const etiquetasGeradasExemplo: EtiquetaGerada[] = [
     armazenamento: "Refrigeração 0-4°C",
     localEnvio: "Restaurante Bella Vista",
     localArmazenado: "Câmara Fria",
-    createdAt: "2024-01-15T09:15:00"
-  }
+    createdAt: "2024-01-15T09:15:00",
+  },
 ];
 
+// ✅ datas helpers (ISO yyyy-mm-dd)
+const getTodayISO = () => {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const addDaysISO = (isoDate: string, days: number) => {
+  if (!isoDate) return "";
+  const base = new Date(isoDate + "T00:00:00");
+  base.setDate(base.getDate() + days);
+  const yyyy = base.getFullYear();
+  const mm = String(base.getMonth() + 1).padStart(2, "0");
+  const dd = String(base.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const isoToDDMMYY = (iso: string) => {
+  // iso: yyyy-mm-dd
+  if (!iso || iso.length < 10) return "";
+  const yyyy = iso.slice(2, 4);
+  const mm = iso.slice(5, 7);
+  const dd = iso.slice(8, 10);
+  return `${dd}${mm}${yyyy}`;
+};
+
+const removeAccents = (s: string) =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+const getInsumoCode2 = (nome: string) => {
+  // regra simples e previsível: 2 primeiras letras do 1º termo (Cacau -> CA)
+  const first = (nome || "").trim().split(/\s+/)[0] ?? "";
+  const cleaned = removeAccents(first).toUpperCase();
+  return cleaned.slice(0, 2) || "XX";
+};
+
+const getShelfLifeDiasByNome = (nome: string) => {
+  const found = insumosCadastroExemplo.find(
+    (i) => i.nome.toLowerCase() === (nome || "").toLowerCase()
+  );
+  return found?.shelfLifeDias ?? 0;
+};
+
+// ✅ Porcionamento: cada linha é uma etiqueta (mesmo produto/umd, qtd variável)
+type LinhaPorcao = { id: string; qtd: string };
+const makeLinhaId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+type LinhaErro = {
+  baseQtd: boolean;
+  porcoes: Record<string, boolean>;
+};
+
+/* =========================
+   ✅ Inventário (Mock no front)
+   - Lê QR (texto)
+   - Bloqueia duplicado por sessão
+   - Pop-up por 3s
+========================= */
+type InventarioItem = {
+  key: string; // chave única (ex.: produto + qtd + umd)
+  payload: any;
+  scannedAt: string;
+};
+
 export default function EtiquetasPage() {
-  const [etiquetasGeradas] = useState(etiquetasGeradasExemplo);
+  // ✅ AGORA É MUTÁVEL (para entrar no histórico e atualizar cards)
+  const [etiquetasGeradas, setEtiquetasGeradas] = useState<EtiquetaGerada[]>(
+    etiquetasGeradasExemplo
+  );
+
   const [showNovaEtiqueta, setShowNovaEtiqueta] = useState(false);
-  const [tipoSelecionado, setTipoSelecionado] = useState<"MANIPULACAO" | "REVALIDAR" | "">("");
+
+  const [tipoSelecionado, setTipoSelecionado] =
+    useState<TipoSel>("MANIPULACAO");
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState("");
 
-  // Estados do formulário
-  const [formData, setFormData] = useState({
-    insumo: "",
-    qtd: "",
-    umd: "",
-    dataManip: "",
-    dataVenc: "",
-    responsavel: "Admin User",
-    alergenico: "",
-    armazenamento: "",
-    ingredientes: "",
-    dataFabricante: "",
-    dataVencimento: "",
-    sif: "",
-    loteFab: "",
-    localEnvio: "",
-    localArmazenado: ""
-  });
+  const defaultForm = useMemo(
+    () => ({
+      insumo: "",
+      qtd: "",
+      umd: "" as UnidadeMedida | "",
+      dataManip: "",
+      dataVenc: "",
+      responsavel: USUARIO_LOGADO_NOME,
+      alergenico: "",
+      armazenamento: "",
+      ingredientes: "",
+      dataFabricante: "",
+      dataVencimento: "",
+      sif: "",
+      loteFab: "",
+      localEnvio: "",
+      localArmazenado: "",
+    }),
+    []
+  );
 
-  const gerarLoteManipulacao = () => {
-    const hoje = new Date();
-    const ano = hoje.getFullYear().toString().slice(-2);
-    const mes = (hoje.getMonth() + 1).toString().padStart(2, '0');
-    const dia = hoje.getDate().toString().padStart(2, '0');
-    const sequencial = (etiquetasGeradas.length + 1).toString().padStart(3, '0');
-    return `MAN${ano}${mes}${dia}${sequencial}`;
-  };
+  const [formData, setFormData] = useState(defaultForm);
+  const [linhasPorcao, setLinhasPorcao] = useState<LinhaPorcao[]>([]);
+
+  // ✅ ERROS (borda vermelha quando vazio)
+  const [erros, setErros] = useState<LinhaErro>({ baseQtd: false, porcoes: {} });
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('pt-BR');
+    if (!dateString) return "";
+    return new Date(dateString).toLocaleDateString("pt-BR");
   };
 
   const formatDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString('pt-BR');
+    if (!dateString) return "";
+    return new Date(dateString).toLocaleString("pt-BR");
   };
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const handleInputChange = (field: keyof typeof formData, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleGerarEtiqueta = () => {
-    // TODO: Implementar lógica de geração de etiqueta
-    console.log("Gerar etiqueta:", {
+  // ✅ quando abre o modal: reseta form + seta hoje + zera porções + zera erros
+  useEffect(() => {
+    if (showNovaEtiqueta) {
+      const hojeISO = getTodayISO();
+      setFormData({
+        ...defaultForm,
+        dataManip: hojeISO,
+        responsavel: USUARIO_LOGADO_NOME,
+      });
+      setTamanhoSelecionado("");
+      setLinhasPorcao([]);
+      setErros({ baseQtd: false, porcoes: {} });
+    }
+  }, [showNovaEtiqueta, defaultForm]);
+
+  // ✅ quando seleciona um insumo: preenche UMD + calcula vencimento usando shelfLifeDias
+  // ✅ + AUTOPREENCHIMENTO: alergenico, armazenamento, ingredientes
+  const handleSelectInsumo = (insumoId: string) => {
+    const insumo = insumosCadastroExemplo.find((i) => i.id === insumoId);
+    const hojeISO = getTodayISO();
+
+    if (!insumo) {
+      setFormData((prev) => ({
+        ...prev,
+        insumo: "",
+        umd: "",
+        dataManip: hojeISO,
+        dataVenc: "",
+        responsavel: USUARIO_LOGADO_NOME,
+        alergenico: "",
+        armazenamento: "",
+        ingredientes: "",
+      }));
+      setLinhasPorcao([]);
+      return;
+    }
+
+    const vencISO = addDaysISO(hojeISO, insumo.shelfLifeDias);
+
+    setFormData((prev) => ({
+      ...prev,
+      insumo: insumo.nome,
+      umd: insumo.umd,
+      dataManip: hojeISO,
+      dataVenc: vencISO,
+
+      // ✅ bloqueados (auto)
+      responsavel: USUARIO_LOGADO_NOME,
+      alergenico: insumo.alergenico || "",
+      armazenamento: insumo.armazenamento || "",
+      ingredientes: insumo.ingredientes || "",
+    }));
+  };
+
+  const selectedInsumoId = useMemo(() => {
+    const found = insumosCadastroExemplo.find((i) => i.nome === formData.insumo);
+    return found?.id ?? "";
+  }, [formData.insumo]);
+
+  const handleAddLinha = () => {
+    if (!formData.insumo || !formData.umd) return;
+    setLinhasPorcao((prev) => [...prev, { id: makeLinhaId(), qtd: "" }]);
+  };
+
+  const handleRemoveLinha = (id: string) => {
+    setLinhasPorcao((prev) => prev.filter((l) => l.id !== id));
+    setErros((prev) => {
+      const next = { ...prev, porcoes: { ...prev.porcoes } };
+      delete next.porcoes[id];
+      return next;
+    });
+  };
+
+  const handleChangeLinhaQtd = (id: string, qtd: string) => {
+    setLinhasPorcao((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, qtd } : l))
+    );
+    // se digitou algo, já remove o erro daquela linha
+    setErros((prev) => ({
+      ...prev,
+      porcoes: { ...prev.porcoes, [id]: false },
+    }));
+  };
+
+  // ✅ LOTE no padrão: IE-CA-161225-30D
+  const gerarLoteVigilancia = () => {
+    const ie = "IE"; // Ivan Escobar
+    const cod = getInsumoCode2(formData.insumo);
+    const dt = isoToDDMMYY(formData.dataManip);
+    const shelf = getShelfLifeDiasByNome(formData.insumo);
+    const shelfPart = `${shelf}D`;
+    return `${ie}-${cod}-${dt}-${shelfPart}`;
+  };
+
+  /* =========================
+     ✅ QR PAYLOAD (MÍNIMO)
+     - produto, quantidade e unidade
+     - ideal para inventário/contagem
+  ========================= */
+  const buildQrPayloadFromEtiqueta = (e: EtiquetaGerada) => {
+    // ✅ Payload MÍNIMO para QR (para inventário/contagem)
+    // Contém apenas: produto, quantidade e unidade de medida
+    // Mantém versão para evoluções futuras sem quebrar leitor
+    const payload = {
+      v: 1,
+      p: e.insumo, // produto
+      q: e.qtd,    // quantidade
+      u: e.umd,    // unidade
+    };
+
+    // remove acentos para reduzir risco de leitor “quebrar”
+    const json = JSON.stringify(payload);
+    return removeAccents(json);
+  };
+
+  /* =========================
+     ✅ QR IMAGE (offline / local)
+     - Gera PNG (dataURL) sem depender de internet
+     - Evita QR "quebrado" no print (img externo bloqueado)
+  ========================= */
+  const makeQrDataUrl = async (text: string) => {
+    // largura alta melhora leitura em 203dpi
+    return await QRCode.toDataURL(text, {
+      errorCorrectionLevel: "M",
+      margin: 0,
+      width: 220,
+    });
+  };
+
+  /* =========================
+     ✅ Impressão "local" via diálogo do navegador
+     ✅ AJUSTES:
+       - Remove título "MANIPULAÇÃO/FABRICANTE" da impressão
+       - QR Code à esquerda com payload mínimo (produto/qtd/umd)
+       - Layout 104mm x 50,8mm (Zebra ZD220)
+  ========================= */
+  const imprimirBatchNoBrowser = async (etqs: EtiquetaGerada[]) => {
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) return;
+
+    const LABEL_W_MM = 104;
+    const LABEL_H_MM = 50.8;
+
+    // ✅ Gera QR local (dataURL) para cada etiqueta (sem internet)
+    const qrDataUrls = await Promise.all(
+      etqs.map((e) => makeQrDataUrl(buildQrPayloadFromEtiqueta(e)))
+    );
+
+    const buildExtraFab = (e: EtiquetaGerada) => {
+      let html = "";
+
+      if (e.dataFabricante) {
+        html +=
+          `<div class="row"><span class="k">Fabricação:</span><span class="v">` +
+          formatDate(e.dataFabricante) +
+          `</span></div>`;
+      }
+
+      if (e.dataVencimento) {
+        html +=
+          `<div class="row"><span class="k">Val. Original:</span><span class="v">` +
+          formatDate(e.dataVencimento) +
+          `</span></div>`;
+      }
+
+      if (e.sif) {
+        html +=
+          `<div class="row"><span class="k">SIF:</span><span class="v">` +
+          e.sif +
+          `</span></div>`;
+      }
+
+      if (e.loteFab) {
+        html +=
+          `<div class="row"><span class="k">Lote Fab.:</span><span class="v">` +
+          e.loteFab +
+          `</span></div>`;
+      }
+
+      return html;
+    };
+
+    // ✅ monta páginas com QR (LOCAL dataURL)
+    const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Impressão de Etiquetas</title>
+  <style>
+    @page { size: ${LABEL_W_MM}mm ${LABEL_H_MM}mm; margin: 0; }
+
+    html, body {
+      width: ${LABEL_W_MM}mm;
+      height: ${LABEL_H_MM}mm;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    .page {
+      width: ${LABEL_W_MM}mm;
+      height: ${LABEL_H_MM}mm;
+      page-break-after: always;
+      break-after: page;
+      box-sizing: border-box;
+      padding: 2.6mm 3.2mm; /* margem interna */
+      display: flex;
+      align-items: stretch;
+      justify-content: stretch;
+    }
+
+    .label {
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* ✅ layout horizontal (QR à esquerda + info à direita) */
+    .main {
+      display: flex;
+      flex: 1;
+      gap: 2.5mm;
+      align-items: stretch;
+    }
+
+    .qrBox {
+      width: 24mm;     /* largura fixa do QR */
+      min-width: 24mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .qrImg {
+      width: 24mm;
+      height: 24mm;
+      object-fit: contain;
+    }
+
+    .qrHint {
+      margin-top: 1mm;
+      font-size: 2.6mm;
+      line-height: 1.1;
+      text-align: center;
+      font-weight: 700;
+      letter-spacing: 0.1mm;
+    }
+
+    .info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.8mm;
+      overflow: hidden;
+    }
+
+    .row {
+      display: flex;
+      align-items: baseline;
+      gap: 1.2mm;
+      font-size: 3.5mm;
+      line-height: 1.12;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .k {
+      font-weight: 800;
+      min-width: 22mm;
+      flex: 0 0 auto;
+    }
+
+    .v {
+      font-weight: 650;
+      flex: 1 1 auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row.produto { font-size: 4.0mm; }
+    .row.qtd     { font-size: 4.0mm; }
+
+    .footer {
+      font-size: 3.0mm;
+      line-height: 1.1;
+      margin-top: 1mm;
+      display: flex;
+      justify-content: space-between;
+      gap: 2mm;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    @media print {
+      html, body {
+        width: ${LABEL_W_MM}mm;
+        height: ${LABEL_H_MM}mm;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  ${etqs
+    .map((e) => {
+      const isFab = e.tipo === "REVALIDAR";
+      const extraFab = isFab ? buildExtraFab(e) : "";
+
+      return `
+        <div class="page">
+          <div class="label">
+            <div class="main">
+              <div class="qrBox">
+                <img class="qrImg" alt="QR"
+                  src="__QR_SRC__"
+                />
+                <div class="qrHint">SCAN</div>
+              </div>
+
+              <div class="info">
+                <div class="row produto"><span class="k">Produto:</span><span class="v">${e.insumo}</span></div>
+                <div class="row qtd"><span class="k">Qtd:</span><span class="v">${e.qtd} ${e.umd}</span></div>
+
+                <div class="row"><span class="k">Manipulação:</span><span class="v">${formatDate(
+                  e.dataManip
+                )}</span></div>
+                <div class="row"><span class="k">Vencimento:</span><span class="v">${formatDate(
+                  e.dataVenc
+                )}</span></div>
+
+                <div class="row"><span class="k">Lote:</span><span class="v">${e.loteMan}</span></div>
+                <div class="row"><span class="k">Responsável:</span><span class="v">${e.responsavel}</span></div>
+
+                ${
+                  e.alergenico
+                    ? `<div class="row"><span class="k">Alergênico:</span><span class="v">${e.alergenico}</span></div>`
+                    : ""
+                }
+
+                ${extraFab}
+              </div>
+            </div>
+
+            <div class="footer">
+              <span>${e.localEnvio ? "Envio: " + e.localEnvio : ""}</span>
+              <span>${e.localArmazenado ? "Arm.: " + e.localArmazenado : ""}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join("")}
+  <script>
+    window.onload = () => {
+      window.focus();
+      window.print();
+    };
+  </script>
+</body>
+</html>`;
+
+    // ✅ Recria o body substituindo o QR de cada etiqueta corretamente (dataURL)
+    const parts: string[] = [];
+    const beforeBody = html.split("</body>")[0];
+    const afterBody = "</body></html>";
+
+    const head = beforeBody.split("<body>")[0] + "<body>\n";
+    parts.push(head);
+
+    etqs.forEach((e, i) => {
+      const isFab = e.tipo === "REVALIDAR";
+      const extraFab = isFab ? buildExtraFab(e) : "";
+
+      const qrSrc = qrDataUrls[i];
+
+      const pageHtml = `
+        <div class="page">
+          <div class="label">
+            <div class="main">
+              <div class="qrBox">
+                <img class="qrImg" alt="QR" src="${qrSrc}" />
+                <div class="qrHint">SCAN</div>
+              </div>
+
+              <div class="info">
+                <div class="row produto"><span class="k">Produto:</span><span class="v">${e.insumo}</span></div>
+                <div class="row qtd"><span class="k">Qtd:</span><span class="v">${e.qtd} ${e.umd}</span></div>
+
+                <div class="row"><span class="k">Manipulação:</span><span class="v">${formatDate(
+                  e.dataManip
+                )}</span></div>
+                <div class="row"><span class="k">Vencimento:</span><span class="v">${formatDate(
+                  e.dataVenc
+                )}</span></div>
+
+                <div class="row"><span class="k">Lote:</span><span class="v">${e.loteMan}</span></div>
+                <div class="row"><span class="k">Responsável:</span><span class="v">${e.responsavel}</span></div>
+
+                ${
+                  e.alergenico
+                    ? `<div class="row"><span class="k">Alergênico:</span><span class="v">${e.alergenico}</span></div>`
+                    : ""
+                }
+
+                ${extraFab}
+              </div>
+            </div>
+
+            <div class="footer">
+              <span>${e.localEnvio ? "Envio: " + e.localEnvio : ""}</span>
+              <span>${e.localArmazenado ? "Arm.: " + e.localArmazenado : ""}</span>
+            </div>
+          </div>
+        </div>
+      `;
+      parts.push(pageHtml);
+    });
+
+    parts.push(`
+      <script>
+        window.onload = () => {
+          window.focus();
+          window.print();
+        };
+      </script>
+    `);
+
+    parts.push(afterBody);
+
+    const finalHtml = parts.join("\n");
+
+    w.document.open();
+    w.document.write(finalHtml);
+    w.document.close();
+  };
+
+  // ✅ validação de quantidades (destaca vazias)
+  const validarQuantidades = () => {
+    const baseVazia = !String(formData.qtd || "").trim();
+    const porcoesErros: Record<string, boolean> = {};
+
+    for (const l of linhasPorcao) {
+      const vazia = !String(l.qtd || "").trim();
+      if (vazia) porcoesErros[l.id] = true;
+    }
+
+    setErros({ baseQtd: baseVazia, porcoes: porcoesErros });
+
+    return !(baseVazia || Object.keys(porcoesErros).length > 0);
+  };
+
+  const handleGerarEImprimir = async () => {
+    // 1) valida tudo
+    const ok = validarQuantidades();
+    if (!ok) return;
+
+    // 2) lote único (SEM -01 / -02) para todas as etiquetas do mesmo porcionamento
+    const lote = gerarLoteVigilancia();
+
+    // 3) cria registros (histórico) + imprime todas
+    const nowISO = new Date().toISOString();
+
+    const qtds = [
+      { id: "base", qtd: formData.qtd },
+      ...linhasPorcao.map((l) => ({ id: l.id, qtd: l.qtd })),
+    ]
+      .map((x) => String(x.qtd ?? "").trim())
+      .filter((v) => v.length > 0);
+
+    const lastId =
+      etiquetasGeradas.length > 0
+        ? Math.max(...etiquetasGeradas.map((e) => e.id))
+        : 0;
+
+    const novas: EtiquetaGerada[] = qtds.map((qtdStr, idx) => ({
+      id: lastId + idx + 1,
       tipo: tipoSelecionado,
       tamanho: tamanhoSelecionado,
-      ...formData,
-      loteMan: gerarLoteManipulacao()
-    });
+      insumo: formData.insumo,
+      qtd: Number(qtdStr),
+      umd: String(formData.umd || ""),
+      dataManip: formData.dataManip,
+      dataVenc: formData.dataVenc,
+      loteMan: lote,
+      responsavel: formData.responsavel,
+      alergenico: formData.alergenico || undefined,
+      armazenamento: formData.armazenamento || undefined,
+      ingredientes: formData.ingredientes || undefined,
+      dataFabricante: formData.dataFabricante || undefined,
+      dataVencimento: formData.dataVencimento || undefined,
+      sif: formData.sif || undefined,
+      loteFab: formData.loteFab || undefined,
+      localEnvio: formData.localEnvio || undefined,
+      localArmazenado: formData.localArmazenado || undefined,
+      createdAt: nowISO,
+    }));
+
+    // 4) atualiza histórico + cards (state)
+    setEtiquetasGeradas((prev) => [...novas, ...prev]); // mais recente em cima
+
+    // 5) imprime no browser (Chrome > Salvar como PDF)
+    await imprimirBatchNoBrowser(novas);
+
+    // 6) fecha modal
     setShowNovaEtiqueta(false);
   };
 
-  const handleImprimirEtiqueta = (id: number) => {
-    // TODO: Implementar impressão térmica
-    console.log("Imprimir etiqueta:", id);
+  const tiposVisiveis = useMemo(
+    () => tiposEtiqueta.filter((t) => t.nome === "MANIPULACAO"),
+    []
+  );
+
+  // ✅ "HOJE" dinâmico
+  const hojeISO = useMemo(() => getTodayISO(), []);
+  const etiquetasHoje = useMemo(
+    () =>
+      etiquetasGeradas.filter((e) => (e.createdAt || "").startsWith(hojeISO))
+        .length,
+    [etiquetasGeradas, hojeISO]
+  );
+
+  /* =========================
+     ✅ Inventário (UI mock)
+  ========================= */
+  const [inventarioAtivo, setInventarioAtivo] = useState(false);
+  const [inventarioId, setInventarioId] = useState<string>("");
+  const [inventarioItens, setInventarioItens] = useState<InventarioItem[]>([]);
+  const [inventarioScannedKeys, setInventarioScannedKeys] = useState<
+    Record<string, true>
+  >({});
+  const [qrInput, setQrInput] = useState("");
+  const [toastMsg, setToastMsg] = useState<string>("");
+  const toastTimerRef = useRef<number | null>(null);
+  const qrInputRef = useRef<HTMLInputElement | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastMsg("");
+    }, 3000);
   };
 
+  const iniciarInventario = () => {
+    const id = `inv-${Date.now()}`;
+    setInventarioAtivo(true);
+    setInventarioId(id);
+    setInventarioItens([]);
+    setInventarioScannedKeys({});
+    setQrInput("");
+    showToast("Inventário iniciado!");
+    setTimeout(() => {
+      qrInputRef.current?.focus();
+    }, 50);
+  };
 
+  const finalizarInventario = () => {
+    setInventarioAtivo(false);
+    // não precisa limpar imediatamente, mas por regra você quer liberar no próximo inventário
+    setInventarioId("");
+    setInventarioItens([]);
+    setInventarioScannedKeys({});
+    setQrInput("");
+    showToast("Inventário finalizado!");
+  };
+
+  const parseQrPayload = (raw: string) => {
+    // Leitor normalmente retorna exatamente o JSON
+    // Se vier com espaços/linhas, normaliza:
+    const cleaned = String(raw || "").trim();
+    if (!cleaned) return null;
+
+    try {
+      const obj = JSON.parse(cleaned);
+      return obj;
+    } catch {
+      return null;
+    }
+  };
+
+  const makeInventarioKey = (payload: any) => {
+    // ✅ chave de unicidade por inventário (mínima):
+    // produto + quantidade + unidade
+    const p = String(payload?.p || payload?.ins || payload?.insumo || "");
+    const q = String(payload?.q || payload?.qtd || "");
+    const u = String(payload?.u || payload?.umd || "");
+    return `${p}__${q}__${u}`;
+  };
+
+  const registrarLeituraInventario = (payload: any) => {
+    const key = makeInventarioKey(payload);
+
+    if (inventarioScannedKeys[key]) {
+      showToast("Este produto já foi contado!");
+      return;
+    }
+
+    setInventarioScannedKeys((prev) => ({ ...prev, [key]: true }));
+    setInventarioItens((prev) => [
+      {
+        key,
+        payload,
+        scannedAt: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+
+    // ✅ Aqui no futuro você chama Firestore/DB:
+    // await saveInventarioLeitura(inventarioId, payload)
+    // ou atualizar estoque etc.
+  };
+
+  const handleQrSubmit = () => {
+    if (!inventarioAtivo) {
+      showToast("Inicie um inventário primeiro.");
+      return;
+    }
+
+    const payload = parseQrPayload(qrInput);
+    if (!payload) {
+      showToast("QR inválido (não é JSON).");
+      return;
+    }
+
+    registrarLeituraInventario(payload);
+
+    // limpa campo para próxima leitura
+    setQrInput("");
+    setTimeout(() => qrInputRef.current?.focus(), 10);
+  };
 
   return (
     <div className="space-y-6">
+      {/* ✅ Toast (pop-up chamativo 3s) */}
+      {toastMsg && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999]">
+          <div className="px-6 py-3 rounded-lg shadow-lg bg-red-600 text-white text-lg font-extrabold">
+            {toastMsg}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Sistema de Etiquetas</h1>
-          <p className="text-gray-600">Impressão térmica de etiquetas de manipulação e revalidação</p>
+          <h1 className="text-3xl font-bold text-gray-900">
+            Sistema de Etiquetas
+          </h1>
+          <p className="text-gray-600">
+            Impressão térmica de etiquetas de manipulação
+          </p>
         </div>
         <div className="flex space-x-2">
           <Button variant="outline">
             <span className="mr-2">📊</span>
             Relatório de Etiquetas
           </Button>
-          <Button onClick={() => setShowNovaEtiqueta(true)}>
+
+          <Button
+            onClick={() => {
+              setTipoSelecionado("MANIPULACAO");
+              setShowNovaEtiqueta(true);
+            }}
+          >
             <span className="mr-2">🏷️</span>
             Nova Etiqueta
           </Button>
         </div>
       </div>
+      {/* ✅ Inventário (Novo) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Inventário / Contagem por QR Code</CardTitle>
+          <CardDescription>
+            Cada etiqueta pode ser lida apenas 1 vez por inventário. Ao finalizar,
+            a contagem reinicia para permitir nova leitura no próximo inventário.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2 flex-wrap items-center">
+            {!inventarioAtivo ? (
+              <Button onClick={iniciarInventario}>
+                ▶️ Iniciar Inventário
+              </Button>
+            ) : (
+              <Button variant="destructive" onClick={finalizarInventario}>
+                ⏹️ Finalizar Inventário
+              </Button>
+            )}
+
+            <div className="text-sm text-muted-foreground">
+              Status:{" "}
+              <strong>{inventarioAtivo ? "ATIVO" : "INATIVO"}</strong>{" "}
+              {inventarioAtivo ? `(${inventarioId})` : ""}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <div className="md:col-span-2">
+              <Label>Leitura do QR (scanner cola o texto e dá Enter)</Label>
+              <Input
+                ref={qrInputRef}
+                value={qrInput}
+                onChange={(e) => setQrInput(e.target.value)}
+                placeholder='Ex.: {"v":1,"p":"...","q":1,"u":"kg"}'
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleQrSubmit();
+                  }
+                }}
+                disabled={!inventarioAtivo}
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                className="w-full"
+                onClick={handleQrSubmit}
+                disabled={!inventarioAtivo || !qrInput.trim()}
+              >
+                Ler QR
+              </Button>
+            </div>
+          </div>
+
+          <div className="text-sm">
+            <strong>Itens contados:</strong> {inventarioItens.length}
+          </div>
+
+          {inventarioItens.length > 0 && (
+            <div className="max-h-[240px] overflow-auto border rounded">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Produto</TableHead>
+                    <TableHead>Qtd</TableHead>
+                    <TableHead>Lote</TableHead>
+                    <TableHead>Venc.</TableHead>
+                    <TableHead>Data Leitura</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {inventarioItens.map((it) => (
+                    <TableRow key={it.key}>
+                      <TableCell className="font-medium">
+                        {it.payload?.p || it.payload?.ins || "-"}
+                      </TableCell>
+                      <TableCell>
+                        {String(it.payload?.q ?? "-")}{" "}
+                        {String(it.payload?.u ?? "")}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {it.payload?.lt || "-"}
+                      </TableCell>
+                      <TableCell>
+                        {it.payload?.dv ? formatDate(it.payload.dv) : "-"}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {formatDateTime(it.scannedAt)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total de Etiquetas</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Total de Etiquetas
+            </CardTitle>
             <span className="text-2xl">🏷️</span>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{etiquetasGeradas.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Etiquetas geradas
-            </p>
+            <p className="text-xs text-muted-foreground">Etiquetas geradas</p>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Manipulação</CardTitle>
@@ -214,7 +1129,7 @@ export default function EtiquetasPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {etiquetasGeradas.filter(e => e.tipo === "MANIPULACAO").length}
+              {etiquetasGeradas.filter((e) => e.tipo === "MANIPULACAO").length}
             </div>
             <p className="text-xs text-muted-foreground">
               Etiquetas de manipulação
@@ -224,15 +1139,15 @@ export default function EtiquetasPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Revalidação</CardTitle>
-            <span className="text-2xl">🔄</span>
+            <CardTitle className="text-sm font-medium">Fabricante</CardTitle>
+            <span className="text-2xl">🏭</span>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {etiquetasGeradas.filter(e => e.tipo === "REVALIDAR").length}
+              {etiquetasGeradas.filter((e) => e.tipo === "REVALIDAR").length}
             </div>
             <p className="text-xs text-muted-foreground">
-              Etiquetas de revalidação
+              Etiquetas com dados do fabricante
             </p>
           </CardContent>
         </Card>
@@ -243,9 +1158,7 @@ export default function EtiquetasPage() {
             <span className="text-2xl">📅</span>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {etiquetasGeradas.filter(e => e.createdAt.startsWith("2024-01-15")).length}
-            </div>
+            <div className="text-2xl font-bold">{etiquetasHoje}</div>
             <p className="text-xs text-muted-foreground">
               Etiquetas geradas hoje
             </p>
@@ -253,75 +1166,47 @@ export default function EtiquetasPage() {
         </Card>
       </div>
 
-      {/* Tipos de Etiqueta */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {tiposEtiqueta.map((tipo) => (
+      {/* Tipos de Etiqueta (✅ agora só MANIPULACAO) */}
+      <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
+        {tiposVisiveis.map((tipo) => (
           <Card key={tipo.id} className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <CardTitle className="flex items-center">
-                <span className="mr-2">{tipo.nome === "MANIPULACAO" ? "📝" : "🔄"}</span>
-                {tipo.nome}
+                <span className="mr-2">📝</span>
+                {TIPO_LABEL_LONG[tipo.nome as TipoSel]}
               </CardTitle>
               <CardDescription>{tipo.descricao}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2 text-sm">
-                <p><strong>Campos obrigatórios:</strong></p>
+                <p>
+                  <strong>Campos obrigatórios:</strong>
+                </p>
                 <ul className="list-disc list-inside text-gray-600">
                   <li>Insumo, Quantidade, Unidade</li>
                   <li>Data de Manipulação, Data de Vencimento</li>
                   <li>Lote de Manipulação, Responsável</li>
-                  {tipo.nome === "REVALIDAR" && (
-                    <>
-                      <li>Data do Fabricante, Data de Vencimento Original</li>
-                      <li>SIF, Lote do Fabricante</li>
-                    </>
-                  )}
                 </ul>
               </div>
-              <Button 
-                className="w-full mt-4" 
+
+              <Button
+                className="w-full mt-4"
                 onClick={() => {
-                  setTipoSelecionado(tipo.nome);
+                  setTipoSelecionado("MANIPULACAO");
                   setShowNovaEtiqueta(true);
                 }}
               >
-                Criar Etiqueta {tipo.nome}
+                Criar Etiqueta {TIPO_LABEL[tipo.nome as TipoSel]}
               </Button>
+
+              <div className="mt-3 text-xs text-muted-foreground">
+                Precisa de dados do fabricante? Abra “Nova Etiqueta” e selecione{" "}
+                <strong>{TIPO_LABEL.REVALIDAR}</strong> no formulário.
+              </div>
             </CardContent>
           </Card>
         ))}
       </div>
-
-      {/* Tamanhos Disponíveis */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Tamanhos de Etiqueta Disponíveis</CardTitle>
-          <CardDescription>
-            Configurações de tamanho para impressão térmica
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {tamanhosEtiqueta.map((tamanho) => (
-              <div key={tamanho.id} className="p-4 border rounded-lg text-center">
-                <h3 className="font-semibold">{tamanho.nome}</h3>
-                <p className="text-sm text-gray-600">
-                  {tamanho.largura}cm × {tamanho.altura}cm
-                </p>
-                <div className="mt-2 mx-auto bg-gray-100 rounded" 
-                     style={{
-                       width: `${tamanho.largura * 8}px`,
-                       height: `${tamanho.altura * 8}px`,
-                       maxWidth: '120px',
-                       maxHeight: '80px'
-                     }}>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Histórico de Etiquetas */}
       <Card>
@@ -350,31 +1235,46 @@ export default function EtiquetasPage() {
               {etiquetasGeradas.map((etiqueta) => (
                 <TableRow key={etiqueta.id}>
                   <TableCell>
-                    <Badge 
-                      variant="secondary" 
-                      className={etiqueta.tipo === "MANIPULACAO" ? "bg-blue-500 text-white" : "bg-green-500 text-white"}
+                    <Badge
+                      variant="secondary"
+                      className={
+                        etiqueta.tipo === "MANIPULACAO"
+                          ? "bg-blue-500 text-white"
+                          : "bg-green-500 text-white"
+                      }
                     >
-                      {etiqueta.tipo}
+                      {TIPO_LABEL[etiqueta.tipo]}
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-medium">{etiqueta.insumo}</TableCell>
-                  <TableCell>{etiqueta.qtd} {etiqueta.umd}</TableCell>
-                  <TableCell className="font-mono text-sm">{etiqueta.loteMan}</TableCell>
+                  <TableCell className="font-medium">
+                    {etiqueta.insumo}
+                  </TableCell>
+                  <TableCell>
+                    {etiqueta.qtd} {etiqueta.umd}
+                  </TableCell>
+                  <TableCell className="font-mono text-sm">
+                    {etiqueta.loteMan}
+                  </TableCell>
                   <TableCell>{etiqueta.responsavel}</TableCell>
                   <TableCell>{formatDateTime(etiqueta.createdAt)}</TableCell>
                   <TableCell>{formatDate(etiqueta.dataVenc)}</TableCell>
                   <TableCell>
                     <div className="text-sm">
-                      <p><strong>Envio:</strong> {etiqueta.localEnvio}</p>
-                      <p><strong>Armazenado:</strong> {etiqueta.localArmazenado}</p>
+                      <p>
+                        <strong>Envio:</strong> {etiqueta.localEnvio || "-"}
+                      </p>
+                      <p>
+                        <strong>Armazenado:</strong>{" "}
+                        {etiqueta.localArmazenado || "-"}
+                      </p>
                     </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex space-x-1">
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         variant="outline"
-                        onClick={() => handleImprimirEtiqueta(etiqueta.id)}
+                        onClick={() => { void imprimirBatchNoBrowser([etiqueta]); }}
                       >
                         🖨️
                       </Button>
@@ -399,7 +1299,7 @@ export default function EtiquetasPage() {
           <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-semibold">
-                Nova Etiqueta {tipoSelecionado && `- ${tipoSelecionado}`}
+                Nova Etiqueta - {TIPO_LABEL_LONG[tipoSelecionado]}
               </h3>
               <Button variant="ghost" onClick={() => setShowNovaEtiqueta(false)}>
                 ✕
@@ -411,19 +1311,26 @@ export default function EtiquetasPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Tipo de Etiqueta</Label>
-                  <Select value={tipoSelecionado} onValueChange={(value: "MANIPULACAO" | "REVALIDAR") => setTipoSelecionado(value)}>
+                  <Select
+                    value={tipoSelecionado}
+                    onValueChange={(value: TipoSel) => setTipoSelecionado(value)}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Selecionar tipo" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="MANIPULACAO">MANIPULAÇÃO</SelectItem>
-                      <SelectItem value="REVALIDAR">REVALIDAR</SelectItem>
+                      <SelectItem value="REVALIDAR">FABRICANTE</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div>
                   <Label>Tamanho da Etiqueta</Label>
-                  <Select value={tamanhoSelecionado} onValueChange={setTamanhoSelecionado}>
+                  <Select
+                    value={tamanhoSelecionado}
+                    onValueChange={setTamanhoSelecionado}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Selecionar tamanho" />
                     </SelectTrigger>
@@ -437,107 +1344,211 @@ export default function EtiquetasPage() {
                   </Select>
                 </div>
               </div>
+              {/* ✅ LINHA BASE + BOTÃO Add + */}
+              <div className="space-y-3">
+                <div className="grid grid-cols-4 gap-4 items-end">
+                  <div>
+                    <Label>Insumo/Produto *</Label>
+                    <Select
+                      value={selectedInsumoId}
+                      onValueChange={(insumoId) => handleSelectInsumo(insumoId)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecionar insumo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {insumosCadastroExemplo.map((ins) => (
+                          <SelectItem key={ins.id} value={ins.id}>
+                            {ins.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              {/* Campos Básicos */}
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="insumo">Insumo/Produto *</Label>
-                  <Input 
-                    id="insumo" 
-                    value={formData.insumo}
-                    onChange={(e) => handleInputChange("insumo", e.target.value)}
-                    placeholder="Nome do produto"
-                  />
+                  <div>
+                    <Label htmlFor="qtd">Quantidade *</Label>
+                    <Input
+                      id="qtd"
+                      type="number"
+                      value={formData.qtd}
+                      onChange={(e) => {
+                        handleInputChange("qtd", e.target.value);
+                        setErros((prev) => ({ ...prev, baseQtd: false }));
+                      }}
+                      placeholder="0"
+                      className={
+                        erros.baseQtd
+                          ? "border-red-500 focus-visible:ring-red-500"
+                          : ""
+                      }
+                    />
+                    {erros.baseQtd && (
+                      <p className="text-xs text-red-600 mt-1">
+                        Preencha a quantidade desta linha.
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label>Unidade *</Label>
+                    <Input value={formData.umd} disabled readOnly />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      onClick={handleAddLinha}
+                      disabled={!formData.insumo || !formData.umd}
+                      className="w-full"
+                    >
+                      Add +
+                    </Button>
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="qtd">Quantidade *</Label>
-                  <Input 
-                    id="qtd" 
-                    type="number"
-                    value={formData.qtd}
-                    onChange={(e) => handleInputChange("qtd", e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="umd">Unidade *</Label>
-                  <Select value={formData.umd} onValueChange={(value) => handleInputChange("umd", value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Unidade" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="kg">kg</SelectItem>
-                      <SelectItem value="g">g</SelectItem>
-                      <SelectItem value="lt">lt</SelectItem>
-                      <SelectItem value="ml">ml</SelectItem>
-                      <SelectItem value="un">un</SelectItem>
-                      <SelectItem value="cx">cx</SelectItem>
-                      <SelectItem value="pct">pct</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+
+                {/* ✅ LINHAS EXTRAS */}
+                {linhasPorcao.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-sm text-muted-foreground">
+                      Porcionamento: mesmo produto/unidade (travados). Só a
+                      quantidade muda.
+                    </div>
+
+                    {linhasPorcao.map((linha) => {
+                      const hasErr = !!erros.porcoes[linha.id];
+                      return (
+                        <div
+                          key={linha.id}
+                          className="grid grid-cols-4 gap-4 items-end"
+                        >
+                          <div>
+                            <Label>Insumo/Produto</Label>
+                            <Input value={formData.insumo} disabled readOnly />
+                          </div>
+
+                          <div>
+                            <Label>Quantidade *</Label>
+                            <Input
+                              type="number"
+                              value={linha.qtd}
+                              onChange={(e) =>
+                                handleChangeLinhaQtd(linha.id, e.target.value)
+                              }
+                              placeholder="0"
+                              className={
+                                hasErr
+                                  ? "border-red-500 focus-visible:ring-red-500"
+                                  : ""
+                              }
+                            />
+                            {hasErr && (
+                              <p className="text-xs text-red-600 mt-1">
+                                Preencha a quantidade desta linha.
+                              </p>
+                            )}
+                          </div>
+
+                          <div>
+                            <Label>Unidade</Label>
+                            <Input value={formData.umd} disabled readOnly />
+                          </div>
+
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => handleRemoveLinha(linha.id)}
+                              className="w-full"
+                            >
+                              Remover
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Datas */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="dataManip">Data de Manipulação *</Label>
-                  <Input 
-                    id="dataManip" 
-                    type="date"
+                  <Label>Data de Manipulação *</Label>
+                  <Input
                     value={formData.dataManip}
-                    onChange={(e) => handleInputChange("dataManip", e.target.value)}
+                    type="date"
+                    disabled
+                    readOnly
                   />
                 </div>
+
                 <div>
-                  <Label htmlFor="dataVenc">Data de Vencimento *</Label>
-                  <Input 
-                    id="dataVenc" 
-                    type="date"
-                    value={formData.dataVenc}
-                    onChange={(e) => handleInputChange("dataVenc", e.target.value)}
-                  />
+                  <Label>Data de Vencimento *</Label>
+                  <Input type="date" value={formData.dataVenc} disabled readOnly />
                 </div>
               </div>
+
+              {/* Lote Preview */}
+              {formData.insumo && formData.dataManip && (
+                <div className="p-3 bg-gray-50 rounded border">
+                  <div className="text-sm">
+                    <strong>Lote (automático):</strong>{" "}
+                    <span className="font-mono">{gerarLoteVigilancia()}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Formato: IE-XX-DDMMAA-##D
+                  </p>
+                </div>
+              )}
 
               {/* Campos Específicos para REVALIDAR */}
               {tipoSelecionado === "REVALIDAR" && (
                 <div className="p-4 bg-green-50 rounded-lg space-y-4">
-                  <h4 className="font-semibold text-green-800">Dados do Fabricante</h4>
+                  <h4 className="font-semibold text-green-800">
+                    Dados do Fabricante
+                  </h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="dataFabricante">Data do Fabricante</Label>
-                      <Input 
-                        id="dataFabricante" 
+                      <Label>Data de Fabricação</Label>
+                      <Input
                         type="date"
                         value={formData.dataFabricante}
-                        onChange={(e) => handleInputChange("dataFabricante", e.target.value)}
+                        onChange={(e) =>
+                          handleInputChange("dataFabricante", e.target.value)
+                        }
                       />
                     </div>
+
                     <div>
-                      <Label htmlFor="dataVencimento">Data Vencimento Original</Label>
-                      <Input 
-                        id="dataVencimento" 
+                      <Label>Validade Original (Fabricante)</Label>
+                      <Input
                         type="date"
                         value={formData.dataVencimento}
-                        onChange={(e) => handleInputChange("dataVencimento", e.target.value)}
+                        onChange={(e) =>
+                          handleInputChange("dataVencimento", e.target.value)
+                        }
                       />
                     </div>
+
                     <div>
-                      <Label htmlFor="sif">SIF</Label>
-                      <Input 
-                        id="sif" 
+                      <Label>SIF</Label>
+                      <Input
                         value={formData.sif}
-                        onChange={(e) => handleInputChange("sif", e.target.value)}
+                        onChange={(e) =>
+                          handleInputChange("sif", e.target.value)
+                        }
                         placeholder="Ex: SIF 123"
                       />
                     </div>
+
                     <div>
-                      <Label htmlFor="loteFab">Lote do Fabricante</Label>
-                      <Input 
-                        id="loteFab" 
+                      <Label>Lote do Fabricante</Label>
+                      <Input
                         value={formData.loteFab}
-                        onChange={(e) => handleInputChange("loteFab", e.target.value)}
+                        onChange={(e) =>
+                          handleInputChange("loteFab", e.target.value)
+                        }
                         placeholder="Lote original"
                       />
                     </div>
@@ -548,40 +1559,27 @@ export default function EtiquetasPage() {
               {/* Informações Adicionais */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="responsavel">Responsável *</Label>
-                  <Input 
-                    id="responsavel" 
-                    value={formData.responsavel}
-                    onChange={(e) => handleInputChange("responsavel", e.target.value)}
-                  />
+                  <Label>Responsável *</Label>
+                  <Input value={formData.responsavel} disabled readOnly />
                 </div>
+
                 <div>
-                  <Label htmlFor="alergenico">Alergênico</Label>
-                  <Input 
-                    id="alergenico" 
-                    value={formData.alergenico}
-                    onChange={(e) => handleInputChange("alergenico", e.target.value)}
-                    placeholder="Ex: Glúten, Lactose"
-                  />
+                  <Label>Alergênico</Label>
+                  <Input value={formData.alergenico} disabled readOnly />
                 </div>
               </div>
 
               <div>
-                <Label htmlFor="armazenamento">Condições de Armazenamento</Label>
-                <Input 
-                  id="armazenamento" 
-                  value={formData.armazenamento}
-                  onChange={(e) => handleInputChange("armazenamento", e.target.value)}
-                  placeholder="Ex: Refrigeração 0-4°C"
-                />
+                <Label>Condições de Armazenamento</Label>
+                <Input value={formData.armazenamento} disabled readOnly />
               </div>
 
               <div>
-                <Label htmlFor="ingredientes">Ingredientes</Label>
-                <Textarea 
-                  id="ingredientes" 
+                <Label>Ingredientes</Label>
+                <Textarea
                   value={formData.ingredientes}
-                  onChange={(e) => handleInputChange("ingredientes", e.target.value)}
+                  disabled
+                  readOnly
                   placeholder="Lista de ingredientes..."
                   rows={3}
                 />
@@ -590,50 +1588,50 @@ export default function EtiquetasPage() {
               {/* Localização */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="localEnvio">Local de Envio</Label>
-                  <Input 
-                    id="localEnvio" 
+                  <Label>Local de Envio</Label>
+                  <Input
                     value={formData.localEnvio}
-                    onChange={(e) => handleInputChange("localEnvio", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("localEnvio", e.target.value)
+                    }
                     placeholder="Para onde será enviado"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="localArmazenado">Local de Armazenamento</Label>
-                  <Input 
-                    id="localArmazenado" 
+                  <Label>Local de Armazenamento</Label>
+                  <Input
                     value={formData.localArmazenado}
-                    onChange={(e) => handleInputChange("localArmazenado", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("localArmazenado", e.target.value)
+                    }
                     placeholder="Onde está armazenado"
                   />
                 </div>
               </div>
 
-              {/* Preview da Etiqueta */}
-              {tipoSelecionado && tamanhoSelecionado && (
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <h4 className="font-semibold mb-2">Preview da Etiqueta</h4>
-                  <div className="border-2 border-dashed border-gray-300 p-4 bg-white rounded text-sm">
-                    <div className="text-center font-bold mb-2">{tipoSelecionado}</div>
-                    <div><strong>Produto:</strong> {formData.insumo || "[Produto]"}</div>
-                    <div><strong>Qtd:</strong> {formData.qtd || "[Qtd]"} {formData.umd || "[Unidade]"}</div>
-                    <div><strong>Manipulação:</strong> {formData.dataManip || "[Data]"}</div>
-                    <div><strong>Vencimento:</strong> {formData.dataVenc || "[Data]"}</div>
-                    <div><strong>Lote:</strong> {gerarLoteManipulacao()}</div>
-                    <div><strong>Responsável:</strong> {formData.responsavel}</div>
-                    {formData.alergenico && <div><strong>Alergênico:</strong> {formData.alergenico}</div>}
-                  </div>
-                </div>
-              )}
-
               <div className="flex justify-end space-x-2">
-                <Button variant="outline" onClick={() => setShowNovaEtiqueta(false)}>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowNovaEtiqueta(false)}
+                >
                   Cancelar
                 </Button>
-                <Button onClick={handleGerarEtiqueta} disabled={!tipoSelecionado || !tamanhoSelecionado}>
+
+                <Button
+                  onClick={handleGerarEImprimir}
+                  disabled={
+                    !tipoSelecionado || !tamanhoSelecionado || !formData.insumo
+                  }
+                >
                   <span className="mr-2">🖨️</span>
-                  Gerar e Imprimir Etiqueta
+                  Gerar e Imprimir Etiqueta(s)
                 </Button>
+              </div>
+
+              <div className="text-xs text-muted-foreground">
+                ✅ Agora a impressão NÃO mostra o título “Manipulação/Fabricante” e inclui QR Code à esquerda.
+                ✅ QR contém apenas Produto + Qtd + Unidade (ideal para inventário).
+                ✅ No inventário, cada etiqueta é contada só 1 vez por sessão.
               </div>
             </div>
           </div>

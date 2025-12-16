@@ -3,67 +3,78 @@
 @tailwind utilities;
 
 /* ================================
-   CSS Variables (shadcn padrão)
+   CSS Variables (Materio-like + shadcn)
+   - Mantém padrão shadcn
+   - Ajusta tokens para dashboard claro e elegante
 ================================ */
 
 :root {
-  --radius: 0.625rem;
+  /* mais arredondado, estilo Materio */
+  --radius: 0.875rem;
 
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* Base */
+  --background: oklch(0.985 0.01 270); /* cinza/azulado bem claro */
+  --foreground: oklch(0.19 0.02 265);
 
+  /* Card */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.19 0.02 265);
 
+  /* Popover */
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.19 0.02 265);
 
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  /* Primary (roxo Materio vibes) */
+  --primary: oklch(0.62 0.22 285);
+  --primary-foreground: oklch(0.99 0 0);
 
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
+  /* Secondary / Muted */
+  --secondary: oklch(0.96 0.01 270);
+  --secondary-foreground: oklch(0.23 0.02 265);
 
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted: oklch(0.96 0.01 270);
+  --muted-foreground: oklch(0.55 0.02 265);
 
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --accent: oklch(0.96 0.01 270);
+  --accent-foreground: oklch(0.23 0.02 265);
 
-  --destructive: oklch(0.577 0.245 27.325);
+  /* Feedback */
+  --destructive: oklch(0.63 0.22 25);
 
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* Borders / Inputs / Ring */
+  --border: oklch(0.92 0.01 270);
+  --input: oklch(0.92 0.01 270);
+  --ring: oklch(0.62 0.22 285);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
+  /* Base (dark elegante) */
+  --background: oklch(0.16 0.02 265);
+  --foreground: oklch(0.97 0 0);
 
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
+  --card: oklch(0.20 0.02 265);
+  --card-foreground: oklch(0.97 0 0);
 
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.20 0.02 265);
+  --popover-foreground: oklch(0.97 0 0);
 
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.68 0.20 285);
+  --primary-foreground: oklch(0.10 0.02 265);
 
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.24 0.02 265);
+  --secondary-foreground: oklch(0.97 0 0);
 
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
+  --muted: oklch(0.24 0.02 265);
+  --muted-foreground: oklch(0.72 0.01 265);
 
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --accent: oklch(0.24 0.02 265);
+  --accent-foreground: oklch(0.97 0 0);
 
-  --destructive: oklch(0.704 0.191 22.216);
+  --destructive: oklch(0.70 0.19 25);
 
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.68 0.20 285);
 }
 
 /* ================================
@@ -78,4 +89,39 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* ================================
+   Materio-like extras (opcional, mas recomendado)
+   - sombras suaves
+   - scrollbar discreta
+================================ */
+
+@layer utilities {
+  .shadow-soft {
+    box-shadow:
+      0 1px 2px rgba(16, 24, 40, 0.04),
+      0 8px 24px rgba(16, 24, 40, 0.08);
+  }
+
+  .shadow-soft-hover {
+    box-shadow:
+      0 2px 4px rgba(16, 24, 40, 0.06),
+      0 12px 32px rgba(16, 24, 40, 0.12);
+  }
+}
+
+/* Scrollbar discreta (webkits) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.25);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }

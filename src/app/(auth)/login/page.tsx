@@ -2,13 +2,25 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+import { setSession } from "@/lib/auth/session";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function LoginPage() {
+  const router = useRouter();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,16 +32,21 @@ export default function LoginPage() {
     setError("");
 
     try {
-      // TODO: Implementar autenticação com Supabase
-      console.log("Login attempt:", { email, password });
-
-      // Simulação de login por enquanto
+      // Login de demonstração (dev)
       if (email === "admin@gestao2.com" && password === "123456") {
-        // Redirecionar para dashboard
-        window.location.assign("/dashboard/pedidos");
-      } else {
-        setError("Email ou senha incorretos");
+        setSession({
+          name: "Admin User",
+          email: "admin@gestao2.com",
+          role: "admin",
+          avatar:
+            "https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/95215156-4b22-4f5b-abd9-f1893fb3cc73.png",
+        });
+
+        router.replace("/dashboard/pedidos");
+        return;
       }
+
+      setError("Email ou senha incorretos");
     } catch {
       setError("Erro ao fazer login. Tente novamente.");
     } finally {
@@ -46,15 +63,20 @@ export default function LoginPage() {
             <span className="text-white font-bold text-2xl">G2</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Gestão 2.0</h1>
-          <p className="text-gray-600">Sistema de Gestão para Restaurantes</p>
+          <p className="text-gray-600">
+            Sistema de Gestão para Restaurantes
+          </p>
         </div>
 
-        {/* Login Form */}
+        {/* Card Login */}
         <Card>
           <CardHeader>
             <CardTitle>Entrar no Sistema</CardTitle>
-            <CardDescription>Digite suas credenciais para acessar o sistema</CardDescription>
+            <CardDescription>
+              Digite suas credenciais para acessar o sistema
+            </CardDescription>
           </CardHeader>
+
           <CardContent>
             <form onSubmit={handleLogin} className="space-y-4">
               {error && (
@@ -89,34 +111,40 @@ export default function LoginPage() {
                 />
               </div>
 
-              <Button
-                type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-700 hover:to-green-700"
-                disabled={loading}
-              >
+              <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? "Entrando..." : "Entrar"}
               </Button>
 
               <div className="text-center">
-                <Link href="/forgot-password" className="text-sm text-blue-600 hover:text-blue-800">
+                <Link
+                  href="/forgot-password"
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
                   Esqueci minha senha
                 </Link>
               </div>
             </form>
 
-            {/* Demo Credentials */}
+            {/* Credenciais demo */}
             <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm font-medium text-gray-700 mb-2">Credenciais de Demo:</p>
-              <p className="text-sm text-gray-600">Email: admin@gestao2.com</p>
+              <p className="text-sm font-medium text-gray-700 mb-2">
+                Credenciais de Demo:
+              </p>
+              <p className="text-sm text-gray-600">
+                Email: admin@gestao2.com
+              </p>
               <p className="text-sm text-gray-600">Senha: 123456</p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Back to Home */}
+        {/* Voltar */}
         <div className="text-center mt-6">
-          <Link href="/" className="text-sm text-gray-600 hover:text-gray-800">
-            ← Voltar para página inicial
+          <Link
+            href="/"
+            className="text-sm text-gray-600 hover:text-gray-800"
+          >
+            Voltar para página inicial
           </Link>
         </div>
       </div>

@@ -192,7 +192,7 @@ export default function ComprasPage() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Compras - Import/Export</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Hub de Dados - Importar/Exportar</h1>
           <p className="text-gray-600">Importação e exportação de dados em CSV/XLSX</p>
         </div>
         <div className="flex space-x-2">

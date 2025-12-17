@@ -21,11 +21,7 @@ import { ProfileModal } from "@/components/modals/ProfileModal";
 import { SettingsModal } from "@/components/modals/SettingsModal";
 import { HelpModal } from "@/components/modals/HelpModal";
 
-import {
-  clearSession,
-  getUser,
-  type AppUser,
-} from "@/lib/auth/session";
+import { clearSession, getUser, type AppUser } from "@/lib/auth/session";
 
 interface Notificacao {
   id: number;
@@ -83,6 +79,10 @@ export function Topbar({ className }: TopbarProps) {
     window.location.assign("/login");
   };
 
+  // ✅ Força visual correto (resolve “fundo incolor”)
+  const dropdownBaseClasses =
+    "bg-white text-gray-900 border border-gray-200 shadow-lg rounded-md";
+
   return (
     <>
       <header className={`bg-white border-b border-gray-200 ${className ?? ""}`}>
@@ -113,9 +113,13 @@ export function Topbar({ className }: TopbarProps) {
                 </button>
               </DropdownMenuTrigger>
 
-              <DropdownMenuContent align="end" sideOffset={8} className="w-80">
+              <DropdownMenuContent
+                align="end"
+                sideOffset={8}
+                className={`w-80 ${dropdownBaseClasses}`}
+              >
                 <DropdownMenuLabel className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">Notificações</span>
+                  <span className="text-sm font-semibold text-gray-900">Notificações</span>
 
                   <Button
                     size="sm"
@@ -131,7 +135,7 @@ export function Topbar({ className }: TopbarProps) {
                 <DropdownMenuSeparator />
 
                 {notificacoes.length === 0 ? (
-                  <div className="px-3 py-6 text-center text-sm text-gray-500">
+                  <div className="px-3 py-6 text-center text-sm text-gray-600">
                     Nenhuma notificação
                   </div>
                 ) : (
@@ -139,20 +143,16 @@ export function Topbar({ className }: TopbarProps) {
                     {notificacoes.map((n) => (
                       <DropdownMenuItem
                         key={n.id}
-                        className="flex cursor-default flex-col items-start gap-1 py-3"
+                        className="flex cursor-default flex-col items-start gap-1 py-3 focus:bg-gray-50"
                         onSelect={(e) => e.preventDefault()}
                       >
                         <div className="flex w-full items-center justify-between gap-3">
                           <span className="text-sm font-medium text-gray-900">
                             {n.titulo}
                           </span>
-                          {!n.lida && (
-                            <span className="h-2 w-2 rounded-full bg-blue-600" />
-                          )}
+                          {!n.lida && <span className="h-2 w-2 rounded-full bg-blue-600" />}
                         </div>
-                        <span className="text-xs text-gray-600">
-                          {n.mensagem}
-                        </span>
+                        <span className="text-xs text-gray-700">{n.mensagem}</span>
                       </DropdownMenuItem>
                     ))}
                   </div>
@@ -182,10 +182,7 @@ export function Topbar({ className }: TopbarProps) {
                   aria-label="Menu do usuário"
                 >
                   <Avatar className="h-10 w-10">
-                    <AvatarImage
-                      src={user?.avatar}
-                      alt={user?.name ?? "Usuário"}
-                    />
+                    <AvatarImage src={user?.avatar} alt={user?.name ?? "Usuário"} />
                     <AvatarFallback>
                       {(user?.name ?? "U")
                         .split(" ")
@@ -196,36 +193,45 @@ export function Topbar({ className }: TopbarProps) {
                 </button>
               </DropdownMenuTrigger>
 
-              <DropdownMenuContent align="end" sideOffset={8} className="w-64">
+              <DropdownMenuContent
+                align="end"
+                sideOffset={8}
+                className={`w-64 ${dropdownBaseClasses}`}
+              >
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col gap-1">
                     <span className="text-sm font-semibold text-gray-900">
                       {user?.name ?? "Usuário"}
                     </span>
-                    <span className="text-xs text-gray-500">
-                      {user?.email ?? ""}
-                    </span>
+                    <span className="text-xs text-gray-600">{user?.email ?? ""}</span>
                     <Badge variant="secondary" className="mt-1 w-fit">
-                      {(user?.role ?? "user") === "admin"
-                        ? "Administrador"
-                        : "Usuário"}
+                      {(user?.role ?? "user") === "admin" ? "Administrador" : "Usuário"}
                     </Badge>
                   </div>
                 </DropdownMenuLabel>
 
                 <DropdownMenuSeparator />
 
-                <DropdownMenuItem onClick={() => setShowPerfil(true)}>
+                <DropdownMenuItem
+                  onClick={() => setShowPerfil(true)}
+                  className="focus:bg-gray-50"
+                >
                   <UserIcon className="mr-2 h-4 w-4" />
                   Perfil
                 </DropdownMenuItem>
 
-                <DropdownMenuItem onClick={() => setShowConfiguracoes(true)}>
+                <DropdownMenuItem
+                  onClick={() => setShowConfiguracoes(true)}
+                  className="focus:bg-gray-50"
+                >
                   <Settings className="mr-2 h-4 w-4" />
                   Configurações
                 </DropdownMenuItem>
 
-                <DropdownMenuItem onClick={() => setShowAjuda(true)}>
+                <DropdownMenuItem
+                  onClick={() => setShowAjuda(true)}
+                  className="focus:bg-gray-50"
+                >
                   <HelpCircle className="mr-2 h-4 w-4" />
                   Ajuda
                 </DropdownMenuItem>
@@ -234,7 +240,7 @@ export function Topbar({ className }: TopbarProps) {
 
                 <DropdownMenuItem
                   onClick={handleLogout}
-                  className="text-red-600 focus:text-red-600"
+                  className="text-red-600 focus:bg-gray-50 focus:text-red-600"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
                   Sair

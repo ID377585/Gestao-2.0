@@ -30,49 +30,41 @@ const menuItems = [
     title: "Pedidos",
     href: "/dashboard/pedidos",
     icon: ClipboardList,
-    description: "Kanban de pedidos",
   },
   {
     title: "Produção",
     href: "/dashboard/producao",
     icon: Factory,
-    description: "KDS - Monitor de Cozinha",
   },
   {
     title: "Produtividade",
     href: "/dashboard/produtividade",
     icon: BarChart3,
-    description: "Ranking de colaboradores",
   },
   {
     title: "Estoque",
     href: "/dashboard/estoque",
     icon: Package,
-    description: "Controle de estoque",
   },
   {
     title: "Fichas Técnicas",
     href: "/dashboard/fichas-tecnicas",
     icon: FileText,
-    description: "Receitas e custos",
   },
   {
     title: "Etiquetas",
     href: "/dashboard/etiquetas",
     icon: Tag,
-    description: "Impressão térmica",
   },
   {
     title: "Histórico",
     href: "/dashboard/historico-pedidos",
     icon: History,
-    description: "Histórico de pedidos",
   },
   {
     title: "Compras",
     href: "/dashboard/compras",
     icon: ShoppingCart,
-    description: "Importação e exportação",
   },
 ];
 
@@ -81,7 +73,6 @@ const adminItems = [
     title: "Usuários",
     href: "/dashboard/admin/usuarios",
     icon: Users,
-    description: "Gestão de usuários",
   },
 ];
 
@@ -122,6 +113,7 @@ export function Sidebar({ className }: SidebarProps) {
           size="icon"
           onClick={() => setCollapsed(!collapsed)}
           className="h-8 w-8"
+          aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
         >
           {collapsed ? (
             <ChevronRight className="h-4 w-4" />
@@ -132,16 +124,17 @@ export function Sidebar({ className }: SidebarProps) {
       </div>
 
       {/* Menu */}
-      <nav className="flex-1 space-y-4 px-3 py-4">
+      <nav className="flex-1 px-3 py-4">
         {/* Main */}
-        <div>
+        <div className={cn("space-y-3", collapsed ? "px-0" : "px-0")}>
           {!collapsed && (
-            <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <h3 className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
               Menu Principal
             </h3>
           )}
 
-          <div className="space-y-1">
+          {/* ✅ MAIS ESPAÇAMENTO ENTRE ITENS */}
+          <div className="space-y-2">
             {menuItems.map((item) => {
               const isActive = pathname === item.href;
               const Icon = item.icon;
@@ -151,21 +144,16 @@ export function Sidebar({ className }: SidebarProps) {
                   <Button
                     variant={isActive ? "secondary" : "ghost"}
                     className={cn(
-                      "w-full justify-start gap-3",
+                      "w-full justify-start gap-3 rounded-xl",
+                      "h-12", // ✅ altura maior para ficar mais confortável
                       collapsed ? "px-3" : "px-4"
                     )}
+                    title={collapsed ? item.title : undefined}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
 
                     {!collapsed && (
-                      <div className="flex flex-col items-start text-left">
-                        <span className="text-sm font-medium">
-                          {item.title}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {item.description}
-                        </span>
-                      </div>
+                      <span className="text-sm font-medium">{item.title}</span>
                     )}
                   </Button>
                 </Link>
@@ -174,17 +162,20 @@ export function Sidebar({ className }: SidebarProps) {
           </div>
         </div>
 
-        <Separator />
+        {/* ✅ separador com mais respiro */}
+        <div className="py-4">
+          <Separator />
+        </div>
 
         {/* Admin */}
-        <div>
+        <div className="space-y-3">
           {!collapsed && (
-            <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <h3 className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
               Administração
             </h3>
           )}
 
-          <div className="space-y-1">
+          <div className="space-y-2">
             {adminItems.map((item) => {
               const isActive = pathname === item.href;
               const Icon = item.icon;
@@ -194,21 +185,16 @@ export function Sidebar({ className }: SidebarProps) {
                   <Button
                     variant={isActive ? "secondary" : "ghost"}
                     className={cn(
-                      "w-full justify-start gap-3",
+                      "w-full justify-start gap-3 rounded-xl",
+                      "h-12",
                       collapsed ? "px-3" : "px-4"
                     )}
+                    title={collapsed ? item.title : undefined}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
 
                     {!collapsed && (
-                      <div className="flex flex-col items-start text-left">
-                        <span className="text-sm font-medium">
-                          {item.title}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {item.description}
-                        </span>
-                      </div>
+                      <span className="text-sm font-medium">{item.title}</span>
                     )}
                   </Button>
                 </Link>

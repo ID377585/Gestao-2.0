@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, HelpCircle, LogOut, Settings, User as UserIcon } from "lucide-react";
+import {
+  Bell,
+  HelpCircle,
+  LogOut,
+  Settings,
+  User as UserIcon,
+} from "lucide-react";
 
 import {
   DropdownMenu,
@@ -20,6 +26,8 @@ import NotificationsModal from "@/components/modals/NotificationsModal";
 import { ProfileModal } from "@/components/modals/ProfileModal";
 import { SettingsModal } from "@/components/modals/SettingsModal";
 import { HelpModal } from "@/components/modals/HelpModal";
+
+import { SidebarMobile } from "@/components/layout/SidebarMobile";
 
 import { clearSession, getUser, type AppUser } from "@/lib/auth/session";
 
@@ -86,9 +94,12 @@ export function Topbar({ className }: TopbarProps) {
   return (
     <>
       <header className={`bg-white border-b border-gray-200 ${className ?? ""}`}>
-        <div className="flex h-16 items-center justify-between px-6">
+        <div className="flex h-16 items-center justify-between px-4 md:px-6">
           {/* Left */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
+            {/* ✅ BOTÃO DO MENU MOBILE (aparece só no mobile) */}
+            <SidebarMobile />
+
             <h1 className="text-lg font-semibold text-gray-900">Dashboard</h1>
           </div>
 
@@ -119,7 +130,9 @@ export function Topbar({ className }: TopbarProps) {
                 className={`w-80 ${dropdownBaseClasses}`}
               >
                 <DropdownMenuLabel className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-gray-900">Notificações</span>
+                  <span className="text-sm font-semibold text-gray-900">
+                    Notificações
+                  </span>
 
                   <Button
                     size="sm"
@@ -150,7 +163,9 @@ export function Topbar({ className }: TopbarProps) {
                           <span className="text-sm font-medium text-gray-900">
                             {n.titulo}
                           </span>
-                          {!n.lida && <span className="h-2 w-2 rounded-full bg-blue-600" />}
+                          {!n.lida && (
+                            <span className="h-2 w-2 rounded-full bg-blue-600" />
+                          )}
                         </div>
                         <span className="text-xs text-gray-700">{n.mensagem}</span>
                       </DropdownMenuItem>
@@ -182,7 +197,10 @@ export function Topbar({ className }: TopbarProps) {
                   aria-label="Menu do usuário"
                 >
                   <Avatar className="h-10 w-10">
-                    <AvatarImage src={user?.avatar} alt={user?.name ?? "Usuário"} />
+                    <AvatarImage
+                      src={user?.avatar}
+                      alt={user?.name ?? "Usuário"}
+                    />
                     <AvatarFallback>
                       {(user?.name ?? "U")
                         .split(" ")
@@ -205,7 +223,9 @@ export function Topbar({ className }: TopbarProps) {
                     </span>
                     <span className="text-xs text-gray-600">{user?.email ?? ""}</span>
                     <Badge variant="secondary" className="mt-1 w-fit">
-                      {(user?.role ?? "user") === "admin" ? "Administrador" : "Usuário"}
+                      {(user?.role ?? "user") === "admin"
+                        ? "Administrador"
+                        : "Usuário"}
                     </Badge>
                   </div>
                 </DropdownMenuLabel>

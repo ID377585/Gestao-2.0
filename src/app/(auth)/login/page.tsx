@@ -2,9 +2,9 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
-import { setSession } from "@/lib/auth/session";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,9 +20,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const redirect = searchParams.get("redirect") || "/dashboard/pedidos";
+
+  const [email, setEmail] = useState("admin@gestao2.com");
+  const [password, setPassword] = useState("123456");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -32,23 +35,30 @@ export default function LoginPage() {
     setError("");
 
     try {
-      // Login de demonstração (dev)
-      if (email === "admin@gestao2.com" && password === "123456") {
-        setSession({
-          name: "Admin User",
-          email: "admin@gestao2.com",
-          role: "admin",
-          avatar:
-            "https://storage.googleapis.com/workspace-0f70711f-8b4e-4d94-86f1-2a93ccde5887/image/95215156-4b22-4f5b-abd9-f1893fb3cc73.png",
-        });
+      const supabase = supabaseBrowser();
 
-        router.replace("/dashboard/pedidos");
+      const { data, error: signInError } = await supabase.auth.signInWithPassword(
+        {
+          email,
+          password,
+        }
+      );
+
+      if (signInError) {
+        setError(signInError.message || "Credenciais inválidas");
         return;
       }
 
-      setError("Email ou senha incorretos");
-    } catch {
-      setError("Erro ao fazer login. Tente novamente.");
+      if (!data?.user) {
+        setError("Login não retornou usuário.");
+        return;
+      }
+
+      // Session cookie será gerado pelo fluxo SSR/middleware (via @supabase/ssr)
+      router.replace(redirect);
+      router.refresh();
+    } catch (err: any) {
+      setError(err?.message ?? "Erro ao fazer login. Tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -63,12 +73,9 @@ export default function LoginPage() {
             <span className="text-white font-bold text-2xl">G2</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Gestão 2.0</h1>
-          <p className="text-gray-600">
-            Sistema de Gestão para Restaurantes
-          </p>
+          <p className="text-gray-600">Sistema de Gestão para Restaurantes</p>
         </div>
 
-        {/* Card Login */}
         <Card>
           <CardHeader>
             <CardTitle>Entrar no Sistema</CardTitle>
@@ -125,25 +132,21 @@ export default function LoginPage() {
               </div>
             </form>
 
-            {/* Credenciais demo */}
             <div className="mt-6 p-4 bg-gray-50 rounded-lg">
               <p className="text-sm font-medium text-gray-700 mb-2">
                 Credenciais de Demo:
               </p>
-              <p className="text-sm text-gray-600">
-                Email: admin@gestao2.com
-              </p>
+              <p className="text-sm text-gray-600">Email: admin@gestao2.com</p>
               <p className="text-sm text-gray-600">Senha: 123456</p>
+              <p className="text-xs text-gray-500 mt-2">
+                *Essas credenciais precisam existir no Supabase Auth (Users).
+              </p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Voltar */}
         <div className="text-center mt-6">
-          <Link
-            href="/"
-            className="text-sm text-gray-600 hover:text-gray-800"
-          >
+          <Link href="/" className="text-sm text-gray-600 hover:text-gray-800">
             Voltar para página inicial
           </Link>
         </div>

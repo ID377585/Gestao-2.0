@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 
@@ -12,16 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+
 import {
   Table,
   TableBody,
@@ -31,6 +22,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import { Badge } from "@/components/ui/badge";
+
 import {
   Dialog,
   DialogContent,
@@ -38,307 +31,271 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-/* -------------------------------------------------------------------------- */
-/* Types */
-/* -------------------------------------------------------------------------- */
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 
-interface Estabelecimento {
-  id: number;
-  nome: string;
-  prazoEntregaDias: number;
-  endereco: string;
-  telefone: string;
-}
+import { createOrder, listOrders } from "./actions";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
-interface Insumo {
-  id: number;
-  nome: string;
-  unidade: string;
-  precoCompra: number;
-  categoria: string;
-  estoqueAtual: number;
-}
-
-interface ItemPedido {
-  id: number;
-  insumoId: number;
-  produtoNome: string;
-  quantidade: number;
-  unidade: string;
-  precoCustoUnitario: number;
-  precoCustoTotal: number;
-}
-
-interface Pedido {
-  id: number;
-  estabelecimento: string;
-  dataEntrega: string;
-  valorTotal: number;
+type Pedido = {
+  id: string;
+  order_number: number | null;
   status: string;
-  itens: number;
-  progresso: number;
+  created_at: string;
+  notes: string | null;
+};
+
+const formatDateTime = (date: string) =>
+  new Date(date).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+const STATUS_LABEL: Record<string, string> = {
+  pedido_criado: "Pedido criado",
+  aceitou_pedido: "Pedido aceito",
+  em_preparo: "Em preparo",
+  em_separacao: "Em separação",
+  em_faturamento: "Em faturamento",
+  em_transporte: "Em transporte",
+  entregue: "Entregue",
+  cancelado: "Cancelado",
+  reaberto: "Reaberto",
+};
+
+function getStatusLabel(status: string) {
+  return STATUS_LABEL[status] ?? status;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Mock Data */
-/* -------------------------------------------------------------------------- */
-
-const estabelecimentos: Estabelecimento[] = [
-  {
-    id: 1,
-    nome: "Restaurante Bella Vista",
-    prazoEntregaDias: 2,
-    endereco: "Rua das Flores, 123",
-    telefone: "(11) 1234-5678",
-  },
-  {
-    id: 2,
-    nome: "Padaria São João",
-    prazoEntregaDias: 1,
-    endereco: "Av. Principal, 456",
-    telefone: "(11) 9876-5432",
-  },
-];
-
-const insumos: Insumo[] = [
-  {
-    id: 1,
-    nome: "Farinha de Trigo",
-    unidade: "kg",
-    precoCompra: 4.5,
-    categoria: "Farinhas",
-    estoqueAtual: 25,
-  },
-  {
-    id: 2,
-    nome: "Açúcar Cristal",
-    unidade: "kg",
-    precoCompra: 3.2,
-    categoria: "Açúcares",
-    estoqueAtual: 18,
-  },
-];
-
-const pedidosExemplo: Pedido[] = [
-  {
-    id: 1,
-    estabelecimento: "Restaurante Bella Vista",
-    dataEntrega: "2024-01-15",
-    valorTotal: 450.8,
-    status: "criado",
-    itens: 8,
-    progresso: 10,
-  },
-];
-
-/* -------------------------------------------------------------------------- */
-/* Helpers */
-/* -------------------------------------------------------------------------- */
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
-
-const formatDate = (date: string) => new Date(date).toLocaleDateString("pt-BR");
-
-/* -------------------------------------------------------------------------- */
-/* Page */
-/* -------------------------------------------------------------------------- */
+function getStatusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "cancelado") return "destructive";
+  if (status === "entregue") return "default";
+  if (status === "pedido_criado") return "secondary";
+  return "outline";
+}
 
 export default function PedidosPage() {
-  const [pedidos, setPedidos] = useState<Pedido[]>(pedidosExemplo);
+  const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [openDialog, setOpenDialog] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingOrders, setIsLoadingOrders] = useState(false);
 
-  const [estabelecimento, setEstabelecimento] =
-    useState<Estabelecimento | null>(null);
-  const [insumoSelecionado, setInsumoSelecionado] =
-    useState<Insumo | null>(null);
-  const [quantidade, setQuantidade] = useState("");
-  const [itens, setItens] = useState<ItemPedido[]>([]);
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
   const [observacoes, setObservacoes] = useState("");
 
-  const calcularEntrega = (est: Estabelecimento) => {
-    const d = new Date();
-    d.setDate(d.getDate() + est.prazoEntregaDias);
-    return d.toISOString().split("T")[0];
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!cancelled) {
+        setAuthUserId(data?.session?.user?.id ?? null);
+        setAuthChecked(true);
+      }
+    };
+
+    loadSession();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUserId(session?.user?.id ?? null);
+      setAuthChecked(true);
+    });
+
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, [supabase]);
+
+  const loadOrders = async () => {
+    try {
+      setIsLoadingOrders(true);
+      const data = await listOrders();
+
+      const mapped: Pedido[] = (data ?? []).map((o: any) => ({
+        id: o.id,
+        order_number: o.order_number ?? null,
+        status: o.status,
+        created_at: o.created_at,
+        notes: o.notes ?? null,
+      }));
+
+      setPedidos(mapped);
+    } catch (err: any) {
+      console.error(err);
+      alert(
+        `Não foi possível carregar os pedidos.\n\nDetalhe: ${
+          err?.message ?? "Erro desconhecido"
+        }`
+      );
+    } finally {
+      setIsLoadingOrders(false);
+    }
   };
 
-  const totalPedido = itens.reduce((acc, i) => acc + i.precoCustoTotal, 0);
+  useEffect(() => {
+    if (!authChecked) return;
+    if (!authUserId) return;
 
-  const adicionarItem = () => {
-    if (!insumoSelecionado || !quantidade) return;
+    loadOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authChecked, authUserId]);
 
-    const qtd = Number(quantidade);
-    if (!Number.isFinite(qtd) || qtd <= 0) return;
-    if (qtd > insumoSelecionado.estoqueAtual) return;
+  const registrarPedido = async () => {
+    if (!authUserId) {
+      alert("Você precisa estar logado para registrar um pedido.");
+      return;
+    }
 
-    setItens((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        insumoId: insumoSelecionado.id,
-        produtoNome: insumoSelecionado.nome,
-        quantidade: qtd,
-        unidade: insumoSelecionado.unidade,
-        precoCustoUnitario: insumoSelecionado.precoCompra,
-        precoCustoTotal: qtd * insumoSelecionado.precoCompra,
-      },
-    ]);
-
-    setQuantidade("");
-    setInsumoSelecionado(null);
-  };
-
-  const registrarPedido = () => {
-    if (!estabelecimento || itens.length === 0) return;
-
-    setPedidos((prev) => [
-      ...prev,
-      {
-        id: prev.length + 1,
-        estabelecimento: estabelecimento.nome,
-        dataEntrega: calcularEntrega(estabelecimento),
-        valorTotal: totalPedido,
-        status: "criado",
-        itens: itens.length,
-        progresso: 10,
-      },
-    ]);
-
-    setItens([]);
-    setObservacoes("");
-    setEstabelecimento(null);
-    setOpenDialog(false);
+    try {
+      setIsSaving(true);
+      await createOrder();
+      await loadOrders();
+      setObservacoes("");
+      setOpenDialog(false);
+    } catch (err: any) {
+      console.error(err);
+      alert(
+        `Não foi possível registrar o pedido.\n\nDetalhe: ${
+          err?.message ?? "Erro desconhecido"
+        }`
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
     <div className="space-y-6">
       <PageHeader />
 
-      <div className="flex justify-end">
-        <Button onClick={() => setOpenDialog(true)}>Novo Pedido</Button>
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">
+          {authChecked ? (
+            authUserId ? (
+              <span>✅ Usuário autenticado</span>
+            ) : (
+              <span>⚠️ Nenhum usuário logado</span>
+            )
+          ) : (
+            <span>Verificando autenticação...</span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={loadOrders}
+            disabled={!authUserId || isLoadingOrders}
+          >
+            {isLoadingOrders ? "Atualizando..." : "Atualizar"}
+          </Button>
+
+          <Button onClick={() => setOpenDialog(true)} disabled={!authUserId}>
+            Novo Pedido
+          </Button>
+        </div>
       </div>
 
-      {/* LISTA */}
       <Card>
         <CardHeader>
           <CardTitle>Pedidos</CardTitle>
-          <CardDescription>Lista de pedidos criados</CardDescription>
+          <CardDescription>
+            Lista de pedidos reais (filtrados pela sua unidade via RLS)
+          </CardDescription>
         </CardHeader>
+
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>Estabelecimento</TableHead>
-                <TableHead>Entrega</TableHead>
-                <TableHead>Total</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pedidos.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell>#{p.id}</TableCell>
-                  <TableCell>{p.estabelecimento}</TableCell>
-                  <TableCell>{formatDate(p.dataEntrega)}</TableCell>
-                  <TableCell>{formatCurrency(p.valorTotal)}</TableCell>
+          {isLoadingOrders ? (
+            <div className="text-sm text-muted-foreground">Carregando...</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nº</TableHead>
+                  <TableHead>Criado em</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Observações</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+
+              <TableBody>
+                {pedidos.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-sm text-muted-foreground">
+                      Nenhum pedido encontrado.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  pedidos.map((p) => (
+                    <TableRow
+                      key={p.id}
+                      className="cursor-pointer"
+                      onClick={() => (window.location.href = `/dashboard/pedidos/${p.id}`)}
+                    >
+                      <TableCell>{p.order_number ? `#${p.order_number}` : "—"}</TableCell>
+                      <TableCell>{formatDateTime(p.created_at)}</TableCell>
+                      <TableCell>
+                        <Badge variant={getStatusBadgeVariant(p.status)}>
+                          {getStatusLabel(p.status)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[420px] truncate">
+                        {p.notes ?? "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      {/* MODAL */}
       <Dialog open={openDialog} onOpenChange={setOpenDialog}>
-        <DialogContent className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white">
+        <DialogContent className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white">
           <DialogHeader>
             <DialogTitle>Novo Pedido</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
-            <div>
-              <Label>Estabelecimento</Label>
-              <Select
-                value={estabelecimento?.id.toString() || ""}
-                onValueChange={(v) =>
-                  setEstabelecimento(
-                    estabelecimentos.find((e) => e.id.toString() === v) || null
-                  )
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecionar" />
-                </SelectTrigger>
-                <SelectContent>
-                  {estabelecimentos.map((e) => (
-                    <SelectItem key={e.id} value={e.id.toString()}>
-                      {e.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <Label>Produto</Label>
-                <Select
-                  value={insumoSelecionado?.id.toString() || ""}
-                  onValueChange={(v) =>
-                    setInsumoSelecionado(
-                      insumos.find((i) => i.id.toString() === v) || null
-                    )
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecionar" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {insumos.map((i) => (
-                      <SelectItem key={i.id} value={i.id.toString()}>
-                        {i.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>Quantidade</Label>
-                <Input
-                  type="number"
-                  value={quantidade}
-                  onChange={(e) => setQuantidade(e.target.value)}
-                />
-              </div>
-
-              <div className="flex items-end">
-                <Button className="w-full" onClick={adicionarItem}>
-                  Adicionar
-                </Button>
-              </div>
-            </div>
-
-            {itens.length > 0 && (
-              <div className="text-right text-lg font-semibold">
-                Total: {formatCurrency(totalPedido)}
+            {!authUserId && (
+              <div className="rounded-md border p-3 text-sm">
+                ⚠️ Você não está logado. Faça login para registrar pedidos.
               </div>
             )}
 
-            <Textarea
-              value={observacoes}
-              onChange={(e) => setObservacoes(e.target.value)}
-              placeholder="Observações"
-            />
+            <div>
+              <Label>Observações (opcional)</Label>
+              <Textarea
+                value={observacoes}
+                onChange={(e) => setObservacoes(e.target.value)}
+                placeholder="Observações internas do pedido..."
+              />
+              <div className="mt-2 text-xs text-muted-foreground">
+                *Se você quiser, no próximo passo eu ajusto o Server Action para
+                receber e salvar essas observações.
+              </div>
+            </div>
 
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setOpenDialog(false)}>
+              <Button
+                variant="outline"
+                onClick={() => setOpenDialog(false)}
+                disabled={isSaving}
+              >
                 Cancelar
               </Button>
-              <Button onClick={registrarPedido}>Registrar Pedido</Button>
+              <Button onClick={registrarPedido} disabled={isSaving || !authUserId}>
+                {isSaving ? "Criando..." : "Criar Pedido"}
+              </Button>
             </div>
           </div>
         </DialogContent>

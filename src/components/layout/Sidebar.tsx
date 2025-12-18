@@ -16,6 +16,9 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
+  AlertTriangle, // ✅ Perdas
+  ArrowLeftRight, // ✅ Transferências
+  BadgeDollarSign, // ✅ Controladoria
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -61,10 +64,31 @@ const menuItems = [
     href: "/dashboard/historico-pedidos",
     icon: History,
   },
+
+  // ✅ NOVAS SESSÕES
+  {
+    title: "Perdas",
+    href: "/dashboard/perdas",
+    icon: AlertTriangle,
+  },
+  {
+    title: "Transferências",
+    href: "/dashboard/transferencias",
+    icon: ArrowLeftRight,
+  },
+
+  // ✅ JÁ EXISTIA (mantive)
   {
     title: "Compras",
     href: "/dashboard/compras",
     icon: ShoppingCart,
+  },
+
+  // ✅ NOVA SESSÃO
+  {
+    title: "Controladoria",
+    href: "/dashboard/controladoria",
+    icon: BadgeDollarSign,
   },
 ];
 

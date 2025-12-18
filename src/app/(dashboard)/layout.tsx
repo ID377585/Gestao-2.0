@@ -1,11 +1,63 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { redirect } from "next/navigation";
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // =========================
+  // SUPABASE SERVER
+  // =========================
+  const supabase = createSupabaseServerClient();
+
+  // =========================
+  // USUÁRIO LOGADO
+  // =========================
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    redirect("/login");
+  }
+
+  // =========================
+  // MEMBERSHIP ATIVO
+  // =========================
+  const { data: membership, error: membershipError } = await supabase
+    .from("establishment_memberships")
+    .select("establishment_id, role")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .single();
+
+  if (membershipError || !membership) {
+    redirect("/sem-acesso");
+  }
+
+  // =========================
+  // ROLES PERMITIDOS
+  // =========================
+  const allowedRoles = [
+    "admin",
+    "operacao",
+    "producao",
+    "estoque",
+    "fiscal",
+    "entrega",
+  ] as const;
+
+  if (!allowedRoles.includes(membership.role as (typeof allowedRoles)[number])) {
+    redirect("/sem-acesso");
+  }
+
+  // =========================
+  // LAYOUT
+  // =========================
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="flex">
@@ -18,7 +70,7 @@ export default function DashboardLayout({
 
         {/* Conteúdo principal */}
         <div className="flex min-w-0 flex-1 flex-col md:pl-64">
-          {/* Topbar: precisa ficar acima de tudo para não perder clique */}
+          {/* Topbar */}
           <div className="sticky top-0 z-50 pointer-events-auto">
             <Topbar />
           </div>
@@ -36,7 +88,7 @@ export default function DashboardLayout({
 
       {/* Mobile sidebar overlay */}
       <div className="md:hidden">
-        {/* TODO: Implementar sidebar mobile com overlay */}
+        {/* TODO: Implementar sidebar mobile */}
       </div>
     </div>
   );

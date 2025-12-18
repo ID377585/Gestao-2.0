@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import React, { Suspense, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-export default function LoginPage() {
+function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -37,12 +37,10 @@ export default function LoginPage() {
     try {
       const supabase = supabaseBrowser();
 
-      const { data, error: signInError } = await supabase.auth.signInWithPassword(
-        {
-          email,
-          password,
-        }
-      );
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
       if (signInError) {
         setError(signInError.message || "Credenciais inválidas");
@@ -152,5 +150,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-muted-foreground p-4">Carregando...</div>}>
+      <LoginInner />
+    </Suspense>
   );
 }

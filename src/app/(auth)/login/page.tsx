@@ -18,11 +18,19 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
+function safeRedirect(raw: string | null) {
+  // Segurança: só permite redirect interno
+  if (!raw) return "/dashboard/pedidos";
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return "/dashboard/pedidos";
+  if (!raw.startsWith("/")) return "/dashboard/pedidos";
+  return raw;
+}
+
 function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const redirect = searchParams.get("redirect") || "/dashboard/pedidos";
+  const redirect = safeRedirect(searchParams.get("redirect"));
 
   const [email, setEmail] = useState("admin@gestao2.com");
   const [password, setPassword] = useState("123456");
@@ -31,6 +39,8 @@ function LoginInner() {
 
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (loading) return;
+
     setLoading(true);
     setError("");
 
@@ -54,7 +64,9 @@ function LoginInner() {
 
       // ✅ DEV FIX: garante role no token para o middleware liberar rotas
       // (depois a gente substitui isso para vir do membership/servidor)
-      const currentRole = data.user.user_metadata?.role || data.user.app_metadata?.role;
+      const currentRole =
+        data.user.user_metadata?.role || data.user.app_metadata?.role;
+
       if (!currentRole) {
         const { error: updateErr } = await supabase.auth.updateUser({
           data: { role: "admin" },

@@ -16,9 +16,9 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
-  AlertTriangle, // Perdas
-  ArrowLeftRight, // Transferências
-  BadgeDollarSign, // Controladoria
+  AlertTriangle,
+  ArrowLeftRight,
+  BadgeDollarSign,
   Menu,
   X,
 } from "lucide-react";
@@ -40,14 +40,10 @@ const menuItems = [
   { title: "Etiquetas", href: "/dashboard/etiquetas", icon: Tag },
   { title: "Histórico", href: "/dashboard/historico-pedidos", icon: History },
 
-  // ✅ NOVAS SESSÕES
   { title: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },
   { title: "Transferências", href: "/dashboard/transferencias", icon: ArrowLeftRight },
 
-  // ✅ JÁ EXISTIA
   { title: "Compras", href: "/dashboard/compras", icon: ShoppingCart },
-
-  // ✅ NOVA SESSÃO
   { title: "Controladoria", href: "/dashboard/controladoria", icon: BadgeDollarSign },
 ];
 
@@ -59,21 +55,14 @@ interface SidebarProps {
   className?: string;
 }
 
-/* ======================
-   COMPONENT
-====================== */
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
 
-  // desktop: recolher/expandir
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(false); // desktop
+  const [mobileOpen, setMobileOpen] = useState(false); // mobile
 
-  // mobile: abrir/fechar menu (Sheet)
-  const [mobileOpen, setMobileOpen] = useState(false);
-
-  function isActive(href: string) {
-    return pathname === href || pathname?.startsWith(href + "/");
-  }
+  const isActive = (href: string) =>
+    pathname === href || pathname?.startsWith(href + "/");
 
   function SidebarContent({
     variant,
@@ -85,21 +74,19 @@ export function Sidebar({ className }: SidebarProps) {
     const isDesktop = variant === "desktop";
 
     return (
-      <div className={cn("flex min-h-screen flex-col", isDesktop ? "" : "min-h-0")}>
-        {/* Logo / Header */}
+      <div className={cn("flex flex-col", isDesktop ? "min-h-screen" : "")}>
+        {/* Header / Logo */}
         <div className="flex h-16 items-center justify-between border-b px-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-r from-blue-600 to-green-600 text-sm font-bold text-white">
               G2
             </div>
 
-            {/* No mobile sempre mostra o nome, no desktop depende de collapsed */}
             {(variant === "mobile" || !collapsed) && (
               <span className="text-lg font-semibold tracking-tight">Gestão 2.0</span>
             )}
           </div>
 
-          {/* Desktop: botão recolher/expandir | Mobile: botão fechar */}
           {isDesktop ? (
             <Button
               variant="ghost"
@@ -129,7 +116,6 @@ export function Sidebar({ className }: SidebarProps) {
 
         {/* Menu */}
         <nav className="flex-1 px-3 py-4">
-          {/* Main */}
           <div className="space-y-3">
             {(variant === "mobile" || !collapsed) && (
               <h3 className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -152,7 +138,6 @@ export function Sidebar({ className }: SidebarProps) {
                       variant={active ? "secondary" : "ghost"}
                       className={cn(
                         "w-full justify-start gap-3 rounded-xl h-12",
-                        // no desktop respeita collapsed; no mobile sempre espaçado normal
                         variant === "desktop"
                           ? collapsed
                             ? "px-3"
@@ -175,46 +160,43 @@ export function Sidebar({ className }: SidebarProps) {
               <Separator />
             </div>
 
-            {/* Admin */}
-            <div className="space-y-3">
-              {(variant === "mobile" || !collapsed) && (
-                <h3 className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Administração
-                </h3>
-              )}
+            {(variant === "mobile" || !collapsed) && (
+              <h3 className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Administração
+              </h3>
+            )}
 
-              <div className="space-y-2">
-                {adminItems.map((item) => {
-                  const active = isActive(item.href);
-                  const Icon = item.icon;
+            <div className="space-y-2">
+              {adminItems.map((item) => {
+                const active = isActive(item.href);
+                const Icon = item.icon;
 
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => onNavigate?.()}
-                    >
-                      <Button
-                        variant={active ? "secondary" : "ghost"}
-                        className={cn(
-                          "w-full justify-start gap-3 rounded-xl h-12",
-                          variant === "desktop"
-                            ? collapsed
-                              ? "px-3"
-                              : "px-4"
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => onNavigate?.()}
+                  >
+                    <Button
+                      variant={active ? "secondary" : "ghost"}
+                      className={cn(
+                        "w-full justify-start gap-3 rounded-xl h-12",
+                        variant === "desktop"
+                          ? collapsed
+                            ? "px-3"
                             : "px-4"
-                        )}
-                        title={variant === "desktop" && collapsed ? item.title : undefined}
-                      >
-                        <Icon className="h-4 w-4 shrink-0" />
-                        {(variant === "mobile" || !collapsed) && (
-                          <span className="text-sm font-medium">{item.title}</span>
-                        )}
-                      </Button>
-                    </Link>
-                  );
-                })}
-              </div>
+                          : "px-4"
+                      )}
+                      title={variant === "desktop" && collapsed ? item.title : undefined}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {(variant === "mobile" || !collapsed) && (
+                        <span className="text-sm font-medium">{item.title}</span>
+                      )}
+                    </Button>
+                  </Link>
+                );
+              })}
             </div>
           </div>
         </nav>
@@ -224,11 +206,7 @@ export function Sidebar({ className }: SidebarProps) {
 
   return (
     <>
-      {/* =========================
-          MOBILE: botão hamburguer
-          - Coloque o Sidebar no layout e este botão vai aparecer no mobile.
-          - Se você já tem um botão hamburguer no Topbar, pode remover lá para não duplicar.
-      ========================== */}
+      {/* MOBILE trigger */}
       <div className="md:hidden">
         <Button
           variant="ghost"
@@ -242,17 +220,12 @@ export function Sidebar({ className }: SidebarProps) {
 
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent side="left" className="w-[300px] p-0">
-            <SidebarContent
-              variant="mobile"
-              onNavigate={() => setMobileOpen(false)}
-            />
+            <SidebarContent variant="mobile" onNavigate={() => setMobileOpen(false)} />
           </SheetContent>
         </Sheet>
       </div>
 
-      {/* =========================
-          DESKTOP/TABLET: sidebar fixa
-      ========================== */}
+      {/* DESKTOP */}
       <aside
         className={cn(
           "hidden md:flex min-h-screen flex-col border-r bg-white transition-all duration-300",

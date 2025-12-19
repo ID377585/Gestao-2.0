@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 type Role =
@@ -37,89 +37,65 @@ export async function middleware(req: NextRequest) {
 
   const pathname = req.nextUrl.pathname;
 
-  /* =========================
-     🔐 ROTAS PÚBLICAS
-  ========================= */
+  // Rotas públicas
   const isAuthRoute =
     pathname.startsWith("/login") ||
     pathname.startsWith("/forgot-password") ||
     pathname.startsWith("/reset-password");
 
-  // 1) Pega usuário (cookie -> supabase)
+  // Pega usuário via cookie
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // 2) Se não logado e tentando dashboard => manda pro login com redirect
+  // Não logado tentando dashboard -> login
   if (!user && pathname.startsWith("/dashboard")) {
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // 3) Se logado e tentando rota de auth => manda pro dashboard
+  // Logado indo para auth routes -> manda pro dashboard
   if (user && isAuthRoute) {
     return NextResponse.redirect(new URL("/dashboard/pedidos", req.url));
   }
 
-  // 4) Se não é dashboard, deixa passar
-  if (!pathname.startsWith("/dashboard")) {
-    return res;
-  }
+  // Se não é dashboard, libera
+  if (!pathname.startsWith("/dashboard")) return res;
 
-  // 5) Se chegou aqui, é dashboard e usuário existe
-  if (!user) return res; // segurança extra
-
-  /* =========================
-     👤 ROLE: fonte de verdade = memberships
-  ========================= */
-
-  // Fallback: metadata (caso você use isso no futuro)
+  // Role fallback (metadata)
   let role: Role | null =
-    (user.user_metadata?.role as Role | undefined) ||
-    (user.app_metadata?.role as Role | undefined) ||
+    (user?.user_metadata?.role as Role | undefined) ||
+    (user?.app_metadata?.role as Role | undefined) ||
     null;
 
-  // ✅ Preferência: buscar role na tabela memberships
-  // Ajuste o nome da coluna se for diferente (user_id / role / created_at)
-  const { data: membership, error: membershipErr } = await supabase
-    .from("memberships")
-    .select("role, created_at")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // Preferência: role na tabela memberships
+  if (user) {
+    const { data: membership } = await supabase
+      .from("memberships")
+      .select("role, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  if (!membershipErr && membership?.role) {
-    role = membership.role as Role;
+    if (membership?.role) role = membership.role as Role;
   }
 
-  /* =========================
-     🧭 MATRIZ DE PERMISSÕES
-  ========================= */
-
+  // Matriz de acesso (ajuste se quiser)
   const roleAccess: Record<string, Role[]> = {
-    "/dashboard/pedidos": [
-      "admin",
-      "operacao",
-      "producao",
-      "estoque",
-      "fiscal",
-      "entrega",
-    ],
+    "/dashboard/pedidos": ["admin", "operacao", "producao", "estoque", "fiscal", "entrega"],
     "/dashboard/producao": ["admin", "producao"],
     "/dashboard/estoque": ["admin", "estoque"],
-    "/dashboard/fiscal": ["admin", "fiscal"],
-    "/dashboard/entrega": ["admin", "entrega"],
     "/dashboard/controladoria": ["admin"],
     "/dashboard/perdas": ["admin"],
     "/dashboard/transferencias": ["admin"],
+    "/dashboard/admin": ["admin"],
   };
 
   for (const route of Object.keys(roleAccess)) {
     if (isRouteOrChild(pathname, route)) {
       const allowedRoles = roleAccess[route];
-
       if (!role || !allowedRoles.includes(role)) {
         return NextResponse.redirect(
           new URL("/dashboard/pedidos?erro=sem-permissao", req.url)
@@ -131,14 +107,6 @@ export async function middleware(req: NextRequest) {
   return res;
 }
 
-/* =========================
-   ⚙️ MATCHER
-========================= */
 export const config = {
-  matcher: [
-    "/dashboard/:path*",
-    "/login",
-    "/forgot-password",
-    "/reset-password",
-  ],
+  matcher: ["/dashboard/:path*", "/login", "/forgot-password", "/reset-password"],
 };

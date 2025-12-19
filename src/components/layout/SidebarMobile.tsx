@@ -19,6 +19,9 @@ import {
   Tag,
   Users,
   X,
+  AlertTriangle,
+  ArrowLeftRight,
+  BadgeDollarSign,
 } from "lucide-react";
 
 const menuItems = [
@@ -33,6 +36,12 @@ const menuItems = [
 ];
 
 const adminItems = [
+  // ✅ opções que faltavam no mobile
+  { title: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },
+  { title: "Transferências", href: "/dashboard/transferencias", icon: ArrowLeftRight },
+  { title: "Controladoria", href: "/dashboard/controladoria", icon: BadgeDollarSign },
+
+  // ✅ já existia
   { title: "Usuários", href: "/dashboard/admin/usuarios", icon: Users },
 ];
 
@@ -80,9 +89,9 @@ export function SidebarMobile() {
           />
 
           {/* Painel */}
-          <div className="absolute left-0 top-0 h-full w-72 bg-white shadow-xl">
+          <div className="absolute left-0 top-0 h-full w-72 bg-white shadow-xl flex flex-col">
             {/* Header */}
-            <div className="flex h-16 items-center justify-between border-b px-4">
+            <div className="flex h-16 items-center justify-between border-b px-4 shrink-0">
               <div className="font-semibold">Gestão 2.0</div>
               <Button
                 type="button"
@@ -95,12 +104,13 @@ export function SidebarMobile() {
               </Button>
             </div>
 
-            {/* Conteúdo */}
-            <nav className="p-4">
+            {/* Conteúdo (rolável) */}
+            <nav className="p-4 overflow-y-auto flex-1">
               <div className="space-y-2">
                 {menuItems.map((item) => {
                   const Icon = item.icon;
-                  const isActive = pathname === item.href;
+                  const isActive =
+                    pathname === item.href || pathname?.startsWith(item.href + "/");
 
                   return (
                     <Link key={item.href} href={item.href}>
@@ -117,10 +127,15 @@ export function SidebarMobile() {
               </div>
 
               <div className="mt-6 border-t pt-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 px-2 mb-2">
+                  Administração
+                </div>
+
                 <div className="space-y-2">
                   {adminItems.map((item) => {
                     const Icon = item.icon;
-                    const isActive = pathname === item.href;
+                    const isActive =
+                      pathname === item.href || pathname?.startsWith(item.href + "/");
 
                     return (
                       <Link key={item.href} href={item.href}>

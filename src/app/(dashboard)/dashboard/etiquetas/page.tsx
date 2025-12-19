@@ -430,8 +430,8 @@ export default function EtiquetasPage() {
     const payload = {
       v: 1,
       p: e.insumo, // produto
-      q: e.qtd,    // quantidade
-      u: e.umd,    // unidade
+      q: e.qtd, // quantidade
+      u: e.umd, // unidade
     };
 
     // remove acentos para reduzir risco de leitor “quebrar”
@@ -1006,6 +1006,7 @@ export default function EtiquetasPage() {
           </Button>
         </div>
       </div>
+
       {/* ✅ Inventário (Novo) */}
       <Card>
         <CardHeader>
@@ -1018,9 +1019,7 @@ export default function EtiquetasPage() {
         <CardContent className="space-y-4">
           <div className="flex gap-2 flex-wrap items-center">
             {!inventarioAtivo ? (
-              <Button onClick={iniciarInventario}>
-                ▶️ Iniciar Inventário
-              </Button>
+              <Button onClick={iniciarInventario}>▶️ Iniciar Inventário</Button>
             ) : (
               <Button variant="destructive" onClick={finalizarInventario}>
                 ⏹️ Finalizar Inventário
@@ -1028,8 +1027,7 @@ export default function EtiquetasPage() {
             )}
 
             <div className="text-sm text-muted-foreground">
-              Status:{" "}
-              <strong>{inventarioAtivo ? "ATIVO" : "INATIVO"}</strong>{" "}
+              Status: <strong>{inventarioAtivo ? "ATIVO" : "INATIVO"}</strong>{" "}
               {inventarioAtivo ? `(${inventarioId})` : ""}
             </div>
           </div>
@@ -1246,9 +1244,7 @@ export default function EtiquetasPage() {
                       {TIPO_LABEL[etiqueta.tipo]}
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-medium">
-                    {etiqueta.insumo}
-                  </TableCell>
+                  <TableCell className="font-medium">{etiqueta.insumo}</TableCell>
                   <TableCell>
                     {etiqueta.qtd} {etiqueta.umd}
                   </TableCell>
@@ -1274,7 +1270,9 @@ export default function EtiquetasPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => { void imprimirBatchNoBrowser([etiqueta]); }}
+                        onClick={() => {
+                          void imprimirBatchNoBrowser([etiqueta]);
+                        }}
                       >
                         🖨️
                       </Button>
@@ -1295,10 +1293,10 @@ export default function EtiquetasPage() {
 
       {/* Modal Nova Etiqueta */}
       {showNovaEtiqueta && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-semibold">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6 gap-3">
+              <h3 className="text-lg sm:text-xl font-semibold">
                 Nova Etiqueta - {TIPO_LABEL_LONG[tipoSelecionado]}
               </h3>
               <Button variant="ghost" onClick={() => setShowNovaEtiqueta(false)}>
@@ -1307,15 +1305,20 @@ export default function EtiquetasPage() {
             </div>
 
             <div className="space-y-6">
-              {/* Seleção de Tipo e Tamanho */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
+              {/* =========================
+                  ✅ AJUSTE MOBILE:
+                  - mobile: 1 coluna
+                  - md+: 2 colunas
+                  - min-w-0 / w-full para evitar esmagar e “sobrepor”
+              ========================== */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="min-w-0">
                   <Label>Tipo de Etiqueta</Label>
                   <Select
                     value={tipoSelecionado}
                     onValueChange={(value: TipoSel) => setTipoSelecionado(value)}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full min-w-0">
                       <SelectValue placeholder="Selecionar tipo" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1325,13 +1328,13 @@ export default function EtiquetasPage() {
                   </Select>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <Label>Tamanho da Etiqueta</Label>
                   <Select
                     value={tamanhoSelecionado}
                     onValueChange={setTamanhoSelecionado}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full min-w-0">
                       <SelectValue placeholder="Selecionar tamanho" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1344,16 +1347,18 @@ export default function EtiquetasPage() {
                   </Select>
                 </div>
               </div>
-              {/* ✅ LINHA BASE + BOTÃO Add + */}
+
+              {/* ✅ LINHA BASE + BOTÃO Add + (mobile: coluna / md+: linha) */}
               <div className="space-y-3">
-                <div className="grid grid-cols-4 gap-4 items-end">
-                  <div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
+                  {/* Insumo */}
+                  <div className="min-w-0 md:col-span-6">
                     <Label>Insumo/Produto *</Label>
                     <Select
                       value={selectedInsumoId}
                       onValueChange={(insumoId) => handleSelectInsumo(insumoId)}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="w-full min-w-0">
                         <SelectValue placeholder="Selecionar insumo" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1366,7 +1371,8 @@ export default function EtiquetasPage() {
                     </Select>
                   </div>
 
-                  <div>
+                  {/* Quantidade */}
+                  <div className="min-w-0 md:col-span-3">
                     <Label htmlFor="qtd">Quantidade *</Label>
                     <Input
                       id="qtd"
@@ -1379,8 +1385,8 @@ export default function EtiquetasPage() {
                       placeholder="0"
                       className={
                         erros.baseQtd
-                          ? "border-red-500 focus-visible:ring-red-500"
-                          : ""
+                          ? "border-red-500 focus-visible:ring-red-500 w-full min-w-0"
+                          : "w-full min-w-0"
                       }
                     />
                     {erros.baseQtd && (
@@ -1390,17 +1396,19 @@ export default function EtiquetasPage() {
                     )}
                   </div>
 
-                  <div>
+                  {/* Unidade */}
+                  <div className="min-w-0 md:col-span-2">
                     <Label>Unidade *</Label>
-                    <Input value={formData.umd} disabled readOnly />
+                    <Input className="w-full min-w-0" value={formData.umd} disabled readOnly />
                   </div>
 
-                  <div className="flex gap-2">
+                  {/* Add */}
+                  <div className="min-w-0 md:col-span-1 md:flex md:items-end">
                     <Button
                       type="button"
                       onClick={handleAddLinha}
                       disabled={!formData.insumo || !formData.umd}
-                      className="w-full"
+                      className="w-full md:w-auto"
                     >
                       Add +
                     </Button>
@@ -1420,14 +1428,16 @@ export default function EtiquetasPage() {
                       return (
                         <div
                           key={linha.id}
-                          className="grid grid-cols-4 gap-4 items-end"
+                          className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end"
                         >
-                          <div>
+                          {/* Insumo */}
+                          <div className="min-w-0 md:col-span-6">
                             <Label>Insumo/Produto</Label>
-                            <Input value={formData.insumo} disabled readOnly />
+                            <Input className="w-full min-w-0" value={formData.insumo} disabled readOnly />
                           </div>
 
-                          <div>
+                          {/* Quantidade */}
+                          <div className="min-w-0 md:col-span-3">
                             <Label>Quantidade *</Label>
                             <Input
                               type="number"
@@ -1438,8 +1448,8 @@ export default function EtiquetasPage() {
                               placeholder="0"
                               className={
                                 hasErr
-                                  ? "border-red-500 focus-visible:ring-red-500"
-                                  : ""
+                                  ? "border-red-500 focus-visible:ring-red-500 w-full min-w-0"
+                                  : "w-full min-w-0"
                               }
                             />
                             {hasErr && (
@@ -1449,17 +1459,19 @@ export default function EtiquetasPage() {
                             )}
                           </div>
 
-                          <div>
+                          {/* Unidade */}
+                          <div className="min-w-0 md:col-span-2">
                             <Label>Unidade</Label>
-                            <Input value={formData.umd} disabled readOnly />
+                            <Input className="w-full min-w-0" value={formData.umd} disabled readOnly />
                           </div>
 
-                          <div className="flex gap-2">
+                          {/* Remover */}
+                          <div className="min-w-0 md:col-span-1 md:flex md:items-end">
                             <Button
                               type="button"
                               variant="outline"
                               onClick={() => handleRemoveLinha(linha.id)}
-                              className="w-full"
+                              className="w-full md:w-auto"
                             >
                               Remover
                             </Button>
@@ -1471,11 +1483,12 @@ export default function EtiquetasPage() {
                 )}
               </div>
 
-              {/* Datas */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
+              {/* Datas (mobile 1 col / md 2 col) */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="min-w-0">
                   <Label>Data de Manipulação *</Label>
                   <Input
+                    className="w-full min-w-0"
                     value={formData.dataManip}
                     type="date"
                     disabled
@@ -1483,9 +1496,15 @@ export default function EtiquetasPage() {
                   />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <Label>Data de Vencimento *</Label>
-                  <Input type="date" value={formData.dataVenc} disabled readOnly />
+                  <Input
+                    className="w-full min-w-0"
+                    type="date"
+                    value={formData.dataVenc}
+                    disabled
+                    readOnly
+                  />
                 </div>
               </div>
 
@@ -1508,10 +1527,12 @@ export default function EtiquetasPage() {
                   <h4 className="font-semibold text-green-800">
                     Dados do Fabricante
                   </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="min-w-0">
                       <Label>Data de Fabricação</Label>
                       <Input
+                        className="w-full min-w-0"
                         type="date"
                         value={formData.dataFabricante}
                         onChange={(e) =>
@@ -1520,9 +1541,10 @@ export default function EtiquetasPage() {
                       />
                     </div>
 
-                    <div>
+                    <div className="min-w-0">
                       <Label>Validade Original (Fabricante)</Label>
                       <Input
+                        className="w-full min-w-0"
                         type="date"
                         value={formData.dataVencimento}
                         onChange={(e) =>
@@ -1531,20 +1553,20 @@ export default function EtiquetasPage() {
                       />
                     </div>
 
-                    <div>
+                    <div className="min-w-0">
                       <Label>SIF</Label>
                       <Input
+                        className="w-full min-w-0"
                         value={formData.sif}
-                        onChange={(e) =>
-                          handleInputChange("sif", e.target.value)
-                        }
+                        onChange={(e) => handleInputChange("sif", e.target.value)}
                         placeholder="Ex: SIF 123"
                       />
                     </div>
 
-                    <div>
+                    <div className="min-w-0">
                       <Label>Lote do Fabricante</Label>
                       <Input
+                        className="w-full min-w-0"
                         value={formData.loteFab}
                         onChange={(e) =>
                           handleInputChange("loteFab", e.target.value)
@@ -1557,26 +1579,27 @@ export default function EtiquetasPage() {
               )}
 
               {/* Informações Adicionais */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="min-w-0">
                   <Label>Responsável *</Label>
-                  <Input value={formData.responsavel} disabled readOnly />
+                  <Input className="w-full min-w-0" value={formData.responsavel} disabled readOnly />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <Label>Alergênico</Label>
-                  <Input value={formData.alergenico} disabled readOnly />
+                  <Input className="w-full min-w-0" value={formData.alergenico} disabled readOnly />
                 </div>
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <Label>Condições de Armazenamento</Label>
-                <Input value={formData.armazenamento} disabled readOnly />
+                <Input className="w-full min-w-0" value={formData.armazenamento} disabled readOnly />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <Label>Ingredientes</Label>
                 <Textarea
+                  className="w-full min-w-0"
                   value={formData.ingredientes}
                   disabled
                   readOnly
@@ -1586,10 +1609,11 @@ export default function EtiquetasPage() {
               </div>
 
               {/* Localização */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="min-w-0">
                   <Label>Local de Envio</Label>
                   <Input
+                    className="w-full min-w-0"
                     value={formData.localEnvio}
                     onChange={(e) =>
                       handleInputChange("localEnvio", e.target.value)
@@ -1597,9 +1621,10 @@ export default function EtiquetasPage() {
                     placeholder="Para onde será enviado"
                   />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <Label>Local de Armazenamento</Label>
                   <Input
+                    className="w-full min-w-0"
                     value={formData.localArmazenado}
                     onChange={(e) =>
                       handleInputChange("localArmazenado", e.target.value)
@@ -1609,7 +1634,8 @@ export default function EtiquetasPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end space-x-2">
+              {/* Ações */}
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 sm:gap-0">
                 <Button
                   variant="outline"
                   onClick={() => setShowNovaEtiqueta(false)}
@@ -1629,9 +1655,6 @@ export default function EtiquetasPage() {
               </div>
 
               <div className="text-xs text-muted-foreground">
-                ✅ Agora a impressão NÃO mostra o título “Manipulação/Fabricante” e inclui QR Code à esquerda.
-                ✅ QR contém apenas Produto + Qtd + Unidade (ideal para inventário).
-                ✅ No inventário, cada etiqueta é contada só 1 vez por sessão.
               </div>
             </div>
           </div>

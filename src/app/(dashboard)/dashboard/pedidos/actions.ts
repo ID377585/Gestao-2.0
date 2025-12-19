@@ -1,7 +1,10 @@
 "use server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import {
+  getActiveMembershipOrRedirect,
+  type MembershipContext,
+} from "@/lib/auth/get-membership";
 
 export type Role =
   | "cliente"
@@ -66,52 +69,18 @@ function nextStatus(current: string) {
   return flow[current] ?? null;
 }
 
-type SupabaseServerClient = Awaited<
-  ReturnType<typeof createSupabaseServerClient>
->;
-
-/**
- * ✅ O seu getActiveMembershipOrRedirect() (pelo erro do TS) está retornando algo como:
- * { user, membership, role, orgId, unitId }
- *
- * Então aqui normalizamos SEM quebrar seu código:
- * - role: vem de ctx.role (preferência) ou ctx.membership.role
- * - establishment_id: vem de ctx.membership.establishment_id (se existir) e, se não existir,
- *   caímos para unitId (útil enquanto você migra o modelo).
- */
-type MembershipCtx = {
-  user?: any;
-  membership?: any;
-  role?: Role;
-  orgId?: string | null;
-  unitId?: string | null;
-};
-
-function getRoleFromCtx(ctx: MembershipCtx): Role {
-  const r = (ctx.role ?? ctx.membership?.role) as Role | undefined;
-  if (!r) throw new Error("Membership sem role (inconsistência).");
-  return r;
+// escopo final para filtrar pedidos (coluna do banco: orders.establishment_id)
+function getScopeId(ctx: MembershipContext): string {
+  const scope = ctx.establishmentId ?? ctx.unitId;
+  if (!scope) {
+    throw new Error(
+      "Membership sem establishmentId/unitId. Verifique sua tabela memberships."
+    );
+  }
+  return scope;
 }
 
-function getScopeIdFromCtx(ctx: MembershipCtx): string {
-  // 1) modelo antigo: establishment_id dentro do membership
-  const est =
-    ctx.membership?.establishment_id ??
-    ctx.membership?.establishmentId ??
-    null;
-
-  if (typeof est === "string" && est.length > 0) return est;
-
-  // 2) fallback para unitId (modelo novo). Serve enquanto você migra.
-  const unit =
-    ctx.unitId ?? ctx.membership?.unit_id ?? ctx.membership?.unitId ?? null;
-
-  if (typeof unit === "string" && unit.length > 0) return unit;
-
-  throw new Error(
-    "Membership sem establishment_id e sem unitId. Verifique seu get-membership e o cadastro na tabela."
-  );
-}
+type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
 /** registra evento na timeline oficial (order_status_events) */
 async function logStatusEvent(params: {
@@ -139,28 +108,22 @@ async function logStatusEvent(params: {
 
 /** membership do usuário logado */
 export async function getMyMembership() {
-  const ctx = (await getActiveMembershipOrRedirect()) as MembershipCtx;
+  const ctx = await getActiveMembershipOrRedirect();
   return ctx;
 }
 
 /** cria pedido */
 export async function createOrder(): Promise<CreateOrderResult> {
   const supabase = await createSupabaseServerClient();
+  const ctx = await getActiveMembershipOrRedirect();
+  const establishmentId = getScopeId(ctx);
 
-  // ✅ garante auth + membership ativo
-  const ctx = (await getActiveMembershipOrRedirect()) as MembershipCtx;
-
-  // ✅ se você ainda quiser pegar o user_id para created_by:
   const { data: userData, error: userErr } = await supabase.auth.getUser();
   if (userErr || !userData?.user) throw new Error("Not authenticated");
-
-  // ✅ escopo (preferindo establishment_id; fallback unitId)
-  const establishmentId = getScopeIdFromCtx(ctx);
 
   const { data, error } = await supabase
     .from("orders")
     .insert({
-      // ⚠️ Mantém o nome da coluna do seu banco (establishment_id)
       establishment_id: establishmentId,
       created_by: userData.user.id,
       customer_user_id: userData.user.id,
@@ -177,14 +140,13 @@ export async function createOrder(): Promise<CreateOrderResult> {
 /** lista pedidos */
 export async function listOrders(): Promise<OrderListItem[]> {
   const supabase = await createSupabaseServerClient();
-  const ctx = (await getActiveMembershipOrRedirect()) as MembershipCtx;
-
-  const establishmentId = getScopeIdFromCtx(ctx);
+  const ctx = await getActiveMembershipOrRedirect();
+  const establishmentId = getScopeId(ctx);
 
   const { data, error } = await supabase
     .from("orders")
     .select("id, order_number, status, created_at, notes")
-    .eq("establishment_id", establishmentId) // ok manter (mesmo com RLS)
+    .eq("establishment_id", establishmentId)
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -194,9 +156,8 @@ export async function listOrders(): Promise<OrderListItem[]> {
 /** detalhe do pedido */
 export async function getOrderById(orderId: string): Promise<OrderDetails> {
   const supabase = await createSupabaseServerClient();
-  const ctx = (await getActiveMembershipOrRedirect()) as MembershipCtx;
-
-  const establishmentId = getScopeIdFromCtx(ctx);
+  const ctx = await getActiveMembershipOrRedirect();
+  const establishmentId = getScopeId(ctx);
 
   const { data, error } = await supabase
     .from("orders")
@@ -216,9 +177,8 @@ export async function getOrderTimeline(
   orderId: string
 ): Promise<OrderTimelineEvent[]> {
   const supabase = await createSupabaseServerClient();
-  const ctx = (await getActiveMembershipOrRedirect()) as MembershipCtx;
-
-  const establishmentId = getScopeIdFromCtx(ctx);
+  const ctx = await getActiveMembershipOrRedirect();
+  const establishmentId = getScopeId(ctx);
 
   const { data: order, error: orderErr } = await supabase
     .from("orders")
@@ -244,12 +204,10 @@ export async function getOrderTimeline(
 /** aceitar pedido */
 export async function acceptOrder(orderId: string): Promise<void> {
   const supabase = await createSupabaseServerClient();
-  const ctx = (await getActiveMembershipOrRedirect()) as MembershipCtx;
+  const ctx = await getActiveMembershipOrRedirect();
+  const establishmentId = getScopeId(ctx);
 
-  const role = getRoleFromCtx(ctx);
-  const establishmentId = getScopeIdFromCtx(ctx);
-
-  if (!["admin", "operacao", "producao"].includes(role)) {
+  if (!["admin", "operacao", "producao"].includes(ctx.role)) {
     throw new Error("Sem permissão para aceitar pedido.");
   }
 
@@ -287,13 +245,13 @@ export async function acceptOrder(orderId: string): Promise<void> {
 /** avançar status */
 export async function advanceOrder(orderId: string): Promise<void> {
   const supabase = await createSupabaseServerClient();
-  const ctx = (await getActiveMembershipOrRedirect()) as MembershipCtx;
-
-  const role = getRoleFromCtx(ctx);
-  const isAdmin = role === "admin";
-  const establishmentId = getScopeIdFromCtx(ctx);
+  const ctx = await getActiveMembershipOrRedirect();
+  const establishmentId = getScopeId(ctx);
 
   const order = await getOrderById(orderId);
+
+  const role = ctx.role as Role;
+  const isAdmin = role === "admin";
 
   const canAdvance =
     (["aceitou_pedido", "em_preparo"].includes(order.status) &&
@@ -334,15 +292,12 @@ export async function advanceOrder(orderId: string): Promise<void> {
 }
 
 /** cancelar pedido */
-export async function cancelOrder(
-  orderId: string,
-  reason: string
-): Promise<void> {
+export async function cancelOrder(orderId: string, reason: string): Promise<void> {
   const supabase = await createSupabaseServerClient();
-  const ctx = (await getActiveMembershipOrRedirect()) as MembershipCtx;
+  const ctx = await getActiveMembershipOrRedirect();
+  const establishmentId = getScopeId(ctx);
 
-  const role = getRoleFromCtx(ctx);
-  const establishmentId = getScopeIdFromCtx(ctx);
+  const role = ctx.role as Role;
 
   if (role === "cliente") {
     throw new Error("Sem permissão para cancelar pedido.");
@@ -384,17 +339,12 @@ export async function cancelOrder(
 }
 
 /** 🔁 reabrir pedido (cancelado -> aceitou_pedido) */
-export async function reopenOrder(
-  orderId: string,
-  note?: string
-): Promise<void> {
+export async function reopenOrder(orderId: string, note?: string): Promise<void> {
   const supabase = await createSupabaseServerClient();
-  const ctx = (await getActiveMembershipOrRedirect()) as MembershipCtx;
+  const ctx = await getActiveMembershipOrRedirect();
+  const establishmentId = getScopeId(ctx);
 
-  const role = getRoleFromCtx(ctx);
-  const establishmentId = getScopeIdFromCtx(ctx);
-
-  if (!["admin", "operacao", "producao"].includes(role)) {
+  if (!["admin", "operacao", "producao"].includes(ctx.role)) {
     throw new Error("Sem permissão para reabrir pedido.");
   }
 

@@ -52,7 +52,23 @@ function LoginInner() {
         return;
       }
 
-      // Session cookie será gerado pelo fluxo SSR/middleware (via @supabase/ssr)
+      // ✅ DEV FIX: garante role no token para o middleware liberar rotas
+      // (depois a gente substitui isso para vir do membership/servidor)
+      const currentRole = data.user.user_metadata?.role || data.user.app_metadata?.role;
+      if (!currentRole) {
+        const { error: updateErr } = await supabase.auth.updateUser({
+          data: { role: "admin" },
+        });
+
+        if (updateErr) {
+          // não bloqueia login, mas informa pra facilitar debug
+          console.error("Falha ao setar role no user_metadata:", updateErr);
+        }
+
+        // força re-leitura de sessão/token após updateUser
+        await supabase.auth.getSession();
+      }
+
       router.replace(redirect);
       router.refresh();
     } catch (err: any) {
@@ -139,6 +155,9 @@ function LoginInner() {
               <p className="text-xs text-gray-500 mt-2">
                 *Essas credenciais precisam existir no Supabase Auth (Users).
               </p>
+              <p className="text-xs text-gray-500 mt-2">
+                *DEV: ao logar, se não existir role, será setado role=admin no user_metadata.
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -155,7 +174,9 @@ function LoginInner() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="text-sm text-muted-foreground p-4">Carregando...</div>}>
+    <Suspense
+      fallback={<div className="text-sm text-muted-foreground p-4">Carregando...</div>}
+    >
       <LoginInner />
     </Suspense>
   );

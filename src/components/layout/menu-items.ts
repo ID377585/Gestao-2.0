@@ -11,8 +11,8 @@ import {
   ShoppingCart,
   Users,
   AlertTriangle,
-  Repeat,
-  DollarSign,
+  ArrowLeftRight,
+  BadgeDollarSign,
 } from "lucide-react";
 
 export type Role =
@@ -38,9 +38,8 @@ export type MenuSection = {
 };
 
 /**
- * IMPORTANTE:
- * - Aqui fica o menu "fonte única da verdade".
- * - Desktop e Mobile devem renderizar exatamente isso.
+ * Fonte única do menu.
+ * Desktop e Mobile devem renderizar exatamente isso.
  */
 export const MENU_SECTIONS: MenuSection[] = [
   {
@@ -52,7 +51,10 @@ export const MENU_SECTIONS: MenuSection[] = [
       { label: "Estoque", href: "/dashboard/estoque", icon: Package },
       { label: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },
       { label: "Etiquetas", href: "/dashboard/etiquetas", icon: Tag },
-      { label: "Histórico", href: "/dashboard/historico", icon: History },
+
+      // ✅ alinhar com o desktop:
+      { label: "Histórico", href: "/dashboard/historico-pedidos", icon: History },
+
       { label: "Compras", href: "/dashboard/compras", icon: ShoppingCart },
     ],
   },
@@ -60,10 +62,13 @@ export const MENU_SECTIONS: MenuSection[] = [
     section: "Administração",
     roles: ["admin"],
     items: [
+      // ✅ ESTES SÃO OS QUE ESTÃO FALTANDO NO MOBILE:
       { label: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },
-      { label: "Transferências", href: "/dashboard/transferencias", icon: Repeat },
-      { label: "Controladoria", href: "/dashboard/controladoria", icon: DollarSign },
-      { label: "Usuários", href: "/dashboard/usuarios", icon: Users },
+      { label: "Transferências", href: "/dashboard/transferencias", icon: ArrowLeftRight },
+      { label: "Controladoria", href: "/dashboard/controladoria", icon: BadgeDollarSign },
+
+      // ✅ manter o seu caminho real:
+      { label: "Usuários", href: "/dashboard/admin/usuarios", icon: Users },
     ],
   },
 ];

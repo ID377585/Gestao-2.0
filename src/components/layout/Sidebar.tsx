@@ -74,9 +74,9 @@ export function Sidebar({ className }: SidebarProps) {
     const isDesktop = variant === "desktop";
 
     return (
-      <div className={cn("flex flex-col", isDesktop ? "min-h-screen" : "")}>
+      <div className={cn("flex h-full flex-col", isDesktop ? "min-h-screen" : "")}>
         {/* Header / Logo */}
-        <div className="flex h-16 items-center justify-between border-b px-4">
+        <div className="flex h-16 shrink-0 items-center justify-between border-b px-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-r from-blue-600 to-green-600 text-sm font-bold text-white">
               G2
@@ -114,8 +114,8 @@ export function Sidebar({ className }: SidebarProps) {
           )}
         </div>
 
-        {/* Menu */}
-        <nav className="flex-1 px-3 py-4">
+        {/* Menu (SCROLL AQUI) */}
+        <nav className="flex-1 overflow-y-auto px-3 py-4">
           <div className="space-y-3">
             {(variant === "mobile" || !collapsed) && (
               <h3 className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -219,7 +219,8 @@ export function Sidebar({ className }: SidebarProps) {
         </Button>
 
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-[300px] p-0">
+          {/* ✅ overflow-y-auto + h-full garantem o scroll */}
+          <SheetContent side="left" className="w-[300px] p-0 overflow-y-auto">
             <SidebarContent variant="mobile" onNavigate={() => setMobileOpen(false)} />
           </SheetContent>
         </Sheet>

@@ -270,9 +270,23 @@ export async function getInventorySessionWithItems(): Promise<{
     throw new Error("Não foi possível carregar os itens da sessão.");
   }
 
+  // Normaliza o relacionamento product:products que veio como array
+  const normalizedItems = (items ?? []).map((row: any) => {
+    const prodArr = row.product as any[] | null | undefined;
+    const firstProd =
+      prodArr && Array.isArray(prodArr) && prodArr.length > 0
+        ? prodArr[0]
+        : null;
+
+    return {
+      ...row,
+      product: firstProd,
+    };
+  }) as InventoryItemRow[];
+
   return {
     session,
-    items: (items as InventoryItemRow[]) ?? [],
+    items: normalizedItems,
   };
 }
 

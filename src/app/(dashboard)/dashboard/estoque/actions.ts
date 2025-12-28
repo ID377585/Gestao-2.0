@@ -56,17 +56,16 @@ export type AddInventoryItemInput = {
 // =======================================================
 async function getSupabaseAndEstablishment() {
   const supabase = await createSupabaseServerClient();
-  const active = await getActiveMembershipOrRedirect(supabase);
 
-  // Se a função retornar { membership: { ... } }, usamos membership.
-  const membership = (active as any).membership ?? active;
+  // ✅ Agora usamos o helper no formato novo (sem passar supabase)
+  const { membership } = await getActiveMembershipOrRedirect();
 
   const establishmentId = (membership as any)?.establishment_id as
     | string
     | undefined;
 
   if (!establishmentId) {
-    console.error("Objeto de membership recebido:", active);
+    console.error("Objeto de membership recebido:", membership);
     throw new Error(
       "Estabelecimento não encontrado para o usuário atual ao carregar dados de estoque."
     );

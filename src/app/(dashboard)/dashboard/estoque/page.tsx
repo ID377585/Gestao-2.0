@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -14,106 +19,443 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 
-// Dados de exemplo para estoque
-const estoqueExemplo = [
-  {
-    id: 1,
-    produto: "Farinha de Trigo",
-    quantidade: 25.5,
-    unidade: "kg",
-    minimo: 10,
-    medio: 25,
-    maximo: 50,
-    valor: 4.50,
-    local: "Estoque Seco",
-    status: "normal"
-  },
-  {
-    id: 2,
-    produto: "Açúcar Cristal",
-    quantidade: 8.2,
-    unidade: "kg",
-    minimo: 5,
-    medio: 15,
-    maximo: 30,
-    valor: 3.20,
-    local: "Estoque Seco",
-    status: "baixo"
-  },
-  {
-    id: 3,
-    produto: "Ovos",
-    quantidade: 45,
-    unidade: "un",
-    minimo: 50,
-    medio: 100,
-    maximo: 200,
-    valor: 0.45,
-    local: "Geladeira",
-    status: "critico"
-  },
-  {
-    id: 4,
-    produto: "Leite Integral",
-    quantidade: 22.0,
-    unidade: "lt",
-    minimo: 10,
-    medio: 20,
-    maximo: 40,
-    valor: 4.80,
-    local: "Geladeira",
-    status: "normal"
-  },
-  {
-    id: 5,
-    produto: "Manteiga",
-    quantidade: 4.5,
-    unidade: "kg",
-    minimo: 2,
-    medio: 5,
-    maximo: 10,
-    valor: 18.90,
-    local: "Geladeira",
-    status: "normal"
-  }
-];
+import {
+  listCurrentStock,
+  startInventorySession,
+  addInventoryItem,
+  getInventorySessionWithItems,
+  finalizeInventory,
+  seedInitialStockFromProducts,
+  listProductsForInventory,
+  updateStockThresholds,
+} from "./actions";
 
-const statusConfig = {
-  critico: { label: "Crítico", color: "bg-red-500", textColor: "text-red-700" },
-  baixo: { label: "Baixo", color: "bg-yellow-500", textColor: "text-yellow-700" },
-  normal: { label: "Normal", color: "bg-green-500", textColor: "text-green-700" }
+// ===== Tipagens auxiliares =====
+
+type StockRow = {
+  id: string;
+  quantity: number;
+  unit_label: string | null;
+  min_qty: number | null;
+  med_qty: number | null;
+  max_qty: number | null;
+  location: string | null;
+  product: {
+    id: string;
+    name: string;
+    price: number | null;
+  } | null;
 };
 
+type InventorySession = {
+  id: string;
+  status: string;
+  started_at?: string | null;
+};
+
+type InventoryItem = {
+  id: string;
+  counted_quantity: number;
+  unit_label: string | null;
+  product: {
+    id: string;
+    name: string;
+  } | null;
+};
+
+type StatusEstoque = "critico" | "baixo" | "normal";
+
+type ProductOption = {
+  id: string;
+  name: string;
+  default_unit_label: string | null;
+};
+
+type ThresholdDrafts = Record<
+  string,
+  {
+    min: string;
+    med: string;
+    max: string;
+  }
+>;
+
+const statusConfig: Record<
+  StatusEstoque,
+  { label: string; badgeClass: string }
+> = {
+  critico: { label: "Crítico", badgeClass: "bg-red-600 text-white" },
+  baixo: { label: "Baixo", badgeClass: "bg-yellow-500 text-white" },
+  normal: { label: "Normal", badgeClass: "bg-green-500 text-white" },
+};
+
+function getStatusFromRow(row: StockRow): StatusEstoque {
+  const q = row.quantity ?? 0;
+  const min = row.min_qty ?? 0;
+  const med = row.med_qty ?? 0;
+
+  if (q < min) return "critico";
+  if (q < med) return "baixo";
+  return "normal";
+}
+
 export default function EstoquePage() {
-  const [estoque] = useState(estoqueExemplo);
-  const [showInventario, setShowInventario] = useState(false);
-  const [inventarioAtivo, setInventarioAtivo] = useState(false);
+  const { toast } = useToast();
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL'
+  // ===== Estado principal de estoque =====
+  const [stock, setStock] = useState<StockRow[]>([]);
+  const [loadingStock, setLoadingStock] = useState(true);
+
+  // drafts de Min/Méd/Máx por linha
+  const [thresholdDrafts, setThresholdDrafts] = useState<ThresholdDrafts>({});
+  const [savingThresholdRowId, setSavingThresholdRowId] = useState<string | null>(
+    null
+  );
+
+  // ===== Produtos (tabela products) para o inventário =====
+  const [products, setProducts] = useState<ProductOption[]>([]);
+
+  // ===== Inventário =====
+  const [inventoryModalOpen, setInventoryModalOpen] = useState(false);
+  const [inventorySession, setInventorySession] =
+    useState<InventorySession | null>(null);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [loadingInventory, setLoadingInventory] = useState(false);
+  const [savingItem, setSavingItem] = useState(false);
+  const [finalizingInventory, setFinalizingInventory] = useState(false);
+
+  // Data do último inventário encerrado (para mostrar em "Estoque Atual")
+  const [lastInventoryDate, setLastInventoryDate] = useState<string | null>(
+    null
+  );
+
+  // Form do inventário
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [countedQuantity, setCountedQuantity] = useState<string>("");
+
+  // ===== Carrega estoque atual =====
+  const loadStock = async () => {
+    setLoadingStock(true);
+    try {
+      const data = (await listCurrentStock()) as StockRow[];
+      setStock(data ?? []);
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Erro ao carregar estoque",
+        description: e?.message ?? "Não foi possível carregar os dados.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingStock(false);
+    }
+  };
+
+  // Helper para formatar datas (pt-BR)
+  const formatDateTime = (value: string | Date | null | undefined) => {
+    if (!value) return "";
+    const date = typeof value === "string" ? new Date(value) : value;
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(date);
+  };
+
+  // 🚀 Bootstrap inicial: carrega produtos + estoque, e cria saldos iniciais se necessário
+  useEffect(() => {
+    const bootstrap = async () => {
+      try {
+        // 1) Carrega produtos da tabela products
+        const prods = (await listProductsForInventory()) as ProductOption[];
+        setProducts(prods ?? []);
+
+        // 2) Verifica se já existe saldo em stock_balances
+        const current = (await listCurrentStock()) as StockRow[];
+
+        if (!current || current.length === 0) {
+          // Cria saldos iniciais a partir de products (quantidade 0)
+          try {
+            await seedInitialStockFromProducts();
+          } catch (seedErr: any) {
+            console.error("Falha ao criar estoque inicial:", seedErr);
+          }
+        }
+
+        // 3) Carrega estoque atual para exibir tabela e KPIs
+        await loadStock();
+      } catch (e: any) {
+        console.error(e);
+        toast({
+          title: "Erro ao carregar estoque",
+          description: e?.message ?? "Não foi possível carregar os dados.",
+          variant: "destructive",
+        });
+      }
+    };
+
+    bootstrap();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sempre que o estoque muda, atualizamos os drafts de Min/Méd/Máx
+  useEffect(() => {
+    const drafts: ThresholdDrafts = {};
+    stock.forEach((row) => {
+      drafts[row.id] = {
+        min: row.min_qty !== null && row.min_qty !== undefined ? String(row.min_qty) : "",
+        med: row.med_qty !== null && row.med_qty !== undefined ? String(row.med_qty) : "",
+        max: row.max_qty !== null && row.max_qty !== undefined ? String(row.max_qty) : "",
+      };
+    });
+    setThresholdDrafts(drafts);
+  }, [stock]);
+
+  // ===== Métricas / KPIs =====
+  const totalItens = stock.length;
+
+  const valorTotal = useMemo(() => {
+    return stock.reduce((acc, row) => {
+      const price = row.product?.price ?? 0;
+      return acc + row.quantity * price;
+    }, 0);
+  }, [stock]);
+
+  const totalCriticos = useMemo(
+    () => stock.filter((row) => getStatusFromRow(row) === "critico").length,
+    [stock]
+  );
+
+  const totalBaixos = useMemo(
+    () => stock.filter((row) => getStatusFromRow(row) === "baixo").length,
+    [stock]
+  );
+
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
     }).format(value);
+
+  // ===== Inventário: abrir / carregar sessão =====
+  const openInventoryModal = async () => {
+    setLoadingInventory(true);
+    try {
+      // tenta obter sessão em andamento
+      const existing = await getInventorySessionWithItems();
+
+      if (existing) {
+        setInventorySession(existing.session as InventorySession);
+        setInventoryItems(existing.items as InventoryItem[]);
+      } else {
+        // se não existe, cria uma nova
+        const created = (await startInventorySession()) as InventorySession;
+        setInventorySession(created);
+        setInventoryItems([]);
+      }
+
+      setInventoryModalOpen(true);
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Erro ao iniciar inventário",
+        description: e?.message ?? "Não foi possível iniciar a sessão.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingInventory(false);
+    }
   };
 
-  const calcularValorTotal = () => {
-    return estoque.reduce((acc, item) => acc + (item.quantidade * item.valor), 0);
+  const closeInventoryModal = () => {
+    setInventoryModalOpen(false);
+    setSelectedProductId("");
+    setCountedQuantity("");
   };
 
-  const getItensPorStatus = (status: string) => {
-    return estoque.filter(item => item.status === status);
+  // ===== Inventário: adicionar item contado =====
+  const handleAddInventoryItem = async () => {
+    if (!inventorySession) {
+      toast({
+        title: "Inventário não iniciado",
+        description: "Inicie o inventário antes de adicionar itens.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!selectedProductId) {
+      toast({
+        title: "Selecione um produto",
+        description: "Escolha um produto para registrar a contagem.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const qtyNumber = Number(countedQuantity.replace(",", "."));
+
+    if (!qtyNumber || qtyNumber <= 0) {
+      toast({
+        title: "Quantidade inválida",
+        description: "Informe uma quantidade maior que zero.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const stockRow = stock.find((s) => s.product?.id === selectedProductId);
+    const unitLabelFromStock = stockRow?.unit_label ?? null;
+    const productMeta = products.find((p) => p.id === selectedProductId);
+    const unitLabel =
+      unitLabelFromStock ?? productMeta?.default_unit_label ?? "un";
+
+    try {
+      setSavingItem(true);
+
+      await addInventoryItem({
+        session_id: inventorySession.id,
+        product_id: selectedProductId,
+        counted_quantity: qtyNumber,
+        unit_label: unitLabel,
+      });
+
+      // recarrega itens da sessão
+      const refreshed = await getInventorySessionWithItems();
+      if (refreshed) {
+        setInventorySession(refreshed.session as InventorySession);
+        setInventoryItems(refreshed.items as InventoryItem[]);
+      }
+
+      setSelectedProductId("");
+      setCountedQuantity("");
+
+      toast({
+        title: "Item adicionado",
+        description: "A contagem foi registrada para este produto.",
+      });
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Erro ao adicionar item",
+        description: e?.message ?? "Não foi possível registrar a contagem.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingItem(false);
+    }
   };
 
-  const iniciarInventario = () => {
-    setInventarioAtivo(true);
-    setShowInventario(true);
+  // ===== Inventário: finalizar sessão =====
+  const handleFinalizeInventory = async () => {
+    if (!inventorySession) return;
+
+    if (
+      !confirm(
+        "Tem certeza que deseja encerrar este inventário? Os saldos do estoque serão recalculados."
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setFinalizingInventory(true);
+      await finalizeInventory(inventorySession.id);
+
+      // guarda a data da contagem (se tiver started_at, usa; senão, agora)
+      const sessionDate =
+        inventorySession.started_at ?? new Date().toISOString();
+      setLastInventoryDate(sessionDate);
+
+      toast({
+        title: "Inventário encerrado",
+        description:
+          "Os saldos de estoque foram atualizados com base nas contagens.",
+      });
+
+      // fecha modal e recarrega estoque atual
+      closeInventoryModal();
+      await loadStock();
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Erro ao encerrar inventário",
+        description: e?.message ?? "Não foi possível finalizar o inventário.",
+        variant: "destructive",
+      });
+    } finally {
+      setFinalizingInventory(false);
+    }
   };
 
-  const encerrarInventario = () => {
-    setInventarioAtivo(false);
-    setShowInventario(false);
-    // TODO: Implementar lógica de encerramento
+  const selectedProductRow = stock.find(
+    (s) => s.product?.id === selectedProductId
+  );
+  const productMeta = products.find((p) => p.id === selectedProductId);
+  const selectedUnit =
+    selectedProductRow?.unit_label ?? productMeta?.default_unit_label ?? "";
+
+  // data que será exibida no modal (sempre somente leitura)
+  const inventoryDateDisplay =
+    inventorySession?.started_at ?? new Date().toISOString();
+
+  // ===== Handlers de edição Min/Méd/Máx =====
+  const handleThresholdChange = (
+    balanceId: string,
+    field: "min" | "med" | "max",
+    value: string
+  ) => {
+    setThresholdDrafts((prev) => ({
+      ...prev,
+      [balanceId]: {
+        ...(prev[balanceId] ?? { min: "", med: "", max: "" }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleThresholdBlur = async (balanceId: string) => {
+    const draft = thresholdDrafts[balanceId];
+    if (!draft) return;
+
+    const min = Number(draft.min || "0");
+    const med = Number(draft.med || "0");
+    const max = Number(draft.max || "0");
+
+    // nada pra salvar se estiver tudo igual a zero e já era zero
+    const row = stock.find((s) => s.id === balanceId);
+    if (
+      row &&
+      row.min_qty === min &&
+      row.med_qty === med &&
+      row.max_qty === max
+    ) {
+      return;
+    }
+
+    try {
+      setSavingThresholdRowId(balanceId);
+      await updateStockThresholds(balanceId, min, med, max);
+      await loadStock();
+      toast({
+        title: "Limites atualizados",
+        description: "Min/Méd/Máx atualizados com sucesso para este produto.",
+      });
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Erro ao atualizar limites",
+        description:
+          e?.message ?? "Não foi possível atualizar Min/Méd/Máx deste item.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingThresholdRowId(null);
+    }
   };
 
   return (
@@ -122,60 +464,71 @@ export default function EstoquePage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Estoque</h1>
-          <p className="text-gray-600">Controle de estoque atual e inventário</p>
+          <p className="text-gray-600">
+            Controle de estoque atual e inventário
+          </p>
         </div>
+
         <div className="flex space-x-2">
-          <Button variant="outline">
+          <Button variant="outline" disabled>
             <span className="mr-2">📥</span>
             Entrada
           </Button>
-          <Button variant="outline">
+          <Button variant="outline" disabled>
             <span className="mr-2">📤</span>
             Saída
           </Button>
-          <Button onClick={iniciarInventario}>
+          <Button onClick={openInventoryModal} disabled={loadingInventory}>
             <span className="mr-2">📋</span>
-            {inventarioAtivo ? "Continuar Inventário" : "Iniciar Inventário"}
+            Iniciar Inventário
           </Button>
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total de Itens</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Total de Itens
+            </CardTitle>
             <span className="text-2xl">📦</span>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{estoque.length}</div>
+            <div className="text-2xl font-bold">
+              {loadingStock ? "…" : totalItens}
+            </div>
             <p className="text-xs text-muted-foreground">
               Produtos cadastrados
             </p>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Valor Total</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Valor Total
+            </CardTitle>
             <span className="text-2xl">💰</span>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(calcularValorTotal())}</div>
-            <p className="text-xs text-muted-foreground">
-              Valor do estoque
-            </p>
+            <div className="text-2xl font-bold">
+              {loadingStock ? "R$ 0,00" : formatCurrency(valorTotal)}
+            </div>
+            <p className="text-xs text-muted-foreground">Valor do estoque</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Estoque Crítico</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Críticos
+            </CardTitle>
             <span className="text-2xl">🚨</span>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
-              {getItensPorStatus('critico').length}
+              {loadingStock ? "…" : totalCriticos}
             </div>
             <p className="text-xs text-muted-foreground">
               Itens abaixo do mínimo
@@ -185,12 +538,14 @@ export default function EstoquePage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Estoque Baixo</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Baixos
+            </CardTitle>
             <span className="text-2xl">⚠️</span>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-yellow-600">
-              {getItensPorStatus('baixo').length}
+              {loadingStock ? "…" : totalBaixos}
             </div>
             <p className="text-xs text-muted-foreground">
               Itens próximos ao mínimo
@@ -199,164 +554,292 @@ export default function EstoquePage() {
         </Card>
       </div>
 
-      {/* Alertas */}
-      {(getItensPorStatus('critico').length > 0 || getItensPorStatus('baixo').length > 0) && (
-        <Card className="border-yellow-200 bg-yellow-50">
-          <CardHeader>
-            <CardTitle className="text-yellow-800">⚠️ Alertas de Estoque</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {getItensPorStatus('critico').length > 0 && (
-                <p className="text-sm text-red-700">
-                  <strong>{getItensPorStatus('critico').length} itens</strong> estão com estoque crítico e precisam de reposição urgente.
-                </p>
-              )}
-              {getItensPorStatus('baixo').length > 0 && (
-                <p className="text-sm text-yellow-700">
-                  <strong>{getItensPorStatus('baixo').length} itens</strong> estão com estoque baixo.
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Tabela de Estoque */}
+      {/* Tabela Estoque Atual */}
       <Card>
         <CardHeader>
-          <CardTitle>Estoque Atual</CardTitle>
-          <CardDescription>
-            Lista completa de produtos em estoque
-          </CardDescription>
+          <div className="flex items-baseline justify-between gap-2">
+            <div>
+              <CardTitle>Estoque Atual</CardTitle>
+              <CardDescription>
+                Valores após o último inventário
+              </CardDescription>
+            </div>
+            <p className="text-xs text-muted-foreground whitespace-nowrap">
+              {lastInventoryDate
+                ? `Último inventário em ${formatDateTime(lastInventoryDate)}`
+                : "Nenhum inventário encerrado ainda."}
+            </p>
+          </div>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Produto</TableHead>
-                <TableHead>Quantidade</TableHead>
-                <TableHead>Mín/Méd/Máx</TableHead>
+                <TableHead>Qtd</TableHead>
+                <TableHead>Min/Méd/Máx</TableHead>
                 <TableHead>Valor Unit.</TableHead>
-                <TableHead>Valor Total</TableHead>
+                <TableHead>Total</TableHead>
                 <TableHead>Local</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {estoque.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.produto}</TableCell>
-                  <TableCell>
-                    {item.quantidade} {item.unidade}
-                  </TableCell>
-                  <TableCell className="text-sm text-gray-600">
-                    {item.minimo}/{item.medio}/{item.maximo}
-                  </TableCell>
-                  <TableCell>{formatCurrency(item.valor)}</TableCell>
-                  <TableCell>{formatCurrency(item.quantidade * item.valor)}</TableCell>
-                  <TableCell>{item.local}</TableCell>
-                  <TableCell>
-                    <Badge 
-                      variant="secondary" 
-                      className={`${statusConfig[item.status as keyof typeof statusConfig]?.color} text-white`}
-                    >
-                      {statusConfig[item.status as keyof typeof statusConfig]?.label}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex space-x-1">
-                      <Button size="sm" variant="outline">
-                        ✏️
-                      </Button>
-                      <Button size="sm" variant="outline">
-                        📊
-                      </Button>
-                    </div>
+              {loadingStock ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className="text-sm text-muted-foreground"
+                  >
+                    Carregando...
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : stock.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className="text-sm text-muted-foreground"
+                  >
+                    Nenhum item de estoque cadastrado ainda.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                stock.map((row) => {
+                  const status = getStatusFromRow(row);
+                  const badgeCfg = statusConfig[status];
+                  const unit = row.unit_label ?? "un";
+                  const price = row.product?.price ?? 0;
+
+                  const draft = thresholdDrafts[row.id] ?? {
+                    min:
+                      row.min_qty !== null && row.min_qty !== undefined
+                        ? String(row.min_qty)
+                        : "",
+                    med:
+                      row.med_qty !== null && row.med_qty !== undefined
+                        ? String(row.med_qty)
+                        : "",
+                    max:
+                      row.max_qty !== null && row.max_qty !== undefined
+                        ? String(row.max_qty)
+                        : "",
+                  };
+
+                  const disabled = savingThresholdRowId === row.id;
+
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-medium">
+                        {row.product?.name ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        {row.quantity} {unit}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            className="h-7 w-16 text-xs"
+                            value={draft.min}
+                            disabled={disabled}
+                            onChange={(e) =>
+                              handleThresholdChange(row.id, "min", e.target.value)
+                            }
+                            onBlur={() => handleThresholdBlur(row.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                (e.currentTarget as HTMLInputElement).blur();
+                              }
+                            }}
+                          />
+                          <span className="text-[10px] text-gray-400">/</span>
+                          <Input
+                            type="number"
+                            className="h-7 w-16 text-xs"
+                            value={draft.med}
+                            disabled={disabled}
+                            onChange={(e) =>
+                              handleThresholdChange(row.id, "med", e.target.value)
+                            }
+                            onBlur={() => handleThresholdBlur(row.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                (e.currentTarget as HTMLInputElement).blur();
+                              }
+                            }}
+                          />
+                          <span className="text-[10px] text-gray-400">/</span>
+                          <Input
+                            type="number"
+                            className="h-7 w-16 text-xs"
+                            value={draft.max}
+                            disabled={disabled}
+                            onChange={(e) =>
+                              handleThresholdChange(row.id, "max", e.target.value)
+                            }
+                            onBlur={() => handleThresholdBlur(row.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                (e.currentTarget as HTMLInputElement).blur();
+                              }
+                            }}
+                          />
+                        </div>
+                      </TableCell>
+                      <TableCell>{formatCurrency(price)}</TableCell>
+                      <TableCell>
+                        {formatCurrency(price * (row.quantity ?? 0))}
+                      </TableCell>
+                      <TableCell>{row.location ?? "—"}</TableCell>
+                      <TableCell>
+                        <Badge className={badgeCfg.badgeClass}>
+                          {badgeCfg.label}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
       {/* Modal de Inventário */}
-      {showInventario && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+      {inventoryModalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-3xl max-h-[80vh] overflow-y-auto shadow-lg">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">
-                {inventarioAtivo ? "Inventário em Andamento" : "Iniciar Inventário"}
+                Inventário em Andamento
               </h3>
-              <Button variant="ghost" onClick={() => setShowInventario(false)}>
+              <Button variant="ghost" onClick={closeInventoryModal}>
                 ✕
               </Button>
             </div>
 
-            {!inventarioAtivo ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="local">Local/Setor</Label>
-                    <Input id="local" placeholder="Ex: Estoque Seco" />
-                  </div>
-                  <div>
-                    <Label htmlFor="responsavel">Responsável</Label>
-                    <Input id="responsavel" value="Admin User" disabled />
-                  </div>
-                </div>
-                <div className="flex justify-end space-x-2">
-                  <Button variant="outline" onClick={() => setShowInventario(false)}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={iniciarInventario}>
-                    Iniciar Contagem
-                  </Button>
-                </div>
-              </div>
+            {loadingInventory ? (
+              <p className="text-sm text-muted-foreground">
+                Carregando sessão de inventário...
+              </p>
             ) : (
               <div className="space-y-4">
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <p className="text-sm text-blue-700">
-                    <strong>Inventário iniciado!</strong> Adicione os itens contados abaixo.
-                  </p>
+                <div className="bg-blue-50 border border-blue-100 p-3 rounded-md text-sm text-blue-800">
+                  Inventário iniciado! Adicione os itens contados abaixo. Ao
+                  encerrar o inventário, os saldos de estoque serão atualizados
+                  com estas quantidades.
                 </div>
-                
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
+
+                {/* Data do inventário (somente leitura) */}
+                <div className="flex justify-between text-xs text-gray-600">
+                  <span>
+                    Data do inventário:{" "}
+                    <span className="font-medium">
+                      {formatDateTime(inventoryDateDisplay)}
+                    </span>
+                  </span>
+                </div>
+
+                {/* Form de contagem */}
+                <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr] gap-4">
+                  <div className="flex flex-col gap-1">
                     <Label htmlFor="produto">Produto</Label>
-                    <Input id="produto" placeholder="Nome do produto" />
+                    <select
+                      id="produto"
+                      className="border rounded-md px-2 py-2 text-sm"
+                      value={selectedProductId}
+                      onChange={(e) => setSelectedProductId(e.target.value)}
+                    >
+                      <option value="">Selecione um produto</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                  <div>
+
+                  <div className="flex flex-col gap-1">
                     <Label htmlFor="quantidade">Quantidade</Label>
-                    <Input id="quantidade" type="number" placeholder="0" />
+                    <Input
+                      id="quantidade"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="0"
+                      value={countedQuantity}
+                      onChange={(e) => setCountedQuantity(e.target.value)}
+                    />
                   </div>
-                  <div>
+
+                  <div className="flex flex-col gap-1">
                     <Label htmlFor="unidade">Unidade</Label>
-                    <Input id="unidade" placeholder="kg, un, lt" />
+                    <Input
+                      id="unidade"
+                      readOnly
+                      value={selectedUnit || ""}
+                      placeholder="Unidade"
+                    />
                   </div>
                 </div>
 
-                <Button className="w-full">
-                  <span className="mr-2">➕</span>
-                  Adicionar Item
+                {/* Botão ADICIONAR ITEM mais destacado */}
+                <Button
+                  className="w-full mt-2 bg-emerald-600 text-white hover:bg-emerald-700 font-semibold shadow-sm"
+                  onClick={handleAddInventoryItem}
+                  disabled={savingItem}
+                >
+                  {savingItem ? "Salvando..." : "Adicionar Item"}
                 </Button>
 
+                {/* Lista de itens contados */}
                 <div className="border-t pt-4">
-                  <h4 className="font-medium mb-2">Itens Contados (0)</h4>
-                  <p className="text-sm text-gray-600">
-                    Nenhum item foi contado ainda.
-                  </p>
+                  <h4 className="font-medium mb-2">
+                    Itens Contados ({inventoryItems.length})
+                  </h4>
+
+                  {inventoryItems.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Nenhum item foi contado ainda.
+                    </p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Produto</TableHead>
+                          <TableHead>Qtd.</TableHead>
+                          <TableHead>Un.</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {inventoryItems.map((item) => (
+                          <TableRow key={item.id}>
+                            <TableCell>
+                              {item.product?.name ?? "—"}
+                            </TableCell>
+                            <TableCell>{item.counted_quantity}</TableCell>
+                            <TableCell>{item.unit_label ?? "un"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
                 </div>
 
-                <div className="flex justify-end space-x-2">
-                  <Button variant="outline" onClick={() => setShowInventario(false)}>
+                {/* Botões do rodapé */}
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={closeInventoryModal}>
                     Fechar
                   </Button>
-                  <Button variant="destructive" onClick={encerrarInventario}>
-                    Encerrar Inventário
+                  <Button
+                    variant="destructive"
+                    className="bg-red-600 text-white hover:bg-red-700"
+                    onClick={handleFinalizeInventory}
+                    disabled={finalizingInventory}
+                  >
+                    {finalizingInventory
+                      ? "Encerrando..."
+                      : "Encerrar Inventário"}
                   </Button>
                 </div>
               </div>

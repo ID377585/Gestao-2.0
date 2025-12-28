@@ -22,11 +22,14 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   BadgeDollarSign,
+  Split,
 } from "lucide-react";
 
 const menuItems = [
   { title: "Pedidos", href: "/dashboard/pedidos", icon: ClipboardList },
   { title: "Produção", href: "/dashboard/producao", icon: Factory },
+  // 🔹 NOVO ITEM AQUI
+  { title: "Separação", href: "/dashboard/separacao", icon: Split },
   { title: "Produtividade", href: "/dashboard/produtividade", icon: BarChart3 },
   { title: "Estoque", href: "/dashboard/estoque", icon: Package },
   { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },

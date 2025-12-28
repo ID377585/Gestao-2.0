@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
-
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -24,19 +23,13 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-
-import { createOrder, listOrders } from "./actions";
+import { listOrders } from "./actions";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { NewOrderDialog } from "./NewOrderDialog"; // <-- usamos o novo componente
 
+// =============================================
+// TIPAGEM DOS PEDIDOS
+// =============================================
 type Pedido = {
   id: string;
   order_number: number | null;
@@ -70,17 +63,20 @@ function getStatusLabel(status: string) {
   return STATUS_LABEL[status] ?? status;
 }
 
-function getStatusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+function getStatusBadgeVariant(
+  status: string
+): "default" | "secondary" | "destructive" | "outline" {
   if (status === "cancelado") return "destructive";
   if (status === "entregue") return "default";
   if (status === "pedido_criado") return "secondary";
   return "outline";
 }
 
+// =============================================
+// COMPONENTE PRINCIPAL DA PÁGINA
+// =============================================
 export default function PedidosPage() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
 
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
@@ -88,8 +84,9 @@ export default function PedidosPage() {
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
 
-  const [observacoes, setObservacoes] = useState("");
-
+  // ============================
+  // AUTENTICAÇÃO
+  // ============================
   useEffect(() => {
     let cancelled = false;
 
@@ -114,6 +111,9 @@ export default function PedidosPage() {
     };
   }, [supabase]);
 
+  // ============================
+  // CARREGAR LISTA DE PEDIDOS
+  // ============================
   const loadOrders = async () => {
     try {
       setIsLoadingOrders(true);
@@ -145,33 +145,11 @@ export default function PedidosPage() {
     if (!authUserId) return;
 
     loadOrders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecked, authUserId]);
 
-  const registrarPedido = async () => {
-    if (!authUserId) {
-      alert("Você precisa estar logado para registrar um pedido.");
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      await createOrder();
-      await loadOrders();
-      setObservacoes("");
-      setOpenDialog(false);
-    } catch (err: any) {
-      console.error(err);
-      alert(
-        `Não foi possível registrar o pedido.\n\nDetalhe: ${
-          err?.message ?? "Erro desconhecido"
-        }`
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
+  // =============================================
+  // RENDERIZAÇÃO
+  // =============================================
   return (
     <div className="space-y-6">
       <PageHeader />
@@ -198,12 +176,12 @@ export default function PedidosPage() {
             {isLoadingOrders ? "Atualizando..." : "Atualizar"}
           </Button>
 
-          <Button onClick={() => setOpenDialog(true)} disabled={!authUserId}>
-            Novo Pedido
-          </Button>
+          {/* Aqui entra o novo formulário */}
+          <NewOrderDialog onCreated={loadOrders} />
         </div>
       </div>
 
+      {/* ===================== TABELA ===================== */}
       <Card>
         <CardHeader>
           <CardTitle>Pedidos</CardTitle>
@@ -229,7 +207,10 @@ export default function PedidosPage() {
               <TableBody>
                 {pedidos.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-sm text-muted-foreground">
+                    <TableCell
+                      colSpan={4}
+                      className="text-sm text-muted-foreground"
+                    >
                       Nenhum pedido encontrado.
                     </TableCell>
                   </TableRow>
@@ -238,9 +219,13 @@ export default function PedidosPage() {
                     <TableRow
                       key={p.id}
                       className="cursor-pointer"
-                      onClick={() => (window.location.href = `/dashboard/pedidos/${p.id}`)}
+                      onClick={() =>
+                        (window.location.href = `/dashboard/pedidos/${p.id}`)
+                      }
                     >
-                      <TableCell>{p.order_number ? `#${p.order_number}` : "—"}</TableCell>
+                      <TableCell>
+                        {p.order_number ? `#${p.order_number}` : "—"}
+                      </TableCell>
                       <TableCell>{formatDateTime(p.created_at)}</TableCell>
                       <TableCell>
                         <Badge variant={getStatusBadgeVariant(p.status)}>
@@ -258,48 +243,6 @@ export default function PedidosPage() {
           )}
         </CardContent>
       </Card>
-
-      <Dialog open={openDialog} onOpenChange={setOpenDialog}>
-        <DialogContent className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white">
-          <DialogHeader>
-            <DialogTitle>Novo Pedido</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {!authUserId && (
-              <div className="rounded-md border p-3 text-sm">
-                ⚠️ Você não está logado. Faça login para registrar pedidos.
-              </div>
-            )}
-
-            <div>
-              <Label>Observações (opcional)</Label>
-              <Textarea
-                value={observacoes}
-                onChange={(e) => setObservacoes(e.target.value)}
-                placeholder="Observações internas do pedido..."
-              />
-              <div className="mt-2 text-xs text-muted-foreground">
-                *Se você quiser, no próximo passo eu ajusto o Server Action para
-                receber e salvar essas observações.
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setOpenDialog(false)}
-                disabled={isSaving}
-              >
-                Cancelar
-              </Button>
-              <Button onClick={registrarPedido} disabled={isSaving || !authUserId}>
-                {isSaving ? "Criando..." : "Criar Pedido"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

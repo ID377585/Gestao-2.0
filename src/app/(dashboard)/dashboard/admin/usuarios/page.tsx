@@ -1,185 +1,175 @@
-"use client";
-
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+  listCollaborators,
+  createCollaborator,
+  type ProfileRole,
+} from "./actions";
 
-// =====================
-// Interfaces
-// =====================
-interface Usuario {
-  id: string;
-  name: string;
-  email: string;
-  role: "admin" | "user";
-  ativo: boolean;
-  cargoId?: number;
-  cargoNome?: string;
-  createdAt: string;
-  lastLogin?: string;
-}
+const ROLE_LABEL: Record<ProfileRole, string> = {
+  admin: "Admin",
+  operacao: "Operação",
+  producao: "Produção",
+  estoque: "Estoque",
+  fiscal: "Fiscal",
+  entrega: "Entrega",
+};
 
-interface Cargo {
-  id: number;
-  nome: string;
-  descricao: string;
-  podeEditarInsumos: boolean;
-}
+export default async function UsuariosPage() {
+  const collaborators = await listCollaborators();
 
-interface FormDataUsuario {
-  name: string;
-  email: string;
-  role: "admin" | "user";
-  cargoId: string;
-  ativo: boolean;
-}
-
-// =====================
-// Dados mock
-// =====================
-const usuariosExemplo: Usuario[] = [
-  {
-    id: "1",
-    name: "Admin User",
-    email: "admin@gestao2.com",
-    role: "admin",
-    ativo: true,
-    cargoId: 8,
-    cargoNome: "Gestor",
-    createdAt: "2024-01-01T00:00:00",
-    lastLogin: "2024-01-15T10:30:00",
-  },
-];
-
-const cargosExemplo: Cargo[] = [
-  { id: 1, nome: "Chefe de Cozinha", descricao: "Responsável pela cozinha", podeEditarInsumos: true },
-  { id: 8, nome: "Gestor", descricao: "Gestor geral", podeEditarInsumos: true },
-];
-
-const modulosDisponiveis = [
-  { key: "pedidos", nome: "Pedidos", descricao: "Kanban de pedidos" },
-  { key: "producao", nome: "Produção", descricao: "KDS - Monitor de Cozinha" },
-  { key: "estoque", nome: "Estoque", descricao: "Controle de estoque" },
-];
-
-// =====================
-// Componente
-// =====================
-export default function UsuariosPage() {
-  const [usuarios] = useState<Usuario[]>(usuariosExemplo);
-  const [cargos] = useState<Cargo[]>(cargosExemplo);
-  const [usuarioSelecionado, setUsuarioSelecionado] = useState<Usuario | null>(null);
-  const [showNovoUsuario, setShowNovoUsuario] = useState(false);
-  const [showPermissoes, setShowPermissoes] = useState(false);
-
-  const [formData, setFormData] = useState<FormDataUsuario>({
-    name: "",
-    email: "",
-    role: "user",
-    cargoId: "",
-    ativo: true,
-  });
-
-  // ✅ CORREÇÃO AQUI (tipagem segura)
-  const handleInputChange = <K extends keyof FormDataUsuario>(
-    field: K,
-    value: FormDataUsuario[K]
-  ) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleSalvarUsuario = () => {
-    console.log("Criar usuário:", formData);
-    setShowNovoUsuario(false);
-  };
+  async function handleCreate(formData: FormData) {
+    "use server";
+    await createCollaborator(formData);
+  }
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Gestão de Usuários</h1>
+      {/* Título */}
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">
+          Gestão de Usuários
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Cadastre colaboradores e gerencie quem pode atuar nos módulos de
+          Produção, Produtividade, Estoque, Entrega etc.
+        </p>
+      </div>
 
-      <Tabs defaultValue="usuarios">
-        <TabsList>
-          <TabsTrigger value="usuarios">Usuários</TabsTrigger>
-          <TabsTrigger value="permissoes">Permissões</TabsTrigger>
-        </TabsList>
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Card: Novo colaborador */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Novo colaborador</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form action={handleCreate} className="space-y-4">
+              <div className="space-y-1">
+                <Label htmlFor="full_name">Nome completo</Label>
+                <Input
+                  id="full_name"
+                  name="full_name"
+                  placeholder="Ex.: Ana Produção"
+                  required
+                />
+              </div>
 
-        <TabsContent value="usuarios">
-          <Card>
-            <CardHeader>
-              <CardTitle>Usuários</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {usuarios.map((u) => (
-                    <TableRow key={u.id}>
-                      <TableCell>{u.name}</TableCell>
-                      <TableCell>{u.email}</TableCell>
-                      <TableCell>
-                        {u.ativo ? (
-                          <Badge className="bg-green-500 text-white">Ativo</Badge>
-                        ) : (
-                          <Badge className="bg-red-500 text-white">Inativo</Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
+              <div className="space-y-1">
+                <Label htmlFor="email">E-mail</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="ana@gestao2.com"
+                  required
+                />
+              </div>
 
-        <TabsContent value="permissoes">
-          <Card>
-            <CardHeader>
-              <CardTitle>Permissões</CardTitle>
-              <CardDescription>
-                <strong>Nota:</strong> Selecione um usuário na aba Usuários para configurar permissões.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {modulosDisponiveis.map((m) => (
-                <div key={m.key} className="flex justify-between py-2">
-                  <span>{m.nome}</span>
-                  <Switch />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+              <div className="space-y-1">
+                <Label htmlFor="password">Senha inicial</Label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
 
-      {showNovoUsuario && (
-        <div>
-          <Input
-            placeholder="Nome"
-            value={formData.name}
-            onChange={(e) => handleInputChange("name", e.target.value)}
-          />
-        </div>
-      )}
+              <div className="space-y-1">
+                <Label htmlFor="role">Papel</Label>
+                <select
+                  id="role"
+                  name="role"
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  defaultValue="producao"
+                  required
+                >
+                  <option value="admin">Admin</option>
+                  <option value="operacao">Operação</option>
+                  <option value="producao">Produção</option>
+                  <option value="estoque">Estoque</option>
+                  <option value="fiscal">Fiscal</option>
+                  <option value="entrega">Entrega</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="sector">Setor / Área</Label>
+                <Input
+                  id="sector"
+                  name="sector"
+                  placeholder="Ex.: Confeitaria, Cozinha Quente, Logística..."
+                />
+              </div>
+
+              <Button type="submit" className="w-full">
+                Salvar colaborador
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Card: Lista de colaboradores */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Usuários</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {collaborators.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nenhum colaborador cadastrado ainda. Use o formulário ao lado
+                para criar o primeiro.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs text-muted-foreground">
+                      <th className="py-2 pr-2">Nome</th>
+                      <th className="py-2 pr-2">E-mail</th>
+                      <th className="py-2 pr-2">Papel</th>
+                      <th className="py-2 pr-2">Setor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {collaborators.map((colab) => (
+                      <tr
+                        key={colab.id}
+                        className="border-b last:border-0 align-top"
+                      >
+                        <td className="py-2 pr-2 font-medium">
+                          {colab.full_name}
+                        </td>
+                        <td className="py-2 pr-2 text-xs text-muted-foreground">
+                          {colab.email}
+                        </td>
+                        <td className="py-2 pr-2">
+                          <Badge variant="outline">
+                            {ROLE_LABEL[colab.role]}
+                          </Badge>
+                        </td>
+                        <td className="py-2 pr-2 text-xs text-muted-foreground">
+                          {colab.sector ?? "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

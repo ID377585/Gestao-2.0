@@ -30,11 +30,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import {
+  createInventoryLabel,
+  listInventoryLabels,
+  type InventoryLabelRow,
+} from "./actions";
+
 /* =========================
    ✅ MOCK USUÁRIO LOGADO
    - Trocar depois pelo nome real do auth
 ========================= */
 const USUARIO_LOGADO_NOME = "Admin User";
+
+/* =========================
+   ✅ MOCK NOME DO ESTABELECIMENTO
+   - Usado como default para Local de Envio
+========================= */
+const ESTABELECIMENTO_NOME = "Matriz";
 
 // Interfaces
 interface TipoEtiqueta {
@@ -151,18 +163,16 @@ const TIPO_LABEL_LONG: Record<TipoSel, string> = {
   REVALIDAR: "FABRICANTE",
 };
 
-// Dados de exemplo
+/* =========================
+   ✅ TIPOS DE ETIQUETA (CONSTANTE GLOBAL)
+   - Usado no card "Tipos de Etiqueta" e no filtro tiposVisiveis
+========================= */
 const tiposEtiqueta: TipoEtiqueta[] = [
   { id: "1", nome: "MANIPULACAO", descricao: "Etiqueta de manipulação padrão" },
   { id: "2", nome: "REVALIDAR", descricao: "Etiqueta com dados do fabricante" },
 ];
 
-const tamanhosEtiqueta: TamanhoEtiqueta[] = [
-  { id: "1", nome: "Pequena", largura: 5.0, altura: 3.0 },
-  { id: "2", nome: "Média", largura: 10.0, altura: 6.0 },
-  { id: "3", nome: "Grande", largura: 15.0, altura: 10.0 },
-];
-
+// Dados de exemplo (apenas se o banco estiver vazio)
 const etiquetasGeradasExemplo: EtiquetaGerada[] = [
   {
     id: 1,
@@ -250,6 +260,17 @@ const getShelfLifeDiasByNome = (nome: string) => {
   return found?.shelfLifeDias ?? 0;
 };
 
+// ✅ sufixo aleatório para garantir unicidade do lote
+const gerarSufixoRandomico = (tamanho = 3) => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem 0 e 1
+  let result = "";
+  for (let i = 0; i < tamanho; i++) {
+    const idx = Math.floor(Math.random() * chars.length);
+    result += chars[idx];
+  }
+  return result;
+};
+
 // ✅ Porcionamento: cada linha é uma etiqueta (mesmo produto/umd, qtd variável)
 type LinhaPorcao = { id: string; qtd: string };
 const makeLinhaId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -261,9 +282,6 @@ type LinhaErro = {
 
 /* =========================
    ✅ Inventário (Mock no front)
-   - Lê QR (texto)
-   - Bloqueia duplicado por sessão
-   - Pop-up por 3s
 ========================= */
 type InventarioItem = {
   key: string; // chave única (ex.: produto + qtd + umd)
@@ -271,17 +289,42 @@ type InventarioItem = {
   scannedAt: string;
 };
 
+/* =========================
+   ✅ QR PAYLOAD UNIFICADO
+   - Este formato será lido pelo extractLabelCodeFromQr no back
+   - v  => versão do payload
+   - lt => label_code / lote da etiqueta
+   - p  => produto
+   - q  => quantidade
+   - u  => unidade
+   - dv => data de vencimento (ISO)
+========================= */
+const buildQrPayloadFromEtiqueta = (e: EtiquetaGerada) => {
+  const payload = {
+    v: 1,
+    lt: e.loteMan, // <= usado no back pra localizar em inventory_labels.label_code
+    p: e.insumo,
+    q: e.qtd,
+    u: e.umd,
+    dv: e.dataVenc,
+  };
+
+  // Mantemos acentos (JSON é totalmente válido com UTF-8)
+  return JSON.stringify(payload);
+};
+
 export default function EtiquetasPage() {
-  // ✅ AGORA É MUTÁVEL (para entrar no histórico e atualizar cards)
-  const [etiquetasGeradas, setEtiquetasGeradas] = useState<EtiquetaGerada[]>(
-    etiquetasGeradasExemplo
-  );
+  // Histórico de etiquetas (agora vindo do banco)
+  const [etiquetasGeradas, setEtiquetasGeradas] = useState<EtiquetaGerada[]>([]);
+  const [carregandoHistorico, setCarregandoHistorico] = useState(true);
 
   const [showNovaEtiqueta, setShowNovaEtiqueta] = useState(false);
 
   const [tipoSelecionado, setTipoSelecionado] =
     useState<TipoSel>("MANIPULACAO");
-  const [tamanhoSelecionado, setTamanhoSelecionado] = useState("");
+
+  // ✅ Já inicia com "Grande" selecionado
+  const [tamanhoSelecionado, setTamanhoSelecionado] = useState("Grande");
 
   const defaultForm = useMemo(
     () => ({
@@ -298,7 +341,8 @@ export default function EtiquetasPage() {
       dataVencimento: "",
       sif: "",
       loteFab: "",
-      localEnvio: "",
+      // ✅ Local de envio default = nome do estabelecimento
+      localEnvio: ESTABELECIMENTO_NOME,
       localArmazenado: "",
     }),
     []
@@ -310,6 +354,7 @@ export default function EtiquetasPage() {
   // ✅ ERROS (borda vermelha quando vazio)
   const [erros, setErros] = useState<LinhaErro>({ baseQtd: false, porcoes: {} });
 
+  // --- helpers de data/format ---
   const formatDate = (dateString: string) => {
     if (!dateString) return "";
     return new Date(dateString).toLocaleDateString("pt-BR");
@@ -324,6 +369,72 @@ export default function EtiquetasPage() {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
+  // ✅ carregar histórico do Supabase na abertura da página
+  useEffect(() => {
+    const carregarDoBanco = async () => {
+      try {
+        const rows: InventoryLabelRow[] = await listInventoryLabels();
+
+        if (!rows || rows.length === 0) {
+          // se o banco estiver vazio, mostramos apenas os exemplos
+          setEtiquetasGeradas(etiquetasGeradasExemplo);
+          return;
+        }
+
+        const mapped: EtiquetaGerada[] = rows.map((row, idx) => {
+          let extra: Partial<EtiquetaGerada> = {};
+          if (row.notes) {
+            try {
+              extra = JSON.parse(row.notes) as Partial<EtiquetaGerada>;
+            } catch (e) {
+              console.error(
+                "Erro ao fazer parse do notes da etiqueta:",
+                row.id,
+                e
+              );
+            }
+          }
+
+          const createdAt = row.created_at;
+          const createdDateISO = createdAt?.slice(0, 10) ?? getTodayISO();
+
+          return {
+            id: idx + 1,
+            tipo: extra.tipo ?? "MANIPULACAO",
+            tamanho: extra.tamanho ?? "",
+            insumo: extra.insumo ?? "",
+            qtd: extra.qtd ?? row.qty,
+            umd: extra.umd ?? row.unit_label,
+            dataManip: extra.dataManip ?? createdDateISO,
+            dataVenc: extra.dataVenc ?? createdDateISO,
+            loteMan: extra.loteMan ?? row.label_code,
+            responsavel: extra.responsavel ?? USUARIO_LOGADO_NOME,
+            alergenico: extra.alergenico,
+            armazenamento: extra.armazenamento,
+            ingredientes: extra.ingredientes,
+            dataFabricante: extra.dataFabricante,
+            dataVencimento: extra.dataVencimento,
+            sif: extra.sif,
+            loteFab: extra.loteFab,
+            localEnvio: extra.localEnvio,
+            localArmazenado: extra.localArmazenado,
+            createdAt: extra.createdAt ?? createdAt,
+          };
+        });
+
+        setEtiquetasGeradas(mapped);
+      } catch (e) {
+        console.error("Erro ao carregar etiquetas do banco:", e);
+        // fallback: exemplos
+        setEtiquetasGeradas(etiquetasGeradasExemplo);
+      } finally {
+        setCarregandoHistorico(false);
+      }
+    };
+
+    void carregarDoBanco();
+  }, []);
+
   // ✅ quando abre o modal: reseta form + seta hoje + zera porções + zera erros
   useEffect(() => {
     if (showNovaEtiqueta) {
@@ -332,8 +443,11 @@ export default function EtiquetasPage() {
         ...defaultForm,
         dataManip: hojeISO,
         responsavel: USUARIO_LOGADO_NOME,
+        // mantém o default de LocalEnvio = "Matriz"
+        localEnvio: ESTABELECIMENTO_NOME,
       });
-      setTamanhoSelecionado("");
+      // ✅ já abre sempre com "Grande" selecionado
+      setTamanhoSelecionado("Grande");
       setLinhasPorcao([]);
       setErros({ baseQtd: false, porcoes: {} });
     }
@@ -356,6 +470,7 @@ export default function EtiquetasPage() {
         alergenico: "",
         armazenamento: "",
         ingredientes: "",
+        localEnvio: ESTABELECIMENTO_NOME,
       }));
       setLinhasPorcao([]);
       return;
@@ -375,6 +490,7 @@ export default function EtiquetasPage() {
       alergenico: insumo.alergenico || "",
       armazenamento: insumo.armazenamento || "",
       ingredientes: insumo.ingredientes || "",
+      localEnvio: prev.localEnvio || ESTABELECIMENTO_NOME,
     }));
   };
 
@@ -408,44 +524,28 @@ export default function EtiquetasPage() {
     }));
   };
 
-  // ✅ LOTE no padrão: IE-CA-161225-30D
+  // ✅ LOTE no padrão: IE-XX-DDMMAA-90D-XXX (sufixo randômico p/ unicidade)
   const gerarLoteVigilancia = () => {
     const ie = "IE"; // Ivan Escobar
     const cod = getInsumoCode2(formData.insumo);
     const dt = isoToDDMMYY(formData.dataManip);
     const shelf = getShelfLifeDiasByNome(formData.insumo);
     const shelfPart = `${shelf}D`;
-    return `${ie}-${cod}-${dt}-${shelfPart}`;
-  };
 
-  /* =========================
-     ✅ QR PAYLOAD (MÍNIMO)
-     - produto, quantidade e unidade
-     - ideal para inventário/contagem
-  ========================= */
-  const buildQrPayloadFromEtiqueta = (e: EtiquetaGerada) => {
-    // ✅ Payload MÍNIMO para QR (para inventário/contagem)
-    // Contém apenas: produto, quantidade e unidade de medida
-    // Mantém versão para evoluções futuras sem quebrar leitor
-    const payload = {
-      v: 1,
-      p: e.insumo, // produto
-      q: e.qtd, // quantidade
-      u: e.umd, // unidade
-    };
+    // parte legível (para vigilância)
+    const base = `${ie}-${cod}-${dt}-${shelfPart}`;
 
-    // remove acentos para reduzir risco de leitor “quebrar”
-    const json = JSON.stringify(payload);
-    return removeAccents(json);
+    // sufixo aleatório, garantindo que cada etiqueta será única mesmo no mesmo dia/produto
+    const sufixo = gerarSufixoRandomico(3); // ex: X7B
+
+    // IE-FA-281225-90D-X7B
+    return `${base}-${sufixo}`;
   };
 
   /* =========================
      ✅ QR IMAGE (offline / local)
-     - Gera PNG (dataURL) sem depender de internet
-     - Evita QR "quebrado" no print (img externo bloqueado)
   ========================= */
   const makeQrDataUrl = async (text: string) => {
-    // largura alta melhora leitura em 203dpi
     return await QRCode.toDataURL(text, {
       errorCorrectionLevel: "M",
       margin: 0,
@@ -455,10 +555,6 @@ export default function EtiquetasPage() {
 
   /* =========================
      ✅ Impressão "local" via diálogo do navegador
-     ✅ AJUSTES:
-       - Remove título "MANIPULAÇÃO/FABRICANTE" da impressão
-       - QR Code à esquerda com payload mínimo (produto/qtd/umd)
-       - Layout 104mm x 50,8mm (Zebra ZD220)
   ========================= */
   const imprimirBatchNoBrowser = async (etqs: EtiquetaGerada[]) => {
     const w = window.open("", "_blank", "width=900,height=700");
@@ -467,7 +563,6 @@ export default function EtiquetasPage() {
     const LABEL_W_MM = 104;
     const LABEL_H_MM = 50.8;
 
-    // ✅ Gera QR local (dataURL) para cada etiqueta (sem internet)
     const qrDataUrls = await Promise.all(
       etqs.map((e) => makeQrDataUrl(buildQrPayloadFromEtiqueta(e)))
     );
@@ -506,8 +601,9 @@ export default function EtiquetasPage() {
       return html;
     };
 
-    // ✅ monta páginas com QR (LOCAL dataURL)
-    const html = `<!doctype html>
+    const parts: string[] = [];
+
+    const head = `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -533,7 +629,7 @@ export default function EtiquetasPage() {
       page-break-after: always;
       break-after: page;
       box-sizing: border-box;
-      padding: 2.6mm 3.2mm; /* margem interna */
+      padding: 2.6mm 3.2mm;
       display: flex;
       align-items: stretch;
       justify-content: stretch;
@@ -548,7 +644,6 @@ export default function EtiquetasPage() {
       justify-content: space-between;
     }
 
-    /* ✅ layout horizontal (QR à esquerda + info à direita) */
     .main {
       display: flex;
       flex: 1;
@@ -557,7 +652,7 @@ export default function EtiquetasPage() {
     }
 
     .qrBox {
-      width: 24mm;     /* largura fixa do QR */
+      width: 24mm;
       min-width: 24mm;
       display: flex;
       flex-direction: column;
@@ -640,76 +735,12 @@ export default function EtiquetasPage() {
   </style>
 </head>
 <body>
-  ${etqs
-    .map((e) => {
-      const isFab = e.tipo === "REVALIDAR";
-      const extraFab = isFab ? buildExtraFab(e) : "";
-
-      return `
-        <div class="page">
-          <div class="label">
-            <div class="main">
-              <div class="qrBox">
-                <img class="qrImg" alt="QR"
-                  src="__QR_SRC__"
-                />
-                <div class="qrHint">SCAN</div>
-              </div>
-
-              <div class="info">
-                <div class="row produto"><span class="k">Produto:</span><span class="v">${e.insumo}</span></div>
-                <div class="row qtd"><span class="k">Qtd:</span><span class="v">${e.qtd} ${e.umd}</span></div>
-
-                <div class="row"><span class="k">Manipulação:</span><span class="v">${formatDate(
-                  e.dataManip
-                )}</span></div>
-                <div class="row"><span class="k">Vencimento:</span><span class="v">${formatDate(
-                  e.dataVenc
-                )}</span></div>
-
-                <div class="row"><span class="k">Lote:</span><span class="v">${e.loteMan}</span></div>
-                <div class="row"><span class="k">Responsável:</span><span class="v">${e.responsavel}</span></div>
-
-                ${
-                  e.alergenico
-                    ? `<div class="row"><span class="k">Alergênico:</span><span class="v">${e.alergenico}</span></div>`
-                    : ""
-                }
-
-                ${extraFab}
-              </div>
-            </div>
-
-            <div class="footer">
-              <span>${e.localEnvio ? "Envio: " + e.localEnvio : ""}</span>
-              <span>${e.localArmazenado ? "Arm.: " + e.localArmazenado : ""}</span>
-            </div>
-          </div>
-        </div>
-      `;
-    })
-    .join("")}
-  <script>
-    window.onload = () => {
-      window.focus();
-      window.print();
-    };
-  </script>
-</body>
-</html>`;
-
-    // ✅ Recria o body substituindo o QR de cada etiqueta corretamente (dataURL)
-    const parts: string[] = [];
-    const beforeBody = html.split("</body>")[0];
-    const afterBody = "</body></html>";
-
-    const head = beforeBody.split("<body>")[0] + "<body>\n";
+`;
     parts.push(head);
 
     etqs.forEach((e, i) => {
       const isFab = e.tipo === "REVALIDAR";
       const extraFab = isFab ? buildExtraFab(e) : "";
-
       const qrSrc = qrDataUrls[i];
 
       const pageHtml = `
@@ -762,9 +793,8 @@ export default function EtiquetasPage() {
           window.print();
         };
       </script>
-    `);
-
-    parts.push(afterBody);
+</body>
+</html>`);
 
     const finalHtml = parts.join("\n");
 
@@ -789,14 +819,10 @@ export default function EtiquetasPage() {
   };
 
   const handleGerarEImprimir = async () => {
-    // 1) valida tudo
     const ok = validarQuantidades();
     if (!ok) return;
 
-    // 2) lote único (SEM -01 / -02) para todas as etiquetas do mesmo porcionamento
     const lote = gerarLoteVigilancia();
-
-    // 3) cria registros (histórico) + imprime todas
     const nowISO = new Date().toISOString();
 
     const qtds = [
@@ -834,16 +860,39 @@ export default function EtiquetasPage() {
       createdAt: nowISO,
     }));
 
-    // 4) atualiza histórico + cards (state)
-    setEtiquetasGeradas((prev) => [...novas, ...prev]); // mais recente em cima
+    // 1) Salvar todas as etiquetas no Supabase
+    try {
+      await Promise.all(
+        novas.map((et) =>
+          createInventoryLabel({
+            productName: et.insumo,
+            qty: et.qtd,
+            unitLabel: et.umd,
+            labelCode: et.loteMan, // usamos o lote como código da etiqueta
+            extraPayload: et, // guarda todo o objeto no campo notes
+          })
+        )
+      );
+    } catch (e: any) {
+      console.error("Erro ao salvar etiquetas no banco:", e);
+      alert(
+        e?.message ?? "Falha ao salvar etiqueta no banco. Verifique o console."
+      );
+    }
 
-    // 5) imprime no browser (Chrome > Salvar como PDF)
+    // 2) Atualiza histórico localmente (para não depender de reload)
+    setEtiquetasGeradas((prev) => [...novas, ...prev]);
+
+    // 3) Imprime
     await imprimirBatchNoBrowser(novas);
 
-    // 6) fecha modal
+    // 4) Fecha modal
     setShowNovaEtiqueta(false);
   };
 
+  /* =========================
+     ✅ TIPOS VISÍVEIS (apenas MANIPULAÇÃO)
+  ========================= */
   const tiposVisiveis = useMemo(
     () => tiposEtiqueta.filter((t) => t.nome === "MANIPULACAO"),
     []
@@ -895,7 +944,6 @@ export default function EtiquetasPage() {
 
   const finalizarInventario = () => {
     setInventarioAtivo(false);
-    // não precisa limpar imediatamente, mas por regra você quer liberar no próximo inventário
     setInventarioId("");
     setInventarioItens([]);
     setInventarioScannedKeys({});
@@ -904,8 +952,6 @@ export default function EtiquetasPage() {
   };
 
   const parseQrPayload = (raw: string) => {
-    // Leitor normalmente retorna exatamente o JSON
-    // Se vier com espaços/linhas, normaliza:
     const cleaned = String(raw || "").trim();
     if (!cleaned) return null;
 
@@ -918,8 +964,6 @@ export default function EtiquetasPage() {
   };
 
   const makeInventarioKey = (payload: any) => {
-    // ✅ chave de unicidade por inventário (mínima):
-    // produto + quantidade + unidade
     const p = String(payload?.p || payload?.ins || payload?.insumo || "");
     const q = String(payload?.q || payload?.qtd || "");
     const u = String(payload?.u || payload?.umd || "");
@@ -943,10 +987,6 @@ export default function EtiquetasPage() {
       },
       ...prev,
     ]);
-
-    // ✅ Aqui no futuro você chama Firestore/DB:
-    // await saveInventarioLeitura(inventarioId, payload)
-    // ou atualizar estoque etc.
   };
 
   const handleQrSubmit = () => {
@@ -962,15 +1002,13 @@ export default function EtiquetasPage() {
     }
 
     registrarLeituraInventario(payload);
-
-    // limpa campo para próxima leitura
     setQrInput("");
     setTimeout(() => qrInputRef.current?.focus(), 10);
   };
 
   return (
     <div className="space-y-6">
-      {/* ✅ Toast (pop-up chamativo 3s) */}
+      {/* ✅ Toast */}
       {toastMsg && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999]">
           <div className="px-6 py-3 rounded-lg shadow-lg bg-red-600 text-white text-lg font-extrabold">
@@ -1007,13 +1045,14 @@ export default function EtiquetasPage() {
         </div>
       </div>
 
-      {/* ✅ Inventário (Novo) */}
+      {/* Inventário */}
       <Card>
         <CardHeader>
           <CardTitle>Inventário / Contagem por QR Code</CardTitle>
           <CardDescription>
-            Cada etiqueta pode ser lida apenas 1 vez por inventário. Ao finalizar,
-            a contagem reinicia para permitir nova leitura no próximo inventário.
+            Cada etiqueta pode ser lida apenas 1 vez por inventário. Ao
+            finalizar, a contagem reinicia para permitir nova leitura no próximo
+            inventário.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1039,7 +1078,7 @@ export default function EtiquetasPage() {
                 ref={qrInputRef}
                 value={qrInput}
                 onChange={(e) => setQrInput(e.target.value)}
-                placeholder='Ex.: {"v":1,"p":"...","q":1,"u":"kg"}'
+                placeholder='Ex.: {"v":1,"lt":"IE-FA-...","p":"Farinha","q":2,"u":"kg"}'
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -1115,7 +1154,9 @@ export default function EtiquetasPage() {
             <span className="text-2xl">🏷️</span>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{etiquetasGeradas.length}</div>
+            <div className="text-2xl font-bold">
+              {etiquetasGeradas.length}
+            </div>
             <p className="text-xs text-muted-foreground">Etiquetas geradas</p>
           </CardContent>
         </Card>
@@ -1164,7 +1205,7 @@ export default function EtiquetasPage() {
         </Card>
       </div>
 
-      {/* Tipos de Etiqueta (✅ agora só MANIPULACAO) */}
+      {/* Tipos de Etiqueta */}
       <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
         {tiposVisiveis.map((tipo) => (
           <Card key={tipo.id} className="hover:shadow-lg transition-shadow">
@@ -1215,79 +1256,88 @@ export default function EtiquetasPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Insumo</TableHead>
-                <TableHead>Quantidade</TableHead>
-                <TableHead>Lote</TableHead>
-                <TableHead>Responsável</TableHead>
-                <TableHead>Data Criação</TableHead>
-                <TableHead>Validade</TableHead>
-                <TableHead>Local</TableHead>
-                <TableHead>Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {etiquetasGeradas.map((etiqueta) => (
-                <TableRow key={etiqueta.id}>
-                  <TableCell>
-                    <Badge
-                      variant="secondary"
-                      className={
-                        etiqueta.tipo === "MANIPULACAO"
-                          ? "bg-blue-500 text-white"
-                          : "bg-green-500 text-white"
-                      }
-                    >
-                      {TIPO_LABEL[etiqueta.tipo]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-medium">{etiqueta.insumo}</TableCell>
-                  <TableCell>
-                    {etiqueta.qtd} {etiqueta.umd}
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {etiqueta.loteMan}
-                  </TableCell>
-                  <TableCell>{etiqueta.responsavel}</TableCell>
-                  <TableCell>{formatDateTime(etiqueta.createdAt)}</TableCell>
-                  <TableCell>{formatDate(etiqueta.dataVenc)}</TableCell>
-                  <TableCell>
-                    <div className="text-sm">
-                      <p>
-                        <strong>Envio:</strong> {etiqueta.localEnvio || "-"}
-                      </p>
-                      <p>
-                        <strong>Armazenado:</strong>{" "}
-                        {etiqueta.localArmazenado || "-"}
-                      </p>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex space-x-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          void imprimirBatchNoBrowser([etiqueta]);
-                        }}
-                      >
-                        🖨️
-                      </Button>
-                      <Button size="sm" variant="outline">
-                        👁️
-                      </Button>
-                      <Button size="sm" variant="outline">
-                        📋
-                      </Button>
-                    </div>
-                  </TableCell>
+          {carregandoHistorico ? (
+            <div className="text-sm text-muted-foreground">
+              Carregando histórico de etiquetas...
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Insumo</TableHead>
+                  <TableHead>Quantidade</TableHead>
+                  <TableHead>Lote</TableHead>
+                  <TableHead>Responsável</TableHead>
+                  <TableHead>Data Criação</TableHead>
+                  <TableHead>Validade</TableHead>
+                  <TableHead>Local</TableHead>
+                  <TableHead>Ações</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {etiquetasGeradas.map((etiqueta) => (
+                  <TableRow key={etiqueta.id}>
+                    <TableCell>
+                      <Badge
+                        variant="secondary"
+                        className={
+                          etiqueta.tipo === "MANIPULACAO"
+                            ? "bg-blue-500 text-white"
+                            : "bg-green-500 text-white"
+                        }
+                      >
+                        {TIPO_LABEL[etiqueta.tipo]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {etiqueta.insumo}
+                    </TableCell>
+                    <TableCell>
+                      {etiqueta.qtd} {etiqueta.umd}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {etiqueta.loteMan}
+                    </TableCell>
+                    <TableCell>{etiqueta.responsavel}</TableCell>
+                    <TableCell>{formatDateTime(etiqueta.createdAt)}</TableCell>
+                    <TableCell>{formatDate(etiqueta.dataVenc)}</TableCell>
+                    <TableCell>
+                      <div className="text-sm">
+                        <p>
+                          <strong>Envio:</strong>{" "}
+                          {etiqueta.localEnvio || "-"}
+                        </p>
+                        <p>
+                          <strong>Armazenado:</strong>{" "}
+                          {etiqueta.localArmazenado || "-"}
+                        </p>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex space-x-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            void imprimirBatchNoBrowser([etiqueta]);
+                          }}
+                        >
+                          🖨️
+                        </Button>
+                        <Button size="sm" variant="outline">
+                          👁️
+                        </Button>
+                        <Button size="sm" variant="outline">
+                          📋
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
@@ -1305,12 +1355,7 @@ export default function EtiquetasPage() {
             </div>
 
             <div className="space-y-6">
-              {/* =========================
-                  ✅ AJUSTE MOBILE:
-                  - mobile: 1 coluna
-                  - md+: 2 colunas
-                  - min-w-0 / w-full para evitar esmagar e “sobrepor”
-              ========================== */}
+              {/* Tipo & Tamanho */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="min-w-0">
                   <Label>Tipo de Etiqueta</Label>
@@ -1338,7 +1383,11 @@ export default function EtiquetasPage() {
                       <SelectValue placeholder="Selecionar tamanho" />
                     </SelectTrigger>
                     <SelectContent>
-                      {tamanhosEtiqueta.map((tamanho) => (
+                      {[
+                        { id: "1", nome: "Pequena", largura: 5.0, altura: 3.0 },
+                        { id: "2", nome: "Média", largura: 10.0, altura: 6.0 },
+                        { id: "3", nome: "Grande", largura: 15.0, altura: 10.0 },
+                      ].map((tamanho) => (
                         <SelectItem key={tamanho.id} value={tamanho.nome}>
                           {tamanho.nome} ({tamanho.largura}×{tamanho.altura}cm)
                         </SelectItem>
@@ -1348,7 +1397,7 @@ export default function EtiquetasPage() {
                 </div>
               </div>
 
-              {/* ✅ LINHA BASE + BOTÃO Add + (mobile: coluna / md+: linha) */}
+              {/* Linha base + porcionamento */}
               <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
                   {/* Insumo */}
@@ -1399,7 +1448,12 @@ export default function EtiquetasPage() {
                   {/* Unidade */}
                   <div className="min-w-0 md:col-span-2">
                     <Label>Unidade *</Label>
-                    <Input className="w-full min-w-0" value={formData.umd} disabled readOnly />
+                    <Input
+                      className="w-full min-w-0"
+                      value={formData.umd}
+                      disabled
+                      readOnly
+                    />
                   </div>
 
                   {/* Add */}
@@ -1415,7 +1469,7 @@ export default function EtiquetasPage() {
                   </div>
                 </div>
 
-                {/* ✅ LINHAS EXTRAS */}
+                {/* Porcionamento */}
                 {linhasPorcao.length > 0 && (
                   <div className="space-y-2">
                     <div className="text-sm text-muted-foreground">
@@ -1430,13 +1484,16 @@ export default function EtiquetasPage() {
                           key={linha.id}
                           className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end"
                         >
-                          {/* Insumo */}
                           <div className="min-w-0 md:col-span-6">
                             <Label>Insumo/Produto</Label>
-                            <Input className="w-full min-w-0" value={formData.insumo} disabled readOnly />
+                            <Input
+                              className="w-full min-w-0"
+                              value={formData.insumo}
+                              disabled
+                              readOnly
+                            />
                           </div>
 
-                          {/* Quantidade */}
                           <div className="min-w-0 md:col-span-3">
                             <Label>Quantidade *</Label>
                             <Input
@@ -1459,13 +1516,16 @@ export default function EtiquetasPage() {
                             )}
                           </div>
 
-                          {/* Unidade */}
                           <div className="min-w-0 md:col-span-2">
                             <Label>Unidade</Label>
-                            <Input className="w-full min-w-0" value={formData.umd} disabled readOnly />
+                            <Input
+                              className="w-full min-w-0"
+                              value={formData.umd}
+                              disabled
+                              readOnly
+                            />
                           </div>
 
-                          {/* Remover */}
                           <div className="min-w-0 md:col-span-1 md:flex md:items-end">
                             <Button
                               type="button"
@@ -1483,7 +1543,7 @@ export default function EtiquetasPage() {
                 )}
               </div>
 
-              {/* Datas (mobile 1 col / md 2 col) */}
+              {/* Datas */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="min-w-0">
                   <Label>Data de Manipulação *</Label>
@@ -1516,12 +1576,12 @@ export default function EtiquetasPage() {
                     <span className="font-mono">{gerarLoteVigilancia()}</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Formato: IE-XX-DDMMAA-##D
+                    Formato: IE-XX-DDMMAA-##D-XXX
                   </p>
                 </div>
               )}
 
-              {/* Campos Específicos para REVALIDAR */}
+              {/* Campos REVALIDAR */}
               {tipoSelecionado === "REVALIDAR" && (
                 <div className="p-4 bg-green-50 rounded-lg space-y-4">
                   <h4 className="font-semibold text-green-800">
@@ -1578,22 +1638,37 @@ export default function EtiquetasPage() {
                 </div>
               )}
 
-              {/* Informações Adicionais */}
+              {/* Infos adicionais */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="min-w-0">
                   <Label>Responsável *</Label>
-                  <Input className="w-full min-w-0" value={formData.responsavel} disabled readOnly />
+                  <Input
+                    className="w-full min-w-0"
+                    value={formData.responsavel}
+                    disabled
+                    readOnly
+                  />
                 </div>
 
                 <div className="min-w-0">
                   <Label>Alergênico</Label>
-                  <Input className="w-full min-w-0" value={formData.alergenico} disabled readOnly />
+                  <Input
+                    className="w-full min-w-0"
+                    value={formData.alergenico}
+                    disabled
+                    readOnly
+                  />
                 </div>
               </div>
 
               <div className="min-w-0">
                 <Label>Condições de Armazenamento</Label>
-                <Input className="w-full min-w-0" value={formData.armazenamento} disabled readOnly />
+                <Input
+                  className="w-full min-w-0"
+                  value={formData.armazenamento}
+                  disabled
+                  readOnly
+                />
               </div>
 
               <div className="min-w-0">
@@ -1654,8 +1729,7 @@ export default function EtiquetasPage() {
                 </Button>
               </div>
 
-              <div className="text-xs text-muted-foreground">
-              </div>
+              <div className="text-xs text-muted-foreground"></div>
             </div>
           </div>
         </div>

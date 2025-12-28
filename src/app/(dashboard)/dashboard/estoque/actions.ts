@@ -57,7 +57,7 @@ export type AddInventoryItemInput = {
 async function getSupabaseAndEstablishment() {
   const supabase = await createSupabaseServerClient();
 
-  // ✅ Agora usamos o helper no formato novo (sem passar supabase)
+  // Agora usamos o helper no formato novo (sem passar supabase)
   const { membership } = await getActiveMembershipOrRedirect();
 
   const establishmentId = (membership as any)?.establishment_id as
@@ -110,7 +110,21 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     throw new Error("Erro ao carregar estoque atual.");
   }
 
-  return (data as StockBalanceRow[]) ?? [];
+  // Normaliza o relacionamento product:products que veio como array
+  const normalized = (data ?? []).map((row: any) => {
+    const prodArr = row.product as any[] | null | undefined;
+    const firstProd =
+      prodArr && Array.isArray(prodArr) && prodArr.length > 0
+        ? prodArr[0]
+        : null;
+
+    return {
+      ...row,
+      product: firstProd,
+    };
+  }) as StockBalanceRow[];
+
+  return normalized;
 }
 
 // =======================================================

@@ -145,8 +145,7 @@ const PRODUCTION_COLUMNS: {
   {
     id: "pos_preparo",
     title: "Pós-preparo",
-    description:
-      "Itens já concluídos na produção",
+    description: "Itens já concluídos na produção",
     productionStatuses: ["done"],
   },
 ];
@@ -161,7 +160,10 @@ export default async function ProducaoPage() {
   ]);
 
   const role = membership.role as Role | null;
-  const productionItems = (kdsData.items ?? []) as KdsItem[];
+
+  // 👇 Ajuste aqui: fazemos o cast passando por unknown para evitar conflito de tipos KdsItem
+  const productionItems = (kdsData.items ?? []) as unknown as KdsItem[];
+
   const collaboratorOptions: KdsCollaborator[] = collaborators ?? [];
 
   const canSeeBoard = role !== "cliente";

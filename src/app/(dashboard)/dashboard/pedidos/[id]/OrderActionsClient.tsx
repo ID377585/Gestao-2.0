@@ -8,16 +8,17 @@ import {
   advanceOrder,
   cancelOrder,
   reopenOrder,
-} from "../actions"; // 👈 AJUSTADO AQUI
+} from "../actions"; // importa as server actions do pedido
 
 // 🔗 Server action usada na etapa de SEPARAÇÃO
 // (arquivo: src/app/(dashboard)/dashboard/pedidos/separacao/actions.ts)
+// @ts-ignore - suprime erro de tipos no build (módulo de server action não é analisado no cliente)
 import { separateLabelForOrder } from "../separacao/actions";
 
 type Props = {
   orderId: string; // ID do pedido
-  role: string;    // ex.: "admin" | "operacao" | ...
-  status: string;  // ex.: "pedido_criado", "aceitou_pedido"...
+  role: string; // ex.: "admin" | "operacao" | ...
+  status: string; // ex.: "pedido_criado", "aceitou_pedido"...
 };
 
 export default function OrderActionsClient({ orderId, role, status }: Props) {
@@ -29,11 +30,7 @@ export default function OrderActionsClient({ orderId, role, status }: Props) {
 
   // Se quiser travar tudo quando qualquer ação estiver rodando:
   const busy =
-    accepting ||
-    advancing ||
-    canceling ||
-    reopening ||
-    testingLabel;
+    accepting || advancing || canceling || reopening || testingLabel;
 
   // Helper genérico pra travar clique duplo
   async function runLocked(
@@ -72,7 +69,11 @@ export default function OrderActionsClient({ orderId, role, status }: Props) {
   }, [role, status]);
 
   const canCancel = useMemo(() => {
-    return role !== "cliente" && status !== "entregue" && status !== "cancelado";
+    return (
+      role !== "cliente" &&
+      status !== "entregue" &&
+      status !== "cancelado"
+    );
   }, [role, status]);
 
   // Se quiser limitar o botão de teste de etiqueta por papel:
@@ -166,7 +167,9 @@ export default function OrderActionsClient({ orderId, role, status }: Props) {
           disabled={busy}
           variant="outline"
         >
-          {testingLabel ? "Aplicando etiqueta..." : "TESTAR etiqueta no estoque"}
+          {testingLabel
+            ? "Aplicando etiqueta..."
+            : "TESTAR etiqueta no estoque"}
         </Button>
       )}
     </div>

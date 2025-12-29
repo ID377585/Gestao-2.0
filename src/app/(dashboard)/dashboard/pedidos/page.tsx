@@ -25,7 +25,7 @@ import { Badge } from "@/components/ui/badge";
 
 import { listOrders } from "./actions";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { NewOrderDialog } from "./NewOrderDialog"; // <-- usamos o novo componente
+import NewOrderDialog from "./NewOrderDialog"; // ✅ import default do componente
 
 // =============================================
 // TIPAGEM DOS PEDIDOS

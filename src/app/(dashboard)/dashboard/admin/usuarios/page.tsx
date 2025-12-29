@@ -1,3 +1,5 @@
+import { revalidatePath } from "next/cache";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,11 +11,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import {
-  listCollaborators,
-  createCollaborator,
-  type ProfileRole,
-} from "./actions";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+
+/**
+ * Papéis permitidos para colaboradores
+ */
+type ProfileRole =
+  | "admin"
+  | "operacao"
+  | "producao"
+  | "estoque"
+  | "fiscal"
+  | "entrega";
 
 const ROLE_LABEL: Record<ProfileRole, string> = {
   admin: "Admin",
@@ -24,12 +34,99 @@ const ROLE_LABEL: Record<ProfileRole, string> = {
   entrega: "Entrega",
 };
 
+/**
+ * Carrega colaboradores da tabela (por exemplo, kds_collaborators)
+ * usando o client de servidor (anon key + RLS).
+ */
+async function listCollaborators() {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase
+    .from("kds_collaborators")
+    .select("id, full_name, email, role, sector")
+    .order("full_name", { ascending: true });
+
+  if (error) {
+    console.error("Erro ao carregar colaboradores:", error);
+    return [];
+  }
+
+  return data ?? [];
+}
+
+/**
+ * Lógica de criação de colaborador a partir do FormData.
+ * Não usa service role, apenas grava na tabela de colaboradores.
+ * Se você depois quiser realmente criar usuários de autenticação,
+ * dá pra evoluir isso separadamente.
+ */
+async function createCollaboratorFromForm(formData: FormData) {
+  // Garante que só quem tem membership ativo acessa
+  const membership = await getActiveMembershipOrRedirect();
+
+  // Exemplo de restrição: apenas admin/operacao podem criar usuários
+  if (membership.role !== "admin" && membership.role !== "operacao") {
+    throw new Error("Apenas admin ou operação podem criar colaboradores.");
+  }
+
+  const full_name = String(formData.get("full_name") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "").trim();
+  const role = String(formData.get("role") ?? "producao") as ProfileRole;
+
+  const sectorRaw = formData.get("sector");
+  const sector =
+    typeof sectorRaw === "string" && sectorRaw.trim().length > 0
+      ? sectorRaw.trim()
+      : null;
+
+  if (!full_name || !email || !password) {
+    throw new Error("Nome, e-mail e senha são obrigatórios.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // Opcional: checar se já existe colaborador com esse e-mail
+  const { data: existing, error: existingError } = await supabase
+    .from("kds_collaborators")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (existingError && existingError.code !== "PGRST116") {
+    console.error("Erro ao verificar colaborador existente:", existingError);
+    throw new Error("Erro ao verificar colaborador existente.");
+  }
+
+  if (existing) {
+    throw new Error("Já existe um colaborador cadastrado com este e-mail.");
+  }
+
+  // Aqui estamos apenas criando o registro de colaborador.
+  // Se quiser integrar com auth, depois dá pra criar usuário separado.
+  const { error } = await supabase.from("kds_collaborators").insert({
+    full_name,
+    email,
+    role,
+    sector,
+  });
+
+  if (error) {
+    console.error("Erro ao salvar colaborador:", error);
+    throw new Error("Erro ao salvar colaborador.");
+  }
+
+  // Revalida a página de usuários para refletir a nova lista
+  revalidatePath("/dashboard/admin/usuarios");
+}
+
 export default async function UsuariosPage() {
   const collaborators = await listCollaborators();
 
+  // Server Action usada pelo <form action={handleCreate}>
   async function handleCreate(formData: FormData) {
     "use server";
-    await createCollaborator(formData);
+    await createCollaboratorFromForm(formData);
   }
 
   return (
@@ -83,6 +180,10 @@ export default async function UsuariosPage() {
                   placeholder="••••••••"
                   required
                 />
+                <p className="text-xs text-muted-foreground">
+                  (Por enquanto esta senha é apenas referência interna; a
+                  criação do usuário de login pode ser configurada depois.)
+                </p>
               </div>
 
               <div className="space-y-1">
@@ -142,7 +243,7 @@ export default async function UsuariosPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {collaborators.map((colab) => (
+                    {collaborators.map((colab: any) => (
                       <tr
                         key={colab.id}
                         className="border-b last:border-0 align-top"
@@ -155,7 +256,7 @@ export default async function UsuariosPage() {
                         </td>
                         <td className="py-2 pr-2">
                           <Badge variant="outline">
-                            {ROLE_LABEL[colab.role]}
+                            {ROLE_LABEL[colab.role as ProfileRole]}
                           </Badge>
                         </td>
                         <td className="py-2 pr-2 text-xs text-muted-foreground">

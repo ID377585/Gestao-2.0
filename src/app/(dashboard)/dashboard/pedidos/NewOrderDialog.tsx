@@ -43,7 +43,15 @@ type NewOrderItemUI = {
   total_price: number;
 };
 
-export function NewOrderDialog() {
+type NewOrderDialogProps = {
+  /**
+   * Callback chamado depois que o pedido for criado com sucesso.
+   * Em page.tsx você está passando `loadOrders`, que é um () => Promise<void>.
+   */
+  onCreated?: () => void | Promise<void>;
+};
+
+export default function NewOrderDialog({ onCreated }: NewOrderDialogProps) {
   const { toast } = useToast();
   const router = useRouter();
 
@@ -74,7 +82,9 @@ export function NewOrderDialog() {
 
       const { data, error } = await supabase
         .from("products")
-        .select("id, name, default_unit_label, price, is_active, establishment_id")
+        .select(
+          "id, name, default_unit_label, price, is_active, establishment_id",
+        )
         .eq("is_active", true)
         .order("name", { ascending: true });
 
@@ -197,6 +207,11 @@ export function NewOrderDialog() {
         title: "Pedido criado",
         description: "Pedido e itens foram salvos com sucesso.",
       });
+
+      // 🔁 avisa o pai para recarregar a lista, se tiver callback
+      if (onCreated) {
+        await onCreated();
+      }
 
       setOpen(false);
       resetAll();

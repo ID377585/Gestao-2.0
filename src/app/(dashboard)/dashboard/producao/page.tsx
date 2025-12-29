@@ -16,14 +16,7 @@ import {
   type Role,
 } from "../pedidos/actions";
 
-import {
-  getKdsProductionData,
-  assignProductionCollaborator,
-  advanceProductionStatus,
-  listKdsCollaborators,
-  moveOrderToNextStageFromProduction,
-  type KdsCollaborator,
-} from "./actions";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 // mesmos rótulos usados na tela de detalhes
 const STATUS_LABEL: Record<string, string> = {
@@ -74,6 +67,12 @@ type KdsItem = {
   product_name: string;
   default_unit_label: string;
   order_qty: number;
+};
+
+type KdsCollaborator = {
+  id: string;
+  full_name: string;
+  sector: string | null;
 };
 
 /**
@@ -150,20 +149,152 @@ const PRODUCTION_COLUMNS: {
   },
 ];
 
+/**
+ * Busca os itens da view kds_production_view
+ * usando o client de servidor (anon key).
+ */
+async function getKdsProductionItems(): Promise<KdsItem[]> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase
+    .from("kds_production_view")
+    .select(
+      `
+      order_item_id,
+      order_id,
+      order_number,
+      order_status,
+      production_status,
+      production_missing_qty,
+      production_assigned_to,
+      product_id,
+      product_name,
+      default_unit_label,
+      order_qty
+    `
+    )
+    .order("order_number", { ascending: true });
+
+  if (error) {
+    console.error("Erro ao carregar kds_production_view:", error);
+    return [];
+  }
+
+  return (data ?? []) as KdsItem[];
+}
+
+/**
+ * Lista colaboradores da tabela kds_collaborators
+ */
+async function listKdsCollaboratorsServer(): Promise<KdsCollaborator[]> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase
+    .from("kds_collaborators")
+    .select("id, full_name, sector")
+    .order("full_name", { ascending: true });
+
+  if (error) {
+    console.error("Erro ao listar colaboradores KDS:", error);
+    return [];
+  }
+
+  return (data ?? []) as KdsCollaborator[];
+}
+
+/**
+ * Define o colaborador responsável por um item de produção
+ */
+async function assignProductionCollaboratorServer(
+  orderItemId: string,
+  userId: string
+) {
+  const supabase = await createSupabaseServerClient();
+
+  const { error } = await supabase
+    .from("order_items")
+    .update({ production_assigned_to: userId })
+    .eq("id", orderItemId);
+
+  if (error) {
+    console.error("Erro ao definir colaborador da produção:", error);
+    throw new Error("Erro ao definir colaborador da produção.");
+  }
+
+  revalidatePath("/dashboard/producao");
+}
+
+/**
+ * Avança o status de produção de um item:
+ * pending -> in_progress -> done
+ */
+async function advanceProductionStatusServer(orderItemId: string) {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase
+    .from("order_items")
+    .select("production_status")
+    .eq("id", orderItemId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Erro ao buscar item de produção:", error);
+    throw new Error("Erro ao buscar item de produção.");
+  }
+
+  const current = (data?.production_status ??
+    "pending") as KdsItem["production_status"];
+
+  let next: KdsItem["production_status"] = current;
+
+  if (current === "pending") next = "in_progress";
+  else if (current === "in_progress") next = "done";
+  else next = current;
+
+  const { error: updateError } = await supabase
+    .from("order_items")
+    .update({ production_status: next })
+    .eq("id", orderItemId);
+
+  if (updateError) {
+    console.error("Erro ao avançar status de produção:", updateError);
+    throw new Error("Erro ao avançar status de produção.");
+  }
+
+  revalidatePath("/dashboard/producao");
+}
+
+/**
+ * Avança o PEDIDO para em_separacao
+ * (o frontend só mostra o botão se todos itens estiverem done/no_production_needed)
+ */
+async function moveOrderToNextStageFromProductionServer(orderId: string) {
+  const supabase = await createSupabaseServerClient();
+
+  const { error } = await supabase
+    .from("orders")
+    .update({ status: "em_separacao" })
+    .eq("id", orderId);
+
+  if (error) {
+    console.error("Erro ao avançar pedido para em_separacao:", error);
+    throw new Error("Erro ao avançar pedido para em_separacao.");
+  }
+
+  revalidatePath("/dashboard/producao");
+}
+
 export default async function ProducaoPage() {
   // membership + pedidos + itens de produção (view) + colaboradores
-  const [membership, orders, kdsData, collaborators] = await Promise.all([
-    getMyMembership(),
-    listOrders(),
-    getKdsProductionData(),
-    listKdsCollaborators(),
-  ]);
+  const [membership, orders, productionItems, collaborators] =
+    await Promise.all([
+      getMyMembership(),
+      listOrders(),
+      getKdsProductionItems(),
+      listKdsCollaboratorsServer(),
+    ]);
 
   const role = membership.role as Role | null;
-
-  // 👇 Ajuste aqui: fazemos o cast passando por unknown para evitar conflito de tipos KdsItem
-  const productionItems = (kdsData.items ?? []) as unknown as KdsItem[];
-
   const collaboratorOptions: KdsCollaborator[] = collaborators ?? [];
 
   const canSeeBoard = role !== "cliente";
@@ -423,7 +554,7 @@ export default async function ProducaoPage() {
                                       formData.get("userId") || ""
                                     );
                                     if (!userId) return;
-                                    await assignProductionCollaborator(
+                                    await assignProductionCollaboratorServer(
                                       item.order_item_id,
                                       userId
                                     );
@@ -468,7 +599,7 @@ export default async function ProducaoPage() {
                                   className="mt-2"
                                   action={async () => {
                                     "use server";
-                                    await advanceProductionStatus(
+                                    await advanceProductionStatusServer(
                                       item.order_item_id
                                     );
                                   }}
@@ -495,7 +626,7 @@ export default async function ProducaoPage() {
                                     className="mt-2"
                                     action={async () => {
                                       "use server";
-                                      await moveOrderToNextStageFromProduction(
+                                      await moveOrderToNextStageFromProductionServer(
                                         String(item.order_id)
                                       );
                                     }}

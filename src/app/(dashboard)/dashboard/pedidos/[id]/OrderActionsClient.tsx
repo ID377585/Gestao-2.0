@@ -8,7 +8,7 @@ import {
   advanceOrder,
   cancelOrder,
   reopenOrder,
-} from "./actions";
+} from "../actions"; // 👈 AJUSTADO AQUI
 
 // 🔗 Server action usada na etapa de SEPARAÇÃO
 // (arquivo: src/app/(dashboard)/dashboard/pedidos/separacao/actions.ts)

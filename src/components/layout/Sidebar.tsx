@@ -21,6 +21,7 @@ import {
   BadgeDollarSign,
   Menu,
   X,
+  Boxes, // ✅ NOVO ÍCONE PARA INVENTÁRIO
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -36,6 +37,10 @@ const menuItems = [
   { title: "Produção", href: "/dashboard/producao", icon: Factory },
   { title: "Produtividade", href: "/dashboard/produtividade", icon: BarChart3 },
   { title: "Estoque", href: "/dashboard/estoque", icon: Package },
+
+  // ✅ NOVO MENU
+  { title: "Inventário", href: "/dashboard/inventario", icon: Boxes },
+
   { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },
   { title: "Etiquetas", href: "/dashboard/etiquetas", icon: Tag },
   { title: "Histórico", href: "/dashboard/historico-pedidos", icon: History },

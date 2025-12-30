@@ -22,7 +22,7 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   BadgeDollarSign,
-  Boxes, // ✅ NOVO ÍCONE
+  Boxes, // ✅ Inventário
 } from "lucide-react";
 
 const menuItems = [
@@ -31,7 +31,7 @@ const menuItems = [
   { title: "Produtividade", href: "/dashboard/produtividade", icon: BarChart3 },
   { title: "Estoque", href: "/dashboard/estoque", icon: Package },
 
-  // ✅ NOVO ITEM PARA O MOBILE
+  // ✅ NOVO ITEM: INVENTÁRIO
   { title: "Inventário", href: "/dashboard/inventario", icon: Boxes },
 
   { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },
@@ -41,12 +41,9 @@ const menuItems = [
 ];
 
 const adminItems = [
-  // ✅ opções que faltavam no mobile
   { title: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },
   { title: "Transferências", href: "/dashboard/transferencias", icon: ArrowLeftRight },
   { title: "Controladoria", href: "/dashboard/controladoria", icon: BadgeDollarSign },
-
-  // ✅ já existia
   { title: "Usuários", href: "/dashboard/admin/usuarios", icon: Users },
 ];
 

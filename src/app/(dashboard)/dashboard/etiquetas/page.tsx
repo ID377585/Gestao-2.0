@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
 import {
@@ -278,15 +278,6 @@ const makeLinhaId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 type LinhaErro = {
   baseQtd: boolean;
   porcoes: Record<string, boolean>;
-};
-
-/* =========================
-   ✅ Inventário (Mock no front)
-========================= */
-type InventarioItem = {
-  key: string; // chave única (ex.: produto + qtd + umd)
-  payload: any;
-  scannedAt: string;
 };
 
 /* =========================
@@ -907,116 +898,8 @@ export default function EtiquetasPage() {
     [etiquetasGeradas, hojeISO]
   );
 
-  /* =========================
-     ✅ Inventário (UI mock)
-  ========================= */
-  const [inventarioAtivo, setInventarioAtivo] = useState(false);
-  const [inventarioId, setInventarioId] = useState<string>("");
-  const [inventarioItens, setInventarioItens] = useState<InventarioItem[]>([]);
-  const [inventarioScannedKeys, setInventarioScannedKeys] = useState<
-    Record<string, true>
-  >({});
-  const [qrInput, setQrInput] = useState("");
-  const [toastMsg, setToastMsg] = useState<string>("");
-  const toastTimerRef = useRef<number | null>(null);
-  const qrInputRef = useRef<HTMLInputElement | null>(null);
-
-  const showToast = (msg: string) => {
-    setToastMsg(msg);
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(() => {
-      setToastMsg("");
-    }, 3000);
-  };
-
-  const iniciarInventario = () => {
-    const id = `inv-${Date.now()}`;
-    setInventarioAtivo(true);
-    setInventarioId(id);
-    setInventarioItens([]);
-    setInventarioScannedKeys({});
-    setQrInput("");
-    showToast("Inventário iniciado!");
-    setTimeout(() => {
-      qrInputRef.current?.focus();
-    }, 50);
-  };
-
-  const finalizarInventario = () => {
-    setInventarioAtivo(false);
-    setInventarioId("");
-    setInventarioItens([]);
-    setInventarioScannedKeys({});
-    setQrInput("");
-    showToast("Inventário finalizado!");
-  };
-
-  const parseQrPayload = (raw: string) => {
-    const cleaned = String(raw || "").trim();
-    if (!cleaned) return null;
-
-    try {
-      const obj = JSON.parse(cleaned);
-      return obj;
-    } catch {
-      return null;
-    }
-  };
-
-  const makeInventarioKey = (payload: any) => {
-    const p = String(payload?.p || payload?.ins || payload?.insumo || "");
-    const q = String(payload?.q || payload?.qtd || "");
-    const u = String(payload?.u || payload?.umd || "");
-    return `${p}__${q}__${u}`;
-  };
-
-  const registrarLeituraInventario = (payload: any) => {
-    const key = makeInventarioKey(payload);
-
-    if (inventarioScannedKeys[key]) {
-      showToast("Este produto já foi contado!");
-      return;
-    }
-
-    setInventarioScannedKeys((prev) => ({ ...prev, [key]: true }));
-    setInventarioItens((prev) => [
-      {
-        key,
-        payload,
-        scannedAt: new Date().toISOString(),
-      },
-      ...prev,
-    ]);
-  };
-
-  const handleQrSubmit = () => {
-    if (!inventarioAtivo) {
-      showToast("Inicie um inventário primeiro.");
-      return;
-    }
-
-    const payload = parseQrPayload(qrInput);
-    if (!payload) {
-      showToast("QR inválido (não é JSON).");
-      return;
-    }
-
-    registrarLeituraInventario(payload);
-    setQrInput("");
-    setTimeout(() => qrInputRef.current?.focus(), 10);
-  };
-
   return (
     <div className="space-y-6">
-      {/* ✅ Toast */}
-      {toastMsg && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999]">
-          <div className="px-6 py-3 rounded-lg shadow-lg bg-red-600 text-white text-lg font-extrabold">
-            {toastMsg}
-          </div>
-        </div>
-      )}
-
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -1044,105 +927,6 @@ export default function EtiquetasPage() {
           </Button>
         </div>
       </div>
-
-      {/* Inventário */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Inventário / Contagem por QR Code</CardTitle>
-          <CardDescription>
-            Cada etiqueta pode ser lida apenas 1 vez por inventário. Ao
-            finalizar, a contagem reinicia para permitir nova leitura no próximo
-            inventário.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-2 flex-wrap items-center">
-            {!inventarioAtivo ? (
-              <Button onClick={iniciarInventario}>▶️ Iniciar Inventário</Button>
-            ) : (
-              <Button variant="destructive" onClick={finalizarInventario}>
-                ⏹️ Finalizar Inventário
-              </Button>
-            )}
-
-            <div className="text-sm text-muted-foreground">
-              Status: <strong>{inventarioAtivo ? "ATIVO" : "INATIVO"}</strong>{" "}
-              {inventarioAtivo ? `(${inventarioId})` : ""}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-            <div className="md:col-span-2">
-              <Label>Leitura do QR (scanner cola o texto e dá Enter)</Label>
-              <Input
-                ref={qrInputRef}
-                value={qrInput}
-                onChange={(e) => setQrInput(e.target.value)}
-                placeholder='Ex.: {"v":1,"lt":"IE-FA-...","p":"Farinha","q":2,"u":"kg"}'
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleQrSubmit();
-                  }
-                }}
-                disabled={!inventarioAtivo}
-              />
-            </div>
-
-            <div className="flex gap-2">
-              <Button
-                className="w-full"
-                onClick={handleQrSubmit}
-                disabled={!inventarioAtivo || !qrInput.trim()}
-              >
-                Ler QR
-              </Button>
-            </div>
-          </div>
-
-          <div className="text-sm">
-            <strong>Itens contados:</strong> {inventarioItens.length}
-          </div>
-
-          {inventarioItens.length > 0 && (
-            <div className="max-h-[240px] overflow-auto border rounded">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Produto</TableHead>
-                    <TableHead>Qtd</TableHead>
-                    <TableHead>Lote</TableHead>
-                    <TableHead>Venc.</TableHead>
-                    <TableHead>Data Leitura</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {inventarioItens.map((it) => (
-                    <TableRow key={it.key}>
-                      <TableCell className="font-medium">
-                        {it.payload?.p || it.payload?.ins || "-"}
-                      </TableCell>
-                      <TableCell>
-                        {String(it.payload?.q ?? "-")}{" "}
-                        {String(it.payload?.u ?? "")}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {it.payload?.lt || "-"}
-                      </TableCell>
-                      <TableCell>
-                        {it.payload?.dv ? formatDate(it.payload.dv) : "-"}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {formatDateTime(it.scannedAt)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

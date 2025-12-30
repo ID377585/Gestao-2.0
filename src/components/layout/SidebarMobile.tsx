@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   BadgeDollarSign,
+  Boxes, // ✅ NOVO ÍCONE
 } from "lucide-react";
 
 const menuItems = [
@@ -29,6 +30,10 @@ const menuItems = [
   { title: "Produção", href: "/dashboard/producao", icon: Factory },
   { title: "Produtividade", href: "/dashboard/produtividade", icon: BarChart3 },
   { title: "Estoque", href: "/dashboard/estoque", icon: Package },
+
+  // ✅ NOVO ITEM PARA O MOBILE
+  { title: "Inventário", href: "/dashboard/inventario", icon: Boxes },
+
   { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },
   { title: "Etiquetas", href: "/dashboard/etiquetas", icon: Tag },
   { title: "Histórico", href: "/dashboard/historico-pedidos", icon: History },

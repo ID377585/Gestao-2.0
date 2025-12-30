@@ -21,7 +21,6 @@ import {
   BadgeDollarSign,
   Menu,
   X,
-  Split,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -35,8 +34,6 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 const menuItems = [
   { title: "Pedidos", href: "/dashboard/pedidos", icon: ClipboardList },
   { title: "Produção", href: "/dashboard/producao", icon: Factory },
-  // 🔹 NOVO ITEM: SEPARAÇÃO
-  { title: "Separação", href: "/dashboard/separacao", icon: Split },
   { title: "Produtividade", href: "/dashboard/produtividade", icon: BarChart3 },
   { title: "Estoque", href: "/dashboard/estoque", icon: Package },
   { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },

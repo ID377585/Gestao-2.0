@@ -1,3 +1,4 @@
+// src/app/(dashboard)/dashboard/estoque/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -32,6 +33,7 @@ import {
   seedInitialStockFromProducts,
   listProductsForInventory,
   updateStockThresholds,
+  getLastClosedInventorySession, // ✅ NOVO IMPORT
 } from "./actions";
 
 // ===== Tipagens auxiliares =====
@@ -48,13 +50,17 @@ type StockRow = {
     id: string;
     name: string;
     price: number | null;
+    // alinhado com tabela products
+    sku?: string | null;
+    default_unit_label?: string | null;
   } | null;
 };
 
 type InventorySession = {
   id: string;
   status: string;
-  started_at?: string | null;
+  started_at: string | null;
+  finished_at: string | null; // ✅ alinhado com o backend
 };
 
 type InventoryItem = {
@@ -73,6 +79,8 @@ type ProductOption = {
   id: string;
   name: string;
   default_unit_label: string | null;
+  // opcional: já deixa pronto pro futuro
+  sku?: string | null;
 };
 
 type ThresholdDrafts = Record<
@@ -112,9 +120,8 @@ export default function EstoquePage() {
 
   // drafts de Min/Méd/Máx por linha
   const [thresholdDrafts, setThresholdDrafts] = useState<ThresholdDrafts>({});
-  const [savingThresholdRowId, setSavingThresholdRowId] = useState<string | null>(
-    null
-  );
+  const [savingThresholdRowId, setSavingThresholdRowId] =
+    useState<string | null>(null);
 
   // ===== Produtos (tabela products) para o inventário =====
   const [products, setProducts] = useState<ProductOption[]>([]);
@@ -130,7 +137,7 @@ export default function EstoquePage() {
 
   // Data do último inventário encerrado (para mostrar em "Estoque Atual")
   const [lastInventoryDate, setLastInventoryDate] = useState<string | null>(
-    null
+    null,
   );
 
   // Form do inventário
@@ -166,7 +173,8 @@ export default function EstoquePage() {
     }).format(date);
   };
 
-  // 🚀 Bootstrap inicial: carrega produtos + estoque, e cria saldos iniciais se necessário
+  // 🚀 Bootstrap inicial: carrega produtos + estoque, cria saldos iniciais se necessário
+  // e descobre a data do último inventário encerrado
   useEffect(() => {
     const bootstrap = async () => {
       try {
@@ -188,6 +196,24 @@ export default function EstoquePage() {
 
         // 3) Carrega estoque atual para exibir tabela e KPIs
         await loadStock();
+
+        // 4) Carrega última sessão de inventário encerrada
+        try {
+          const lastClosed = await getLastClosedInventorySession();
+          if (lastClosed) {
+            // usa finished_at; se não tiver, cai para started_at
+            const date =
+              (lastClosed as any).finished_at ??
+              (lastClosed as any).started_at ??
+              null;
+            if (date) {
+              setLastInventoryDate(date);
+            }
+          }
+        } catch (err) {
+          console.error("Erro ao buscar último inventário encerrado:", err);
+          // não quebra a tela, só não mostra a data
+        }
       } catch (e: any) {
         console.error(e);
         toast({
@@ -207,15 +233,25 @@ export default function EstoquePage() {
     const drafts: ThresholdDrafts = {};
     stock.forEach((row) => {
       drafts[row.id] = {
-        min: row.min_qty !== null && row.min_qty !== undefined ? String(row.min_qty) : "",
-        med: row.med_qty !== null && row.med_qty !== undefined ? String(row.med_qty) : "",
-        max: row.max_qty !== null && row.max_qty !== undefined ? String(row.max_qty) : "",
+        min:
+          row.min_qty !== null && row.min_qty !== undefined
+            ? String(row.min_qty)
+            : "",
+        med:
+          row.med_qty !== null && row.med_qty !== undefined
+            ? String(row.med_qty)
+            : "",
+        max:
+          row.max_qty !== null && row.max_qty !== undefined
+            ? String(row.max_qty)
+            : "",
       };
     });
     setThresholdDrafts(drafts);
   }, [stock]);
 
   // ===== Métricas / KPIs =====
+  // se quiser, pode trocar para distinct product_id no futuro
   const totalItens = stock.length;
 
   const valorTotal = useMemo(() => {
@@ -227,12 +263,12 @@ export default function EstoquePage() {
 
   const totalCriticos = useMemo(
     () => stock.filter((row) => getStatusFromRow(row) === "critico").length,
-    [stock]
+    [stock],
   );
 
   const totalBaixos = useMemo(
     () => stock.filter((row) => getStatusFromRow(row) === "baixo").length,
-    [stock]
+    [stock],
   );
 
   const formatCurrency = (value: number) =>
@@ -356,7 +392,7 @@ export default function EstoquePage() {
 
     if (
       !confirm(
-        "Tem certeza que deseja encerrar este inventário? Os saldos do estoque serão recalculados."
+        "Tem certeza que deseja encerrar este inventário? Os saldos do estoque serão recalculados.",
       )
     ) {
       return;
@@ -393,11 +429,14 @@ export default function EstoquePage() {
   };
 
   const selectedProductRow = stock.find(
-    (s) => s.product?.id === selectedProductId
+    (s) => s.product?.id === selectedProductId,
   );
   const productMeta = products.find((p) => p.id === selectedProductId);
   const selectedUnit =
-    selectedProductRow?.unit_label ?? productMeta?.default_unit_label ?? "";
+    selectedProductRow?.unit_label ??
+    selectedProductRow?.product?.default_unit_label ??
+    productMeta?.default_unit_label ??
+    "";
 
   // data que será exibida no modal (sempre somente leitura)
   const inventoryDateDisplay =
@@ -407,7 +446,7 @@ export default function EstoquePage() {
   const handleThresholdChange = (
     balanceId: string,
     field: "min" | "med" | "max",
-    value: string
+    value: string,
   ) => {
     setThresholdDrafts((prev) => ({
       ...prev,
@@ -607,7 +646,11 @@ export default function EstoquePage() {
                 stock.map((row) => {
                   const status = getStatusFromRow(row);
                   const badgeCfg = statusConfig[status];
-                  const unit = row.unit_label ?? "un";
+
+                  const unit =
+                    row.unit_label ??
+                    row.product?.default_unit_label ??
+                    "un";
                   const price = row.product?.price ?? 0;
 
                   const draft = thresholdDrafts[row.id] ?? {
@@ -630,7 +673,14 @@ export default function EstoquePage() {
                   return (
                     <TableRow key={row.id}>
                       <TableCell className="font-medium">
-                        {row.product?.name ?? "—"}
+                        <div className="flex flex-col">
+                          <span>{row.product?.name ?? "—"}</span>
+                          {row.product?.sku && (
+                            <span className="text-xs text-muted-foreground">
+                              SKU: {row.product.sku}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         {row.quantity} {unit}
@@ -643,7 +693,11 @@ export default function EstoquePage() {
                             value={draft.min}
                             disabled={disabled}
                             onChange={(e) =>
-                              handleThresholdChange(row.id, "min", e.target.value)
+                              handleThresholdChange(
+                                row.id,
+                                "min",
+                                e.target.value,
+                              )
                             }
                             onBlur={() => handleThresholdBlur(row.id)}
                             onKeyDown={(e) => {
@@ -659,7 +713,11 @@ export default function EstoquePage() {
                             value={draft.med}
                             disabled={disabled}
                             onChange={(e) =>
-                              handleThresholdChange(row.id, "med", e.target.value)
+                              handleThresholdChange(
+                                row.id,
+                                "med",
+                                e.target.value,
+                              )
                             }
                             onBlur={() => handleThresholdBlur(row.id)}
                             onKeyDown={(e) => {
@@ -675,7 +733,11 @@ export default function EstoquePage() {
                             value={draft.max}
                             disabled={disabled}
                             onChange={(e) =>
-                              handleThresholdChange(row.id, "max", e.target.value)
+                              handleThresholdChange(
+                                row.id,
+                                "max",
+                                e.target.value,
+                              )
                             }
                             onBlur={() => handleThresholdBlur(row.id)}
                             onKeyDown={(e) => {

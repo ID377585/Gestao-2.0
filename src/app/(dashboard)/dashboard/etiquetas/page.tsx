@@ -172,49 +172,6 @@ const tiposEtiqueta: TipoEtiqueta[] = [
   { id: "2", nome: "REVALIDAR", descricao: "Etiqueta com dados do fabricante" },
 ];
 
-// Dados de exemplo (apenas se o banco estiver vazio)
-const etiquetasGeradasExemplo: EtiquetaGerada[] = [
-  {
-    id: 1,
-    tipo: "MANIPULACAO",
-    tamanho: "Média",
-    insumo: "Pão Francês",
-    qtd: 50,
-    umd: "un",
-    dataManip: "2024-01-15",
-    dataVenc: "2024-01-17",
-    loteMan: "MAN240115001",
-    responsavel: "João Silva",
-    alergenico: "Glúten",
-    armazenamento: "Temperatura ambiente",
-    ingredientes: "Farinha, água, fermento, sal",
-    localEnvio: "Padaria São João",
-    localArmazenado: "Estoque Seco",
-    createdAt: "2024-01-15T08:30:00",
-  },
-  {
-    id: 2,
-    tipo: "REVALIDAR",
-    tamanho: "Grande",
-    insumo: "Carne Bovina",
-    qtd: 5,
-    umd: "kg",
-    dataManip: "2024-01-15",
-    dataVenc: "2024-01-18",
-    loteMan: "MAN240115002",
-    responsavel: "Maria Santos",
-    dataFabricante: "2024-01-10",
-    dataVencimento: "2024-01-20",
-    sif: "SIF 123",
-    loteFab: "FAB240110001",
-    alergenico: "Não contém",
-    armazenamento: "Refrigeração 0-4°C",
-    localEnvio: "Restaurante Bella Vista",
-    localArmazenado: "Câmara Fria",
-    createdAt: "2024-01-15T09:15:00",
-  },
-];
-
 // ✅ datas helpers (ISO yyyy-mm-dd)
 const getTodayISO = () => {
   const d = new Date();
@@ -367,8 +324,8 @@ export default function EtiquetasPage() {
         const rows: InventoryLabelRow[] = await listInventoryLabels();
 
         if (!rows || rows.length === 0) {
-          // se o banco estiver vazio, mostramos apenas os exemplos
-          setEtiquetasGeradas(etiquetasGeradasExemplo);
+          // Sem dados no banco: nenhum registro, sem mocks
+          setEtiquetasGeradas([]);
           return;
         }
 
@@ -416,8 +373,8 @@ export default function EtiquetasPage() {
         setEtiquetasGeradas(mapped);
       } catch (e) {
         console.error("Erro ao carregar etiquetas do banco:", e);
-        // fallback: exemplos
-        setEtiquetasGeradas(etiquetasGeradasExemplo);
+        // Em caso de erro, não mostra mocks – apenas fica vazio
+        setEtiquetasGeradas([]);
       } finally {
         setCarregandoHistorico(false);
       }
@@ -1060,65 +1017,76 @@ export default function EtiquetasPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {etiquetasGeradas.map((etiqueta) => (
-                  <TableRow key={etiqueta.id}>
-                    <TableCell>
-                      <Badge
-                        variant="secondary"
-                        className={
-                          etiqueta.tipo === "MANIPULACAO"
-                            ? "bg-blue-500 text-white"
-                            : "bg-green-500 text-white"
-                        }
-                      >
-                        {TIPO_LABEL[etiqueta.tipo]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {etiqueta.insumo}
-                    </TableCell>
-                    <TableCell>
-                      {etiqueta.qtd} {etiqueta.umd}
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {etiqueta.loteMan}
-                    </TableCell>
-                    <TableCell>{etiqueta.responsavel}</TableCell>
-                    <TableCell>{formatDateTime(etiqueta.createdAt)}</TableCell>
-                    <TableCell>{formatDate(etiqueta.dataVenc)}</TableCell>
-                    <TableCell>
-                      <div className="text-sm">
-                        <p>
-                          <strong>Envio:</strong>{" "}
-                          {etiqueta.localEnvio || "-"}
-                        </p>
-                        <p>
-                          <strong>Armazenado:</strong>{" "}
-                          {etiqueta.localArmazenado || "-"}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex space-x-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            void imprimirBatchNoBrowser([etiqueta]);
-                          }}
-                        >
-                          🖨️
-                        </Button>
-                        <Button size="sm" variant="outline">
-                          👁️
-                        </Button>
-                        <Button size="sm" variant="outline">
-                          📋
-                        </Button>
-                      </div>
+                {etiquetasGeradas.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={9}
+                      className="text-sm text-muted-foreground text-center"
+                    >
+                      Nenhuma etiqueta gerada ainda.
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  etiquetasGeradas.map((etiqueta) => (
+                    <TableRow key={etiqueta.id}>
+                      <TableCell>
+                        <Badge
+                          variant="secondary"
+                          className={
+                            etiqueta.tipo === "MANIPULACAO"
+                              ? "bg-blue-500 text-white"
+                              : "bg-green-500 text-white"
+                          }
+                        >
+                          {TIPO_LABEL[etiqueta.tipo]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {etiqueta.insumo}
+                      </TableCell>
+                      <TableCell>
+                        {etiqueta.qtd} {etiqueta.umd}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {etiqueta.loteMan}
+                      </TableCell>
+                      <TableCell>{etiqueta.responsavel}</TableCell>
+                      <TableCell>{formatDateTime(etiqueta.createdAt)}</TableCell>
+                      <TableCell>{formatDate(etiqueta.dataVenc)}</TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          <p>
+                            <strong>Envio:</strong>{" "}
+                            {etiqueta.localEnvio || "-"}
+                          </p>
+                          <p>
+                            <strong>Armazenado:</strong>{" "}
+                            {etiqueta.localArmazenado || "-"}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex space-x-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              void imprimirBatchNoBrowser([etiqueta]);
+                            }}
+                          >
+                            🖨️
+                          </Button>
+                          <Button size="sm" variant="outline">
+                            👁️
+                          </Button>
+                          <Button size="sm" variant="outline">
+                            📋
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           )}
@@ -1171,7 +1139,7 @@ export default function EtiquetasPage() {
                         { id: "1", nome: "Pequena", largura: 5.0, altura: 3.0 },
                         { id: "2", nome: "Média", largura: 10.0, altura: 6.0 },
                         { id: "3", nome: "Grande", largura: 15.0, altura: 10.0 },
-                      ].map((tamanho) => (
+                      ].map((tamanho: TamanhoEtiqueta) => (
                         <SelectItem key={tamanho.id} value={tamanho.nome}>
                           {tamanho.nome} ({tamanho.largura}×{tamanho.altura}cm)
                         </SelectItem>

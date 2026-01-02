@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
+import dynamic from "next/dynamic";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,12 +22,31 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import {
   aplicarInventario,
   type InventoryResumoInput,
   type InventoryApplyResult,
 } from "./actions";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+
+/**
+ * Scanner de QR Code (camera) – import dinâmico para evitar problemas no SSR
+ */
+const QrScanner = dynamic(
+  () =>
+    import("@yudiel/react-qr-scanner").then((mod) => {
+      // a lib exporta { Scanner }
+      return mod.Scanner;
+    }),
+  { ssr: false }
+);
 
 /* =========================
    ✅ Tipos & helpers locais
@@ -55,7 +76,15 @@ type InventarioHistorico = {
 
 type EntryMode = "qr" | "insumo";
 
+type ProductOption = {
+  id: string;
+  name: string;
+  default_unit_label: string | null;
+};
+
 const HISTORY_KEY = "gestao2_inventario_history";
+// 🔥 Inventário ativo (em andamento) – persiste mesmo se sair da tela
+const ACTIVE_KEY = "gestao2_inventario_atual";
 
 const formatDate = (dateString: string) => {
   if (!dateString) return "";
@@ -138,6 +167,36 @@ const buildResumoFromItens = (
   );
 };
 
+/**
+ * Extrai texto retornado pelo Scanner (@yudiel/react-qr-scanner),
+ * independente se vem como string, array ou objetos com rawValue.
+ */
+const extractTextFromScannerResult = (result: any): string | null => {
+  if (!result) return null;
+
+  // string simples
+  if (typeof result === "string") {
+    return result.trim();
+  }
+
+  // array (vários resultados)
+  if (Array.isArray(result) && result.length > 0) {
+    const first = result[0];
+    if (typeof first === "string") return first.trim();
+    if (first && typeof (first as any).rawValue === "string") {
+      return (first as any).rawValue.trim();
+    }
+  }
+
+  // objeto único com rawValue
+  if (typeof result === "object" && "rawValue" in result) {
+    const value = (result as any).rawValue;
+    if (typeof value === "string") return value.trim();
+  }
+
+  return null;
+};
+
 export default function InventarioPage() {
   /* =========================
      ✅ Estado do Inventário
@@ -154,10 +213,18 @@ export default function InventarioPage() {
 
   const [entryMode, setEntryMode] = useState<EntryMode>("qr");
 
+  // Modal do scanner de câmera
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+
   // Campos para INSUMOS (lançamento manual)
   const [manualProduto, setManualProduto] = useState("");
   const [manualQtd, setManualQtd] = useState("");
   const [manualUmd, setManualUmd] = useState("");
+
+  // Produtos vindos da tabela products (Supabase)
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<ProductOption[]>([]);
+  const [isProductListOpen, setIsProductListOpen] = useState(false);
 
   // Resumo da última contagem (lado cliente)
   const [ultimoResumo, setUltimoResumo] = useState<InventarioResumoItem[] | null>(
@@ -176,6 +243,66 @@ export default function InventarioPage() {
 
   const toastTimerRef = useRef<number | null>(null);
   const qrInputRef = useRef<HTMLInputElement | null>(null);
+  const productFieldRef = useRef<HTMLDivElement | null>(null);
+
+  /* =========================
+     🔥 Restaurar inventário não finalizado
+  ========================== */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(ACTIVE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+
+      if (!saved?.inventarioAtivo) return;
+
+      setInventarioAtivo(true);
+      setInventarioId(saved.inventarioId || "");
+      setInventarioStartedAt(saved.inventarioStartedAt || "");
+      setInventarioItens(saved.inventarioItens || []);
+      setInventarioScannedKeys(saved.inventarioScannedKeys || {});
+      if (saved.entryMode === "qr" || saved.entryMode === "insumo") {
+        setEntryMode(saved.entryMode);
+      }
+    } catch (e) {
+      console.error("Erro ao restaurar inventário ativo:", e);
+    }
+  }, []);
+
+  /* =========================
+     💾 Persistir inventário ativo a cada mudança relevante
+  ========================== */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      if (!inventarioAtivo || !inventarioId) {
+        window.localStorage.removeItem(ACTIVE_KEY);
+        return;
+      }
+
+      const payload = {
+        inventarioAtivo,
+        inventarioId,
+        inventarioStartedAt,
+        inventarioItens,
+        inventarioScannedKeys,
+        entryMode,
+      };
+
+      window.localStorage.setItem(ACTIVE_KEY, JSON.stringify(payload));
+    } catch (e) {
+      console.error("Erro ao salvar inventário ativo:", e);
+    }
+  }, [
+    inventarioAtivo,
+    inventarioId,
+    inventarioStartedAt,
+    inventarioItens,
+    inventarioScannedKeys,
+    entryMode,
+  ]);
 
   /* =========================
      ✅ Carregar / salvar histórico
@@ -204,14 +331,64 @@ export default function InventarioPage() {
   }, [historico]);
 
   /* =========================
+     ✅ Carregar produtos do Supabase
+  ========================== */
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const supabase = createSupabaseBrowserClient();
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, name, default_unit_label")
+          .eq("is_active", true)
+          .order("name", { ascending: true });
+
+        if (error) {
+          console.error("Erro ao carregar produtos:", error);
+          showToast("Erro ao carregar lista de insumos.");
+          return;
+        }
+
+        const list = (data || []) as ProductOption[];
+        setProducts(list);
+        setFilteredProducts(list);
+      } catch (err) {
+        console.error("Erro inesperado ao carregar produtos:", err);
+        showToast("Erro inesperado ao carregar insumos.");
+      }
+    };
+
+    loadProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* =========================
+     ✅ Fechar lista ao clicar fora
+  ========================== */
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        productFieldRef.current &&
+        !productFieldRef.current.contains(event.target as Node)
+      ) {
+        setIsProductListOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  /* =========================
      ✅ Toast
   ========================== */
   const showToast = (msg: string) => {
     setToastMsg(msg);
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    // deixa 5 segundos para leitura tranquila
     toastTimerRef.current = window.setTimeout(() => {
       setToastMsg("");
-    }, 3000);
+    }, 5000);
   };
 
   /* =========================
@@ -247,36 +424,63 @@ export default function InventarioPage() {
     const key = makeInventarioKey(payload);
 
     if (inventarioScannedKeys[key]) {
-      showToast("Este item já foi contado neste inventário!");
+      showToast("Esta etiqueta já foi contada neste inventário!");
       return;
     }
 
-    setInventarioScannedKeys((prev) => ({ ...prev, [key]: true }));
-    setInventarioItens((prev) => [
-      {
-        key,
-        payload,
-        scannedAt: new Date().toISOString(),
-      },
-      ...prev,
-    ]);
+    const newKeys: Record<string, true> = {
+      ...inventarioScannedKeys,
+      [key]: true,
+    };
+
+    const newItem: InventarioItem = {
+      key,
+      payload,
+      scannedAt: new Date().toISOString(),
+    };
+
+    const newItens = [newItem, ...inventarioItens];
+
+    setInventarioScannedKeys(newKeys);
+    setInventarioItens(newItens);
   };
 
-  const handleQrSubmit = () => {
+  /**
+   * Chamado quando o scanner de câmera lê um QR
+   */
+  const handleQrDetected = (rawText: string) => {
     if (!inventarioAtivo) {
       showToast("Inicie um inventário primeiro.");
       return;
     }
 
-    const payload = parseQrPayload(qrInput);
+    const text = String(rawText || "").trim();
+    if (!text) return;
+
+    setQrInput(text); // só para exibir o último lido no campo
+
+    const payload = parseQrPayload(text);
     if (!payload) {
-      showToast("QR inválido (não é JSON).");
+      showToast("QR inválido: o conteúdo não é um JSON esperado.");
       return;
     }
 
     registrarLeituraInventario(payload);
-    setQrInput("");
-    setTimeout(() => qrInputRef.current?.focus(), 10);
+  };
+
+  /**
+   * Fallback: se algum leitor colar texto e der Enter
+   */
+  const handleQrSubmit = () => {
+    if (!inventarioAtivo) {
+      showToast("Inicie um inventário primeiro.");
+      return;
+    }
+    if (!qrInput.trim()) {
+      showToast("Nenhum QR lido ainda.");
+      return;
+    }
+    handleQrDetected(qrInput);
   };
 
   const handleManualSubmit = () => {
@@ -361,7 +565,9 @@ export default function InventarioPage() {
         setApplyResult(result);
 
         if (!result.ok) {
-          showToast("Inventário finalizado, mas houve erros ao aplicar no estoque.");
+          showToast(
+            "Inventário finalizado, mas houve erros ao aplicar no estoque."
+          );
           console.error("aplicarInventario result:", result);
         } else {
           showToast("Inventário aplicado com sucesso no estoque!");
@@ -385,13 +591,57 @@ export default function InventarioPage() {
     setManualUmd("");
   };
 
+  /* =========================
+     ✅ Handlers do autocomplete de produto
+  ========================== */
+
+  const handleProdutoChange = (value: string) => {
+    setManualProduto(value);
+
+    if (!value) {
+      setFilteredProducts(products);
+      setIsProductListOpen(true);
+      return;
+    }
+
+    const term = value.toLowerCase();
+    const filtered = products.filter((p) =>
+      p.name.toLowerCase().includes(term)
+    );
+    setFilteredProducts(filtered);
+    setIsProductListOpen(true);
+  };
+
+  const handleProdutoFocus = () => {
+    setFilteredProducts(products);
+    if (products.length > 0) {
+      setIsProductListOpen(true);
+    }
+  };
+
+  const handleSelectProduct = (product: ProductOption) => {
+    setManualProduto(product.name);
+    if (product.default_unit_label) {
+      setManualUmd(product.default_unit_label);
+    }
+    setIsProductListOpen(false);
+  };
+
   return (
     <div className="space-y-6">
-      {/* ✅ Toast flutuante */}
+      {/* ✅ Toast flutuante centralizado (desktop e mobile) */}
       {toastMsg && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999]">
-          <div className="px-6 py-3 rounded-lg shadow-lg bg-red-600 text-white text-lg font-extrabold">
-            {toastMsg}
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
+          <div className="w-[90%] max-w-md rounded-lg bg-red-600 text-white px-4 py-3 shadow-xl text-sm sm:text-base font-semibold break-words flex items-start gap-3 pointer-events-auto">
+            <span className="flex-1">{toastMsg}</span>
+            <button
+              type="button"
+              onClick={() => setToastMsg("")}
+              className="ml-2 text-white/80 hover:text-white text-lg leading-none"
+              aria-label="Fechar aviso"
+            >
+              ×
+            </button>
           </div>
         </div>
       )}
@@ -428,11 +678,14 @@ export default function InventarioPage() {
             ) : (
               <>
                 <Button
-                  variant="destructive"
                   onClick={finalizarInventario}
                   disabled={isApplying}
+                  // 🔴 Força fundo vermelho e texto branco
+                  className="bg-red-600 text-white hover:bg-red-700"
                 >
-                  {isApplying ? "Aplicando ajustes..." : "⏹️ Finalizar & Aplicar Estoque"}
+                  {isApplying
+                    ? "Aplicando ajustes..."
+                    : "⏹️ Finalizar & Aplicar Estoque"}
                 </Button>
                 <Button
                   variant="outline"
@@ -503,14 +756,42 @@ export default function InventarioPage() {
                 Lançamento de Insumos (produtos primários)
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-                <div className="md:col-span-2">
+                {/* Campo Produto / Insumo com autocomplete */}
+                <div className="md:col-span-2 relative" ref={productFieldRef}>
                   <Label>Produto / Insumo</Label>
                   <Input
                     value={manualProduto}
-                    onChange={(e) => setManualProduto(e.target.value)}
+                    onChange={(e) => handleProdutoChange(e.target.value)}
+                    onFocus={handleProdutoFocus}
                     placeholder="Ex.: Farinha de trigo, Leite integral..."
                     disabled={!inventarioAtivo || isApplying}
+                    autoComplete="off"
                   />
+                  {isProductListOpen && (
+                    <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-white shadow-lg text-sm">
+                      {filteredProducts.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-muted-foreground">
+                          Nenhum produto encontrado.
+                        </div>
+                      ) : (
+                        filteredProducts.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-100"
+                            onClick={() => handleSelectProduct(p)}
+                          >
+                            <span>{p.name}</span>
+                            {p.default_unit_label && (
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                {p.default_unit_label}
+                              </span>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <Label>Quantidade</Label>
@@ -543,7 +824,7 @@ export default function InventarioPage() {
             </div>
           ) : (
             // =========================
-            //  MODO: QR CODE
+            //  MODO: QR CODE (CÂMERA)
             // =========================
             <div className="space-y-3 border rounded-md p-4 bg-slate-50/60">
               <div className="text-sm font-semibold mb-1">
@@ -551,18 +832,12 @@ export default function InventarioPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
                 <div className="md:col-span-2">
-                  <Label>Leitura do QR (scanner cola o texto e dá Enter)</Label>
+                  <Label>Último QR lido</Label>
                   <Input
                     ref={qrInputRef}
                     value={qrInput}
-                    onChange={(e) => setQrInput(e.target.value)}
-                    placeholder='Ex.: {"v":1,"lt":"IE-FA-...","p":"Farinha","q":2,"u":"kg"}'
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleQrSubmit();
-                      }
-                    }}
+                    readOnly
+                    placeholder="Nenhum QR lido ainda."
                     disabled={!inventarioAtivo || isApplying}
                   />
                 </div>
@@ -570,18 +845,23 @@ export default function InventarioPage() {
                 <div className="flex gap-2">
                   <Button
                     className="w-full"
-                    onClick={handleQrSubmit}
-                    disabled={
-                      !inventarioAtivo || !qrInput.trim() || isApplying
-                    }
+                    type="button"
+                    onClick={() => {
+                      if (!inventarioAtivo) {
+                        showToast("Inicie um inventário primeiro.");
+                        return;
+                      }
+                      setIsQrModalOpen(true);
+                    }}
+                    disabled={isApplying}
                   >
-                    Ler QR
+                    📷 Ler QR com a Câmera
                   </Button>
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Use o leitor de QR conectado ao computador; ele cola o JSON da
-                etiqueta e envia Enter automaticamente.
+                Clique em &quot;Ler QR com a Câmera&quot; e aponte o dispositivo
+                para o QR Code das etiquetas geradas na tela de Etiquetas.
               </p>
             </div>
           )}
@@ -641,6 +921,47 @@ export default function InventarioPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Modal do Scanner de QR Code */}
+      <Dialog open={isQrModalOpen} onOpenChange={setIsQrModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Ler QR Code da Etiqueta</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Aponte a câmera para o QR Code impresso na etiqueta. Assim que a
+              leitura for concluída, o item será lançado neste inventário.
+            </p>
+            <div className="rounded-md overflow-hidden border bg-black/80">
+              <QrScanner
+                constraints={{
+                  facingMode: "environment",
+                }}
+                formats={["qr_code"]}
+                onScan={(result: any) => {
+                  const text = extractTextFromScannerResult(result);
+                  if (!text) return;
+                  handleQrDetected(text);
+                  setIsQrModalOpen(false);
+                }}
+                onError={(error: any) => {
+                  console.error("Erro no scanner de QR:", error);
+                  showToast("Erro ao acessar a câmera ou ler o QR.");
+                }}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => setIsQrModalOpen(false)}
+            >
+              Fechar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Resumo da última contagem */}
       {ultimoResumo && ultimoResumo.length > 0 && (
@@ -763,14 +1084,15 @@ export default function InventarioPage() {
         </Card>
       )}
 
-      {/* Histórico de inventários */}
+      {/* Histórico de inventários (localStorage) */}
       {historico.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Histórico de contagens</CardTitle>
-          <CardDescription>
-              Inventários anteriores (salvos localmente neste navegador). Em breve,
-              isso pode ser movido para a tabela <code>inventory_counts</code> no banco.
+            <CardDescription>
+              Inventários anteriores (salvos localmente neste navegador). Em
+              breve, isso pode ser movido para a tabela{" "}
+              <code>inventory_counts</code> no banco.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -807,6 +1129,28 @@ export default function InventarioPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Link para histórico salvo no banco */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Histórico no banco de dados</CardTitle>
+          <CardDescription>
+            Veja todas as contagens de inventário já aplicadas em{" "}
+            <code>inventory_counts</code>.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Use essa tela para consultar inventários antigos, divergências e
+            gerar relatórios consolidados diretamente do Supabase.
+          </p>
+          <Link href="/dashboard/inventario/historico">
+            <Button variant="outline" size="sm">
+              Ver histórico completo →
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
     </div>
   );
 }

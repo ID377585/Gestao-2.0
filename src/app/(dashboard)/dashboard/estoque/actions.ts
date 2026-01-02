@@ -1,3 +1,4 @@
+// src/app/(dashboard)/dashboard/estoque/actions.ts
 "use server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -52,12 +53,11 @@ export type AddInventoryItemInput = {
 
 // =======================================================
 // HELPER: supabase + establishment do usuário logado
-// (compatível com { membership: { establishment_id } } ou direto)
 // =======================================================
 async function getSupabaseAndEstablishment() {
   const supabase = await createSupabaseServerClient();
 
-  // Agora usamos o helper no formato novo (sem passar supabase)
+  // helper de membership no formato novo
   const { membership } = await getActiveMembershipOrRedirect();
 
   const establishmentId = (membership as any)?.establishment_id as
@@ -94,7 +94,7 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
       med_qty,
       max_qty,
       location,
-      product:products (
+      product:products!stock_balances_product_id_fkey (
         id,
         name,
         price,
@@ -110,17 +110,22 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     throw new Error("Erro ao carregar estoque atual.");
   }
 
-  // Normaliza o relacionamento product:products que veio como array
+  // Normaliza o relacionamento product:products
   const normalized = (data ?? []).map((row: any) => {
-    const prodArr = row.product as any[] | null | undefined;
-    const firstProd =
-      prodArr && Array.isArray(prodArr) && prodArr.length > 0
-        ? prodArr[0]
-        : null;
+    const raw = row.product as any;
+    let product: any = null;
+
+    if (Array.isArray(raw)) {
+      product = raw.length > 0 ? raw[0] : null;
+    } else if (raw && typeof raw === "object") {
+      product = raw;
+    } else {
+      product = null;
+    }
 
     return {
       ...row,
-      product: firstProd,
+      product,
     };
   }) as StockBalanceRow[];
 
@@ -143,9 +148,7 @@ export async function listProductsForInventory() {
 
   if (error) {
     console.error("Erro ao listar produtos do inventário:", error);
-    throw new Error(
-      "Estabelecimento não encontrado para o usuário atual ao carregar produtos do inventário."
-    );
+    throw new Error("Não foi possível carregar produtos do inventário.");
   }
 
   return (
@@ -201,7 +204,7 @@ export async function seedInitialStockFromProducts() {
       establishment_id: establishmentId,
       product_id: p.id,
       quantity: 0,
-      unit_label: (p as any).default_unit_label ?? null,
+      unit_label: (p as any).default_unit_label ?? "un",
       min_qty: 0,
       med_qty: 0,
       max_qty: 0,
@@ -270,17 +273,22 @@ export async function getInventorySessionWithItems(): Promise<{
     throw new Error("Não foi possível carregar os itens da sessão.");
   }
 
-  // Normaliza o relacionamento product:products que veio como array
+  // Normaliza o relacionamento product:products (array ou objeto)
   const normalizedItems = (items ?? []).map((row: any) => {
-    const prodArr = row.product as any[] | null | undefined;
-    const firstProd =
-      prodArr && Array.isArray(prodArr) && prodArr.length > 0
-        ? prodArr[0]
-        : null;
+    const raw = row.product as any;
+    let product: any = null;
+
+    if (Array.isArray(raw)) {
+      product = raw.length > 0 ? raw[0] : null;
+    } else if (raw && typeof raw === "object") {
+      product = raw;
+    } else {
+      product = null;
+    }
 
     return {
       ...row,
-      product: firstProd,
+      product,
     };
   }) as InventoryItemRow[];
 
@@ -328,7 +336,7 @@ export async function addInventoryItem(input: AddInventoryItemInput) {
   // Segurança extra: valida se a sessão pertence ao mesmo estabelecimento
   const { data: session, error: sessionError } = await supabase
     .from("inventory_sessions")
-    .select("id, establishment_id, status")
+    .select("id, establishment_id, status, finished_at")
     .eq("id", input.session_id)
     .single();
 
@@ -338,10 +346,13 @@ export async function addInventoryItem(input: AddInventoryItemInput) {
   }
 
   if ((session as any).establishment_id !== establishmentId) {
-    throw new Error("Sessão de inventário não pertence ao estabelecimento atual.");
+    throw new Error(
+      "Sessão de inventário não pertence ao estabelecimento atual."
+    );
   }
 
-  if ((session as any).status !== "open") {
+  // se já tiver finished_at, consideramos encerrado
+  if ((session as any).finished_at) {
     throw new Error("Não é possível adicionar itens em um inventário encerrado.");
   }
 
@@ -373,15 +384,21 @@ export async function finalizeInventory(sessionId: string) {
     .single();
 
   if (sessionError || !session) {
-    console.error("Sessão de inventário não encontrada ao finalizar:", sessionError);
+    console.error(
+      "Sessão de inventário não encontrada ao finalizar:",
+      sessionError
+    );
     throw new Error("Sessão de inventário não encontrada.");
   }
 
   if ((session as any).establishment_id !== establishmentId) {
-    throw new Error("Sessão de inventário não pertence ao estabelecimento atual.");
+    throw new Error(
+      "Sessão de inventário não pertence ao estabelecimento atual."
+    );
   }
 
-  if ((session as any).status !== "open") {
+  // se já tiver finished_at, consideramos encerrada
+  if ((session as any).finished_at) {
     throw new Error("Esta sessão de inventário já foi encerrada.");
   }
 
@@ -392,7 +409,10 @@ export async function finalizeInventory(sessionId: string) {
     .eq("session_id", sessionId);
 
   if (itemsError) {
-    console.error("Erro ao buscar itens do inventário ao finalizar:", itemsError);
+    console.error(
+      "Erro ao buscar itens do inventário ao finalizar:",
+      itemsError
+    );
     throw new Error("Não foi possível carregar os itens do inventário.");
   }
 
@@ -419,12 +439,12 @@ export async function finalizeInventory(sessionId: string) {
     }
   }
 
-  // Marca sessão como encerrada
+  // Marca sessão como encerrada apenas com finished_at
   const { error: closeError } = await supabase
     .from("inventory_sessions")
     .update({
-      status: "closed",
       finished_at: new Date().toISOString(),
+      // não mexemos em status aqui para evitar conflito com o ENUM
     })
     .eq("id", sessionId);
 
@@ -460,4 +480,55 @@ export async function updateStockThresholds(
     console.error("Erro ao atualizar limites de estoque:", error);
     throw new Error("Não foi possível atualizar Min/Méd/Máx do produto.");
   }
+}
+
+// =======================================================
+// 8) BUSCAR ÚLTIMO INVENTÁRIO ENCERRADO
+// =======================================================
+
+export async function getLastClosedInventorySession(): Promise<
+  InventorySessionRow | null
+> {
+  const { supabase, establishmentId } = await getSupabaseAndEstablishment();
+
+  // busca as últimas sessões do estabelecimento
+  const { data, error } = await supabase
+    .from("inventory_sessions")
+    .select(
+      `
+        id,
+        establishment_id,
+        status,
+        started_at,
+        finished_at
+      `
+    )
+    .eq("establishment_id", establishmentId)
+    .order("finished_at", { ascending: false, nullsLast: true })
+    .order("started_at", { ascending: false })
+    .limit(10);
+
+  if (error) {
+    console.error("Erro ao buscar último inventário encerrado:", error);
+    throw new Error("Não foi possível carregar o último inventário encerrado.");
+  }
+
+  console.log(
+    "[getLastClosedInventorySession] sessões retornadas pela query:",
+    data
+  );
+
+  const list = (data ?? []) as InventorySessionRow[];
+
+  // pega a primeira sessão que tenha finished_at preenchido
+  const sessionWithFinish = list.find((s) => !!s.finished_at) ?? null;
+
+  if (!sessionWithFinish) {
+    console.log(
+      "[getLastClosedInventorySession] Nenhuma sessão encerrada (finished_at preenchido) encontrada para este estabelecimento."
+    );
+    return null;
+  }
+
+  return sessionWithFinish;
 }

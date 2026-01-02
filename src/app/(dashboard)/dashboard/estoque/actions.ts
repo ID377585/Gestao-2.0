@@ -353,7 +353,9 @@ export async function addInventoryItem(input: AddInventoryItemInput) {
 
   // se já tiver finished_at, consideramos encerrado
   if ((session as any).finished_at) {
-    throw new Error("Não é possível adicionar itens em um inventário encerrado.");
+    throw new Error(
+      "Não é possível adicionar itens em um inventário encerrado."
+    );
   }
 
   const { error: insertError } = await supabase.from("inventory_items").insert({
@@ -491,7 +493,7 @@ export async function getLastClosedInventorySession(): Promise<
 > {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  // busca as últimas sessões do estabelecimento
+  // ✅ Busca APENAS inventários encerrados (finished_at preenchido)
   const { data, error } = await supabase
     .from("inventory_sessions")
     .select(
@@ -504,31 +506,23 @@ export async function getLastClosedInventorySession(): Promise<
       `
     )
     .eq("establishment_id", establishmentId)
-    .order("finished_at", { ascending: false, nullsLast: true })
-    .order("started_at", { ascending: false })
-    .limit(10);
+    .not("finished_at", "is", null) // finished_at IS NOT NULL
+    .order("finished_at", { ascending: false })
+    .limit(1);
 
   if (error) {
     console.error("Erro ao buscar último inventário encerrado:", error);
     throw new Error("Não foi possível carregar o último inventário encerrado.");
   }
 
-  console.log(
-    "[getLastClosedInventorySession] sessões retornadas pela query:",
-    data
-  );
+  const session = (data ?? [])[0] as InventorySessionRow | undefined;
 
-  const list = (data ?? []) as InventorySessionRow[];
-
-  // pega a primeira sessão que tenha finished_at preenchido
-  const sessionWithFinish = list.find((s) => !!s.finished_at) ?? null;
-
-  if (!sessionWithFinish) {
+  if (!session) {
     console.log(
       "[getLastClosedInventorySession] Nenhuma sessão encerrada (finished_at preenchido) encontrada para este estabelecimento."
     );
     return null;
   }
 
-  return sessionWithFinish;
+  return session;
 }

@@ -1,7 +1,12 @@
-// src/app/(dashboard)/dashboard/inventario/[id]/export/route.ts
+// src/app/api/export/products/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+
+// ✅ IMPORTANTE: rota usa cookies/auth → precisa ser dinâmica no build
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 /**
  * Normaliza possível ID para evitar "undefined"/"null" em string.
@@ -27,120 +32,157 @@ function csvField(value: any): string {
     text = text.replace(/"/g, '""');
     return `"${text}"`;
   }
+
   return text;
 }
 
 /**
- * Tipo do item retornado pelo select do Supabase:
- * products pode vir como array ou objeto, dependendo do schema/join.
+ * Formata números para pt-BR (com vírgula) com casas decimais.
  */
-type InventoryItemRow = {
-  unit_label: string | null;
-  counted_qty: number | null;
-  current_stock_before: number | null;
-  diff_qty: number | null;
-  products?: { name: string | null } | { name: string | null }[] | null;
-};
-
-function getProductName(
-  products: InventoryItemRow["products"],
-): string {
-  if (!products) return "";
-  if (Array.isArray(products)) return products[0]?.name ?? "";
-  return products.name ?? "";
+function formatNumber(value: number | null | undefined, decimals: number) {
+  if (value === null || value === undefined) return "";
+  if (Number.isNaN(value)) return "";
+  return value.toLocaleString("pt-BR", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
 }
 
-export async function GET(
-  _req: Request,
-  { params }: { params: { id: string } },
-) {
+export async function GET(_request: Request) {
   try {
-    const inventoryId = params.id;
+    // ✅ pode falhar sem cookies/session (ex.: build/preview) → não pode quebrar a build
+    let establishmentId: string | null = null;
 
-    const { membership } = await getActiveMembershipOrRedirect();
-    const establishmentId = normalizeId((membership as any)?.establishment_id);
-
-    if (!establishmentId) {
+    try {
+      const { membership } = await getActiveMembershipOrRedirect();
+      const orgId = normalizeId((membership as any)?.organization_id);
+      const estId = normalizeId((membership as any)?.establishment_id);
+      establishmentId = estId ?? orgId;
+    } catch (e) {
+      // Sem sessão/cookies → retorna 401, sem crash
       return NextResponse.json(
-        { error: "Estabelecimento não encontrado para o usuário atual." },
-        { status: 403 },
+        { error: "Não autenticado." },
+        { status: 401 }
       );
     }
 
     const supabase = await createSupabaseServerClient();
 
-    // 1) Confere se o inventário pertence ao estabelecimento do usuário
-    const { data: count, error: countError } = await supabase
-      .from("inventory_counts")
-      .select("id, establishment_id")
-      .eq("id", inventoryId)
-      .maybeSingle();
+    // Campos que queremos exportar
+    const selectFields = [
+      "id",
+      "establishment_id",
+      "sku",
+      "name",
+      "product_type",
+      "default_unit_label",
+      "package_qty",
+      "qty_per_package",
+      "category",
+      "price",
+      "conversion_factor",
+      "is_active",
+    ].join(", ");
 
-    if (countError || !count || count.establishment_id !== establishmentId) {
+    let query = supabase.from("products").select(selectFields);
+
+    if (establishmentId) {
+      query = query.eq("establishment_id", establishmentId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("Erro ao exportar produtos:", error);
       return NextResponse.json(
-        { error: "Inventário não encontrado ou não autorizado." },
-        { status: 404 },
+        { error: "Erro ao exportar produtos." },
+        { status: 500 }
       );
     }
 
-    // 2) Busca itens + nome do produto (join)
-    const { data: items, error: itemsError } = await supabase
-      .from("inventory_count_items")
-      .select(
-        `
-        unit_label,
-        counted_qty,
-        current_stock_before,
-        diff_qty,
-        products (
-          name
-        )
-      `,
-      )
-      .eq("inventory_count_id", inventoryId);
+    const products = Array.isArray(data) ? data : [];
 
-    if (itemsError) {
-      console.error("Erro ao carregar itens para export:", itemsError);
-      return NextResponse.json(
-        { error: "Erro ao carregar itens de inventário." },
-        { status: 500 },
-      );
-    }
-
-    const safeItems = (items ?? []) as InventoryItemRow[];
-
-    // 3) Monta CSV (Excel-friendly) com separador ;
-    const header = ["Produto", "Unidade", "Estoque_antes", "Contado", "Diferenca"];
+    // Cabeçalho do CSV
+    const header = [
+      "id",
+      "sku",
+      "name",
+      "product_type",
+      "default_unit_label",
+      "package_qty",
+      "qty_per_package",
+      "category",
+      "price",
+      "conversion_factor",
+      "is_active",
+    ];
 
     const rows: string[] = [];
     rows.push(header.join(";"));
 
-    for (const r of safeItems) {
+    for (const p of products) {
+      // ✅ blindagem: se vier undefined/null por qualquer motivo, pula
+      if (!p) continue;
+
+      // package_qty: tenta converter, mas só formata se não der NaN
+      let packageQtyFormatted = "";
+      if (p.package_qty !== null && p.package_qty !== undefined) {
+        const n = Number(p.package_qty);
+        packageQtyFormatted = !Number.isNaN(n) ? formatNumber(n, 3) : "";
+      }
+
+      // qty_per_package é texto livre
+      const qtyPerPackageText =
+        p.qty_per_package !== null && p.qty_per_package !== undefined
+          ? String(p.qty_per_package)
+          : "";
+
+      // price
+      let priceFormatted = "";
+      if (p.price !== null && p.price !== undefined) {
+        const n = Number(p.price);
+        priceFormatted = !Number.isNaN(n) ? formatNumber(n, 2) : "";
+      }
+
+      // conversion_factor
+      let conversionFormatted = "";
+      if (p.conversion_factor !== null && p.conversion_factor !== undefined) {
+        const n = Number(p.conversion_factor);
+        conversionFormatted = !Number.isNaN(n) ? formatNumber(n, 4) : "";
+      }
+
       const row = [
-        csvField(getProductName(r.products)),
-        csvField(r.unit_label ?? ""),
-        csvField(r.current_stock_before ?? 0),
-        csvField(r.counted_qty ?? 0),
-        csvField(r.diff_qty ?? 0),
+        csvField(p.id ?? ""),
+        csvField(p.sku ?? ""),
+        csvField(p.name ?? ""),
+        csvField(p.product_type ?? ""),
+        csvField(p.default_unit_label ?? ""),
+        csvField(packageQtyFormatted),
+        csvField(qtyPerPackageText),
+        csvField(p.category ?? ""),
+        csvField(priceFormatted),
+        csvField(conversionFormatted),
+        csvField(p.is_active ? 1 : 0),
       ];
+
       rows.push(row.join(";"));
     }
 
-    // Adiciona BOM para Excel reconhecer UTF-8
+    // BOM para Excel reconhecer UTF-8
     const csvContent = "\uFEFF" + rows.join("\r\n");
 
     return new NextResponse(csvContent, {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="inventario-${inventoryId}.csv"`,
+        "Content-Disposition": 'attachment; filename="produtos.csv"',
       },
     });
   } catch (err) {
     console.error("Erro inesperado em export inventário:", err);
     return NextResponse.json(
-      { error: "Erro inesperado ao exportar inventário." },
-      { status: 500 },
+      { error: "Erro inesperado ao exportar produtos." },
+      { status: 500 }
     );
   }
 }

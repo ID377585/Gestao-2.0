@@ -23,7 +23,7 @@ function parseNumberStr(
   decimals = 3,
 ): number | null {
   if (!value) return null;
-  const str = value.replace(",", ".").trim();
+  const str = String(value).replace(",", ".").trim();
   if (!str) return null;
   const n = Number(str);
   if (Number.isNaN(n)) return null;
@@ -38,6 +38,60 @@ function detectDelimiter(headerLine: string): ";" | "," {
   return ",";
 }
 
+/**
+ * Parser de CSV linha-a-linha com suporte básico a aspas:
+ * - Delimitador ; ou ,
+ * - Campos entre aspas podem conter delimitador
+ * - Aspas duplas dentro de aspas: "" vira "
+ */
+function parseCsvLine(line: string, delimiter: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+
+    if (ch === '"') {
+      // "" dentro de campo com aspas -> "
+      if (inQuotes && line[i + 1] === '"') {
+        cur += '"';
+        i++;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (!inQuotes && ch === delimiter) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+
+    cur += ch;
+  }
+
+  out.push(cur);
+  return out;
+}
+
+/**
+ * Heurística: se request veio via fetch/AJAX, devolvemos JSON ao invés de redirect.
+ */
+function wantsJson(request: Request) {
+  const accept = request.headers.get("accept") || "";
+  const xrw = request.headers.get("x-requested-with") || "";
+  const secFetchMode = request.headers.get("sec-fetch-mode") || "";
+
+  if (accept.includes("application/json")) return true;
+  if (xrw.toLowerCase() === "xmlhttprequest") return true;
+  // muitas libs usam cors/no-cors/same-origin, mas em fetch geralmente aparece "cors"
+  if (secFetchMode && secFetchMode !== "navigate") return true;
+
+  return false;
+}
+
 export async function POST(request: Request) {
   try {
     const membership = await getActiveMembershipOrRedirect();
@@ -46,6 +100,11 @@ export async function POST(request: Request) {
     const establishmentId =
       normalizeId(establishment_id) ?? normalizeId(organization_id);
     const userId = normalizeId(user_id);
+
+    if (!establishmentId) {
+      const msg = "Estabelecimento não encontrado no membership.";
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
 
     const supabase = await createSupabaseServerClient();
 
@@ -69,8 +128,8 @@ export async function POST(request: Request) {
 
     const lines = text
       .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
+      .map((l) => l.trimEnd())
+      .filter((l) => l.trim().length > 0);
 
     if (lines.length <= 1) {
       return NextResponse.json(
@@ -81,12 +140,26 @@ export async function POST(request: Request) {
 
     const headerLine = lines[0];
     const delimiter = detectDelimiter(headerLine);
-    const headers = headerLine.split(delimiter).map((h) => h.trim());
+    const headers = parseCsvLine(headerLine, delimiter).map((h) => h.trim());
 
-    const records: Record<string, string>[] = [];
+    // garante headers mínimas
+    const required = ["name", "product_type", "default_unit_label"];
+    const missing = required.filter((k) => !headers.includes(k));
+    if (missing.length > 0) {
+      return NextResponse.json(
+        {
+          error: `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(
+            ", ",
+          )}`,
+        },
+        { status: 400 },
+      );
+    }
+
+    const records: Record<string, string>[]= [];
 
     for (const line of lines.slice(1)) {
-      const cols = line.split(delimiter);
+      const cols = parseCsvLine(line, delimiter);
       const rec: Record<string, string> = {};
       headers.forEach((h, idx) => {
         rec[h] = (cols[idx] ?? "").trim();
@@ -94,20 +167,33 @@ export async function POST(request: Request) {
       records.push(rec);
     }
 
-    const toInsert: any[] = [];
-    const toUpdate: any[] = [];
+    // Separação inteligente:
+    // - Se tiver ID válido => upsert por id (PK) (atualiza)
+    // - Se não tiver ID:
+    //    - se tiver sku => upsert por (establishment_id, sku) (evita duplicar)
+    //    - se não tiver sku => insert puro
+    const upsertById: any[] = [];
+    const upsertBySku: any[] = [];
+    const insertNoSku: any[] = [];
+
+    let skipped = 0;
 
     for (const rec of records) {
-      const id = rec["id"]?.trim() || null;
-      const sku = rec["sku"]?.trim() || null;
-      const name = rec["name"]?.trim() || "";
-      const product_type = rec["product_type"]?.trim() || "INSU";
-      const default_unit_label = rec["default_unit_label"]?.trim() || "un";
+      const idRaw = rec["id"]?.trim() || "";
+      const id = normalizeId(idRaw);
+
+      const skuRaw = rec["sku"]?.trim() || "";
+      const sku = skuRaw.length > 0 ? skuRaw : null;
+
+      const name = (rec["name"] ?? "").trim();
+      const product_type = (rec["product_type"] ?? "INSU").trim() || "INSU";
+      const default_unit_label =
+        (rec["default_unit_label"] ?? "un").trim() || "un";
 
       // NUMÉRICO: package_qty
       const package_qty = parseNumberStr(rec["package_qty"], 3);
 
-      // *** TEXTO: qty_per_package (NÃO PARSEAR, APENAS TRIM) ***
+      // TEXTO: qty_per_package
       const qty_per_package =
         rec["qty_per_package"] && rec["qty_per_package"].trim().length > 0
           ? rec["qty_per_package"].trim()
@@ -121,100 +207,174 @@ export async function POST(request: Request) {
           ? rec["category"].trim()
           : null;
 
-      const is_active_raw = rec["is_active"]?.trim().toLowerCase() ?? "1";
+      const is_active_raw = (rec["is_active"] ?? "1").trim().toLowerCase();
       const is_active =
         is_active_raw === "1" ||
         is_active_raw === "true" ||
         is_active_raw === "sim";
 
       if (!name) {
-        // pula linha sem nome
+        skipped++;
         continue;
       }
 
+      // payload base
+      const basePayload: any = {
+        sku,
+        name,
+        product_type,
+        default_unit_label,
+        package_qty,
+        qty_per_package,
+        category,
+        price,
+        conversion_factor: conversion_factor ?? 1,
+        is_active,
+      };
+
+      // auditoria (opcional)
+      const nowIso = new Date().toISOString();
+
       if (id) {
-        // atualização
-        toUpdate.push({
-          id,
-          sku,
-          name,
-          product_type,
-          default_unit_label,
-          package_qty,
-          qty_per_package, // TEXTO
-          category,
-          price,
-          conversion_factor,
-          is_active,
+        // update por id (PK)
+        upsertById.push({
+          id, // PK
+          establishment_id: establishmentId, // segurança extra
+          ...basePayload,
           ...(userId
             ? {
                 updated_by: userId,
-                updated_at: new Date().toISOString(),
+                updated_at: nowIso,
               }
             : {}),
         });
       } else {
-        // novo registro
-        toInsert.push({
-          sku,
-          name,
-          product_type,
-          default_unit_label,
-          package_qty,
-          qty_per_package, // TEXTO
-          category,
-          price,
-          conversion_factor: conversion_factor ?? 1,
-          is_active,
-          ...(establishmentId
-            ? { establishment_id: establishmentId }
-            : {}),
+        // sem id => criar
+        const createPayload: any = {
+          establishment_id: establishmentId,
+          ...basePayload,
           ...(userId
             ? {
                 created_by: userId,
-                created_at: new Date().toISOString(),
+                created_at: nowIso,
               }
             : {}),
-        });
+        };
+
+        if (sku) {
+          upsertBySku.push(createPayload);
+        } else {
+          insertNoSku.push(createPayload);
+        }
       }
     }
 
-    // INSERÇÕES
-    if (toInsert.length > 0) {
-      const { error: insertError } = await supabase
+    // 1) UPSERT por SKU (evita duplicar se sku já existe no estabelecimento)
+    // OBS: Precisa de UNIQUE/INDEX em (establishment_id, sku) para funcionar perfeito.
+    // Se não tiver, o Supabase vai reclamar e a gente cai no insert.
+    let upsertSkuInsertedOrUpdated = 0;
+    if (upsertBySku.length > 0) {
+      const { error: upsertSkuErr, data } = await supabase
         .from("products")
-        .insert(toInsert);
+        .upsert(upsertBySku, {
+          onConflict: "establishment_id,sku",
+          ignoreDuplicates: false,
+        })
+        .select("id");
 
-      if (insertError) {
-        console.error("Erro ao inserir produtos (import):", insertError);
+      if (upsertSkuErr) {
+        console.error("Erro upsert por SKU (import):", upsertSkuErr);
+        // fallback: tenta insert simples (vai duplicar se já existir)
+        const { error: fallbackErr } = await supabase
+          .from("products")
+          .insert(upsertBySku);
+
+        if (fallbackErr) {
+          console.error("Erro fallback insert (sku) (import):", fallbackErr);
+          return NextResponse.json(
+            { error: "Erro ao inserir/atualizar produtos por SKU." },
+            { status: 500 },
+          );
+        }
+      } else {
+        upsertSkuInsertedOrUpdated = (data ?? []).length;
+      }
+    }
+
+    // 2) INSERT para registros SEM SKU (sempre cria novo)
+    let insertedNoSku = 0;
+    if (insertNoSku.length > 0) {
+      const { error: insertErr, data } = await supabase
+        .from("products")
+        .insert(insertNoSku)
+        .select("id");
+
+      if (insertErr) {
+        console.error("Erro ao inserir produtos sem SKU (import):", insertErr);
         return NextResponse.json(
-          { error: "Erro ao inserir novos produtos." },
+          { error: "Erro ao inserir produtos (sem SKU)." },
           { status: 500 },
         );
       }
+      insertedNoSku = (data ?? []).length;
     }
 
-    // ATUALIZAÇÕES
-    for (const rec of toUpdate) {
-      const { id, ...rest } = rec;
-      const { error: updateError } = await supabase
+    // 3) UPSERT por ID (PK) (atualiza em lote)
+    let updatedById = 0;
+    if (upsertById.length > 0) {
+      const { error: upsertIdErr, data } = await supabase
         .from("products")
-        .update(rest)
-        .eq("id", id);
+        .upsert(upsertById, {
+          onConflict: "id",
+          ignoreDuplicates: false,
+        })
+        .select("id");
 
-      if (updateError) {
-        console.error(
-          `Erro ao atualizar produto id=${id} (import):`,
-          updateError,
-        );
-        return NextResponse.json(
-          { error: `Erro ao atualizar produto id=${id}.` },
-          { status: 500 },
-        );
+      if (upsertIdErr) {
+        console.error("Erro upsert por ID (import):", upsertIdErr);
+
+        // fallback: atualiza 1 a 1 (mantém compatibilidade)
+        for (const rec of upsertById) {
+          const { id, establishment_id, ...rest } = rec;
+          const { error: updateErr } = await supabase
+            .from("products")
+            .update(rest)
+            .eq("id", id)
+            .eq("establishment_id", establishmentId);
+
+          if (updateErr) {
+            console.error(
+              `Erro fallback update produto id=${id} (import):`,
+              updateErr,
+            );
+            return NextResponse.json(
+              { error: `Erro ao atualizar produto id=${id}.` },
+              { status: 500 },
+            );
+          }
+        }
+        updatedById = upsertById.length;
+      } else {
+        updatedById = (data ?? []).length;
       }
     }
 
-    // mantém o mesmo parâmetro de sucesso já usado
+    const insertedOrUpserted = upsertSkuInsertedOrUpdated + insertedNoSku;
+    const updated = updatedById; // updates reais por id
+    const summary = {
+      ok: true,
+      insertedOrUpserted,
+      updated,
+      skipped,
+      totalLines: records.length,
+    };
+
+    // ✅ IMPORTANTE: se veio via fetch/AJAX, retorna JSON
+    if (wantsJson(request)) {
+      return NextResponse.json(summary, { status: 200 });
+    }
+
+    // ✅ Submit normal: redirect para tela
     return NextResponse.redirect(
       new URL("/dashboard/produtos?success=import", request.url),
       303,

@@ -31,11 +31,15 @@ async function getMembershipIds() {
   const establishmentId =
     normalizeId(establishment_id) ?? normalizeId(organization_id);
 
-  // userId agora é OPCIONAL (pode ser null)
+  // userId opcional
   const userId = normalizeId(user_id) ?? null;
 
+  if (!establishmentId) {
+    throw new Error("Estabelecimento não encontrado no membership.");
+  }
+
   return {
-    establishmentId, // string | null
+    establishmentId, // string
     userId, // string | null
   };
 }
@@ -63,76 +67,64 @@ export async function createProduct(formData: FormData) {
   const { establishmentId, userId } = await getMembershipIds();
   const supabase = await createSupabaseServerClient();
 
-  const name = (formData.get("name") as string)?.trim();
-  const product_type = formData.get("product_type") as ProductType;
+  const name = String(formData.get("name") ?? "").trim();
+  const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
+  const default_unit_label = String(formData.get("default_unit_label") ?? "un").trim();
+
   const skuRaw = formData.get("sku");
-  const default_unit_label = (formData.get("default_unit_label") as string)?.trim();
   const categoryRaw = formData.get("category");
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
   const qtyPerPackageRaw = formData.get("qty_per_package"); // TEXTO
   const conversionRaw = formData.get("conversion_factor");
 
-  if (!name) {
-    throw new Error("Nome do produto é obrigatório.");
-  }
+  if (!name) throw new Error("Nome do produto é obrigatório.");
 
-  // Campos numéricos
+  // numéricos
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
   const conversion_factor = parseNumber(conversionRaw, 4);
 
-  // SKU opcional
+  // opcionais
   const sku =
     skuRaw && String(skuRaw).trim().length > 0
       ? String(skuRaw).trim()
       : null;
 
-  // Categoria opcional
   const category =
     categoryRaw && String(categoryRaw).trim().length > 0
       ? String(categoryRaw).trim()
       : null;
 
-  // qty_per_package AGORA É STRING/TEXTO LIVRE
   const qty_per_package =
     qtyPerPackageRaw && String(qtyPerPackageRaw).trim().length > 0
       ? String(qtyPerPackageRaw).trim()
       : null;
 
   const insertData: any = {
+    establishment_id: establishmentId,
     name,
     sku,
     product_type,
     default_unit_label,
     package_qty,
-    qty_per_package, // string | null
+    qty_per_package,
     category,
     conversion_factor: conversion_factor ?? 1,
     price: price ?? 0,
     standard_cost: null,
     is_active: true,
+    ...(userId ? { created_by: userId } : {}),
   };
-
-  if (establishmentId) {
-    insertData.establishment_id = establishmentId;
-  }
-
-  if (userId) {
-    insertData.created_by = userId;
-  }
 
   const { error } = await supabase.from("products").insert(insertData);
 
   if (error) {
     console.error("Erro ao criar produto", error);
-    throw error;
+    throw new Error(error.message ?? "Falha ao criar produto.");
   }
 
-  // Atualiza a lista
   revalidatePath("/dashboard/produtos");
-
-  // Fecha o modal e volta com mensagem de sucesso
   redirect("/dashboard/produtos?success=new");
 }
 
@@ -141,18 +133,17 @@ export async function createProduct(formData: FormData) {
    ========================================================= */
 
 export async function updateProduct(formData: FormData) {
-  const { userId } = await getMembershipIds();
+  const { establishmentId, userId } = await getMembershipIds();
   const supabase = await createSupabaseServerClient();
 
-  const id = formData.get("id") as string;
-  if (!id) {
-    throw new Error("ID do produto é obrigatório para edição.");
-  }
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) throw new Error("ID do produto é obrigatório para edição.");
 
-  const name = (formData.get("name") as string)?.trim();
-  const product_type = formData.get("product_type") as ProductType;
+  const name = String(formData.get("name") ?? "").trim();
+  const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
+  const default_unit_label = String(formData.get("default_unit_label") ?? "un").trim();
+
   const skuRaw = formData.get("sku");
-  const default_unit_label = (formData.get("default_unit_label") as string)?.trim();
   const categoryRaw = formData.get("category");
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
@@ -160,24 +151,24 @@ export async function updateProduct(formData: FormData) {
   const conversionRaw = formData.get("conversion_factor");
   const isActiveRaw = formData.get("is_active");
 
-  // Numéricos
+  if (!name) throw new Error("Nome do produto é obrigatório.");
+
+  // numéricos
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
   const conversion_factor = parseNumber(conversionRaw, 4);
 
-  // SKU opcional
+  // opcionais
   const sku =
     skuRaw && String(skuRaw).trim().length > 0
       ? String(skuRaw).trim()
       : null;
 
-  // Categoria opcional
   const category =
     categoryRaw && String(categoryRaw).trim().length > 0
       ? String(categoryRaw).trim()
       : null;
 
-  // qty_per_package como STRING (igual createProduct)
   const qty_per_package =
     qtyPerPackageRaw && String(qtyPerPackageRaw).trim().length > 0
       ? String(qtyPerPackageRaw).trim()
@@ -191,26 +182,28 @@ export async function updateProduct(formData: FormData) {
     product_type,
     default_unit_label,
     package_qty,
-    qty_per_package, // string | null
+    qty_per_package,
     category,
     price,
     conversion_factor,
     is_active,
+    ...(userId
+      ? {
+          updated_by: userId,
+          updated_at: new Date().toISOString(),
+        }
+      : {}),
   };
-
-  if (userId) {
-    updateData.updated_by = userId;
-    updateData.updated_at = new Date().toISOString();
-  }
 
   const { error } = await supabase
     .from("products")
     .update(updateData)
-    .eq("id", id);
+    .eq("id", id)
+    .eq("establishment_id", establishmentId); // camada extra
 
   if (error) {
     console.error("Erro ao atualizar produto", error);
-    throw error;
+    throw new Error(error.message ?? "Falha ao atualizar produto.");
   }
 
   revalidatePath("/dashboard/produtos");

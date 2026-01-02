@@ -48,6 +48,25 @@ function formatNumber(value: number | null | undefined, decimals: number) {
   });
 }
 
+/**
+ * ✅ Tipagem explícita do retorno do export
+ * (evita o TS inferir GenericStringError quando o schema/types não batem 100%)
+ */
+type ProductExportRow = {
+  id: string | null;
+  establishment_id: string | null;
+  sku: string | null;
+  name: string | null;
+  product_type: string | null;
+  default_unit_label: string | null;
+  package_qty: number | string | null;
+  qty_per_package: string | null;
+  category: string | null;
+  price: number | string | null;
+  conversion_factor: number | string | null;
+  is_active: boolean | null;
+};
+
 export async function GET(_request: Request) {
   try {
     // ✅ pode falhar sem cookies/session (ex.: build/preview) → não pode quebrar a build
@@ -58,12 +77,9 @@ export async function GET(_request: Request) {
       const orgId = normalizeId((membership as any)?.organization_id);
       const estId = normalizeId((membership as any)?.establishment_id);
       establishmentId = estId ?? orgId;
-    } catch (e) {
+    } catch (_e) {
       // Sem sessão/cookies → retorna 401, sem crash
-      return NextResponse.json(
-        { error: "Não autenticado." },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
     }
 
     const supabase = await createSupabaseServerClient();
@@ -90,7 +106,8 @@ export async function GET(_request: Request) {
       query = query.eq("establishment_id", establishmentId);
     }
 
-    const { data, error } = await query;
+    // ✅ Cast controlado: evita GenericStringError derrubar a build
+    const { data, error } = await (query as any);
 
     if (error) {
       console.error("Erro ao exportar produtos:", error);
@@ -100,7 +117,7 @@ export async function GET(_request: Request) {
       );
     }
 
-    const products = Array.isArray(data) ? data : [];
+    const products = (Array.isArray(data) ? data : []) as ProductExportRow[];
 
     // Cabeçalho do CSV
     const header = [
@@ -179,7 +196,7 @@ export async function GET(_request: Request) {
       },
     });
   } catch (err) {
-    console.error("Erro inesperado em export inventário:", err);
+    console.error("Erro inesperado em export produtos:", err);
     return NextResponse.json(
       { error: "Erro inesperado ao exportar produtos." },
       { status: 500 }

@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 /**
  * Normaliza possível ID para evitar "undefined"/"null" em string.
  */
@@ -93,8 +96,6 @@ function wantsJson(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    // ✅ Continua exigindo usuário logado (membership existe),
-    // mas não vai mais quebrar se o membership vier sem establishment_id.
     const membership = await getActiveMembershipOrRedirect();
     const { organization_id, establishment_id, user_id } = membership as any;
 
@@ -111,6 +112,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Arquivo não enviado." }, { status: 400 });
     }
 
+    // ✅ Melhoria: bloquear XLSX aqui com mensagem clara
+    const fileName = (file as any)?.name ? String((file as any).name) : "";
+    const lowerName = fileName.toLowerCase();
+    if (lowerName.endsWith(".xlsx") || file.type.includes("spreadsheetml")) {
+      return NextResponse.json(
+        { error: "Formato .xlsx não suportado nesta importação. Exporte como CSV e tente novamente." },
+        { status: 400 }
+      );
+    }
+
     const arrayBuffer = await file.arrayBuffer();
     let text = new TextDecoder("utf-8").decode(arrayBuffer);
 
@@ -125,7 +136,10 @@ export async function POST(request: Request) {
       .filter((l) => l.trim().length > 0);
 
     if (lines.length <= 1) {
-      return NextResponse.json({ error: "Arquivo sem dados para importar." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Arquivo sem dados para importar." },
+        { status: 400 }
+      );
     }
 
     const headerLine = lines[0];
@@ -169,10 +183,8 @@ export async function POST(request: Request) {
     let effectiveEstablishmentId: string | null = null;
 
     if (membershipEstablishmentId) {
-      // membership manda
       effectiveEstablishmentId = membershipEstablishmentId;
 
-      // se CSV tiver establishment_id, não pode divergir
       if (csvEstabSet.size > 0) {
         for (const v of csvEstabSet.values()) {
           if (v !== membershipEstablishmentId) {
@@ -187,7 +199,6 @@ export async function POST(request: Request) {
         }
       }
     } else {
-      // membership não trouxe establishment -> precisa vir do CSV
       if (csvEstabSet.size !== 1) {
         return NextResponse.json(
           {
@@ -220,6 +231,7 @@ export async function POST(request: Request) {
     const insertNoSku: any[] = [];
 
     let skipped = 0;
+    const nowIso = new Date().toISOString();
 
     for (const rec of records) {
       const id = normalizeId(rec["id"]?.trim() || null);
@@ -228,12 +240,11 @@ export async function POST(request: Request) {
       const sku = skuRaw.length > 0 ? skuRaw : null;
 
       const name = (rec["name"] ?? "").trim();
-      const product_type = (rec["product_type"] ?? "INSU").trim() || "INSU";
+      const product_type = ((rec["product_type"] ?? "INSU").trim() || "INSU").toUpperCase();
       const default_unit_label = (rec["default_unit_label"] ?? "un").trim() || "un";
 
       const package_qty = parseNumberStr(rec["package_qty"], 3);
 
-      // TEXTO: qty_per_package
       const qty_per_package =
         rec["qty_per_package"] && rec["qty_per_package"].trim().length > 0
           ? rec["qty_per_package"].trim()
@@ -243,17 +254,18 @@ export async function POST(request: Request) {
       const conversion_factor = parseNumberStr(rec["conversion_factor"], 4);
 
       const category =
-        rec["category"] && rec["category"].trim().length > 0 ? rec["category"].trim() : null;
+        rec["category"] && rec["category"].trim().length > 0
+          ? rec["category"].trim()
+          : null;
 
       const is_active_raw = (rec["is_active"] ?? "1").trim().toLowerCase();
-      const is_active = is_active_raw === "1" || is_active_raw === "true" || is_active_raw === "sim";
+      const is_active =
+        is_active_raw === "1" || is_active_raw === "true" || is_active_raw === "sim";
 
       if (!name) {
         skipped++;
         continue;
       }
-
-      const nowIso = new Date().toISOString();
 
       const basePayload: any = {
         sku,
@@ -310,7 +322,6 @@ export async function POST(request: Request) {
 
       if (upsertSkuErr) {
         console.error("Erro upsert por SKU (import):", upsertSkuErr);
-        // fallback insert simples
         const { error: fallbackErr } = await supabase.from("products").insert(upsertBySku);
         if (fallbackErr) {
           console.error("Erro fallback insert (sku) (import):", fallbackErr);
@@ -327,13 +338,18 @@ export async function POST(request: Request) {
     // 2) INSERT sem SKU
     let insertedNoSku = 0;
     if (insertNoSku.length > 0) {
-      const { error: insertErr, data } = await supabase.from("products").insert(insertNoSku).select("id");
+      const { error: insertErr, data } = await supabase
+        .from("products")
+        .insert(insertNoSku)
+        .select("id");
 
       if (insertErr) {
         console.error("Erro ao inserir produtos sem SKU (import):", insertErr);
-        return NextResponse.json({ error: "Erro ao inserir produtos (sem SKU)." }, { status: 500 });
+        return NextResponse.json(
+          { error: "Erro ao inserir produtos (sem SKU)." },
+          { status: 500 }
+        );
       }
-
       insertedNoSku = (data ?? []).length;
     }
 
@@ -351,7 +367,6 @@ export async function POST(request: Request) {
       if (upsertIdErr) {
         console.error("Erro upsert por ID (import):", upsertIdErr);
 
-        // fallback update 1 a 1
         for (const rec of upsertById) {
           const { id, ...rest } = rec;
           const { error: updateErr } = await supabase
@@ -362,7 +377,10 @@ export async function POST(request: Request) {
 
           if (updateErr) {
             console.error(`Erro fallback update produto id=${id} (import):`, updateErr);
-            return NextResponse.json({ error: `Erro ao atualizar produto id=${id}.` }, { status: 500 });
+            return NextResponse.json(
+              { error: `Erro ao atualizar produto id=${id}.` },
+              { status: 500 }
+            );
           }
         }
 
@@ -381,15 +399,21 @@ export async function POST(request: Request) {
       establishment_id_used: effectiveEstablishmentId,
     };
 
-    // ✅ Se veio via fetch/AJAX, retorna JSON (melhor UX no modal)
+    // ✅ Se veio via fetch/AJAX, retorna JSON
     if (wantsJson(request)) {
       return NextResponse.json(summary, { status: 200 });
     }
 
     // ✅ Submit normal: redirect
-    return NextResponse.redirect(new URL("/dashboard/produtos?success=import", request.url), 303);
+    return NextResponse.redirect(
+      new URL("/dashboard/produtos?success=import", request.url),
+      303
+    );
   } catch (err) {
     console.error("Erro inesperado em /api/import/products:", err);
-    return NextResponse.json({ error: "Erro inesperado ao importar produtos." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Erro inesperado ao importar produtos." },
+      { status: 500 }
+    );
   }
 }

@@ -42,7 +42,10 @@ function detectDelimiter(headerLine: string): ";" | "," {
 }
 
 /**
- * Parser de CSV linha-a-linha com suporte básico a aspas
+ * Parser de CSV linha-a-linha com suporte básico a aspas:
+ * - Delimitador ; ou ,
+ * - Campos entre aspas podem conter delimitador
+ * - Aspas duplas dentro de aspas: "" vira "
  */
 function parseCsvLine(line: string, delimiter: string): string[] {
   const out: string[] = [];
@@ -53,6 +56,7 @@ function parseCsvLine(line: string, delimiter: string): string[] {
     const ch = line[i];
 
     if (ch === '"') {
+      // "" dentro de campo com aspas -> "
       if (inQuotes && line[i + 1] === '"') {
         cur += '"';
         i++;
@@ -76,7 +80,7 @@ function parseCsvLine(line: string, delimiter: string): string[] {
 }
 
 /**
- * Detecta se a request espera JSON (fetch/AJAX)
+ * Heurística: se request veio via fetch/AJAX, devolvemos JSON ao invés de redirect.
  */
 function wantsJson(request: Request) {
   const accept = request.headers.get("accept") || "";
@@ -88,6 +92,19 @@ function wantsJson(request: Request) {
   if (secFetchMode && secFetchMode !== "navigate") return true;
 
   return false;
+}
+
+/**
+ * ✅ Split robusto para Windows/Mac/Linux:
+ * - CRLF (\r\n)
+ * - LF (\n)
+ * - CR (\r)  <-- Excel no Mac às vezes salva assim
+ */
+function splitLinesRobusto(text: string): string[] {
+  return text
+    .split(/\r\n|\n|\r/g)
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim().length > 0);
 }
 
 export async function POST(request: Request) {
@@ -111,34 +128,47 @@ export async function POST(request: Request) {
       );
     }
 
-    // ✅ CSV ONLY — bloqueia XLSX com mensagem clara
-    const fileName = String((file as any)?.name || "").toLowerCase();
-    if (fileName.endsWith(".xlsx") || file.type.includes("spreadsheetml")) {
+    // ✅ Bloqueia XLSX com mensagem clara (mantendo CSV como padrão)
+    const fileName = (file as any)?.name ? String((file as any).name) : "";
+    const lowerName = fileName.toLowerCase();
+
+    if (lowerName.endsWith(".xlsx") || String(file.type).includes("spreadsheetml")) {
       return NextResponse.json(
         {
           error:
-            "Arquivo .xlsx não suportado. Exporte como CSV (UTF-8) e tente novamente.",
+            "Formato .xlsx não suportado nesta importação. Exporte como CSV (de preferência 'CSV UTF-8') e tente novamente.",
         },
         { status: 400 }
       );
     }
 
     const arrayBuffer = await file.arrayBuffer();
+
+    // ✅ tenta decodificar como UTF-8
     let text = new TextDecoder("utf-8").decode(arrayBuffer);
 
     // remove BOM se existir
-    if (text.charCodeAt(0) === 0xfeff) {
+    if (text && text.charCodeAt(0) === 0xfeff) {
       text = text.slice(1);
     }
 
-    const lines = text
-      .split(/\r?\n/)
-      .map((l) => l.trimEnd())
-      .filter((l) => l.trim().length > 0);
+    // ✅ linhas robustas (corrige Mac \r)
+    const lines = splitLinesRobusto(text);
 
     if (lines.length <= 1) {
+      // ✅ debug leve para você enxergar o que o servidor leu
+      const preview = text.slice(0, 300);
       return NextResponse.json(
-        { error: "Arquivo sem dados para importar." },
+        {
+          error: "Arquivo sem dados para importar.",
+          debug: {
+            fileName,
+            fileType: file.type,
+            size: (file as any)?.size ?? null,
+            first300chars: preview,
+            detectedLines: lines.length,
+          },
+        },
         { status: 400 }
       );
     }
@@ -147,21 +177,20 @@ export async function POST(request: Request) {
     const delimiter = detectDelimiter(headerLine);
     const headers = parseCsvLine(headerLine, delimiter).map((h) => h.trim());
 
-    // ✅ Cabeçalhos obrigatórios
+    // ✅ Cabeçalhos mínimos
     const required = ["name", "product_type", "default_unit_label"];
     const missing = required.filter((k) => !headers.includes(k));
     if (missing.length > 0) {
       return NextResponse.json(
         {
-          error: `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(
-            ", "
-          )}`,
+          error: `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(", ")}`,
+          debug: { headers },
         },
         { status: 400 }
       );
     }
 
-    // Monta registros
+    // Monta records
     const records: Record<string, string>[] = [];
     for (const line of lines.slice(1)) {
       const cols = parseCsvLine(line, delimiter);
@@ -172,9 +201,13 @@ export async function POST(request: Request) {
       records.push(rec);
     }
 
-    // ===============================
-    // RESOLVER establishment_id
-    // ===============================
+    // ==========================================================
+    // ✅ RESOLVER establishment_id EFETIVO
+    // - se membership tem establishment => usamos ele
+    //   e se CSV vier com outro => ERRO
+    // - se membership NÃO tem establishment => exigimos 1 único establishment_id no CSV
+    // ==========================================================
+
     const csvEstabSet = new Set<string>();
     for (const rec of records) {
       const csvEstab = normalizeId(rec["establishment_id"]);
@@ -192,7 +225,11 @@ export async function POST(request: Request) {
             return NextResponse.json(
               {
                 error:
-                  "CSV contém establishment_id diferente do usuário logado.",
+                  "CSV contém establishment_id diferente do establishment do usuário logado. Verifique o UUID do estabelecimento.",
+                debug: {
+                  membershipEstablishmentId,
+                  csvEstablishmentIds: Array.from(csvEstabSet),
+                },
               },
               { status: 400 }
             );
@@ -204,7 +241,10 @@ export async function POST(request: Request) {
         return NextResponse.json(
           {
             error:
-              "Preencha a coluna establishment_id no CSV com o mesmo UUID em todas as linhas.",
+              "Estabelecimento não encontrado no membership. Preencha a coluna establishment_id no CSV com o MESMO UUID em todas as linhas.",
+            debug: {
+              csvEstablishmentIds: Array.from(csvEstabSet),
+            },
           },
           { status: 400 }
         );
@@ -214,43 +254,77 @@ export async function POST(request: Request) {
 
     if (!effectiveEstablishmentId) {
       return NextResponse.json(
-        { error: "Não foi possível determinar o establishment_id." },
+        { error: "Não foi possível determinar o establishment_id para importar." },
         { status: 400 }
       );
     }
 
-    // ===============================
-    // PROCESSAMENTO
-    // ===============================
+    // ==========================================================
+    // Separação inteligente:
+    // - Se tiver ID válido => upsert por id (PK) (atualiza)
+    // - Se não tiver ID:
+    //    - se tiver sku => upsert por (establishment_id, sku)
+    //    - se não tiver sku => insert puro
+    // ==========================================================
+
     const upsertById: any[] = [];
     const upsertBySku: any[] = [];
     const insertNoSku: any[] = [];
-    let skipped = 0;
 
+    let skipped = 0;
     const nowIso = new Date().toISOString();
 
     for (const rec of records) {
-      const id = normalizeId(rec["id"]);
-      const sku = normalizeId(rec["sku"]);
+      const id = normalizeId(rec["id"]?.trim() || null);
+
+      const skuRaw = rec["sku"]?.trim() || "";
+      const sku = skuRaw.length > 0 ? skuRaw : null;
+
       const name = (rec["name"] ?? "").trim();
+
+      const product_type = ((rec["product_type"] ?? "INSU").trim() || "INSU")
+        .toUpperCase();
+
+      const default_unit_label =
+        (rec["default_unit_label"] ?? "un").trim() || "un";
+
+      const package_qty = parseNumberStr(rec["package_qty"], 3);
+
+      const qty_per_package =
+        rec["qty_per_package"] && rec["qty_per_package"].trim().length > 0
+          ? rec["qty_per_package"].trim()
+          : null;
+
+      const price = parseNumberStr(rec["price"], 2);
+      const conversion_factor = parseNumberStr(rec["conversion_factor"], 4);
+
+      const category =
+        rec["category"] && rec["category"].trim().length > 0
+          ? rec["category"].trim()
+          : null;
+
+      const is_active_raw = (rec["is_active"] ?? "1").trim().toLowerCase();
+      const is_active =
+        is_active_raw === "1" ||
+        is_active_raw === "true" ||
+        is_active_raw === "sim";
 
       if (!name) {
         skipped++;
         continue;
       }
 
-      const basePayload = {
+      const basePayload: any = {
         sku,
         name,
-        product_type: ((rec["product_type"] ?? "INSU") as string).toUpperCase(),
-        default_unit_label: (rec["default_unit_label"] ?? "un").trim(),
-        package_qty: parseNumberStr(rec["package_qty"]),
-        qty_per_package: rec["qty_per_package"] || null,
-        category: rec["category"] || null,
-        price: parseNumberStr(rec["price"], 2),
-        conversion_factor: parseNumberStr(rec["conversion_factor"], 4) ?? 1,
-        is_active:
-          String(rec["is_active"] ?? "1").toLowerCase() !== "false",
+        product_type,
+        default_unit_label,
+        package_qty,
+        qty_per_package,
+        category,
+        price,
+        conversion_factor: conversion_factor ?? 1,
+        is_active,
       };
 
       if (id) {
@@ -258,50 +332,133 @@ export async function POST(request: Request) {
           id,
           establishment_id: effectiveEstablishmentId,
           ...basePayload,
-          updated_by: userId,
-          updated_at: nowIso,
-        });
-      } else if (sku) {
-        upsertBySku.push({
-          establishment_id: effectiveEstablishmentId,
-          ...basePayload,
-          created_by: userId,
-          created_at: nowIso,
+          ...(userId
+            ? {
+                updated_by: userId,
+                updated_at: nowIso,
+              }
+            : {}),
         });
       } else {
-        insertNoSku.push({
+        const createPayload: any = {
           establishment_id: effectiveEstablishmentId,
           ...basePayload,
-          created_by: userId,
-          created_at: nowIso,
-        });
+          ...(userId
+            ? {
+                created_by: userId,
+                created_at: nowIso,
+              }
+            : {}),
+        };
+
+        if (sku) upsertBySku.push(createPayload);
+        else insertNoSku.push(createPayload);
       }
     }
 
-    if (upsertBySku.length)
-      await supabase
+    // 1) UPSERT por SKU
+    let upsertSkuInsertedOrUpdated = 0;
+    if (upsertBySku.length > 0) {
+      const { error: upsertSkuErr, data } = await supabase
         .from("products")
-        .upsert(upsertBySku, { onConflict: "establishment_id,sku" });
+        .upsert(upsertBySku, {
+          onConflict: "establishment_id,sku",
+          ignoreDuplicates: false,
+        })
+        .select("id");
 
-    if (insertNoSku.length)
-      await supabase.from("products").insert(insertNoSku);
+      if (upsertSkuErr) {
+        console.error("Erro upsert por SKU (import):", upsertSkuErr);
+        const { error: fallbackErr } = await supabase
+          .from("products")
+          .insert(upsertBySku);
 
-    if (upsertById.length)
-      await supabase
+        if (fallbackErr) {
+          console.error("Erro fallback insert (sku) (import):", fallbackErr);
+          return NextResponse.json(
+            { error: "Erro ao inserir/atualizar produtos por SKU." },
+            { status: 500 }
+          );
+        }
+      } else {
+        upsertSkuInsertedOrUpdated = (data ?? []).length;
+      }
+    }
+
+    // 2) INSERT sem SKU
+    let insertedNoSku = 0;
+    if (insertNoSku.length > 0) {
+      const { error: insertErr, data } = await supabase
         .from("products")
-        .upsert(upsertById, { onConflict: "id" });
+        .insert(insertNoSku)
+        .select("id");
+
+      if (insertErr) {
+        console.error("Erro ao inserir produtos sem SKU (import):", insertErr);
+        return NextResponse.json(
+          { error: "Erro ao inserir produtos (sem SKU)." },
+          { status: 500 }
+        );
+      }
+      insertedNoSku = (data ?? []).length;
+    }
+
+    // 3) UPSERT por ID
+    let updatedById = 0;
+    if (upsertById.length > 0) {
+      const { error: upsertIdErr, data } = await supabase
+        .from("products")
+        .upsert(upsertById, {
+          onConflict: "id",
+          ignoreDuplicates: false,
+        })
+        .select("id");
+
+      if (upsertIdErr) {
+        console.error("Erro upsert por ID (import):", upsertIdErr);
+
+        for (const rec of upsertById) {
+          const { id, ...rest } = rec;
+          const { error: updateErr } = await supabase
+            .from("products")
+            .update(rest)
+            .eq("id", id)
+            .eq("establishment_id", effectiveEstablishmentId);
+
+          if (updateErr) {
+            console.error(
+              `Erro fallback update produto id=${id} (import):`,
+              updateErr
+            );
+            return NextResponse.json(
+              { error: `Erro ao atualizar produto id=${id}.` },
+              { status: 500 }
+            );
+          }
+        }
+
+        updatedById = upsertById.length;
+      } else {
+        updatedById = (data ?? []).length;
+      }
+    }
 
     const summary = {
       ok: true,
-      total: records.length,
+      insertedOrUpserted: upsertSkuInsertedOrUpdated + insertedNoSku,
+      updated: updatedById,
       skipped,
+      totalLines: records.length,
       establishment_id_used: effectiveEstablishmentId,
+      delimiter_used: delimiter,
     };
 
+    // ✅ Se veio via fetch/AJAX, retorna JSON
     if (wantsJson(request)) {
       return NextResponse.json(summary, { status: 200 });
     }
 
+    // ✅ Submit normal: redirect
     return NextResponse.redirect(
       new URL("/dashboard/produtos?success=import", request.url),
       303

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import ExcelJS from "exceljs";
 
 /**
  * Entrada vinda do RESUMO do inventário
@@ -20,9 +21,9 @@ export type InventoryResumoInput = {
 export type InventoryApplyResultItem = {
   produto: string;
   unidade: string;
-  counted: number;   // quantidade contada
-  current: number;   // quantidade no sistema (antes)
-  diff: number;      // diferença (counted - current)
+  counted: number; // quantidade contada
+  current: number; // quantidade no sistema (antes)
+  diff: number; // diferença (counted - current)
   productId?: string | null;
   status: "ok" | "warning" | "not_found";
   errorMessage?: string;
@@ -41,43 +42,27 @@ export type InventoryApplyResult = {
  * ==================================================================================
  * 📌  ACTION PRINCIPAL: aplicarInventario
  * ==================================================================================
- *
- * FLUXO:
- * 1. Cria cabeçalho: `inventory_counts`
- * 2. Para cada item do resumo:
- *    - Valida nome/produto/unidade
- *    - Busca product_id na tabela products
- *    - Lê estoque atual na view inventory_current_stock
- *    - Calcula diff (contado - atual)
- *    - Insere item em inventory_count_items
- *    - Se diff != 0 → insere ajuste em inventory_movements
- * 3. Revalida páginas que exibem estoque
- * 4. Retorna relatório por item para a UI mostrar resultado
  */
 export async function aplicarInventario(
   resumo: InventoryResumoInput[]
 ): Promise<InventoryApplyResult> {
-
-  // 🛑 Entrada inválida
   if (!Array.isArray(resumo) || resumo.length === 0) {
     return { ok: false, items: [] };
   }
 
-  // 🔐 Contexto do usuário
   const { membership, user } = await getActiveMembershipOrRedirect();
   const establishmentId = membership.establishment_id;
   const userId = user.id;
   const supabase = await createSupabaseServerClient();
 
-  const nowISO = new Date().toISOString();
+  const startedAt = new Date().toISOString();
 
-  // 📌 1) Cabeçalho do inventário
+  // 1) Cabeçalho do inventário
   const { data: countInsert, error: countError } = await supabase
     .from("inventory_counts")
     .insert({
       establishment_id: establishmentId,
-      started_at: nowISO,
-      ended_at: nowISO,
+      started_at: startedAt,
       created_by: userId,
       notes: "Inventário aplicado automaticamente pelo sistema.",
     })
@@ -89,16 +74,15 @@ export async function aplicarInventario(
     throw new Error("❌ Falha ao criar cabeçalho de inventário.");
   }
 
-  const inventoryCountId = countInsert.id;
+  const inventoryCountId = countInsert.id as string;
   const resultItems: InventoryApplyResultItem[] = [];
 
-  // 📌 2) Processa cada item
+  // 2) Processa cada item do resumo
   for (const item of resumo) {
     const produto = item.produto?.trim();
     const unidade = item.unidade?.trim();
     const counted = Number(item.totalQtd ?? 0);
 
-    // ❌ Valida entrada
     if (!produto || !unidade || counted < 0) {
       resultItems.push({
         produto: produto || "",
@@ -113,7 +97,7 @@ export async function aplicarInventario(
       continue;
     }
 
-    // 🔎 Busca produto
+    // 2.1 – Produto
     const { data: productRow, error: productError } = await supabase
       .from("products")
       .select("id")
@@ -125,7 +109,6 @@ export async function aplicarInventario(
       console.error("Erro ao buscar produto:", produto, productError);
     }
 
-    // ❌ Produto não encontrado
     if (!productRow?.id) {
       resultItems.push({
         produto,
@@ -141,7 +124,7 @@ export async function aplicarInventario(
 
     const productId = productRow.id as string;
 
-    // 📊 Consulta estoque atual na VIEW
+    // 2.2 – Estoque atual (VIEW inventory_current_stock)
     const { data: stockRow, error: stockError } = await supabase
       .from("inventory_current_stock")
       .select("current_stock")
@@ -157,7 +140,8 @@ export async function aplicarInventario(
     const currentStock = Number(stockRow?.current_stock ?? 0);
     const diff = counted - currentStock;
 
-    // 📌 2.3 Salva histórico do item no inventário
+    // 2.3 – Item no histórico do inventário
+    // ATENÇÃO: tabela inventory_count_items NÃO tem product_name / status / error_message
     const { error: itemError } = await supabase
       .from("inventory_count_items")
       .insert({
@@ -170,7 +154,7 @@ export async function aplicarInventario(
       });
 
     if (itemError) {
-      console.error("Erro ao inserir item:", itemError);
+      console.error("Erro ao inserir item de inventário:", itemError);
       resultItems.push({
         produto,
         unidade,
@@ -184,7 +168,7 @@ export async function aplicarInventario(
       continue;
     }
 
-    // ⚠️ Nenhuma diferença → OK, mas não gera movimento
+    // Se não há diferença, não gera movimento
     if (diff === 0) {
       resultItems.push({
         produto,
@@ -198,7 +182,7 @@ export async function aplicarInventario(
       continue;
     }
 
-    // 🔄 Se houver diferença → AJUSTE
+    // 2.4 – Movimento de ajuste (tabela inventory_movements)
     const direction = diff > 0 ? "IN" : "OUT";
     const absQty = Math.abs(diff);
 
@@ -207,13 +191,14 @@ export async function aplicarInventario(
       .insert({
         establishment_id: establishmentId,
         product_id: productId,
+        label_id: null,
+        order_id: null, // coluna correta no schema
         unit_label: unidade,
         qty: absQty,
         direction,
         movement_type: "ajuste_inventario",
         reason: diff > 0 ? "AJUSTE_PARA_MAIS" : "AJUSTE_PARA_MENOS",
         inventory_count_id: inventoryCountId,
-        related_order_id: null,
         created_by: userId,
         details: {
           system_before: currentStock,
@@ -238,7 +223,6 @@ export async function aplicarInventario(
       continue;
     }
 
-    // 🎉 Sucesso total
     resultItems.push({
       produto,
       unidade,
@@ -250,19 +234,103 @@ export async function aplicarInventario(
     });
   }
 
-  // 📌 3) Revalidar telas importantes
+  // 2.5 – atualiza resumo no cabeçalho
+  const finishedAt = new Date().toISOString();
+  const totalItems = resultItems.length;
+  const produtosDistintos = new Set(
+    resultItems.map((it) => `${it.produto}__${it.unidade}`)
+  ).size;
+
+  const { error: headerUpdateError } = await supabase
+    .from("inventory_counts")
+    .update({
+      finished_at: finishedAt,
+      total_items: totalItems,
+      total_products: produtosDistintos,
+    })
+    .eq("id", inventoryCountId);
+
+  if (headerUpdateError) {
+    console.error(
+      "Erro ao atualizar totais em inventory_counts:",
+      headerUpdateError
+    );
+  }
+
+  // 3) Revalidar rotas
   try {
     revalidatePath("/dashboard/estoque");
     revalidatePath("/dashboard/producao");
     revalidatePath("/dashboard/inventario");
+    revalidatePath("/dashboard/inventario/historico");
   } catch {
     console.warn("⚠️ Não foi possível revalidar todas as rotas.");
   }
 
-  // 📌 4) Retorno final
   return {
     ok: true,
     inventoryCountId,
     items: resultItems,
   };
+}
+
+/* =============================================================================
+ * 📊 RELATÓRIO DE CONCILIAÇÃO / DASHBOARD + EXPORTAÇÃO XLSX
+ * =============================================================================
+ */
+
+export type InventoryReportRow = {
+  item_id: string;
+  product_name: string;
+  unit_label: string;
+  counted_quantity: number;
+  system_stock: number;
+  difference: number;
+  status: "OK" | "DIVERGENTE";
+};
+
+export async function getInventoryReport(): Promise<InventoryReportRow[]> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc("run_inventory_report");
+
+  if (error) {
+    console.error("Erro ao executar run_inventory_report:", error);
+    return [];
+  }
+
+  return (data ?? []) as InventoryReportRow[];
+}
+
+export async function exportInventarioXLSX(): Promise<string> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc("run_inventory_report");
+
+  if (error) {
+    console.error("Erro ao executar run_inventory_report:", error);
+    throw new Error("Erro ao gerar relatório de inventário para XLSX.");
+  }
+
+  const rows = (data ?? []) as InventoryReportRow[];
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Inventário");
+
+  sheet.columns = [
+    { header: "Produto", key: "product_name", width: 32 },
+    { header: "Unidade", key: "unit_label", width: 10 },
+    { header: "Quantidade Contada", key: "counted_quantity", width: 22 },
+    { header: "Estoque Sistema", key: "system_stock", width: 18 },
+    { header: "Diferença", key: "difference", width: 12 },
+    { header: "Status", key: "status", width: 15 },
+  ];
+
+  rows.forEach((row) => {
+    sheet.addRow(row);
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const base64 = Buffer.from(buffer).toString("base64");
+  return base64;
 }

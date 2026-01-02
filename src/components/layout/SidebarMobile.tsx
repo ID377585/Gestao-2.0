@@ -31,8 +31,11 @@ const menuItems = [
   { title: "Produtividade", href: "/dashboard/produtividade", icon: BarChart3 },
   { title: "Estoque", href: "/dashboard/estoque", icon: Package },
 
-  // ✅ NOVO ITEM: INVENTÁRIO
+  // ✅ INVENTÁRIO
   { title: "Inventário", href: "/dashboard/inventario", icon: Boxes },
+
+  // ✅ NOVO ITEM: PRODUTOS
+  { title: "Produtos", href: "/dashboard/produtos", icon: Package },
 
   { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },
   { title: "Etiquetas", href: "/dashboard/etiquetas", icon: Tag },

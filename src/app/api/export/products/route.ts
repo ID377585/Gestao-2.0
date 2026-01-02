@@ -1,8 +1,8 @@
 // src/app/api/export/products/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
-// ✅ IMPORTANTE: rota usa cookies/auth → precisa ser dinâmica no build
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,7 +14,6 @@ function csvField(value: any): string {
   if (value === null || value === undefined) return "";
   let text = String(value);
 
-  // Se contiver ;, " ou quebra de linha, envolve em aspas e escapa aspas internas
   if (/[;"\r\n]/.test(text)) {
     text = text.replace(/"/g, '""');
     return `"${text}"`;
@@ -24,7 +23,7 @@ function csvField(value: any): string {
 }
 
 /**
- * Formata números para pt-BR (com vírgula) com casas decimais.
+ * Formata números pt-BR
  */
 function formatNumber(value: number | null | undefined, decimals: number) {
   if (value === null || value === undefined) return "";
@@ -36,8 +35,7 @@ function formatNumber(value: number | null | undefined, decimals: number) {
 }
 
 /**
- * ✅ Tipagem explícita do retorno do export
- * (evita o TS inferir GenericStringError quando o schema/types não batem 100%)
+ * Tipagem explícita do retorno do export (evita GenericStringError)
  */
 type ProductExportRow = {
   id: string | null;
@@ -54,52 +52,118 @@ type ProductExportRow = {
   is_active: boolean | null;
 };
 
+function normalizeId(value: any): string | null {
+  if (!value) return null;
+  const v = String(value).trim();
+  if (!v || v.toLowerCase() === "undefined" || v.toLowerCase() === "null") {
+    return null;
+  }
+  return v;
+}
+
+/**
+ * ✅ Resolve establishment_id com múltiplas estratégias
+ * 1) getActiveMembershipOrRedirect (padrão do seu app)
+ * 2) fallback: memberships
+ * 3) fallback: profiles
+ */
+async function resolveEstablishmentId(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+): Promise<{ establishmentId: string | null; debug: string[] }> {
+  const debug: string[] = [];
+
+  // 1) tenta pelo helper do app (o mais compatível com seu projeto)
+  try {
+    const { membership } = await getActiveMembershipOrRedirect();
+    const estId = normalizeId((membership as any)?.establishment_id);
+    const orgId = normalizeId((membership as any)?.organization_id);
+    const picked = estId ?? orgId ?? null;
+
+    debug.push(`membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`);
+    if (picked) return { establishmentId: picked, debug };
+
+    debug.push("membership-helper: sem establishment/org no membership");
+  } catch (e: any) {
+    debug.push(`membership-helper: falhou (${e?.message ?? "sem mensagem"})`);
+  }
+
+  // 2) fallback: auth.getUser + memberships (se existir)
+  try {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData?.user) {
+      debug.push("auth.getUser: falhou/sem user");
+      return { establishmentId: null, debug };
+    }
+
+    const userId = userData.user.id;
+    debug.push(`auth.getUser: ok (user=${userId})`);
+
+    // memberships
+    try {
+      const { data: m, error: mErr } = await supabase
+        .from("memberships")
+        .select("establishment_id, organization_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (mErr) {
+        debug.push(`fallback memberships: erro (${mErr.message})`);
+      } else {
+        const estId = normalizeId((m as any)?.establishment_id);
+        const orgId = normalizeId((m as any)?.organization_id);
+        const picked = estId ?? orgId ?? null;
+
+        debug.push(`fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`);
+        if (picked) return { establishmentId: picked, debug };
+      }
+    } catch (e: any) {
+      debug.push(`fallback memberships: exceção (${e?.message ?? "sem mensagem"})`);
+    }
+
+    // profiles (muitos projetos guardam establishment_id aqui)
+    try {
+      const { data: p, error: pErr } = await supabase
+        .from("profiles")
+        .select("establishment_id, organization_id")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (pErr) {
+        debug.push(`fallback profiles: erro (${pErr.message})`);
+      } else {
+        const estId = normalizeId((p as any)?.establishment_id);
+        const orgId = normalizeId((p as any)?.organization_id);
+        const picked = estId ?? orgId ?? null;
+
+        debug.push(`fallback profiles: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`);
+        if (picked) return { establishmentId: picked, debug };
+      }
+    } catch (e: any) {
+      debug.push(`fallback profiles: exceção (${e?.message ?? "sem mensagem"})`);
+    }
+
+    return { establishmentId: null, debug };
+  } catch (e: any) {
+    debug.push(`auth+fallback: exceção geral (${e?.message ?? "sem mensagem"})`);
+    return { establishmentId: null, debug };
+  }
+}
+
 export async function GET(_request: Request) {
   try {
     const supabase = await createSupabaseServerClient();
 
-    /**
-     * ✅ API Route: autenticação correta (sem redirect/exceptions)
-     */
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: "Não autenticado." },
-        { status: 401 }
-      );
-    }
-
-    /**
-     * ✅ Pega establishment_id do membership do usuário
-     * Ajuste o nome da tabela/colunas se no seu banco for diferente.
-     */
-    const { data: membership, error: membershipError } = await supabase
-      .from("memberships")
-      .select("establishment_id, organization_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (membershipError) {
-      console.error("Erro ao buscar membership:", membershipError);
-      return NextResponse.json(
-        { error: "Erro ao buscar estabelecimento do usuário." },
-        { status: 500 }
-      );
-    }
-
-    const establishmentId: string | null =
-      (membership as any)?.establishment_id ??
-      (membership as any)?.organization_id ??
-      null;
+    const { establishmentId, debug } = await resolveEstablishmentId(supabase);
 
     if (!establishmentId) {
+      // ✅ mensagem clara + debug no console
+      console.error("Export products: establishmentId não resolvido", debug);
       return NextResponse.json(
-        { error: "Estabelecimento não encontrado para o usuário atual." },
-        { status: 403 }
+        {
+          error:
+            "Não foi possível identificar o estabelecimento do usuário. Verifique a tabela de vínculo (membership/profiles) e as policies (RLS).",
+        },
+        { status: 403 },
       );
     }
 
@@ -119,23 +183,24 @@ export async function GET(_request: Request) {
       "is_active",
     ].join(", ");
 
-    let query = supabase.from("products").select(selectFields);
-    query = query.eq("establishment_id", establishmentId);
+    const query = supabase
+      .from("products")
+      .select(selectFields)
+      .eq("establishment_id", establishmentId);
 
-    // ✅ Cast controlado: evita GenericStringError derrubar a build
+    // ✅ Cast controlado: evita GenericStringError derrubar build
     const { data, error } = await (query as any);
 
     if (error) {
       console.error("Erro ao exportar produtos:", error);
       return NextResponse.json(
         { error: "Erro ao exportar produtos." },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     const products = (Array.isArray(data) ? data : []) as ProductExportRow[];
 
-    // Cabeçalho do CSV
     const header = [
       "id",
       "sku",
@@ -156,27 +221,23 @@ export async function GET(_request: Request) {
     for (const p of products) {
       if (!p) continue;
 
-      // package_qty: tenta converter, mas só formata se não der NaN
       let packageQtyFormatted = "";
       if (p.package_qty !== null && p.package_qty !== undefined) {
         const n = Number(p.package_qty);
         packageQtyFormatted = !Number.isNaN(n) ? formatNumber(n, 3) : "";
       }
 
-      // qty_per_package é texto livre
       const qtyPerPackageText =
         p.qty_per_package !== null && p.qty_per_package !== undefined
           ? String(p.qty_per_package)
           : "";
 
-      // price
       let priceFormatted = "";
       if (p.price !== null && p.price !== undefined) {
         const n = Number(p.price);
         priceFormatted = !Number.isNaN(n) ? formatNumber(n, 2) : "";
       }
 
-      // conversion_factor
       let conversionFormatted = "";
       if (p.conversion_factor !== null && p.conversion_factor !== undefined) {
         const n = Number(p.conversion_factor);
@@ -200,7 +261,6 @@ export async function GET(_request: Request) {
       rows.push(row.join(";"));
     }
 
-    // BOM para Excel reconhecer UTF-8
     const csvContent = "\uFEFF" + rows.join("\r\n");
 
     return new NextResponse(csvContent, {
@@ -214,7 +274,7 @@ export async function GET(_request: Request) {
     console.error("Erro inesperado em export produtos:", err);
     return NextResponse.json(
       { error: "Erro inesperado ao exportar produtos." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

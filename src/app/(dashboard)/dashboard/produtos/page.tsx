@@ -358,13 +358,13 @@ export default async function ProductsPage({ searchParams }: PageProps) {
               >
                 <div className="space-y-2">
                   <Label htmlFor="file">
-                    Arquivo (.csv ou .xlsx) com os produtos
+                    Arquivo (.csv) com os produtos
                   </Label>
                   <Input
                     id="file"
                     name="file"
                     type="file"
-                    accept=".csv,.xlsx"
+                    accept=".csv"
                     required
                   />
                 </div>

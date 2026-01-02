@@ -1,24 +1,11 @@
 // src/app/api/export/products/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
 // ✅ IMPORTANTE: rota usa cookies/auth → precisa ser dinâmica no build
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-/**
- * Normaliza possível ID para evitar "undefined"/"null" em string.
- */
-function normalizeId(value: any): string | null {
-  if (!value) return null;
-  const v = String(value).trim();
-  if (!v || v.toLowerCase() === "undefined" || v.toLowerCase() === "null") {
-    return null;
-  }
-  return v;
-}
 
 /**
  * Escapa campo para CSV usando ; como separador.
@@ -69,20 +56,52 @@ type ProductExportRow = {
 
 export async function GET(_request: Request) {
   try {
-    // ✅ pode falhar sem cookies/session (ex.: build/preview) → não pode quebrar a build
-    let establishmentId: string | null = null;
+    const supabase = await createSupabaseServerClient();
 
-    try {
-      const { membership } = await getActiveMembershipOrRedirect();
-      const orgId = normalizeId((membership as any)?.organization_id);
-      const estId = normalizeId((membership as any)?.establishment_id);
-      establishmentId = estId ?? orgId;
-    } catch (_e) {
-      // Sem sessão/cookies → retorna 401, sem crash
-      return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+    /**
+     * ✅ API Route: autenticação correta (sem redirect/exceptions)
+     */
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return NextResponse.json(
+        { error: "Não autenticado." },
+        { status: 401 }
+      );
     }
 
-    const supabase = await createSupabaseServerClient();
+    /**
+     * ✅ Pega establishment_id do membership do usuário
+     * Ajuste o nome da tabela/colunas se no seu banco for diferente.
+     */
+    const { data: membership, error: membershipError } = await supabase
+      .from("memberships")
+      .select("establishment_id, organization_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (membershipError) {
+      console.error("Erro ao buscar membership:", membershipError);
+      return NextResponse.json(
+        { error: "Erro ao buscar estabelecimento do usuário." },
+        { status: 500 }
+      );
+    }
+
+    const establishmentId: string | null =
+      (membership as any)?.establishment_id ??
+      (membership as any)?.organization_id ??
+      null;
+
+    if (!establishmentId) {
+      return NextResponse.json(
+        { error: "Estabelecimento não encontrado para o usuário atual." },
+        { status: 403 }
+      );
+    }
 
     // Campos que queremos exportar
     const selectFields = [
@@ -101,10 +120,7 @@ export async function GET(_request: Request) {
     ].join(", ");
 
     let query = supabase.from("products").select(selectFields);
-
-    if (establishmentId) {
-      query = query.eq("establishment_id", establishmentId);
-    }
+    query = query.eq("establishment_id", establishmentId);
 
     // ✅ Cast controlado: evita GenericStringError derrubar a build
     const { data, error } = await (query as any);
@@ -138,7 +154,6 @@ export async function GET(_request: Request) {
     rows.push(header.join(";"));
 
     for (const p of products) {
-      // ✅ blindagem: se vier undefined/null por qualquer motivo, pula
       if (!p) continue;
 
       // package_qty: tenta converter, mas só formata se não der NaN

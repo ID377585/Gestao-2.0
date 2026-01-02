@@ -20,9 +20,9 @@ function normalizeId(value: any): string | null {
  */
 function parseNumberStr(
   value: string | null | undefined,
-  decimals = 3,
+  decimals = 3
 ): number | null {
-  if (!value) return null;
+  if (value == null) return null;
   const str = String(value).replace(",", ".").trim();
   if (!str) return null;
   const n = Number(str);
@@ -86,7 +86,6 @@ function wantsJson(request: Request) {
 
   if (accept.includes("application/json")) return true;
   if (xrw.toLowerCase() === "xmlhttprequest") return true;
-  // muitas libs usam cors/no-cors/same-origin, mas em fetch geralmente aparece "cors"
   if (secFetchMode && secFetchMode !== "navigate") return true;
 
   return false;
@@ -94,17 +93,14 @@ function wantsJson(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    // ✅ Continua exigindo usuário logado (membership existe),
+    // mas não vai mais quebrar se o membership vier sem establishment_id.
     const membership = await getActiveMembershipOrRedirect();
     const { organization_id, establishment_id, user_id } = membership as any;
 
-    const establishmentId =
+    const membershipEstablishmentId =
       normalizeId(establishment_id) ?? normalizeId(organization_id);
     const userId = normalizeId(user_id);
-
-    if (!establishmentId) {
-      const msg = "Estabelecimento não encontrado no membership.";
-      return NextResponse.json({ error: msg }, { status: 400 });
-    }
 
     const supabase = await createSupabaseServerClient();
 
@@ -112,10 +108,7 @@ export async function POST(request: Request) {
     const file = formData.get("file") as File | null;
 
     if (!file) {
-      return NextResponse.json(
-        { error: "Arquivo não enviado." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Arquivo não enviado." }, { status: 400 });
     }
 
     const arrayBuffer = await file.arrayBuffer();
@@ -132,32 +125,25 @@ export async function POST(request: Request) {
       .filter((l) => l.trim().length > 0);
 
     if (lines.length <= 1) {
-      return NextResponse.json(
-        { error: "Arquivo sem dados para importar." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Arquivo sem dados para importar." }, { status: 400 });
     }
 
     const headerLine = lines[0];
     const delimiter = detectDelimiter(headerLine);
     const headers = parseCsvLine(headerLine, delimiter).map((h) => h.trim());
 
-    // garante headers mínimas
+    // ✅ Cabeçalhos mínimos
     const required = ["name", "product_type", "default_unit_label"];
     const missing = required.filter((k) => !headers.includes(k));
     if (missing.length > 0) {
       return NextResponse.json(
-        {
-          error: `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(
-            ", ",
-          )}`,
-        },
-        { status: 400 },
+        { error: `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(", ")}` },
+        { status: 400 }
       );
     }
 
-    const records: Record<string, string>[]= [];
-
+    // Monta records
+    const records: Record<string, string>[] = [];
     for (const line of lines.slice(1)) {
       const cols = parseCsvLine(line, delimiter);
       const rec: Record<string, string> = {};
@@ -167,11 +153,68 @@ export async function POST(request: Request) {
       records.push(rec);
     }
 
+    // ==========================================================
+    // ✅ RESOLVER establishment_id EFETIVO
+    // - se membership tem establishment => usamos ele
+    //   e se CSV vier com outro => ERRO
+    // - se membership NÃO tem establishment => exigimos 1 único establishment_id no CSV
+    // ==========================================================
+
+    const csvEstabSet = new Set<string>();
+    for (const rec of records) {
+      const csvEstab = normalizeId(rec["establishment_id"]);
+      if (csvEstab) csvEstabSet.add(csvEstab);
+    }
+
+    let effectiveEstablishmentId: string | null = null;
+
+    if (membershipEstablishmentId) {
+      // membership manda
+      effectiveEstablishmentId = membershipEstablishmentId;
+
+      // se CSV tiver establishment_id, não pode divergir
+      if (csvEstabSet.size > 0) {
+        for (const v of csvEstabSet.values()) {
+          if (v !== membershipEstablishmentId) {
+            return NextResponse.json(
+              {
+                error:
+                  "CSV contém establishment_id diferente do establishment do usuário logado. Verifique o UUID do estabelecimento.",
+              },
+              { status: 400 }
+            );
+          }
+        }
+      }
+    } else {
+      // membership não trouxe establishment -> precisa vir do CSV
+      if (csvEstabSet.size !== 1) {
+        return NextResponse.json(
+          {
+            error:
+              "Estabelecimento não encontrado no membership. Preencha a coluna establishment_id no CSV com o MESMO UUID em todas as linhas.",
+          },
+          { status: 400 }
+        );
+      }
+      effectiveEstablishmentId = Array.from(csvEstabSet)[0];
+    }
+
+    if (!effectiveEstablishmentId) {
+      return NextResponse.json(
+        { error: "Não foi possível determinar o establishment_id para importar." },
+        { status: 400 }
+      );
+    }
+
+    // ==========================================================
     // Separação inteligente:
     // - Se tiver ID válido => upsert por id (PK) (atualiza)
     // - Se não tiver ID:
-    //    - se tiver sku => upsert por (establishment_id, sku) (evita duplicar)
+    //    - se tiver sku => upsert por (establishment_id, sku)
     //    - se não tiver sku => insert puro
+    // ==========================================================
+
     const upsertById: any[] = [];
     const upsertBySku: any[] = [];
     const insertNoSku: any[] = [];
@@ -179,18 +222,15 @@ export async function POST(request: Request) {
     let skipped = 0;
 
     for (const rec of records) {
-      const idRaw = rec["id"]?.trim() || "";
-      const id = normalizeId(idRaw);
+      const id = normalizeId(rec["id"]?.trim() || null);
 
       const skuRaw = rec["sku"]?.trim() || "";
       const sku = skuRaw.length > 0 ? skuRaw : null;
 
       const name = (rec["name"] ?? "").trim();
       const product_type = (rec["product_type"] ?? "INSU").trim() || "INSU";
-      const default_unit_label =
-        (rec["default_unit_label"] ?? "un").trim() || "un";
+      const default_unit_label = (rec["default_unit_label"] ?? "un").trim() || "un";
 
-      // NUMÉRICO: package_qty
       const package_qty = parseNumberStr(rec["package_qty"], 3);
 
       // TEXTO: qty_per_package
@@ -203,22 +243,18 @@ export async function POST(request: Request) {
       const conversion_factor = parseNumberStr(rec["conversion_factor"], 4);
 
       const category =
-        rec["category"] && rec["category"].trim().length > 0
-          ? rec["category"].trim()
-          : null;
+        rec["category"] && rec["category"].trim().length > 0 ? rec["category"].trim() : null;
 
       const is_active_raw = (rec["is_active"] ?? "1").trim().toLowerCase();
-      const is_active =
-        is_active_raw === "1" ||
-        is_active_raw === "true" ||
-        is_active_raw === "sim";
+      const is_active = is_active_raw === "1" || is_active_raw === "true" || is_active_raw === "sim";
 
       if (!name) {
         skipped++;
         continue;
       }
 
-      // payload base
+      const nowIso = new Date().toISOString();
+
       const basePayload: any = {
         sku,
         name,
@@ -232,14 +268,10 @@ export async function POST(request: Request) {
         is_active,
       };
 
-      // auditoria (opcional)
-      const nowIso = new Date().toISOString();
-
       if (id) {
-        // update por id (PK)
         upsertById.push({
-          id, // PK
-          establishment_id: establishmentId, // segurança extra
+          id,
+          establishment_id: effectiveEstablishmentId,
           ...basePayload,
           ...(userId
             ? {
@@ -249,9 +281,8 @@ export async function POST(request: Request) {
             : {}),
         });
       } else {
-        // sem id => criar
         const createPayload: any = {
-          establishment_id: establishmentId,
+          establishment_id: effectiveEstablishmentId,
           ...basePayload,
           ...(userId
             ? {
@@ -261,17 +292,12 @@ export async function POST(request: Request) {
             : {}),
         };
 
-        if (sku) {
-          upsertBySku.push(createPayload);
-        } else {
-          insertNoSku.push(createPayload);
-        }
+        if (sku) upsertBySku.push(createPayload);
+        else insertNoSku.push(createPayload);
       }
     }
 
-    // 1) UPSERT por SKU (evita duplicar se sku já existe no estabelecimento)
-    // OBS: Precisa de UNIQUE/INDEX em (establishment_id, sku) para funcionar perfeito.
-    // Se não tiver, o Supabase vai reclamar e a gente cai no insert.
+    // 1) UPSERT por SKU
     let upsertSkuInsertedOrUpdated = 0;
     if (upsertBySku.length > 0) {
       const { error: upsertSkuErr, data } = await supabase
@@ -284,16 +310,13 @@ export async function POST(request: Request) {
 
       if (upsertSkuErr) {
         console.error("Erro upsert por SKU (import):", upsertSkuErr);
-        // fallback: tenta insert simples (vai duplicar se já existir)
-        const { error: fallbackErr } = await supabase
-          .from("products")
-          .insert(upsertBySku);
-
+        // fallback insert simples
+        const { error: fallbackErr } = await supabase.from("products").insert(upsertBySku);
         if (fallbackErr) {
           console.error("Erro fallback insert (sku) (import):", fallbackErr);
           return NextResponse.json(
             { error: "Erro ao inserir/atualizar produtos por SKU." },
-            { status: 500 },
+            { status: 500 }
           );
         }
       } else {
@@ -301,25 +324,20 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2) INSERT para registros SEM SKU (sempre cria novo)
+    // 2) INSERT sem SKU
     let insertedNoSku = 0;
     if (insertNoSku.length > 0) {
-      const { error: insertErr, data } = await supabase
-        .from("products")
-        .insert(insertNoSku)
-        .select("id");
+      const { error: insertErr, data } = await supabase.from("products").insert(insertNoSku).select("id");
 
       if (insertErr) {
         console.error("Erro ao inserir produtos sem SKU (import):", insertErr);
-        return NextResponse.json(
-          { error: "Erro ao inserir produtos (sem SKU)." },
-          { status: 500 },
-        );
+        return NextResponse.json({ error: "Erro ao inserir produtos (sem SKU)." }, { status: 500 });
       }
+
       insertedNoSku = (data ?? []).length;
     }
 
-    // 3) UPSERT por ID (PK) (atualiza em lote)
+    // 3) UPSERT por ID
     let updatedById = 0;
     if (upsertById.length > 0) {
       const { error: upsertIdErr, data } = await supabase
@@ -333,57 +351,45 @@ export async function POST(request: Request) {
       if (upsertIdErr) {
         console.error("Erro upsert por ID (import):", upsertIdErr);
 
-        // fallback: atualiza 1 a 1 (mantém compatibilidade)
+        // fallback update 1 a 1
         for (const rec of upsertById) {
-          const { id, establishment_id, ...rest } = rec;
+          const { id, ...rest } = rec;
           const { error: updateErr } = await supabase
             .from("products")
             .update(rest)
             .eq("id", id)
-            .eq("establishment_id", establishmentId);
+            .eq("establishment_id", effectiveEstablishmentId);
 
           if (updateErr) {
-            console.error(
-              `Erro fallback update produto id=${id} (import):`,
-              updateErr,
-            );
-            return NextResponse.json(
-              { error: `Erro ao atualizar produto id=${id}.` },
-              { status: 500 },
-            );
+            console.error(`Erro fallback update produto id=${id} (import):`, updateErr);
+            return NextResponse.json({ error: `Erro ao atualizar produto id=${id}.` }, { status: 500 });
           }
         }
+
         updatedById = upsertById.length;
       } else {
         updatedById = (data ?? []).length;
       }
     }
 
-    const insertedOrUpserted = upsertSkuInsertedOrUpdated + insertedNoSku;
-    const updated = updatedById; // updates reais por id
     const summary = {
       ok: true,
-      insertedOrUpserted,
-      updated,
+      insertedOrUpserted: upsertSkuInsertedOrUpdated + insertedNoSku,
+      updated: updatedById,
       skipped,
       totalLines: records.length,
+      establishment_id_used: effectiveEstablishmentId,
     };
 
-    // ✅ IMPORTANTE: se veio via fetch/AJAX, retorna JSON
+    // ✅ Se veio via fetch/AJAX, retorna JSON (melhor UX no modal)
     if (wantsJson(request)) {
       return NextResponse.json(summary, { status: 200 });
     }
 
-    // ✅ Submit normal: redirect para tela
-    return NextResponse.redirect(
-      new URL("/dashboard/produtos?success=import", request.url),
-      303,
-    );
+    // ✅ Submit normal: redirect
+    return NextResponse.redirect(new URL("/dashboard/produtos?success=import", request.url), 303);
   } catch (err) {
     console.error("Erro inesperado em /api/import/products:", err);
-    return NextResponse.json(
-      { error: "Erro inesperado ao importar produtos." },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Erro inesperado ao importar produtos." }, { status: 500 });
   }
 }

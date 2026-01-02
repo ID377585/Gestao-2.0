@@ -131,7 +131,8 @@ export async function POST(request: Request) {
     let authUserId: string | null = null;
     try {
       const { data: authData, error: authErr } = await supabase.auth.getUser();
-      if (authErr) console.error("Erro ao obter usuário via auth.getUser():", authErr);
+      if (authErr)
+        console.error("Erro ao obter usuário via auth.getUser():", authErr);
       authUserId = normalizeId(authData?.user?.id);
     } catch (e) {
       console.error("Falha inesperada em auth.getUser():", e);
@@ -143,14 +144,20 @@ export async function POST(request: Request) {
     const file = formData.get("file") as File | null;
 
     if (!file) {
-      return NextResponse.json({ error: "Arquivo não enviado." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Arquivo não enviado." },
+        { status: 400 }
+      );
     }
 
     // ✅ Bloqueia XLSX com mensagem clara (mantendo CSV como padrão)
     const fileName = (file as any)?.name ? String((file as any).name) : "";
     const lowerName = fileName.toLowerCase();
 
-    if (lowerName.endsWith(".xlsx") || String(file.type).includes("spreadsheetml")) {
+    if (
+      lowerName.endsWith(".xlsx") ||
+      String(file.type).includes("spreadsheetml")
+    ) {
       return NextResponse.json(
         {
           error:
@@ -200,7 +207,9 @@ export async function POST(request: Request) {
     if (missing.length > 0) {
       return NextResponse.json(
         {
-          error: `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(", ")}`,
+          error: `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(
+            ", "
+          )}`,
           debug: { headers },
         },
         { status: 400 }
@@ -290,9 +299,12 @@ export async function POST(request: Request) {
 
       const name = (rec["name"] ?? "").trim();
 
-      const product_type = ((rec["product_type"] ?? "INSU").trim() || "INSU").toUpperCase();
+      const product_type = (
+        (rec["product_type"] ?? "INSU").trim() || "INSU"
+      ).toUpperCase();
 
-      const default_unit_label = (rec["default_unit_label"] ?? "un").trim() || "un";
+      const default_unit_label =
+        (rec["default_unit_label"] ?? "un").trim() || "un";
 
       const package_qty = parseNumberStr(rec["package_qty"], 3);
 
@@ -301,14 +313,23 @@ export async function POST(request: Request) {
           ? rec["qty_per_package"].trim()
           : null;
 
-      const price = parseNumberStr(rec["price"], 2);
-      const conversion_factor = parseNumberStr(rec["conversion_factor"], 4);
+      // ✅ FIX PRINCIPAL: price não pode ser null (banco tem NOT NULL)
+      // Se vier vazio no CSV, assumimos 0 (custo desconhecido)
+      const price = parseNumberStr(rec["price"], 2) ?? 0;
+
+      // mantém default 1 se vier vazio
+      const conversion_factor = parseNumberStr(rec["conversion_factor"], 4) ?? 1;
 
       const category =
-        rec["category"] && rec["category"].trim().length > 0 ? rec["category"].trim() : null;
+        rec["category"] && rec["category"].trim().length > 0
+          ? rec["category"].trim()
+          : null;
 
       const is_active_raw = (rec["is_active"] ?? "1").trim().toLowerCase();
-      const is_active = is_active_raw === "1" || is_active_raw === "true" || is_active_raw === "sim";
+      const is_active =
+        is_active_raw === "1" ||
+        is_active_raw === "true" ||
+        is_active_raw === "sim";
 
       if (!name) {
         skipped++;
@@ -323,8 +344,8 @@ export async function POST(request: Request) {
         package_qty,
         qty_per_package,
         category,
-        price,
-        conversion_factor: conversion_factor ?? 1,
+        price, // ✅ agora sempre number
+        conversion_factor, // ✅ agora sempre number
         is_active,
       };
 
@@ -371,7 +392,9 @@ export async function POST(request: Request) {
       if (upsertSkuErr) {
         console.error("Erro upsert por SKU (import):", upsertSkuErr);
 
-        const { error: fallbackErr } = await supabase.from("products").insert(upsertBySku);
+        const { error: fallbackErr } = await supabase
+          .from("products")
+          .insert(upsertBySku);
 
         if (fallbackErr) {
           console.error("Erro fallback insert (sku) (import):", fallbackErr);
@@ -402,7 +425,10 @@ export async function POST(request: Request) {
     // 2) INSERT sem SKU
     let insertedNoSku = 0;
     if (insertNoSku.length > 0) {
-      const { error: insertErr, data } = await supabase.from("products").insert(insertNoSku).select("id");
+      const { error: insertErr, data } = await supabase
+        .from("products")
+        .insert(insertNoSku)
+        .select("id");
 
       if (insertErr) {
         console.error("Erro ao inserir produtos sem SKU (import):", insertErr);
@@ -448,7 +474,10 @@ export async function POST(request: Request) {
             .eq("establishment_id", effectiveEstablishmentId);
 
           if (updateErr) {
-            console.error(`Erro fallback update produto id=${id} (import):`, updateErr);
+            console.error(
+              `Erro fallback update produto id=${id} (import):`,
+              updateErr
+            );
             return NextResponse.json(
               {
                 error: `Erro ao atualizar produto id=${id}.`,
@@ -489,9 +518,15 @@ export async function POST(request: Request) {
     }
 
     // ✅ Submit normal: redirect
-    return NextResponse.redirect(new URL("/dashboard/produtos?success=import", request.url), 303);
+    return NextResponse.redirect(
+      new URL("/dashboard/produtos?success=import", request.url),
+      303
+    );
   } catch (err) {
     console.error("Erro inesperado em /api/import/products:", err);
-    return NextResponse.json({ error: "Erro inesperado ao importar produtos." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Erro inesperado ao importar produtos." },
+      { status: 500 }
+    );
   }
 }

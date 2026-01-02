@@ -1,4 +1,4 @@
-// src/app/api/export/products/route.ts
+// src/app/(dashboard)/dashboard/inventario/[id]/export/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
@@ -27,149 +27,119 @@ function csvField(value: any): string {
     text = text.replace(/"/g, '""');
     return `"${text}"`;
   }
-
   return text;
 }
 
 /**
- * Formata números para pt-BR (com vírgula) com casas decimais.
+ * Tipo do item retornado pelo select do Supabase:
+ * products pode vir como array ou objeto, dependendo do schema/join.
  */
-function formatNumber(value: number | null | undefined, decimals: number) {
-  if (value === null || value === undefined) return "";
-  if (Number.isNaN(value)) return "";
-  return value.toLocaleString("pt-BR", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+type InventoryItemRow = {
+  unit_label: string | null;
+  counted_qty: number | null;
+  current_stock_before: number | null;
+  diff_qty: number | null;
+  products?: { name: string | null } | { name: string | null }[] | null;
+};
+
+function getProductName(
+  products: InventoryItemRow["products"],
+): string {
+  if (!products) return "";
+  if (Array.isArray(products)) return products[0]?.name ?? "";
+  return products.name ?? "";
 }
 
-export async function GET(_request: Request) {
+export async function GET(
+  _req: Request,
+  { params }: { params: { id: string } },
+) {
   try {
-    const membership = await getActiveMembershipOrRedirect();
-    const { organization_id, establishment_id } = membership as any;
+    const inventoryId = params.id;
 
-    const establishmentId =
-      normalizeId(establishment_id) ?? normalizeId(organization_id);
+    const { membership } = await getActiveMembershipOrRedirect();
+    const establishmentId = normalizeId((membership as any)?.establishment_id);
+
+    if (!establishmentId) {
+      return NextResponse.json(
+        { error: "Estabelecimento não encontrado para o usuário atual." },
+        { status: 403 },
+      );
+    }
 
     const supabase = await createSupabaseServerClient();
 
-    // Campos que queremos exportar
-    const selectFields = [
-      "id",
-      "establishment_id",
-      "sku",
-      "name",
-      "product_type",
-      "default_unit_label",
-      "package_qty",
-      "qty_per_package",
-      "category",
-      "price",
-      "conversion_factor",
-      "is_active",
-    ].join(", ");
+    // 1) Confere se o inventário pertence ao estabelecimento do usuário
+    const { data: count, error: countError } = await supabase
+      .from("inventory_counts")
+      .select("id, establishment_id")
+      .eq("id", inventoryId)
+      .maybeSingle();
 
-    let query = supabase.from("products").select(selectFields);
-
-    if (establishmentId) {
-      query = query.eq("establishment_id", establishmentId);
+    if (countError || !count || count.establishment_id !== establishmentId) {
+      return NextResponse.json(
+        { error: "Inventário não encontrado ou não autorizado." },
+        { status: 404 },
+      );
     }
 
-    const { data, error } = await query;
+    // 2) Busca itens + nome do produto (join)
+    const { data: items, error: itemsError } = await supabase
+      .from("inventory_count_items")
+      .select(
+        `
+        unit_label,
+        counted_qty,
+        current_stock_before,
+        diff_qty,
+        products (
+          name
+        )
+      `,
+      )
+      .eq("inventory_count_id", inventoryId);
 
-    if (error) {
-      console.error("Erro ao exportar produtos:", error);
+    if (itemsError) {
+      console.error("Erro ao carregar itens para export:", itemsError);
       return NextResponse.json(
-        { error: "Erro ao exportar produtos." },
+        { error: "Erro ao carregar itens de inventário." },
         { status: 500 },
       );
     }
 
-    const products = data ?? [];
+    const safeItems = (items ?? []) as InventoryItemRow[];
 
-    // Cabeçalho do CSV (ordem que será usada também no import)
-    const header = [
-      "id",
-      "sku",
-      "name",
-      "product_type",
-      "default_unit_label",
-      "package_qty",
-      "qty_per_package",
-      "category",
-      "price",
-      "conversion_factor",
-      "is_active",
-    ];
+    // 3) Monta CSV (Excel-friendly) com separador ;
+    const header = ["Produto", "Unidade", "Estoque_antes", "Contado", "Diferenca"];
 
     const rows: string[] = [];
-
-    // linha de cabeçalho com ;
     rows.push(header.join(";"));
 
-    for (const p of products) {
-      // package_qty: tenta converter, mas só formata se não der NaN
-      let packageQtyFormatted = "";
-      if (p.package_qty !== null && p.package_qty !== undefined) {
-        const n = Number(p.package_qty);
-        packageQtyFormatted = !Number.isNaN(n)
-          ? formatNumber(n, 3)
-          : "";
-      }
-
-      // qty_per_package AGORA É TEXTO LIVRE (não fazemos Number nem formatNumber)
-      const qtyPerPackageText =
-        p.qty_per_package !== null && p.qty_per_package !== undefined
-          ? String(p.qty_per_package)
-          : "";
-
-      // price
-      let priceFormatted = "";
-      if (p.price !== null && p.price !== undefined) {
-        const n = Number(p.price);
-        priceFormatted = !Number.isNaN(n) ? formatNumber(n, 2) : "";
-      }
-
-      // conversion_factor
-      let conversionFormatted = "";
-      if (p.conversion_factor !== null && p.conversion_factor !== undefined) {
-        const n = Number(p.conversion_factor);
-        conversionFormatted = !Number.isNaN(n)
-          ? formatNumber(n, 4)
-          : "";
-      }
-
+    for (const r of safeItems) {
       const row = [
-        csvField(p.id),
-        csvField(p.sku ?? ""),
-        csvField(p.name ?? ""),
-        csvField(p.product_type ?? ""),
-        csvField(p.default_unit_label ?? ""),
-        csvField(packageQtyFormatted),     // SEM NaN
-        csvField(qtyPerPackageText),       // TEXTO PURO
-        csvField(p.category ?? ""),
-        csvField(priceFormatted),          // SEM NaN
-        csvField(conversionFormatted),     // SEM NaN
-        csvField(p.is_active ? 1 : 0),
+        csvField(getProductName(r.products)),
+        csvField(r.unit_label ?? ""),
+        csvField(r.current_stock_before ?? 0),
+        csvField(r.counted_qty ?? 0),
+        csvField(r.diff_qty ?? 0),
       ];
-
       rows.push(row.join(";"));
     }
 
-    // Adiciona BOM para o Excel reconhecer UTF-8
+    // Adiciona BOM para Excel reconhecer UTF-8
     const csvContent = "\uFEFF" + rows.join("\r\n");
 
     return new NextResponse(csvContent, {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": 'attachment; filename="produtos.csv"',
+        "Content-Disposition": `attachment; filename="inventario-${inventoryId}.csv"`,
       },
     });
   } catch (err) {
-    console.error("Erro inesperado em /api/export/products:", err);
+    console.error("Erro inesperado em export inventário:", err);
     return NextResponse.json(
-      { error: "Erro inesperado ao exportar produtos." },
+      { error: "Erro inesperado ao exportar inventário." },
       { status: 500 },
     );
   }

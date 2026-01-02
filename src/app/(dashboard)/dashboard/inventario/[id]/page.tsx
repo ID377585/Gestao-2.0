@@ -5,7 +5,13 @@ import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -22,7 +28,14 @@ type InventoryCount = {
   ended_at: string | null;
   created_at: string | null;
   notes: string | null;
+  establishment_id: string;
 };
+
+// ✅ JOIN do Supabase pode vir como objeto OU array (dependendo do select/relacionamento)
+type ProductJoin =
+  | { name: string | null }
+  | { name: string | null }[]
+  | null;
 
 type InventoryItemRow = {
   id: string;
@@ -30,9 +43,7 @@ type InventoryItemRow = {
   counted_qty: number | null;
   current_stock_before: number | null;
   diff_qty: number | null;
-  products?: {
-    name: string | null;
-  } | null;
+  products: ProductJoin;
 };
 
 const formatDateTime = (value: string | null) => {
@@ -44,6 +55,18 @@ const formatNumber = (value: number | null) => {
   if (value === null || value === undefined) return "-";
   return String(value);
 };
+
+// ✅ pega o nome independente de vir objeto ou array
+function getProductName(products: ProductJoin): string {
+  if (!products) return "(sem nome)";
+  if (Array.isArray(products)) return products[0]?.name ?? "(sem nome)";
+  return products.name ?? "(sem nome)";
+}
+
+// pequena função util para combinar classes
+function cn(...classes: (string | false | null | undefined)[]) {
+  return classes.filter(Boolean).join(" ");
+}
 
 export default async function InventoryDetailsPage({
   params,
@@ -72,6 +95,8 @@ export default async function InventoryDetailsPage({
     return notFound();
   }
 
+  const countRow = count as InventoryCount;
+
   // 2) Itens do inventário + nome do produto
   const { data: items, error: itemsError } = await supabase
     .from("inventory_count_items")
@@ -94,7 +119,15 @@ export default async function InventoryDetailsPage({
     console.error("Erro ao carregar inventory_count_items:", itemsError);
   }
 
-  const rows: InventoryItemRow[] = items ?? [];
+  // ✅ normaliza para o TS entender sempre a mesma estrutura
+  const rows: InventoryItemRow[] = ((items ?? []) as any[]).map((r) => ({
+    id: r.id,
+    unit_label: r.unit_label ?? null,
+    counted_qty: r.counted_qty ?? null,
+    current_stock_before: r.current_stock_before ?? null,
+    diff_qty: r.diff_qty ?? null,
+    products: (r.products ?? null) as ProductJoin,
+  }));
 
   const totalItems = rows.length;
   const totalDiffAbs = rows.reduce(
@@ -147,12 +180,12 @@ export default async function InventoryDetailsPage({
           <div>
             <div className="text-xs text-muted-foreground">Iniciado em</div>
             <div className="font-medium">
-              {formatDateTime(count.started_at ?? count.created_at)}
+              {formatDateTime(countRow.started_at ?? countRow.created_at)}
             </div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground">Finalizado em</div>
-            <div className="font-medium">{formatDateTime(count.ended_at)}</div>
+            <div className="font-medium">{formatDateTime(countRow.ended_at)}</div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground">Itens lançados</div>
@@ -174,7 +207,7 @@ export default async function InventoryDetailsPage({
           <div>
             <div className="text-xs text-muted-foreground">Observações</div>
             <div className="font-medium text-xs">
-              {count.notes?.trim() || "-"}
+              {countRow.notes?.trim() || "-"}
             </div>
           </div>
         </CardContent>
@@ -235,9 +268,9 @@ export default async function InventoryDetailsPage({
                     return (
                       <TableRow key={r.id}>
                         <TableCell className="font-medium">
-                          {r.products?.name || "(sem nome)"}
+                          {getProductName(r.products)}
                         </TableCell>
-                        <TableCell>{r.unit_label}</TableCell>
+                        <TableCell>{r.unit_label ?? "-"}</TableCell>
                         <TableCell className="text-right">
                           {formatNumber(r.current_stock_before)}
                         </TableCell>
@@ -261,9 +294,4 @@ export default async function InventoryDetailsPage({
       </Card>
     </div>
   );
-}
-
-// pequena função util para combinar classes (caso ainda não tenha)
-function cn(...classes: (string | false | null | undefined)[]) {
-  return classes.filter(Boolean).join(" ");
 }

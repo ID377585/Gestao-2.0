@@ -41,12 +41,9 @@ type InventoryCountRow = {
   total_products: number | null;
 
   created_by: string | null;
-
-  // ✅ normalizado para objeto
   establishment: EstablishmentJoin | null;
 };
 
-// ✅ RAW: establishment pode vir objeto OU array
 type InventoryCountRowRaw = {
   id: any;
   created_at: any;
@@ -64,7 +61,6 @@ type ProductJoin = {
   name: string | null;
 };
 
-// ✅ RAW: product também pode vir objeto OU array
 type ProductJoinRaw = ProductJoin | ProductJoin[] | null | undefined;
 
 type InventoryCountItem = {
@@ -95,7 +91,6 @@ type InventoryCountItemRaw = {
   status: any;
   error_message: any;
 
-  // join (Supabase pode devolver array)
   product: ProductJoinRaw;
 };
 
@@ -103,6 +98,19 @@ function normalizeOne<T>(v: T | T[] | null | undefined): T | null {
   if (!v) return null;
   if (Array.isArray(v)) return v[0] ?? null;
   return v;
+}
+
+function prettyRole(role: string) {
+  // ajuste aqui se você quiser labels mais “bonitos”
+  const r = (role || "").toLowerCase();
+  if (r === "admin") return "Admin";
+  if (r === "operacao") return "Operação";
+  if (r === "producao") return "Produção";
+  if (r === "estoque") return "Estoque";
+  if (r === "fiscal") return "Fiscal";
+  if (r === "entrega") return "Entrega";
+  if (r === "cliente") return "Cliente";
+  return role ? role : "-";
 }
 
 export default function InventarioDetalhePage({
@@ -118,11 +126,17 @@ export default function InventarioDetalhePage({
   const [headerErrorMsg, setHeaderErrorMsg] = useState<string | null>(null);
   const [itemsErrorMsg, setItemsErrorMsg] = useState<string | null>(null);
 
+  // ✅ NOVO: label amigável do usuário (ex.: "Admin")
+  const [createdByLabel, setCreatedByLabel] = useState<string>("-");
+  const [isLoadingUserLabel, setIsLoadingUserLabel] = useState(false);
+
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
       setHeaderErrorMsg(null);
       setItemsErrorMsg(null);
+      setCreatedByLabel("-");
+      setIsLoadingUserLabel(false);
 
       try {
         const supabase = createSupabaseBrowserClient();
@@ -177,6 +191,46 @@ export default function InventarioDetalhePage({
           };
 
           setCount(normalized);
+
+          // ✅ 1.1) Buscar um label amigável do usuário via memberships
+          // (role ou “nome” se existir em alguma coluna)
+          if (normalized.created_by && normalized.establishment?.id) {
+            setIsLoadingUserLabel(true);
+
+            const { data: memberData, error: memberError } = await supabase
+              .from("memberships")
+              .select(
+                `
+                  role,
+                  name,
+                  full_name,
+                  display_name
+                `
+              )
+              .eq("user_id", normalized.created_by)
+              .eq("establishment_id", normalized.establishment.id)
+              .maybeSingle();
+
+            if (memberError) {
+              // não quebra a página, só loga
+              console.warn(
+                "[Inventário Detalhe] Não consegui buscar memberships para label do usuário:",
+                memberError
+              );
+              setCreatedByLabel("-");
+            } else {
+              const md: any = memberData ?? null;
+              const candidate =
+                md?.display_name ??
+                md?.full_name ??
+                md?.name ??
+                (md?.role ? prettyRole(String(md.role)) : null);
+
+              setCreatedByLabel(candidate ? String(candidate) : "-");
+            }
+
+            setIsLoadingUserLabel(false);
+          }
         }
 
         // 2) Itens do inventário + join products
@@ -218,14 +272,11 @@ export default function InventarioDetalhePage({
                 : "sem_ajuste");
 
             const product = normalizeOne(row.product);
-
             const sku = product?.sku ?? null;
 
-            // Prioridade de nome:
-            // 1) products.name
-            // 2) product_name (legado)
             const productName =
-              product?.name ?? (row.product_name ? String(row.product_name) : null);
+              product?.name ??
+              (row.product_name ? String(row.product_name) : null);
 
             return {
               id: String(row.id),
@@ -266,7 +317,7 @@ export default function InventarioDetalhePage({
   };
 
   const establishmentName = count?.establishment?.name ?? "-";
-  const createdByUser = count?.created_by ?? "-";
+  const createdByUserId = count?.created_by ?? "-";
 
   return (
     <div className="space-y-6">
@@ -329,6 +380,7 @@ export default function InventarioDetalhePage({
                 <span className="font-semibold">ID:</span>{" "}
                 <span className="font-mono text-xs break-all">{count.id}</span>
               </p>
+
               <p>
                 <span className="font-semibold">Criado em:</span>{" "}
                 {formatDateTime(count.created_at)}
@@ -341,14 +393,25 @@ export default function InventarioDetalhePage({
                 <span className="font-semibold">Finalizado em:</span>{" "}
                 {formatDateTime(count.finished_at)}
               </p>
+
               <p>
                 <span className="font-semibold">Estabelecimento:</span>{" "}
                 {establishmentName}
               </p>
+
+              {/* ✅ Usuário com label + UUID pequeno */}
               <p>
                 <span className="font-semibold">Usuário:</span>{" "}
-                <span className="font-mono text-xs break-all">{createdByUser}</span>
+                {isLoadingUserLabel ? (
+                  <span className="text-muted-foreground">carregando…</span>
+                ) : (
+                  <span className="font-semibold">{createdByLabel}</span>
+                )}{" "}
+                <span className="font-mono text-xs break-all text-muted-foreground">
+                  ({createdByUserId})
+                </span>
               </p>
+
               <p>
                 <span className="font-semibold">Itens lançados:</span>{" "}
                 {count.total_items ?? 0}
@@ -430,8 +493,12 @@ export default function InventarioDetalhePage({
                         {item.message ?? "-"}
                       </TableCell>
 
-                      <TableCell className="font-mono text-xs break-all">
-                        {createdByUser}
+                      {/* ✅ aqui agora mostra o label */}
+                      <TableCell className="text-xs">
+                        <div className="font-semibold">{createdByLabel}</div>
+                        <div className="font-mono text-[10px] text-muted-foreground break-all">
+                          {createdByUserId}
+                        </div>
                       </TableCell>
 
                       <TableCell className="text-xs">{establishmentName}</TableCell>

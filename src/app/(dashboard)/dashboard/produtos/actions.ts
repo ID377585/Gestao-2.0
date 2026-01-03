@@ -1,4 +1,4 @@
-// src/app/(dashboard)/dashboard/produtos/actions.ts
+// src/app/(dashboard)/dashboard/produtos/_actions.ts
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -23,15 +23,15 @@ function normalizeId(value: any): string | null {
 /**
  * Pega IDs do membership sem quebrar se não tiver establishment
  * e sem obrigar user_id (fica opcional).
+ *
+ * ✅ AJUSTE: seu banco NÃO tem organization_id na memberships,
+ * então aqui usamos SOMENTE establishment_id.
  */
 async function getMembershipIds() {
   const membership = await getActiveMembershipOrRedirect();
-  const { organization_id, establishment_id, user_id } = membership as any;
+  const { establishment_id, user_id } = membership as any;
 
-  const establishmentId =
-    normalizeId(establishment_id) ?? normalizeId(organization_id);
-
-  // userId opcional
+  const establishmentId = normalizeId(establishment_id);
   const userId = normalizeId(user_id) ?? null;
 
   if (!establishmentId) {
@@ -39,8 +39,8 @@ async function getMembershipIds() {
   }
 
   return {
-    establishmentId, // string
-    userId, // string | null
+    establishmentId,
+    userId,
   };
 }
 
@@ -59,6 +59,26 @@ function parseNumber(
   return Number(n.toFixed(decimals));
 }
 
+/**
+ * Checkbox pode chegar como "on" (HTML), "true" (alguns forms) ou null
+ */
+function parseBoolean(value: FormDataEntryValue | null): boolean {
+  if (value == null) return false;
+  const s = String(value).toLowerCase().trim();
+  return s === "on" || s === "true" || s === "1" || s === "yes";
+}
+
+/**
+ * Log seguro (não explode circular) para Vercel Logs
+ */
+function safeJson(obj: any) {
+  try {
+    return JSON.stringify(obj);
+  } catch {
+    return String(obj);
+  }
+}
+
 /* =========================================================
    CREATE PRODUCT
    ========================================================= */
@@ -69,27 +89,25 @@ export async function createProduct(formData: FormData) {
 
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
-  const default_unit_label = String(formData.get("default_unit_label") ?? "un").trim();
+  const default_unit_label = String(
+    formData.get("default_unit_label") ?? "un",
+  ).trim();
 
   const skuRaw = formData.get("sku");
   const categoryRaw = formData.get("category");
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
-  const qtyPerPackageRaw = formData.get("qty_per_package"); // TEXTO
+  const qtyPerPackageRaw = formData.get("qty_per_package");
   const conversionRaw = formData.get("conversion_factor");
 
   if (!name) throw new Error("Nome do produto é obrigatório.");
 
-  // numéricos
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
   const conversion_factor = parseNumber(conversionRaw, 4);
 
-  // opcionais
   const sku =
-    skuRaw && String(skuRaw).trim().length > 0
-      ? String(skuRaw).trim()
-      : null;
+    skuRaw && String(skuRaw).trim().length > 0 ? String(skuRaw).trim() : null;
 
   const category =
     categoryRaw && String(categoryRaw).trim().length > 0
@@ -107,7 +125,7 @@ export async function createProduct(formData: FormData) {
     sku,
     product_type,
     default_unit_label,
-    package_qty,
+    package_qty: package_qty ?? null,
     qty_per_package,
     category,
     conversion_factor: conversion_factor ?? 1,
@@ -117,12 +135,32 @@ export async function createProduct(formData: FormData) {
     ...(userId ? { created_by: userId } : {}),
   };
 
-  const { error } = await supabase.from("products").insert(insertData);
+  const { data, error } = await supabase
+    .from("products")
+    .insert(insertData)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
-    console.error("Erro ao criar produto", error);
+    console.error(
+      "[products.create] error",
+      safeJson({
+        message: error.message,
+        code: (error as any).code,
+        details: (error as any).details,
+        hint: (error as any).hint,
+        establishmentId,
+        userId,
+        insertData,
+      }),
+    );
     throw new Error(error.message ?? "Falha ao criar produto.");
   }
+
+  console.log(
+    "[products.create] ok",
+    safeJson({ id: data?.id, establishmentId, userId }),
+  );
 
   revalidatePath("/dashboard/produtos");
   redirect("/dashboard/produtos?success=new");
@@ -141,28 +179,26 @@ export async function updateProduct(formData: FormData) {
 
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
-  const default_unit_label = String(formData.get("default_unit_label") ?? "un").trim();
+  const default_unit_label = String(
+    formData.get("default_unit_label") ?? "un",
+  ).trim();
 
   const skuRaw = formData.get("sku");
   const categoryRaw = formData.get("category");
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
-  const qtyPerPackageRaw = formData.get("qty_per_package"); // TEXTO
+  const qtyPerPackageRaw = formData.get("qty_per_package");
   const conversionRaw = formData.get("conversion_factor");
   const isActiveRaw = formData.get("is_active");
 
   if (!name) throw new Error("Nome do produto é obrigatório.");
 
-  // numéricos
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
   const conversion_factor = parseNumber(conversionRaw, 4);
 
-  // opcionais
   const sku =
-    skuRaw && String(skuRaw).trim().length > 0
-      ? String(skuRaw).trim()
-      : null;
+    skuRaw && String(skuRaw).trim().length > 0 ? String(skuRaw).trim() : null;
 
   const category =
     categoryRaw && String(categoryRaw).trim().length > 0
@@ -174,19 +210,20 @@ export async function updateProduct(formData: FormData) {
       ? String(qtyPerPackageRaw).trim()
       : null;
 
-  const is_active = isActiveRaw === "on";
+  const is_active = parseBoolean(isActiveRaw);
 
   const updateData: any = {
     name,
     sku,
     product_type,
     default_unit_label,
-    package_qty,
+    package_qty: package_qty ?? null,
     qty_per_package,
     category,
-    price,
-    conversion_factor,
+    price: price ?? 0,
+    conversion_factor: conversion_factor ?? 1,
     is_active,
+
     ...(userId
       ? {
           updated_by: userId,
@@ -195,16 +232,35 @@ export async function updateProduct(formData: FormData) {
       : {}),
   };
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("products")
     .update(updateData)
     .eq("id", id)
-    .eq("establishment_id", establishmentId); // camada extra
+    .eq("establishment_id", establishmentId)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
-    console.error("Erro ao atualizar produto", error);
+    console.error(
+      "[products.update] error",
+      safeJson({
+        message: error.message,
+        code: (error as any).code,
+        details: (error as any).details,
+        hint: (error as any).hint,
+        establishmentId,
+        userId,
+        id,
+        updateData,
+      }),
+    );
     throw new Error(error.message ?? "Falha ao atualizar produto.");
   }
+
+  console.log(
+    "[products.update] ok",
+    safeJson({ id: data?.id, establishmentId, userId }),
+  );
 
   revalidatePath("/dashboard/produtos");
   redirect("/dashboard/produtos?success=updated");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -25,6 +25,11 @@ import {
 const formatDateTime = (value: string | null) => {
   if (!value) return "-";
   return new Date(value).toLocaleString("pt-BR");
+};
+
+const formatMoney = (value: number | null | undefined) => {
+  const n = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 };
 
 type EstablishmentJoin = {
@@ -59,6 +64,14 @@ type ProductJoin = {
   id: string;
   sku: string | null;
   name: string | null;
+
+  // ✅ tentativas de campos comuns de preço/custo (pode não existir no seu schema)
+  unit_cost?: number | null;
+  cost_price?: number | null;
+  price_cost?: number | null;
+  cost?: number | null;
+  unit_price?: number | null;
+  price?: number | null;
 };
 
 type ProductJoinRaw = ProductJoin | ProductJoin[] | null | undefined;
@@ -73,6 +86,10 @@ type InventoryCountItem = {
   counted: number | null;
   current: number | null;
   diff: number | null;
+
+  // ✅ NOVO
+  unit_price: number | null;
+  line_total: number | null;
 
   status: string | null;
   message: string | null;
@@ -98,6 +115,18 @@ function normalizeOne<T>(v: T | T[] | null | undefined): T | null {
   if (!v) return null;
   if (Array.isArray(v)) return v[0] ?? null;
   return v;
+}
+
+function prettyRole(role: string) {
+  const r = (role || "").toLowerCase();
+  if (r === "admin") return "Admin";
+  if (r === "operacao") return "Operação";
+  if (r === "producao") return "Produção";
+  if (r === "estoque") return "Estoque";
+  if (r === "fiscal") return "Fiscal";
+  if (r === "entrega") return "Entrega";
+  if (r === "cliente") return "Cliente";
+  return role ? role : "-";
 }
 
 export default function InventarioDetalhePage({
@@ -178,34 +207,65 @@ export default function InventarioDetalhePage({
 
           setCount(normalized);
 
-          // ✅ FIX DEFINITIVO:
-          // Buscar label via API server (SSR/cookies) -> evita RLS bloqueando no client
+          // ✅ label do usuário via memberships (mantido)
           if (normalized.created_by && normalized.establishment?.id) {
             setIsLoadingUserLabel(true);
 
-            try {
-              const url = `/api/memberships/user-label?user_id=${encodeURIComponent(
-                normalized.created_by
-              )}&establishment_id=${encodeURIComponent(normalized.establishment.id)}`;
+            const { data: memberData, error: memberError } = await supabase
+              .from("memberships")
+              .select(
+                `
+                  role,
+                  name,
+                  full_name,
+                  display_name
+                `
+              )
+              .eq("user_id", normalized.created_by)
+              .eq("establishment_id", normalized.establishment.id)
+              .limit(1)
+              .maybeSingle();
 
-              const res = await fetch(url, { cache: "no-store" });
-              const json = await res.json();
-
-              const label = json?.label ? String(json.label) : "-";
-              setCreatedByLabel(label);
-            } catch (e) {
+            if (memberError) {
               console.warn(
-                "[Inventário Detalhe] Falha ao buscar label via API:",
-                e
+                "[Inventário Detalhe] Não consegui buscar memberships para label do usuário:",
+                memberError
               );
               setCreatedByLabel("-");
-            } finally {
-              setIsLoadingUserLabel(false);
+            } else {
+              const md: any = memberData ?? null;
+              const candidate =
+                md?.display_name ??
+                md?.full_name ??
+                md?.name ??
+                (md?.role ? prettyRole(String(md.role)) : null);
+
+              // fallback pelo auth (mantido)
+              if (!candidate) {
+                const { data: authData } = await supabase.auth.getUser();
+                const u = authData?.user ?? null;
+                if (u && u.id === normalized.created_by) {
+                  const meta: any = u.user_metadata ?? {};
+                  const authCandidate =
+                    meta?.full_name ??
+                    meta?.name ??
+                    meta?.display_name ??
+                    u.email ??
+                    null;
+                  setCreatedByLabel(authCandidate ? String(authCandidate) : "-");
+                } else {
+                  setCreatedByLabel("-");
+                }
+              } else {
+                setCreatedByLabel(String(candidate));
+              }
             }
+
+            setIsLoadingUserLabel(false);
           }
         }
 
-        // 2) Itens do inventário + join products
+        // 2) Itens do inventário + join products (+ preço/custo)
         const { data: itemsData, error: itemsError } = await supabase
           .from("inventory_count_items")
           .select(
@@ -219,7 +279,17 @@ export default function InventarioDetalhePage({
               product_name,
               status,
               error_message,
-              product:products(id,sku,name)
+              product:products(
+                id,
+                sku,
+                name,
+                unit_cost,
+                cost_price,
+                price_cost,
+                cost,
+                unit_price,
+                price
+              )
             `
           )
           .eq("inventory_count_id", params.id)
@@ -250,6 +320,24 @@ export default function InventarioDetalhePage({
               product?.name ??
               (row.product_name ? String(row.product_name) : null);
 
+            const counted = row.counted_qty == null ? null : Number(row.counted_qty);
+
+            // ✅ pega o primeiro preço/custo que existir
+            const unitPriceCandidate =
+              product?.unit_cost ??
+              product?.cost_price ??
+              product?.price_cost ??
+              product?.cost ??
+              product?.unit_price ??
+              product?.price ??
+              null;
+
+            const unit_price =
+              unitPriceCandidate == null ? null : Number(unitPriceCandidate);
+
+            const line_total =
+              counted != null && unit_price != null ? counted * unit_price : null;
+
             return {
               id: String(row.id),
               product_id: row.product_id ? String(row.product_id) : null,
@@ -257,12 +345,15 @@ export default function InventarioDetalhePage({
               product_name: productName,
 
               unit_label: row.unit_label ? String(row.unit_label) : null,
-              counted: row.counted_qty == null ? null : Number(row.counted_qty),
+              counted,
               current:
                 row.current_stock_before == null
                   ? null
                   : Number(row.current_stock_before),
               diff,
+
+              unit_price,
+              line_total,
 
               status: computedStatus ? String(computedStatus) : null,
               message: row.error_message ? String(row.error_message) : null,
@@ -290,6 +381,15 @@ export default function InventarioDetalhePage({
 
   const establishmentName = count?.establishment?.name ?? "-";
   const createdByUserId = count?.created_by ?? "-";
+
+  // ✅ total geral em tempo real
+  const totalValue = useMemo(() => {
+    return (items ?? []).reduce((sum, it) => {
+      const v =
+        it.line_total != null && Number.isFinite(it.line_total) ? it.line_total : 0;
+      return sum + v;
+    }, 0);
+  }, [items]);
 
   return (
     <div className="space-y-6">
@@ -392,6 +492,12 @@ export default function InventarioDetalhePage({
                 <span className="font-semibold">Produtos distintos:</span>{" "}
                 {count.total_products ?? 0}
               </p>
+
+              {/* ✅ NOVO: valor total em tempo real (logo após Produtos distintos) */}
+              <p>
+                <span className="font-semibold">Valor total contado:</span>{" "}
+                <span className="font-semibold">{formatMoney(totalValue)}</span>
+              </p>
             </>
           )}
         </CardContent>
@@ -426,11 +532,18 @@ export default function InventarioDetalhePage({
                     <TableHead>Produto</TableHead>
                     <TableHead>Un.</TableHead>
                     <TableHead>Contado</TableHead>
+
+                    {/* ✅ NOVO: preço unit logo após "Contado" */}
+                    <TableHead>Preço unit.</TableHead>
+
                     <TableHead>Estoque Antes</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Mensagem</TableHead>
                     <TableHead>Usuário</TableHead>
                     <TableHead>Estabelecimento</TableHead>
+
+                    {/* ✅ EXTRA útil: total do item */}
+                    <TableHead>Total</TableHead>
                   </TableRow>
                 </TableHeader>
 
@@ -447,6 +560,12 @@ export default function InventarioDetalhePage({
 
                       <TableCell>{item.unit_label ?? "-"}</TableCell>
                       <TableCell>{item.counted ?? 0}</TableCell>
+
+                      {/* ✅ preço unit */}
+                      <TableCell className="text-xs">
+                        {item.unit_price == null ? "-" : formatMoney(item.unit_price)}
+                      </TableCell>
+
                       <TableCell>{item.current ?? 0}</TableCell>
 
                       <TableCell
@@ -473,8 +592,11 @@ export default function InventarioDetalhePage({
                         </div>
                       </TableCell>
 
-                      <TableCell className="text-xs">
-                        {establishmentName}
+                      <TableCell className="text-xs">{establishmentName}</TableCell>
+
+                      {/* ✅ total do item */}
+                      <TableCell className="text-xs font-semibold">
+                        {item.line_total == null ? "-" : formatMoney(item.line_total)}
                       </TableCell>
                     </TableRow>
                   ))}

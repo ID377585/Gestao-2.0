@@ -100,18 +100,6 @@ function normalizeOne<T>(v: T | T[] | null | undefined): T | null {
   return v;
 }
 
-function prettyRole(role: string) {
-  const r = (role || "").toLowerCase();
-  if (r === "admin") return "Admin";
-  if (r === "operacao") return "Operação";
-  if (r === "producao") return "Produção";
-  if (r === "estoque") return "Estoque";
-  if (r === "fiscal") return "Fiscal";
-  if (r === "entrega") return "Entrega";
-  if (r === "cliente") return "Cliente";
-  return role ? role : "-";
-}
-
 export default function InventarioDetalhePage({
   params,
 }: {
@@ -190,64 +178,30 @@ export default function InventarioDetalhePage({
 
           setCount(normalized);
 
-          // ✅ 1.1) Buscar um label amigável do usuário via memberships
-          // FIX CRÍTICO: .maybeSingle() quebra se vierem múltiplas linhas.
-          // Então a gente limita 1 linha com .limit(1) antes.
+          // ✅ FIX DEFINITIVO:
+          // Buscar label via API server (SSR/cookies) -> evita RLS bloqueando no client
           if (normalized.created_by && normalized.establishment?.id) {
             setIsLoadingUserLabel(true);
 
-            const { data: memberData, error: memberError } = await supabase
-              .from("memberships")
-              .select(
-                `
-                  role,
-                  name,
-                  full_name,
-                  display_name
-                `
-              )
-              .eq("user_id", normalized.created_by)
-              .eq("establishment_id", normalized.establishment.id)
-              .limit(1)
-              .maybeSingle();
+            try {
+              const url = `/api/memberships/user-label?user_id=${encodeURIComponent(
+                normalized.created_by
+              )}&establishment_id=${encodeURIComponent(normalized.establishment.id)}`;
 
-            if (memberError) {
+              const res = await fetch(url, { cache: "no-store" });
+              const json = await res.json();
+
+              const label = json?.label ? String(json.label) : "-";
+              setCreatedByLabel(label);
+            } catch (e) {
               console.warn(
-                "[Inventário Detalhe] Não consegui buscar memberships para label do usuário:",
-                memberError
+                "[Inventário Detalhe] Falha ao buscar label via API:",
+                e
               );
               setCreatedByLabel("-");
-            } else {
-              const md: any = memberData ?? null;
-              const candidate =
-                md?.display_name ??
-                md?.full_name ??
-                md?.name ??
-                (md?.role ? prettyRole(String(md.role)) : null);
-
-              // ✅ Fallback extra: se esse created_by for o usuário logado,
-              // tenta pegar nome/email do auth (não depende de tabela).
-              if (!candidate) {
-                const { data: authData } = await supabase.auth.getUser();
-                const u = authData?.user ?? null;
-                if (u && u.id === normalized.created_by) {
-                  const meta: any = u.user_metadata ?? {};
-                  const authCandidate =
-                    meta?.full_name ??
-                    meta?.name ??
-                    meta?.display_name ??
-                    u.email ??
-                    null;
-                  setCreatedByLabel(authCandidate ? String(authCandidate) : "-");
-                } else {
-                  setCreatedByLabel("-");
-                }
-              } else {
-                setCreatedByLabel(String(candidate));
-              }
+            } finally {
+              setIsLoadingUserLabel(false);
             }
-
-            setIsLoadingUserLabel(false);
           }
         }
 

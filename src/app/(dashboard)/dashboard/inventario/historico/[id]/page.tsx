@@ -101,7 +101,6 @@ function normalizeOne<T>(v: T | T[] | null | undefined): T | null {
 }
 
 function prettyRole(role: string) {
-  // ajuste aqui se você quiser labels mais “bonitos”
   const r = (role || "").toLowerCase();
   if (r === "admin") return "Admin";
   if (r === "operacao") return "Operação";
@@ -126,7 +125,7 @@ export default function InventarioDetalhePage({
   const [headerErrorMsg, setHeaderErrorMsg] = useState<string | null>(null);
   const [itemsErrorMsg, setItemsErrorMsg] = useState<string | null>(null);
 
-  // ✅ NOVO: label amigável do usuário (ex.: "Admin")
+  // ✅ label amigável do usuário (ex.: "Admin" / "Ivan" / etc)
   const [createdByLabel, setCreatedByLabel] = useState<string>("-");
   const [isLoadingUserLabel, setIsLoadingUserLabel] = useState(false);
 
@@ -173,7 +172,6 @@ export default function InventarioDetalhePage({
           setCount(null);
         } else {
           const raw = countData as InventoryCountRowRaw;
-
           const estab = normalizeOne(raw.establishment);
 
           const normalized: InventoryCountRow = {
@@ -193,7 +191,8 @@ export default function InventarioDetalhePage({
           setCount(normalized);
 
           // ✅ 1.1) Buscar um label amigável do usuário via memberships
-          // (role ou “nome” se existir em alguma coluna)
+          // FIX CRÍTICO: .maybeSingle() quebra se vierem múltiplas linhas.
+          // Então a gente limita 1 linha com .limit(1) antes.
           if (normalized.created_by && normalized.establishment?.id) {
             setIsLoadingUserLabel(true);
 
@@ -209,10 +208,10 @@ export default function InventarioDetalhePage({
               )
               .eq("user_id", normalized.created_by)
               .eq("establishment_id", normalized.establishment.id)
+              .limit(1)
               .maybeSingle();
 
             if (memberError) {
-              // não quebra a página, só loga
               console.warn(
                 "[Inventário Detalhe] Não consegui buscar memberships para label do usuário:",
                 memberError
@@ -226,7 +225,26 @@ export default function InventarioDetalhePage({
                 md?.name ??
                 (md?.role ? prettyRole(String(md.role)) : null);
 
-              setCreatedByLabel(candidate ? String(candidate) : "-");
+              // ✅ Fallback extra: se esse created_by for o usuário logado,
+              // tenta pegar nome/email do auth (não depende de tabela).
+              if (!candidate) {
+                const { data: authData } = await supabase.auth.getUser();
+                const u = authData?.user ?? null;
+                if (u && u.id === normalized.created_by) {
+                  const meta: any = u.user_metadata ?? {};
+                  const authCandidate =
+                    meta?.full_name ??
+                    meta?.name ??
+                    meta?.display_name ??
+                    u.email ??
+                    null;
+                  setCreatedByLabel(authCandidate ? String(authCandidate) : "-");
+                } else {
+                  setCreatedByLabel("-");
+                }
+              } else {
+                setCreatedByLabel(String(candidate));
+              }
             }
 
             setIsLoadingUserLabel(false);
@@ -340,7 +358,7 @@ export default function InventarioDetalhePage({
             </Button>
           </Link>
 
-          {/* ✅ Exportar CSV (bate com a rota que você criou) */}
+          {/* Exportar CSV */}
           <Button asChild variant="outline" size="sm" disabled={!params.id}>
             <a href={`/api/export/products/inventory-count/${params.id}`}>
               Exportar (CSV)
@@ -399,7 +417,7 @@ export default function InventarioDetalhePage({
                 {establishmentName}
               </p>
 
-              {/* ✅ Usuário com label + UUID pequeno */}
+              {/* Usuário com label + UUID */}
               <p>
                 <span className="font-semibold">Usuário:</span>{" "}
                 {isLoadingUserLabel ? (
@@ -493,7 +511,7 @@ export default function InventarioDetalhePage({
                         {item.message ?? "-"}
                       </TableCell>
 
-                      {/* ✅ aqui agora mostra o label */}
+                      {/* Usuário */}
                       <TableCell className="text-xs">
                         <div className="font-semibold">{createdByLabel}</div>
                         <div className="font-mono text-[10px] text-muted-foreground break-all">
@@ -501,7 +519,9 @@ export default function InventarioDetalhePage({
                         </div>
                       </TableCell>
 
-                      <TableCell className="text-xs">{establishmentName}</TableCell>
+                      <TableCell className="text-xs">
+                        {establishmentName}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

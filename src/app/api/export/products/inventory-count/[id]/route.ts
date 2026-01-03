@@ -12,18 +12,25 @@ function csvEscape(v: any) {
   return s;
 }
 
+function normalizeOne<T>(v: T | T[] | null | undefined): T | null {
+  if (!v) return null;
+  return Array.isArray(v) ? v[0] ?? null : v;
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
+    // Mantém seu gate já validado (não mexi)
     await getActiveMembershipOrRedirect();
-    const supabase = await createSupabaseServerClient();
 
+    const supabase = await createSupabaseServerClient();
     const countId = params.id;
 
-    // Busca header + itens + joins úteis
-    // Observação: se você tiver tabela profiles, dá pra trocar created_by por profile.nome.
+    // ✅ FIX: colunas corretas no nested select
+    // - current_stock_before -> alias stock_before
+    // - error_message -> alias message
     const { data, error } = await supabase
       .from("inventory_counts")
       .select(
@@ -39,10 +46,10 @@ export async function GET(
           product_id,
           unit_label,
           counted_qty,
-          stock_before,
+          stock_before:current_stock_before,
           diff_qty,
           status,
-          message,
+          message:error_message,
           product:products(id,sku,name)
         )
       `
@@ -52,14 +59,23 @@ export async function GET(
 
     if (error) {
       console.error("Erro export inventory count:", error);
-      return NextResponse.json({ error: "Erro ao exportar inventário." }, { status: 500 });
+      return NextResponse.json(
+        { error: "Erro ao exportar inventário." },
+        { status: 500 }
+      );
     }
 
     if (!data) {
-      return NextResponse.json({ error: "Inventário não encontrado." }, { status: 404 });
+      return NextResponse.json(
+        { error: "Inventário não encontrado." },
+        { status: 404 }
+      );
     }
 
-    const establishmentName = (data as any)?.establishment?.name ?? "";
+    const estab = normalizeOne((data as any)?.establishment);
+    const establishmentName = estab?.name ?? "";
+    const establishmentId = estab?.id ?? "";
+
     const createdBy = (data as any)?.created_by ?? "";
 
     const header = [
@@ -81,44 +97,52 @@ export async function GET(
       "message",
     ];
 
-    const rows = [header.join(";")];
+    const rows: string[] = [header.join(";")];
 
     const items = ((data as any)?.items ?? []) as any[];
 
     for (const it of items) {
+      const product = normalizeOne(it.product);
+
       rows.push(
         [
-          csvEscape(data.id),
-          csvEscape(data.created_at),
-          csvEscape(data.started_at),
-          csvEscape(data.finished_at),
-          csvEscape((data as any)?.establishment?.id ?? ""),
+          csvEscape((data as any).id),
+          csvEscape((data as any).created_at),
+          csvEscape((data as any).started_at),
+          csvEscape((data as any).finished_at),
+          csvEscape(establishmentId),
           csvEscape(establishmentName),
           csvEscape(createdBy),
           csvEscape(it.product_id ?? ""),
-          csvEscape(it.product?.sku ?? ""),
-          csvEscape(it.product?.name ?? ""),
+          csvEscape(product?.sku ?? ""),
+          csvEscape(product?.name ?? ""),
           csvEscape(it.unit_label ?? ""),
           csvEscape(it.counted_qty ?? ""),
-          csvEscape(it.stock_before ?? ""),
+          csvEscape(it.stock_before ?? ""), // ✅ agora vem do alias current_stock_before
           csvEscape(it.diff_qty ?? ""),
           csvEscape(it.status ?? ""),
-          csvEscape(it.message ?? ""),
+          csvEscape(it.message ?? ""), // ✅ agora vem do alias error_message
         ].join(";")
       );
     }
 
-    const csv = rows.join("\n");
+    // ✅ BOM ajuda o Excel (pt-BR) a abrir acentuação certinho
+    const BOM = "\ufeff";
+    const csv = BOM + rows.join("\n");
 
     return new NextResponse(csv, {
       status: 200,
       headers: {
         "content-type": "text/csv; charset=utf-8",
         "content-disposition": `attachment; filename="inventario_${countId}.csv"`,
+        "cache-control": "no-store",
       },
     });
   } catch (err) {
     console.error("Erro inesperado export inventory count:", err);
-    return NextResponse.json({ error: "Erro inesperado ao exportar." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Erro inesperado ao exportar." },
+      { status: 500 }
+    );
   }
 }

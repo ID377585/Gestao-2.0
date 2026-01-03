@@ -39,8 +39,10 @@ async function getMembershipIds() {
     redirect("/dashboard/produtos?error=estabelecimento_nao_encontrado");
   }
 
+  // redirect() interrompe a execução, mas o TS não sabe disso.
+  // então garantimos tipo string aqui:
   return {
-    establishmentId,
+    establishmentId: establishmentId as string,
     userId,
   };
 }
@@ -183,6 +185,17 @@ export async function createProduct(formData: FormData) {
     redirectWithError(supabaseErrorText(error));
   }
 
+  // ✅ CRÍTICO: se não retornou id, NÃO houve insert (RLS/policy/trigger)
+  if (!data?.id) {
+    console.error(
+      "[products.create] no-row",
+      safeJson({ establishmentId, userId, insertData }),
+    );
+    redirectWithError(
+      "Produto não foi criado (sem permissão/RLS ou nenhuma linha inserida).",
+    );
+  }
+
   console.log(
     "[products.create] ok",
     safeJson({ id: data?.id, establishmentId, userId }),
@@ -262,11 +275,12 @@ export async function updateProduct(formData: FormData) {
       : {}),
   };
 
+  // ✅ CRÍTICO: não travar por establishment_id aqui.
+  // Deixa o RLS/policies decidirem, e a gente detecta “0 linhas atualizadas”.
   const { data, error } = await supabase
     .from("products")
     .update(updateData)
     .eq("id", id)
-    .eq("establishment_id", establishmentId)
     .select("id")
     .maybeSingle();
 
@@ -287,6 +301,23 @@ export async function updateProduct(formData: FormData) {
 
     // ✅ melhoria: não derruba a app com throw (evita Digest)
     redirectWithError(supabaseErrorText(error));
+  }
+
+  // ✅ CRÍTICO: se data veio null, não atualizou nada (RLS bloqueou / id não pertence / id inválido)
+  if (!data?.id) {
+    console.error(
+      "[products.update] no-row-updated",
+      safeJson({
+        establishmentId,
+        userId,
+        id,
+        updateData,
+        note: "Nenhuma linha atualizada. Possível RLS/policy bloqueando ou produto não pertence ao usuário.",
+      }),
+    );
+    redirectWithError(
+      "Não foi possível salvar: produto não encontrado ou sem permissão (RLS).",
+    );
   }
 
   console.log(

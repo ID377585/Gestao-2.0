@@ -60,20 +60,9 @@ type InventoryCountRowRaw = {
   establishment: EstablishmentJoin | EstablishmentJoin[] | null;
 };
 
-type ProductJoin = {
-  id: string;
-  sku: string | null;
-  name: string | null;
-
-  // ✅ tentativas de campos comuns de preço/custo (pode não existir no seu schema)
-  unit_cost?: number | null;
-  cost_price?: number | null;
-  price_cost?: number | null;
-  cost?: number | null;
-  unit_price?: number | null;
-  price?: number | null;
-};
-
+// ✅ IMPORTANTE: não amarre em colunas específicas de preço aqui.
+// Vamos usar product:products(*) e procurar o campo no JS.
+type ProductJoin = Record<string, any>;
 type ProductJoinRaw = ProductJoin | ProductJoin[] | null | undefined;
 
 type InventoryCountItem = {
@@ -127,6 +116,18 @@ function prettyRole(role: string) {
   if (r === "entrega") return "Entrega";
   if (r === "cliente") return "Cliente";
   return role ? role : "-";
+}
+
+// ✅ tenta achar o primeiro número válido dentre várias chaves possíveis
+function pickFirstNumber(obj: any, keys: string[]): number | null {
+  if (!obj) return null;
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v == null) continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
 }
 
 export default function InventarioDetalhePage({
@@ -207,65 +208,60 @@ export default function InventarioDetalhePage({
 
           setCount(normalized);
 
-          // ✅ label do usuário via memberships (mantido)
+          // ✅ 1.1) Buscar label amigável do usuário via SUA ROTA SERVER
+          // Isso evita RLS no client ao ler memberships.
           if (normalized.created_by && normalized.establishment?.id) {
             setIsLoadingUserLabel(true);
 
-            const { data: memberData, error: memberError } = await supabase
-              .from("memberships")
-              .select(
-                `
-                  role,
-                  name,
-                  full_name,
-                  display_name
-                `
-              )
-              .eq("user_id", normalized.created_by)
-              .eq("establishment_id", normalized.establishment.id)
-              .limit(1)
-              .maybeSingle();
+            let resolvedLabel: string | null = null;
 
-            if (memberError) {
-              console.warn(
-                "[Inventário Detalhe] Não consegui buscar memberships para label do usuário:",
-                memberError
+            try {
+              const qs = new URLSearchParams({
+                user_id: normalized.created_by,
+                establishment_id: normalized.establishment.id,
+              });
+
+              const res = await fetch(
+                `/api/memberships/user-label?${qs.toString()}`,
+                { method: "GET", cache: "no-store" }
               );
-              setCreatedByLabel("-");
-            } else {
-              const md: any = memberData ?? null;
-              const candidate =
-                md?.display_name ??
-                md?.full_name ??
-                md?.name ??
-                (md?.role ? prettyRole(String(md.role)) : null);
 
-              // fallback pelo auth (mantido)
-              if (!candidate) {
-                const { data: authData } = await supabase.auth.getUser();
-                const u = authData?.user ?? null;
-                if (u && u.id === normalized.created_by) {
-                  const meta: any = u.user_metadata ?? {};
-                  const authCandidate =
-                    meta?.full_name ??
-                    meta?.name ??
-                    meta?.display_name ??
-                    u.email ??
-                    null;
-                  setCreatedByLabel(authCandidate ? String(authCandidate) : "-");
-                } else {
-                  setCreatedByLabel("-");
-                }
+              if (res.ok) {
+                const json: any = await res.json();
+                const label = json?.label ? String(json.label) : "-";
+                resolvedLabel = label && label !== "null" ? label : "-";
+              }
+            } catch (e) {
+              console.warn("[Inventário Detalhe] Falha ao chamar user-label:", e);
+            }
+
+            // ✅ fallback: se não veio nada útil, tenta auth (somente se for o usuário logado)
+            if (!resolvedLabel || resolvedLabel === "-") {
+              const { data: authData } = await supabase.auth.getUser();
+              const u = authData?.user ?? null;
+              if (u && u.id === normalized.created_by) {
+                const meta: any = u.user_metadata ?? {};
+                const authCandidate =
+                  meta?.full_name ??
+                  meta?.name ??
+                  meta?.display_name ??
+                  u.email ??
+                  null;
+
+                resolvedLabel = authCandidate ? String(authCandidate) : "-";
               } else {
-                setCreatedByLabel(String(candidate));
+                resolvedLabel = "-";
               }
             }
 
+            setCreatedByLabel(resolvedLabel ?? "-");
             setIsLoadingUserLabel(false);
           }
         }
 
-        // 2) Itens do inventário + join products (+ preço/custo)
+        // 2) Itens do inventário + join products
+        // ✅ NÃO selecione colunas de preço que podem não existir.
+        // Use products(*) e depois procure o campo no JS.
         const { data: itemsData, error: itemsError } = await supabase
           .from("inventory_count_items")
           .select(
@@ -279,17 +275,7 @@ export default function InventarioDetalhePage({
               product_name,
               status,
               error_message,
-              product:products(
-                id,
-                sku,
-                name,
-                unit_cost,
-                cost_price,
-                price_cost,
-                cost,
-                unit_price,
-                price
-              )
+              product:products(*)
             `
           )
           .eq("inventory_count_id", params.id)
@@ -313,27 +299,31 @@ export default function InventarioDetalhePage({
                 ? "ajuste_para_menos"
                 : "sem_ajuste");
 
-            const product = normalizeOne(row.product);
+            const product = normalizeOne(row.product) as any;
             const sku = product?.sku ?? null;
 
             const productName =
               product?.name ??
               (row.product_name ? String(row.product_name) : null);
 
-            const counted = row.counted_qty == null ? null : Number(row.counted_qty);
+            const counted =
+              row.counted_qty == null ? null : Number(row.counted_qty);
 
-            // ✅ pega o primeiro preço/custo que existir
-            const unitPriceCandidate =
-              product?.unit_cost ??
-              product?.cost_price ??
-              product?.price_cost ??
-              product?.cost ??
-              product?.unit_price ??
-              product?.price ??
-              null;
-
-            const unit_price =
-              unitPriceCandidate == null ? null : Number(unitPriceCandidate);
+            // ✅ tenta achar o primeiro preço/custo existente no seu schema
+            // (se souber o nome exato depois, me diga e eu deixo 100% certeiro)
+            const unit_price = pickFirstNumber(product, [
+              "unit_cost",
+              "cost_price",
+              "price_cost",
+              "cost",
+              "unit_price",
+              "price",
+              "custo_unitario",
+              "preco_custo",
+              "custo",
+              "valor_unitario",
+              "valor_custo",
+            ]);
 
             const line_total =
               counted != null && unit_price != null ? counted * unit_price : null;
@@ -493,7 +483,7 @@ export default function InventarioDetalhePage({
                 {count.total_products ?? 0}
               </p>
 
-              {/* ✅ NOVO: valor total em tempo real (logo após Produtos distintos) */}
+              {/* ✅ NOVO: valor total em tempo real */}
               <p>
                 <span className="font-semibold">Valor total contado:</span>{" "}
                 <span className="font-semibold">{formatMoney(totalValue)}</span>
@@ -542,7 +532,7 @@ export default function InventarioDetalhePage({
                     <TableHead>Usuário</TableHead>
                     <TableHead>Estabelecimento</TableHead>
 
-                    {/* ✅ EXTRA útil: total do item */}
+                    {/* ✅ total do item */}
                     <TableHead>Total</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -561,7 +551,6 @@ export default function InventarioDetalhePage({
                       <TableCell>{item.unit_label ?? "-"}</TableCell>
                       <TableCell>{item.counted ?? 0}</TableCell>
 
-                      {/* ✅ preço unit */}
                       <TableCell className="text-xs">
                         {item.unit_price == null ? "-" : formatMoney(item.unit_price)}
                       </TableCell>
@@ -584,7 +573,6 @@ export default function InventarioDetalhePage({
                         {item.message ?? "-"}
                       </TableCell>
 
-                      {/* Usuário */}
                       <TableCell className="text-xs">
                         <div className="font-semibold">{createdByLabel}</div>
                         <div className="font-mono text-[10px] text-muted-foreground break-all">
@@ -594,7 +582,6 @@ export default function InventarioDetalhePage({
 
                       <TableCell className="text-xs">{establishmentName}</TableCell>
 
-                      {/* ✅ total do item */}
                       <TableCell className="text-xs font-semibold">
                         {item.line_total == null ? "-" : formatMoney(item.line_total)}
                       </TableCell>

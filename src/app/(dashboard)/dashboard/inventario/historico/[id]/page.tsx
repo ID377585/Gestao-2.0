@@ -42,11 +42,11 @@ type InventoryCountRow = {
 
   created_by: string | null;
 
-  // ✅ já normalizado para objeto (não array)
+  // ✅ normalizado para objeto
   establishment: EstablishmentJoin | null;
 };
 
-// ✅ tipo RAW do Supabase: establishment pode vir como objeto OU array (depende do relacionamento)
+// ✅ RAW: establishment pode vir objeto OU array
 type InventoryCountRowRaw = {
   id: any;
   created_at: any;
@@ -64,6 +64,9 @@ type ProductJoin = {
   name: string | null;
 };
 
+// ✅ RAW: product também pode vir objeto OU array
+type ProductJoinRaw = ProductJoin | ProductJoin[] | null | undefined;
+
 type InventoryCountItem = {
   id: string;
   product_id: string | null;
@@ -80,26 +83,23 @@ type InventoryCountItem = {
 };
 
 type InventoryCountItemRaw = {
-  id: string;
-  product_id: string | null;
-  unit_label: string | null;
-  counted_qty: number | null;
-  current_stock_before: number | null;
-  diff_qty: number | null;
+  id: any;
+  product_id: any;
+  unit_label: any;
+  counted_qty: any;
+  current_stock_before: any;
+  diff_qty: any;
 
-  // legado
-  product_name: string | null;
+  product_name: any;
 
-  // join
-  product?: ProductJoin | null;
+  status: any;
+  error_message: any;
 
-  status: string | null;
-  error_message: string | null;
+  // join (Supabase pode devolver array)
+  product: ProductJoinRaw;
 };
 
-function normalizeEstablishment(
-  v: EstablishmentJoin | EstablishmentJoin[] | null | undefined
-): EstablishmentJoin | null {
+function normalizeOne<T>(v: T | T[] | null | undefined): T | null {
   if (!v) return null;
   if (Array.isArray(v)) return v[0] ?? null;
   return v;
@@ -127,7 +127,7 @@ export default function InventarioDetalhePage({
       try {
         const supabase = createSupabaseBrowserClient();
 
-        // 1) Cabeçalho do inventário (com establishment + created_by)
+        // 1) Cabeçalho do inventário
         const { data: countData, error: countError } = await supabase
           .from("inventory_counts")
           .select(
@@ -160,16 +160,14 @@ export default function InventarioDetalhePage({
         } else {
           const raw = countData as InventoryCountRowRaw;
 
-          // ✅ normaliza establishment (objeto ou array)
-          const estab = normalizeEstablishment(raw.establishment);
+          const estab = normalizeOne(raw.establishment);
 
           const normalized: InventoryCountRow = {
             id: String(raw.id),
             created_at: String(raw.created_at),
             started_at: raw.started_at ? String(raw.started_at) : null,
             finished_at: raw.finished_at ? String(raw.finished_at) : null,
-            total_items:
-              raw.total_items == null ? null : Number(raw.total_items),
+            total_items: raw.total_items == null ? null : Number(raw.total_items),
             total_products:
               raw.total_products == null ? null : Number(raw.total_products),
             created_by: raw.created_by ? String(raw.created_by) : null,
@@ -181,7 +179,7 @@ export default function InventarioDetalhePage({
           setCount(normalized);
         }
 
-        // 2) Itens do inventário (join em products para SKU e nome)
+        // 2) Itens do inventário + join products
         const { data: itemsData, error: itemsError } = await supabase
           .from("inventory_count_items")
           .select(
@@ -206,51 +204,54 @@ export default function InventarioDetalhePage({
           setItemsErrorMsg("Erro ao carregar itens do inventário.");
           setItems([]);
         } else {
-          const mapped: InventoryCountItem[] = (itemsData || []).map(
-            (row: InventoryCountItemRaw) => {
-              const diff = row.diff_qty ?? 0;
+          const rawItems = (itemsData ?? []) as InventoryCountItemRaw[];
 
-              // ✅ precedência correta
-              const computedStatus =
-                row.status ??
-                (diff > 0
-                  ? "ajuste_para_mais"
-                  : diff < 0
-                  ? "ajuste_para_menos"
-                  : "sem_ajuste");
+          const mapped: InventoryCountItem[] = rawItems.map((row) => {
+            const diff = row.diff_qty == null ? 0 : Number(row.diff_qty);
 
-              const sku = row.product?.sku ?? null;
-              const productName = row.product?.name ?? row.product_name ?? null;
+            const computedStatus =
+              row.status ??
+              (diff > 0
+                ? "ajuste_para_mais"
+                : diff < 0
+                ? "ajuste_para_menos"
+                : "sem_ajuste");
 
-              return {
-                id: row.id,
-                product_id: row.product_id ?? null,
-                sku,
-                product_name: productName,
+            const product = normalizeOne(row.product);
 
-                unit_label: row.unit_label,
-                counted: row.counted_qty,
-                current: row.current_stock_before,
-                diff,
+            const sku = product?.sku ?? null;
 
-                status: computedStatus,
-                message: row.error_message ?? null,
-              };
-            }
-          );
+            // Prioridade de nome:
+            // 1) products.name
+            // 2) product_name (legado)
+            const productName =
+              product?.name ?? (row.product_name ? String(row.product_name) : null);
+
+            return {
+              id: String(row.id),
+              product_id: row.product_id ? String(row.product_id) : null,
+              sku,
+              product_name: productName,
+
+              unit_label: row.unit_label ? String(row.unit_label) : null,
+              counted: row.counted_qty == null ? null : Number(row.counted_qty),
+              current:
+                row.current_stock_before == null
+                  ? null
+                  : Number(row.current_stock_before),
+              diff,
+
+              status: computedStatus ? String(computedStatus) : null,
+              message: row.error_message ? String(row.error_message) : null,
+            };
+          });
 
           setItems(mapped);
         }
       } catch (e) {
         console.error("Erro inesperado ao carregar detalhes do inventário:", e);
-        if (!headerErrorMsg) {
-          setHeaderErrorMsg(
-            "Erro inesperado ao carregar detalhes do inventário."
-          );
-        }
-        if (!itemsErrorMsg) {
-          setItemsErrorMsg("Erro inesperado ao carregar itens do inventário.");
-        }
+        setHeaderErrorMsg("Erro inesperado ao carregar detalhes do inventário.");
+        setItemsErrorMsg("Erro inesperado ao carregar itens do inventário.");
       } finally {
         setIsLoading(false);
       }
@@ -276,8 +277,8 @@ export default function InventarioDetalhePage({
             Detalhes do Inventário
           </h1>
           <p className="text-gray-600">
-            Visualize a contagem por produto e as diferenças em relação ao
-            estoque antes da aplicação.
+            Visualize a contagem por produto e as diferenças em relação ao estoque
+            antes da aplicação.
           </p>
         </div>
 
@@ -288,7 +289,7 @@ export default function InventarioDetalhePage({
             </Button>
           </Link>
 
-          {/* ✅ Exportar CSV (corrigido para bater com a rota que você criou) */}
+          {/* ✅ Exportar CSV (bate com a rota que você criou) */}
           <Button asChild variant="outline" size="sm" disabled={!params.id}>
             <a href={`/api/export/products/inventory-count/${params.id}`}>
               Exportar (CSV)
@@ -301,7 +302,7 @@ export default function InventarioDetalhePage({
         </div>
       </div>
 
-      {/* Resumo do inventário */}
+      {/* Resumo */}
       <Card>
         <CardHeader>
           <CardTitle>Resumo da contagem</CardTitle>
@@ -317,9 +318,7 @@ export default function InventarioDetalhePage({
               Carregando detalhes do inventário...
             </p>
           ) : headerErrorMsg ? (
-            <p className="text-sm text-red-600 font-semibold">
-              {headerErrorMsg}
-            </p>
+            <p className="text-sm text-red-600 font-semibold">{headerErrorMsg}</p>
           ) : !count ? (
             <p className="text-sm text-muted-foreground">
               Inventário não encontrado.
@@ -330,7 +329,6 @@ export default function InventarioDetalhePage({
                 <span className="font-semibold">ID:</span>{" "}
                 <span className="font-mono text-xs break-all">{count.id}</span>
               </p>
-
               <p>
                 <span className="font-semibold">Criado em:</span>{" "}
                 {formatDateTime(count.created_at)}
@@ -343,19 +341,14 @@ export default function InventarioDetalhePage({
                 <span className="font-semibold">Finalizado em:</span>{" "}
                 {formatDateTime(count.finished_at)}
               </p>
-
               <p>
                 <span className="font-semibold">Estabelecimento:</span>{" "}
                 {establishmentName}
               </p>
-
               <p>
                 <span className="font-semibold">Usuário:</span>{" "}
-                <span className="font-mono text-xs break-all">
-                  {createdByUser}
-                </span>
+                <span className="font-mono text-xs break-all">{createdByUser}</span>
               </p>
-
               <p>
                 <span className="font-semibold">Itens lançados:</span>{" "}
                 {count.total_items ?? 0}
@@ -369,7 +362,7 @@ export default function InventarioDetalhePage({
         </CardContent>
       </Card>
 
-      {/* Itens do inventário */}
+      {/* Itens */}
       <Card>
         <CardHeader>
           <CardTitle>Itens do inventário</CardTitle>
@@ -441,9 +434,7 @@ export default function InventarioDetalhePage({
                         {createdByUser}
                       </TableCell>
 
-                      <TableCell className="text-xs">
-                        {establishmentName}
-                      </TableCell>
+                      <TableCell className="text-xs">{establishmentName}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

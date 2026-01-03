@@ -40,9 +40,22 @@ type InventoryCountRow = {
   total_items: number | null;
   total_products: number | null;
 
-  // ✅ novos campos
   created_by: string | null;
+
+  // ✅ já normalizado para objeto (não array)
   establishment: EstablishmentJoin | null;
+};
+
+// ✅ tipo RAW do Supabase: establishment pode vir como objeto OU array (depende do relacionamento)
+type InventoryCountRowRaw = {
+  id: any;
+  created_at: any;
+  started_at: any;
+  finished_at: any;
+  total_items: any;
+  total_products: any;
+  created_by: any;
+  establishment: EstablishmentJoin | EstablishmentJoin[] | null;
 };
 
 type ProductJoin = {
@@ -74,7 +87,7 @@ type InventoryCountItemRaw = {
   current_stock_before: number | null;
   diff_qty: number | null;
 
-  // pode existir na tabela (legado)
+  // legado
   product_name: string | null;
 
   // join
@@ -83,6 +96,14 @@ type InventoryCountItemRaw = {
   status: string | null;
   error_message: string | null;
 };
+
+function normalizeEstablishment(
+  v: EstablishmentJoin | EstablishmentJoin[] | null | undefined
+): EstablishmentJoin | null {
+  if (!v) return null;
+  if (Array.isArray(v)) return v[0] ?? null;
+  return v;
+}
 
 export default function InventarioDetalhePage({
   params,
@@ -106,7 +127,7 @@ export default function InventarioDetalhePage({
       try {
         const supabase = createSupabaseBrowserClient();
 
-        // 1) Cabeçalho do inventário (✅ agora com establishment + created_by)
+        // 1) Cabeçalho do inventário (com establishment + created_by)
         const { data: countData, error: countError } = await supabase
           .from("inventory_counts")
           .select(
@@ -137,11 +158,30 @@ export default function InventarioDetalhePage({
           setHeaderErrorMsg("Inventário não encontrado.");
           setCount(null);
         } else {
-          setCount(countData as InventoryCountRow);
+          const raw = countData as InventoryCountRowRaw;
+
+          // ✅ normaliza establishment (objeto ou array)
+          const estab = normalizeEstablishment(raw.establishment);
+
+          const normalized: InventoryCountRow = {
+            id: String(raw.id),
+            created_at: String(raw.created_at),
+            started_at: raw.started_at ? String(raw.started_at) : null,
+            finished_at: raw.finished_at ? String(raw.finished_at) : null,
+            total_items:
+              raw.total_items == null ? null : Number(raw.total_items),
+            total_products:
+              raw.total_products == null ? null : Number(raw.total_products),
+            created_by: raw.created_by ? String(raw.created_by) : null,
+            establishment: estab
+              ? { id: String(estab.id), name: estab.name ?? null }
+              : null,
+          };
+
+          setCount(normalized);
         }
 
-        // 2) Itens do inventário
-        // ✅ agora pegamos product_id e fazemos join em products para trazer sku e name
+        // 2) Itens do inventário (join em products para SKU e nome)
         const { data: itemsData, error: itemsError } = await supabase
           .from("inventory_count_items")
           .select(
@@ -170,7 +210,7 @@ export default function InventarioDetalhePage({
             (row: InventoryCountItemRaw) => {
               const diff = row.diff_qty ?? 0;
 
-              // ✅ CORREÇÃO: ternário com precedência correta
+              // ✅ precedência correta
               const computedStatus =
                 row.status ??
                 (diff > 0
@@ -180,10 +220,6 @@ export default function InventarioDetalhePage({
                   : "sem_ajuste");
 
               const sku = row.product?.sku ?? null;
-
-              // Prioridade de nome:
-              // 1) join products.name
-              // 2) coluna product_name (legado)
               const productName = row.product?.name ?? row.product_name ?? null;
 
               return {
@@ -198,7 +234,6 @@ export default function InventarioDetalhePage({
                 diff,
 
                 status: computedStatus,
-                // ✅ Mensagem: usa error_message (seu campo atual)
                 message: row.error_message ?? null,
               };
             }
@@ -209,7 +244,9 @@ export default function InventarioDetalhePage({
       } catch (e) {
         console.error("Erro inesperado ao carregar detalhes do inventário:", e);
         if (!headerErrorMsg) {
-          setHeaderErrorMsg("Erro inesperado ao carregar detalhes do inventário.");
+          setHeaderErrorMsg(
+            "Erro inesperado ao carregar detalhes do inventário."
+          );
         }
         if (!itemsErrorMsg) {
           setItemsErrorMsg("Erro inesperado ao carregar itens do inventário.");
@@ -251,9 +288,9 @@ export default function InventarioDetalhePage({
             </Button>
           </Link>
 
-          {/* ✅ Exportar CSV */}
-          <Button asChild variant="outline" size="sm" disabled={!count?.id}>
-            <a href={`/api/export/inventory-count/${count?.id ?? params.id}`}>
+          {/* ✅ Exportar CSV (corrigido para bater com a rota que você criou) */}
+          <Button asChild variant="outline" size="sm" disabled={!params.id}>
+            <a href={`/api/export/products/inventory-count/${params.id}`}>
               Exportar (CSV)
             </a>
           </Button>
@@ -280,9 +317,13 @@ export default function InventarioDetalhePage({
               Carregando detalhes do inventário...
             </p>
           ) : headerErrorMsg ? (
-            <p className="text-sm text-red-600 font-semibold">{headerErrorMsg}</p>
+            <p className="text-sm text-red-600 font-semibold">
+              {headerErrorMsg}
+            </p>
           ) : !count ? (
-            <p className="text-sm text-muted-foreground">Inventário não encontrado.</p>
+            <p className="text-sm text-muted-foreground">
+              Inventário não encontrado.
+            </p>
           ) : (
             <>
               <p>
@@ -303,14 +344,16 @@ export default function InventarioDetalhePage({
                 {formatDateTime(count.finished_at)}
               </p>
 
-              {/* ✅ novos campos no resumo */}
               <p>
                 <span className="font-semibold">Estabelecimento:</span>{" "}
                 {establishmentName}
               </p>
+
               <p>
                 <span className="font-semibold">Usuário:</span>{" "}
-                <span className="font-mono text-xs break-all">{createdByUser}</span>
+                <span className="font-mono text-xs break-all">
+                  {createdByUser}
+                </span>
               </p>
 
               <p>
@@ -375,9 +418,7 @@ export default function InventarioDetalhePage({
                       </TableCell>
 
                       <TableCell>{item.unit_label ?? "-"}</TableCell>
-
                       <TableCell>{item.counted ?? 0}</TableCell>
-
                       <TableCell>{item.current ?? 0}</TableCell>
 
                       <TableCell

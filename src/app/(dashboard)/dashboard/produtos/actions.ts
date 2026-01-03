@@ -35,7 +35,8 @@ async function getMembershipIds() {
   const userId = normalizeId(user_id) ?? null;
 
   if (!establishmentId) {
-    throw new Error("Estabelecimento não encontrado no membership.");
+    // ✅ melhoria: não derruba a app com throw (evita Digest)
+    redirect("/dashboard/produtos?error=estabelecimento_nao_encontrado");
   }
 
   return {
@@ -79,6 +80,27 @@ function safeJson(obj: any) {
   }
 }
 
+/**
+ * Converte erro do Supabase em texto curto pra querystring
+ */
+function supabaseErrorText(error: any) {
+  const parts = [
+    error?.message,
+    error?.details ? `details: ${error.details}` : null,
+    error?.hint ? `hint: ${error.hint}` : null,
+    error?.code ? `code: ${error.code}` : null,
+  ].filter(Boolean);
+  return parts.join(" | ") || "Falha desconhecida no Supabase";
+}
+
+/**
+ * Redireciona com erro sem derrubar a página (evita Digest)
+ */
+function redirectWithError(message: string) {
+  const msg = encodeURIComponent(String(message).slice(0, 180)); // evita URL gigante
+  redirect(`/dashboard/produtos?error=${msg}`);
+}
+
 /* =========================================================
    CREATE PRODUCT
    ========================================================= */
@@ -100,7 +122,9 @@ export async function createProduct(formData: FormData) {
   const qtyPerPackageRaw = formData.get("qty_per_package");
   const conversionRaw = formData.get("conversion_factor");
 
-  if (!name) throw new Error("Nome do produto é obrigatório.");
+  if (!name) {
+    redirectWithError("Nome do produto é obrigatório.");
+  }
 
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
@@ -154,7 +178,9 @@ export async function createProduct(formData: FormData) {
         insertData,
       }),
     );
-    throw new Error(error.message ?? "Falha ao criar produto.");
+
+    // ✅ melhoria: não derruba a app com throw (evita Digest)
+    redirectWithError(supabaseErrorText(error));
   }
 
   console.log(
@@ -175,7 +201,9 @@ export async function updateProduct(formData: FormData) {
   const supabase = await createSupabaseServerClient();
 
   const id = String(formData.get("id") ?? "").trim();
-  if (!id) throw new Error("ID do produto é obrigatório para edição.");
+  if (!id) {
+    redirectWithError("ID do produto é obrigatório para edição.");
+  }
 
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
@@ -191,7 +219,9 @@ export async function updateProduct(formData: FormData) {
   const conversionRaw = formData.get("conversion_factor");
   const isActiveRaw = formData.get("is_active");
 
-  if (!name) throw new Error("Nome do produto é obrigatório.");
+  if (!name) {
+    redirectWithError("Nome do produto é obrigatório.");
+  }
 
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
@@ -254,7 +284,9 @@ export async function updateProduct(formData: FormData) {
         updateData,
       }),
     );
-    throw new Error(error.message ?? "Falha ao atualizar produto.");
+
+    // ✅ melhoria: não derruba a app com throw (evita Digest)
+    redirectWithError(supabaseErrorText(error));
   }
 
   console.log(

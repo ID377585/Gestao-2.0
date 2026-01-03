@@ -27,6 +27,11 @@ const formatDateTime = (value: string | null) => {
   return new Date(value).toLocaleString("pt-BR");
 };
 
+type EstablishmentJoin = {
+  id: string;
+  name: string | null;
+};
+
 type InventoryCountRow = {
   id: string;
   created_at: string;
@@ -34,26 +39,47 @@ type InventoryCountRow = {
   finished_at: string | null;
   total_items: number | null;
   total_products: number | null;
+
+  // ✅ novos campos
+  created_by: string | null;
+  establishment: EstablishmentJoin | null;
+};
+
+type ProductJoin = {
+  id: string;
+  sku: string | null;
+  name: string | null;
 };
 
 type InventoryCountItem = {
   id: string;
+  product_id: string | null;
+  sku: string | null;
   product_name: string | null;
+
   unit_label: string | null;
   counted: number | null;
   current: number | null;
   diff: number | null;
+
   status: string | null;
-  error_message: string | null;
+  message: string | null;
 };
 
 type InventoryCountItemRaw = {
   id: string;
+  product_id: string | null;
   unit_label: string | null;
   counted_qty: number | null;
   current_stock_before: number | null;
   diff_qty: number | null;
+
+  // pode existir na tabela (legado)
   product_name: string | null;
+
+  // join
+  product?: ProductJoin | null;
+
   status: string | null;
   error_message: string | null;
 };
@@ -80,11 +106,20 @@ export default function InventarioDetalhePage({
       try {
         const supabase = createSupabaseBrowserClient();
 
-        // 1) Cabeçalho do inventário
+        // 1) Cabeçalho do inventário (✅ agora com establishment + created_by)
         const { data: countData, error: countError } = await supabase
           .from("inventory_counts")
           .select(
-            "id, created_at, started_at, finished_at, total_items, total_products"
+            `
+              id,
+              created_at,
+              started_at,
+              finished_at,
+              total_items,
+              total_products,
+              created_by,
+              establishment:establishments(id,name)
+            `
           )
           .eq("id", params.id)
           .maybeSingle();
@@ -105,19 +140,22 @@ export default function InventarioDetalhePage({
           setCount(countData as InventoryCountRow);
         }
 
-        // 2) Itens do inventário (agora usando as colunas diretas da tabela)
+        // 2) Itens do inventário
+        // ✅ agora pegamos product_id e fazemos join em products para trazer sku e name
         const { data: itemsData, error: itemsError } = await supabase
           .from("inventory_count_items")
           .select(
             `
               id,
+              product_id,
               unit_label,
               counted_qty,
               current_stock_before,
               diff_qty,
               product_name,
               status,
-              error_message
+              error_message,
+              product:products(id,sku,name)
             `
           )
           .eq("inventory_count_id", params.id)
@@ -128,62 +166,69 @@ export default function InventarioDetalhePage({
           setItemsErrorMsg("Erro ao carregar itens do inventário.");
           setItems([]);
         } else {
-          console.log(
-            "[Inventário Detalhe] Itens carregados para inventory_count_id =",
-            params.id,
-            itemsData
-          );
-
           const mapped: InventoryCountItem[] = (itemsData || []).map(
-            (row: InventoryCountItemRaw) => ({
-              id: row.id,
-              product_name: row.product_name ?? null,
-              unit_label: row.unit_label,
-              counted: row.counted_qty,
-              current: row.current_stock_before,
-              diff: row.diff_qty ?? 0,
-              status:
+            (row: InventoryCountItemRaw) => {
+              const diff = row.diff_qty ?? 0;
+
+              // ✅ CORREÇÃO: ternário com precedência correta
+              const computedStatus =
                 row.status ??
-                (row.diff_qty ?? 0) > 0
+                (diff > 0
                   ? "ajuste_para_mais"
-                  : (row.diff_qty ?? 0) < 0
+                  : diff < 0
                   ? "ajuste_para_menos"
-                  : "sem_ajuste",
-              error_message: row.error_message ?? null,
-            })
+                  : "sem_ajuste");
+
+              const sku = row.product?.sku ?? null;
+
+              // Prioridade de nome:
+              // 1) join products.name
+              // 2) coluna product_name (legado)
+              const productName = row.product?.name ?? row.product_name ?? null;
+
+              return {
+                id: row.id,
+                product_id: row.product_id ?? null,
+                sku,
+                product_name: productName,
+
+                unit_label: row.unit_label,
+                counted: row.counted_qty,
+                current: row.current_stock_before,
+                diff,
+
+                status: computedStatus,
+                // ✅ Mensagem: usa error_message (seu campo atual)
+                message: row.error_message ?? null,
+              };
+            }
           );
 
           setItems(mapped);
         }
       } catch (e) {
-        console.error(
-          "Erro inesperado ao carregar detalhes do inventário:",
-          e
-        );
+        console.error("Erro inesperado ao carregar detalhes do inventário:", e);
         if (!headerErrorMsg) {
-          setHeaderErrorMsg(
-            "Erro inesperado ao carregar detalhes do inventário."
-          );
+          setHeaderErrorMsg("Erro inesperado ao carregar detalhes do inventário.");
         }
         if (!itemsErrorMsg) {
-          setItemsErrorMsg(
-            "Erro inesperado ao carregar itens do inventário."
-          );
+          setItemsErrorMsg("Erro inesperado ao carregar itens do inventário.");
         }
       } finally {
         setIsLoading(false);
       }
     };
 
-    if (params.id) {
-      load();
-    }
+    if (params.id) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
   const handleRecarregar = () => {
     router.refresh();
   };
+
+  const establishmentName = count?.establishment?.name ?? "-";
+  const createdByUser = count?.created_by ?? "-";
 
   return (
     <div className="space-y-6">
@@ -198,12 +243,21 @@ export default function InventarioDetalhePage({
             estoque antes da aplicação.
           </p>
         </div>
+
         <div className="flex gap-2">
           <Link href="/dashboard/inventario/historico">
             <Button variant="outline" size="sm">
               ← Voltar ao histórico
             </Button>
           </Link>
+
+          {/* ✅ Exportar CSV */}
+          <Button asChild variant="outline" size="sm" disabled={!count?.id}>
+            <a href={`/api/export/inventory-count/${count?.id ?? params.id}`}>
+              Exportar (CSV)
+            </a>
+          </Button>
+
           <Button variant="outline" size="sm" onClick={handleRecarregar}>
             Recarregar
           </Button>
@@ -219,27 +273,23 @@ export default function InventarioDetalhePage({
             <span className="font-mono text-xs break-all">{params.id}</span>
           </CardDescription>
         </CardHeader>
+
         <CardContent className="space-y-1 text-sm">
           {isLoading ? (
             <p className="text-sm text-muted-foreground">
               Carregando detalhes do inventário...
             </p>
           ) : headerErrorMsg ? (
-            <p className="text-sm text-red-600 font-semibold">
-              {headerErrorMsg}
-            </p>
+            <p className="text-sm text-red-600 font-semibold">{headerErrorMsg}</p>
           ) : !count ? (
-            <p className="text-sm text-muted-foreground">
-              Inventário não encontrado.
-            </p>
+            <p className="text-sm text-muted-foreground">Inventário não encontrado.</p>
           ) : (
             <>
               <p>
                 <span className="font-semibold">ID:</span>{" "}
-                <span className="font-mono text-xs break-all">
-                  {count.id}
-                </span>
+                <span className="font-mono text-xs break-all">{count.id}</span>
               </p>
+
               <p>
                 <span className="font-semibold">Criado em:</span>{" "}
                 {formatDateTime(count.created_at)}
@@ -252,6 +302,17 @@ export default function InventarioDetalhePage({
                 <span className="font-semibold">Finalizado em:</span>{" "}
                 {formatDateTime(count.finished_at)}
               </p>
+
+              {/* ✅ novos campos no resumo */}
+              <p>
+                <span className="font-semibold">Estabelecimento:</span>{" "}
+                {establishmentName}
+              </p>
+              <p>
+                <span className="font-semibold">Usuário:</span>{" "}
+                <span className="font-mono text-xs break-all">{createdByUser}</span>
+              </p>
+
               <p>
                 <span className="font-semibold">Itens lançados:</span>{" "}
                 {count.total_items ?? 0}
@@ -273,53 +334,52 @@ export default function InventarioDetalhePage({
             Contagem por produto, estoque anterior e diferença aplicada.
           </CardDescription>
         </CardHeader>
+
         <CardContent>
           {isLoading ? (
             <p className="text-sm text-muted-foreground">
               Carregando itens do inventário...
             </p>
           ) : itemsErrorMsg ? (
-            <p className="text-sm text-red-600 font-semibold">
-              {itemsErrorMsg}
-            </p>
+            <p className="text-sm text-red-600 font-semibold">{itemsErrorMsg}</p>
           ) : items.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nenhum item registrado para este inventário.
             </p>
           ) : (
-            <div className="max-h-[480px] overflow-auto border rounded">
+            <div className="max-h-[520px] overflow-auto border rounded">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>SKU</TableHead>
                     <TableHead>Produto</TableHead>
                     <TableHead>Un.</TableHead>
                     <TableHead>Contado</TableHead>
                     <TableHead>Estoque Antes</TableHead>
-                    <TableHead>Diferença</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Mensagem</TableHead>
+                    <TableHead>Usuário</TableHead>
+                    <TableHead>Estabelecimento</TableHead>
                   </TableRow>
                 </TableHeader>
+
                 <TableBody>
                   {items.map((item) => (
                     <TableRow key={item.id}>
+                      <TableCell className="font-mono text-xs">
+                        {item.sku ?? "-"}
+                      </TableCell>
+
                       <TableCell className="font-medium">
                         {item.product_name ?? "-"}
                       </TableCell>
+
                       <TableCell>{item.unit_label ?? "-"}</TableCell>
+
                       <TableCell>{item.counted ?? 0}</TableCell>
+
                       <TableCell>{item.current ?? 0}</TableCell>
-                      <TableCell
-                        className={
-                          (item.diff ?? 0) > 0
-                            ? "text-green-600 font-semibold"
-                            : (item.diff ?? 0) < 0
-                            ? "text-red-600 font-semibold"
-                            : "text-gray-600"
-                        }
-                      >
-                        {item.diff ?? 0}
-                      </TableCell>
+
                       <TableCell
                         className={
                           item.status === "ajuste_para_mais"
@@ -331,8 +391,17 @@ export default function InventarioDetalhePage({
                       >
                         {item.status ?? "-"}
                       </TableCell>
+
                       <TableCell className="text-xs">
-                        {item.error_message ?? "-"}
+                        {item.message ?? "-"}
+                      </TableCell>
+
+                      <TableCell className="font-mono text-xs break-all">
+                        {createdByUser}
+                      </TableCell>
+
+                      <TableCell className="text-xs">
+                        {establishmentName}
                       </TableCell>
                     </TableRow>
                   ))}

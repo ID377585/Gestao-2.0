@@ -99,8 +99,7 @@ export function Topbar({ className }: TopbarProps) {
           <div className="flex items-center gap-2 md:gap-3">
             {/* ✅ BOTÃO DO MENU MOBILE (aparece só no mobile) */}
             <SidebarMobile />
-
-            <h1 className="text-lg font-semibold text-gray-900">Dashboard</h1>
+            {/* ✅ REMOVIDO: título fixo (evita aparecer "." no topo) */}
           </div>
 
           {/* Right */}
@@ -221,7 +220,9 @@ export function Topbar({ className }: TopbarProps) {
                     <span className="text-sm font-semibold text-gray-900">
                       {user?.name ?? "Usuário"}
                     </span>
-                    <span className="text-xs text-gray-600">{user?.email ?? ""}</span>
+                    <span className="text-xs text-gray-600">
+                      {user?.email ?? ""}
+                    </span>
                     <Badge variant="secondary" className="mt-1 w-fit">
                       {(user?.role ?? "user") === "admin"
                         ? "Administrador"

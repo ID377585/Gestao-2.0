@@ -42,10 +42,7 @@ function detectDelimiter(headerLine: string): ";" | "," {
 }
 
 /**
- * Parser de CSV linha-a-linha com suporte básico a aspas:
- * - Delimitador ; ou ,
- * - Campos entre aspas podem conter delimitador
- * - Aspas duplas dentro de aspas: "" vira "
+ * Parser de CSV linha-a-linha com suporte básico a aspas
  */
 function parseCsvLine(line: string, delimiter: string): string[] {
   const out: string[] = [];
@@ -56,7 +53,6 @@ function parseCsvLine(line: string, delimiter: string): string[] {
     const ch = line[i];
 
     if (ch === '"') {
-      // "" dentro de campo com aspas -> "
       if (inQuotes && line[i + 1] === '"') {
         cur += '"';
         i++;
@@ -79,9 +75,6 @@ function parseCsvLine(line: string, delimiter: string): string[] {
   return out;
 }
 
-/**
- * Heurística: se request veio via fetch/AJAX, devolvemos JSON ao invés de redirect.
- */
 function wantsJson(request: Request) {
   const accept = request.headers.get("accept") || "";
   const xrw = request.headers.get("x-requested-with") || "";
@@ -95,10 +88,7 @@ function wantsJson(request: Request) {
 }
 
 /**
- * ✅ Split robusto para Windows/Mac/Linux:
- * - CRLF (\r\n)
- * - LF (\n)
- * - CR (\r)  <-- Excel no Mac às vezes salva assim
+ * Split robusto para Windows/Mac/Linux
  */
 function splitLinesRobusto(text: string): string[] {
   return text
@@ -117,37 +107,126 @@ function errDetails(err: any) {
   };
 }
 
-/**
- * ✅ Chunk helper (Supabase tem limite prático de tamanho no .in())
- */
 function chunkArray<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }
 
-export async function POST(request: Request) {
+/**
+ * ✅ Resolve establishment_id com múltiplas estratégias (igual ao export)
+ */
+async function resolveEstablishmentId(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+): Promise<{ establishmentId: string | null; debug: string[] }> {
+  const debug: string[] = [];
+
+  // 1) helper do app
   try {
-    const membership = await getActiveMembershipOrRedirect();
-    const { organization_id, establishment_id, user_id } = membership as any;
+    const helperRes = await getActiveMembershipOrRedirect();
+    const membership = (helperRes as any)?.membership ?? helperRes;
 
-    const membershipEstablishmentId =
-      normalizeId(establishment_id) ?? normalizeId(organization_id);
+    const estId = normalizeId((membership as any)?.establishment_id);
+    const orgId = normalizeId((membership as any)?.organization_id);
+    const picked = estId ?? orgId ?? null;
 
-    const supabase = await createSupabaseServerClient();
+    debug.push(
+      `membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
+    );
+    if (picked) return { establishmentId: picked, debug };
 
-    // ✅ Melhoria: pegar o userId REAL do auth (evita falha de policy quando membership.user_id vem vazio)
-    let authUserId: string | null = null;
-    try {
-      const { data: authData, error: authErr } = await supabase.auth.getUser();
-      if (authErr)
-        console.error("Erro ao obter usuário via auth.getUser():", authErr);
-      authUserId = normalizeId(authData?.user?.id);
-    } catch (e) {
-      console.error("Falha inesperada em auth.getUser():", e);
+    debug.push("membership-helper: sem establishment/org no membership");
+  } catch (e: any) {
+    debug.push(`membership-helper: falhou (${e?.message ?? "sem mensagem"})`);
+  }
+
+  // 2) fallback auth.getUser + memberships + profiles
+  try {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData?.user) {
+      debug.push("auth.getUser: falhou/sem user");
+      return { establishmentId: null, debug };
     }
 
-    const userId = normalizeId(user_id) ?? authUserId;
+    const userId = userData.user.id;
+    debug.push(`auth.getUser: ok (user=${userId})`);
+
+    // memberships
+    try {
+      const { data: m, error: mErr } = await supabase
+        .from("memberships")
+        .select("establishment_id, organization_id")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (mErr) {
+        debug.push(`fallback memberships: erro (${mErr.message})`);
+      } else {
+        const estId = normalizeId((m as any)?.establishment_id);
+        const orgId = normalizeId((m as any)?.organization_id);
+        const picked = estId ?? orgId ?? null;
+
+        debug.push(
+          `fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
+        );
+        if (picked) return { establishmentId: picked, debug };
+      }
+    } catch (e: any) {
+      debug.push(
+        `fallback memberships: exceção (${e?.message ?? "sem mensagem"})`,
+      );
+    }
+
+    // profiles
+    try {
+      const { data: p, error: pErr } = await supabase
+        .from("profiles")
+        .select("establishment_id, organization_id")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (pErr) {
+        debug.push(`fallback profiles: erro (${pErr.message})`);
+      } else {
+        const estId = normalizeId((p as any)?.establishment_id);
+        const orgId = normalizeId((p as any)?.organization_id);
+        const picked = estId ?? orgId ?? null;
+
+        debug.push(
+          `fallback profiles: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
+        );
+        if (picked) return { establishmentId: picked, debug };
+      }
+    } catch (e: any) {
+      debug.push(
+        `fallback profiles: exceção (${e?.message ?? "sem mensagem"})`,
+      );
+    }
+
+    return { establishmentId: null, debug };
+  } catch (e: any) {
+    debug.push(`auth+fallback: exceção geral (${e?.message ?? "sem mensagem"})`);
+    return { establishmentId: null, debug };
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const supabase = await createSupabaseServerClient();
+
+    // ✅ resolve establishment de forma robusta
+    const { establishmentId: resolvedEstablishmentId, debug } =
+      await resolveEstablishmentId(supabase);
+
+    // user id real
+    let authUserId: string | null = null;
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      authUserId = normalizeId(authData?.user?.id);
+    } catch {}
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
@@ -159,7 +238,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // ✅ Bloqueia XLSX com mensagem clara
     const fileName = (file as any)?.name ? String((file as any).name) : "";
     const lowerName = fileName.toLowerCase();
     if (
@@ -178,7 +256,6 @@ export async function POST(request: Request) {
     const arrayBuffer = await file.arrayBuffer();
     let text = new TextDecoder("utf-8").decode(arrayBuffer);
 
-    // remove BOM se existir
     if (text && text.charCodeAt(0) === 0xfeff) {
       text = text.slice(1);
     }
@@ -205,11 +282,9 @@ export async function POST(request: Request) {
     const headerLine = lines[0];
     const delimiter = detectDelimiter(headerLine);
 
-    // ✅ Normaliza headers (case-insensitive)
     const headersRaw = parseCsvLine(headerLine, delimiter).map((h) => h.trim());
     const headers = headersRaw.map((h) => h.toLowerCase());
 
-    // ✅ Cabeçalhos mínimos
     const required = ["name", "product_type", "default_unit_label"];
     const missing = required.filter((k) => !headers.includes(k));
     if (missing.length > 0) {
@@ -222,7 +297,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Monta records
+    // records
     const records: Record<string, string>[] = [];
     for (const line of lines.slice(1)) {
       const cols = parseCsvLine(line, delimiter);
@@ -233,30 +308,31 @@ export async function POST(request: Request) {
       records.push(rec);
     }
 
-    // ==========================================================
-    // ✅ RESOLVER establishment_id EFETIVO
-    // ==========================================================
+    // csv establishment ids (se existir coluna)
     const csvEstabSet = new Set<string>();
     for (const rec of records) {
       const csvEstab = normalizeId(rec["establishment_id"]);
       if (csvEstab) csvEstabSet.add(csvEstab);
     }
 
-    let effectiveEstablishmentId: string | null = null;
+    // ✅ Determina establishment efetivo:
+    // 1) resolved pelo usuário logado
+    // 2) se não der, usa o CSV (mas exige 1 único UUID)
+    let effectiveEstablishmentId: string | null = resolvedEstablishmentId;
 
-    if (membershipEstablishmentId) {
-      effectiveEstablishmentId = membershipEstablishmentId;
-
+    if (effectiveEstablishmentId) {
+      // se CSV tiver ids, valida consistência
       if (csvEstabSet.size > 0) {
         for (const v of csvEstabSet.values()) {
-          if (v !== membershipEstablishmentId) {
+          if (v !== effectiveEstablishmentId) {
             return NextResponse.json(
               {
                 error:
-                  "CSV contém establishment_id diferente do establishment do usuário logado. Verifique o UUID do estabelecimento.",
+                  "CSV contém establishment_id diferente do establishment do usuário logado. Verifique o UUID.",
                 debug: {
-                  membershipEstablishmentId,
+                  resolvedEstablishmentId: effectiveEstablishmentId,
                   csvEstablishmentIds: Array.from(csvEstabSet),
+                  resolveDebug: debug,
                 },
               },
               { status: 400 },
@@ -265,13 +341,15 @@ export async function POST(request: Request) {
         }
       }
     } else {
+      // não conseguiu resolver pelo login → exige CSV preenchido
       if (csvEstabSet.size !== 1) {
         return NextResponse.json(
           {
             error:
-              "Estabelecimento não encontrado no membership. Preencha a coluna establishment_id no CSV com o MESMO UUID em todas as linhas.",
+              "Estabelecimento não encontrado no membership/login. Preencha a coluna establishment_id no CSV com o MESMO UUID em todas as linhas.",
             debug: {
               csvEstablishmentIds: Array.from(csvEstabSet),
+              resolveDebug: debug,
             },
           },
           { status: 400 },
@@ -282,20 +360,24 @@ export async function POST(request: Request) {
 
     if (!effectiveEstablishmentId) {
       return NextResponse.json(
-        { error: "Não foi possível determinar o establishment_id para importar." },
+        {
+          error: "Não foi possível determinar o establishment_id para importar.",
+          debug: { resolveDebug: debug },
+        },
         { status: 400 },
       );
     }
 
     // ==========================================================
-    // ✅ Preparação de payloads + DEDUPE por SKU (evita erro de duplicidade no mesmo CSV)
+    // Payloads + dedupe
     // ==========================================================
-    const bySku = new Map<string, any>(); // sku -> payload (última ocorrência vence)
+    const bySku = new Map<string, any>();
     const upsertById: any[] = [];
     const insertNoSku: any[] = [];
 
     let skipped = 0;
     const nowIso = new Date().toISOString();
+    const userId = authUserId; // usa auth real
 
     for (const rec of records) {
       const id = normalizeId(rec["id"]?.trim() || null);
@@ -316,18 +398,17 @@ export async function POST(request: Request) {
           ? rec["qty_per_package"].trim()
           : null;
 
-      // ✅ price é NOT NULL no banco -> se vier vazio, vira 0
       const priceParsed = parseNumberStr(rec["price"], 2);
       const price = priceParsed ?? 0;
 
-      const conversion_factor = parseNumberStr(rec["conversion_factor"], 4) ?? 1;
+      const conversion_factor =
+        parseNumberStr(rec["conversion_factor"], 4) ?? 1;
 
       const category =
         rec["category"] && rec["category"].trim().length > 0
           ? rec["category"].trim()
           : null;
 
-      // ✅ NOVO: sector_category (pode vir vazio)
       const sector_category =
         rec["sector_category"] && rec["sector_category"].trim().length > 0
           ? rec["sector_category"].trim()
@@ -352,10 +433,7 @@ export async function POST(request: Request) {
         package_qty,
         qty_per_package,
         category,
-
-        // ✅ NOVO
         sector_category,
-
         price,
         conversion_factor,
         is_active,
@@ -367,10 +445,7 @@ export async function POST(request: Request) {
           establishment_id: effectiveEstablishmentId,
           ...basePayload,
           ...(userId
-            ? {
-                updated_by: userId,
-                updated_at: nowIso,
-              }
+            ? { updated_by: userId, updated_at: nowIso }
             : {}),
         });
         continue;
@@ -379,36 +454,23 @@ export async function POST(request: Request) {
       const createPayload: any = {
         establishment_id: effectiveEstablishmentId,
         ...basePayload,
-        ...(userId
-          ? {
-              created_by: userId,
-              created_at: nowIso,
-            }
-          : {}),
+        ...(userId ? { created_by: userId, created_at: nowIso } : {}),
       };
 
-      if (sku) {
-        // ✅ dedupe por sku
-        bySku.set(sku, createPayload);
-      } else {
-        insertNoSku.push(createPayload);
-      }
+      if (sku) bySku.set(sku, createPayload);
+      else insertNoSku.push(createPayload);
     }
 
     const dedupedBySku = Array.from(bySku.values());
     const dedupedSkuList = Array.from(bySku.keys());
 
     // ==========================================================
-    // ✅ 1) UPSERT por SKU (MODO ROBUSTO, sem depender de ON CONFLICT)
-    // - Busca existentes (id, sku) do estabelecimento
-    // - Faz UPDATE em lote por id
-    // - Faz INSERT do que não existe
+    // 1) UPSERT por SKU robusto
     // ==========================================================
     let upsertSkuInsertedOrUpdated = 0;
 
     if (dedupedBySku.length > 0) {
-      // 1.1 buscar existentes em chunks
-      const existingBySku = new Map<string, string>(); // sku -> id
+      const existingBySku = new Map<string, string>();
       const skuChunks = chunkArray(dedupedSkuList, 250);
 
       for (const chunk of skuChunks) {
@@ -419,10 +481,7 @@ export async function POST(request: Request) {
           .in("sku", chunk);
 
         if (existingErr) {
-          console.error(
-            "Erro ao buscar produtos existentes por SKU (import):",
-            existingErr,
-          );
+          console.error("Erro ao buscar produtos existentes por SKU (import):", existingErr);
           return NextResponse.json(
             {
               error: "Erro ao preparar importação (busca por SKU).",
@@ -445,7 +504,7 @@ export async function POST(request: Request) {
         const existingId = existingBySku.get(sku);
 
         if (existingId) {
-          const { establishment_id, ...rest } = payload; // não mexe no estab no update
+          const { establishment_id, ...rest } = payload;
           toUpdateById.push({
             id: existingId,
             establishment_id: effectiveEstablishmentId,
@@ -457,7 +516,6 @@ export async function POST(request: Request) {
         }
       }
 
-      // 1.2 update em lote via upsert por id (PK)
       if (toUpdateById.length > 0) {
         const { error: upErr, data: upData } = await supabase
           .from("products")
@@ -465,22 +523,15 @@ export async function POST(request: Request) {
           .select("id");
 
         if (upErr) {
-          console.error(
-            "Erro ao atualizar produtos por SKU (via id) (import):",
-            upErr,
-          );
+          console.error("Erro ao atualizar produtos por SKU (via id) (import):", upErr);
           return NextResponse.json(
-            {
-              error: "Erro ao atualizar produtos existentes (por SKU).",
-              details: { upsertById: errDetails(upErr) },
-            },
+            { error: "Erro ao atualizar produtos existentes (por SKU).", details: { upsertById: errDetails(upErr) } },
             { status: 500 },
           );
         }
         upsertSkuInsertedOrUpdated += (upData ?? []).length;
       }
 
-      // 1.3 insert do que não existe
       if (toInsert.length > 0) {
         const { error: insErr, data: insData } = await supabase
           .from("products")
@@ -490,10 +541,7 @@ export async function POST(request: Request) {
         if (insErr) {
           console.error("Erro ao inserir novos produtos (por SKU) (import):", insErr);
           return NextResponse.json(
-            {
-              error: "Erro ao inserir novos produtos (por SKU).",
-              details: { insert: errDetails(insErr) },
-            },
+            { error: "Erro ao inserir novos produtos (por SKU).", details: { insert: errDetails(insErr) } },
             { status: 500 },
           );
         }
@@ -502,7 +550,7 @@ export async function POST(request: Request) {
     }
 
     // ==========================================================
-    // ✅ 2) INSERT sem SKU
+    // 2) INSERT sem SKU
     // ==========================================================
     let insertedNoSku = 0;
     if (insertNoSku.length > 0) {
@@ -533,22 +581,18 @@ export async function POST(request: Request) {
     }
 
     // ==========================================================
-    // ✅ 3) UPSERT por ID (quando vier id no CSV)
+    // 3) UPSERT por ID (quando vier id no CSV)
     // ==========================================================
     let updatedById = 0;
     if (upsertById.length > 0) {
       const { error: upsertIdErr, data } = await supabase
         .from("products")
-        .upsert(upsertById, {
-          onConflict: "id",
-          ignoreDuplicates: false,
-        })
+        .upsert(upsertById, { onConflict: "id", ignoreDuplicates: false })
         .select("id");
 
       if (upsertIdErr) {
         console.error("Erro upsert por ID (import):", upsertIdErr);
 
-        // fallback update 1 a 1
         for (const rec of upsertById) {
           const { id, ...rest } = rec;
           const { error: updateErr } = await supabase
@@ -560,12 +604,7 @@ export async function POST(request: Request) {
           if (updateErr) {
             console.error(`Erro fallback update produto id=${id} (import):`, updateErr);
             return NextResponse.json(
-              {
-                error: `Erro ao atualizar produto id=${id}.`,
-                details: {
-                  update: errDetails(updateErr),
-                },
-              },
+              { error: `Erro ao atualizar produto id=${id}.`, details: { update: errDetails(updateErr) } },
               { status: 500 },
             );
           }

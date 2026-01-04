@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -68,6 +68,23 @@ export function Sidebar({ className }: SidebarProps) {
 
   const [collapsed, setCollapsed] = useState(false); // desktop
   const [mobileOpen, setMobileOpen] = useState(false); // mobile
+
+  // ✅ NOVO: sincroniza largura do sidebar com o layout via CSS var
+  // aberto  = 18rem (equiv. w-72)
+  // fechado = 5rem  (equiv. w-20)
+  useEffect(() => {
+    // Só faz no browser
+    const root = document.documentElement;
+
+    // Se quiser “sumir totalmente” ao recolher, troque "5rem" por "0rem".
+    const width = collapsed ? "5rem" : "18rem";
+    root.style.setProperty("--sidebar-w", width);
+
+    return () => {
+      // opcional: não remove para evitar "piscadas" em navegação
+      // root.style.removeProperty("--sidebar-w");
+    };
+  }, [collapsed]);
 
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(href + "/");
@@ -235,10 +252,10 @@ export function Sidebar({ className }: SidebarProps) {
       </div>
 
       {/* DESKTOP */}
+      {/* ✅ IMPORTANTE: aqui não forçamos mais w-20/w-72, porque a largura agora vem do layout via --sidebar-w */}
       <aside
         className={cn(
-          "hidden md:flex min-h-screen flex-col border-r bg-white transition-all duration-300",
-          collapsed ? "w-20" : "w-72",
+          "hidden md:flex min-h-screen flex-col bg-white transition-all duration-300 w-full",
           className
         )}
       >

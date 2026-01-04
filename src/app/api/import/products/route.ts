@@ -23,7 +23,7 @@ function normalizeId(value: any): string | null {
  */
 function parseNumberStr(
   value: string | null | undefined,
-  decimals = 3
+  decimals = 3,
 ): number | null {
   if (value == null) return null;
   const str = String(value).replace(",", ".").trim();
@@ -140,7 +140,8 @@ export async function POST(request: Request) {
     let authUserId: string | null = null;
     try {
       const { data: authData, error: authErr } = await supabase.auth.getUser();
-      if (authErr) console.error("Erro ao obter usuário via auth.getUser():", authErr);
+      if (authErr)
+        console.error("Erro ao obter usuário via auth.getUser():", authErr);
       authUserId = normalizeId(authData?.user?.id);
     } catch (e) {
       console.error("Falha inesperada em auth.getUser():", e);
@@ -152,19 +153,25 @@ export async function POST(request: Request) {
     const file = formData.get("file") as File | null;
 
     if (!file) {
-      return NextResponse.json({ error: "Arquivo não enviado." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Arquivo não enviado." },
+        { status: 400 },
+      );
     }
 
     // ✅ Bloqueia XLSX com mensagem clara
     const fileName = (file as any)?.name ? String((file as any).name) : "";
     const lowerName = fileName.toLowerCase();
-    if (lowerName.endsWith(".xlsx") || String(file.type).includes("spreadsheetml")) {
+    if (
+      lowerName.endsWith(".xlsx") ||
+      String(file.type).includes("spreadsheetml")
+    ) {
       return NextResponse.json(
         {
           error:
             "Formato .xlsx não suportado nesta importação. Exporte como CSV (de preferência 'CSV UTF-8') e tente novamente.",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -191,7 +198,7 @@ export async function POST(request: Request) {
             detectedLines: lines.length,
           },
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -211,7 +218,7 @@ export async function POST(request: Request) {
           error: `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(", ")}`,
           debug: { headers: headersRaw },
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -252,7 +259,7 @@ export async function POST(request: Request) {
                   csvEstablishmentIds: Array.from(csvEstabSet),
                 },
               },
-              { status: 400 }
+              { status: 400 },
             );
           }
         }
@@ -267,7 +274,7 @@ export async function POST(request: Request) {
               csvEstablishmentIds: Array.from(csvEstabSet),
             },
           },
-          { status: 400 }
+          { status: 400 },
         );
       }
       effectiveEstablishmentId = Array.from(csvEstabSet)[0];
@@ -276,7 +283,7 @@ export async function POST(request: Request) {
     if (!effectiveEstablishmentId) {
       return NextResponse.json(
         { error: "Não foi possível determinar o establishment_id para importar." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -297,7 +304,9 @@ export async function POST(request: Request) {
       const sku = skuRaw.length > 0 ? skuRaw : null;
 
       const name = (rec["name"] ?? "").trim();
-      const product_type = ((rec["product_type"] ?? "INSU").trim() || "INSU").toUpperCase();
+      const product_type = (
+        (rec["product_type"] ?? "INSU").trim() || "INSU"
+      ).toUpperCase();
       const default_unit_label = (rec["default_unit_label"] ?? "un").trim() || "un";
 
       const package_qty = parseNumberStr(rec["package_qty"], 3);
@@ -314,10 +323,21 @@ export async function POST(request: Request) {
       const conversion_factor = parseNumberStr(rec["conversion_factor"], 4) ?? 1;
 
       const category =
-        rec["category"] && rec["category"].trim().length > 0 ? rec["category"].trim() : null;
+        rec["category"] && rec["category"].trim().length > 0
+          ? rec["category"].trim()
+          : null;
+
+      // ✅ NOVO: sector_category (pode vir vazio)
+      const sector_category =
+        rec["sector_category"] && rec["sector_category"].trim().length > 0
+          ? rec["sector_category"].trim()
+          : null;
 
       const is_active_raw = (rec["is_active"] ?? "1").trim().toLowerCase();
-      const is_active = is_active_raw === "1" || is_active_raw === "true" || is_active_raw === "sim";
+      const is_active =
+        is_active_raw === "1" ||
+        is_active_raw === "true" ||
+        is_active_raw === "sim";
 
       if (!name) {
         skipped++;
@@ -332,6 +352,10 @@ export async function POST(request: Request) {
         package_qty,
         qty_per_package,
         category,
+
+        // ✅ NOVO
+        sector_category,
+
         price,
         conversion_factor,
         is_active,
@@ -395,13 +419,16 @@ export async function POST(request: Request) {
           .in("sku", chunk);
 
         if (existingErr) {
-          console.error("Erro ao buscar produtos existentes por SKU (import):", existingErr);
+          console.error(
+            "Erro ao buscar produtos existentes por SKU (import):",
+            existingErr,
+          );
           return NextResponse.json(
             {
               error: "Erro ao preparar importação (busca por SKU).",
               details: { select: errDetails(existingErr) },
             },
-            { status: 500 }
+            { status: 500 },
           );
         }
 
@@ -438,13 +465,16 @@ export async function POST(request: Request) {
           .select("id");
 
         if (upErr) {
-          console.error("Erro ao atualizar produtos por SKU (via id) (import):", upErr);
+          console.error(
+            "Erro ao atualizar produtos por SKU (via id) (import):",
+            upErr,
+          );
           return NextResponse.json(
             {
               error: "Erro ao atualizar produtos existentes (por SKU).",
               details: { upsertById: errDetails(upErr) },
             },
-            { status: 500 }
+            { status: 500 },
           );
         }
         upsertSkuInsertedOrUpdated += (upData ?? []).length;
@@ -464,7 +494,7 @@ export async function POST(request: Request) {
               error: "Erro ao inserir novos produtos (por SKU).",
               details: { insert: errDetails(insErr) },
             },
-            { status: 500 }
+            { status: 500 },
           );
         }
         upsertSkuInsertedOrUpdated += (insData ?? []).length;
@@ -495,7 +525,7 @@ export async function POST(request: Request) {
               },
             },
           },
-          { status: 500 }
+          { status: 500 },
         );
       }
 
@@ -536,7 +566,7 @@ export async function POST(request: Request) {
                   update: errDetails(updateErr),
                 },
               },
-              { status: 500 }
+              { status: 500 },
             );
           }
         }
@@ -568,13 +598,13 @@ export async function POST(request: Request) {
 
     return NextResponse.redirect(
       new URL("/dashboard/produtos?success=import", request.url),
-      303
+      303,
     );
   } catch (err) {
     console.error("Erro inesperado em /api/import/products:", err);
     return NextResponse.json(
       { error: "Erro inesperado ao importar produtos." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

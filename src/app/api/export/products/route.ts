@@ -35,7 +35,7 @@ function formatNumber(value: number | null | undefined, decimals: number) {
 }
 
 /**
- * Tipagem explícita do retorno do export (evita GenericStringError)
+ * Tipagem explícita do retorno do export
  */
 type ProductExportRow = {
   id: string | null;
@@ -67,7 +67,7 @@ function normalizeId(value: any): string | null {
 
 /**
  * ✅ Resolve establishment_id com múltiplas estratégias
- * 1) getActiveMembershipOrRedirect (padrão do seu app)
+ * 1) getActiveMembershipOrRedirect
  * 2) fallback: memberships
  * 3) fallback: profiles
  */
@@ -76,10 +76,10 @@ async function resolveEstablishmentId(
 ): Promise<{ establishmentId: string | null; debug: string[] }> {
   const debug: string[] = [];
 
-  // 1) tenta pelo helper do app (o mais compatível com seu projeto)
+  // 1) helper do app (compatível com seu projeto)
   try {
-    const r: any = await getActiveMembershipOrRedirect();
-    const membership = r?.membership ? r.membership : r;
+    const helperRes = await getActiveMembershipOrRedirect();
+    const membership = (helperRes as any)?.membership ?? helperRes;
 
     const estId = normalizeId((membership as any)?.establishment_id);
     const orgId = normalizeId((membership as any)?.organization_id);
@@ -95,7 +95,7 @@ async function resolveEstablishmentId(
     debug.push(`membership-helper: falhou (${e?.message ?? "sem mensagem"})`);
   }
 
-  // 2) fallback: auth.getUser + memberships (se existir)
+  // 2) auth.getUser + memberships / profiles
   try {
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData?.user) {
@@ -110,11 +110,8 @@ async function resolveEstablishmentId(
     try {
       const { data: m, error: mErr } = await supabase
         .from("memberships")
-        .select("establishment_id, organization_id, is_active, created_at")
+        .select("establishment_id, organization_id")
         .eq("user_id", userId)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-        .limit(1)
         .maybeSingle();
 
       if (mErr) {
@@ -135,7 +132,7 @@ async function resolveEstablishmentId(
       );
     }
 
-    // profiles (muitos projetos guardam establishment_id aqui)
+    // profiles
     try {
       const { data: p, error: pErr } = await supabase
         .from("profiles")
@@ -179,7 +176,7 @@ export async function GET(_request: Request) {
       return NextResponse.json(
         {
           error:
-            "Não foi possível identificar o estabelecimento do usuário. Verifique a tabela de vínculo (membership/profiles) e as policies (RLS).",
+            "Não foi possível identificar o estabelecimento do usuário. Verifique membership/profiles e RLS.",
         },
         { status: 403 },
       );
@@ -218,8 +215,7 @@ export async function GET(_request: Request) {
 
     const products = (Array.isArray(data) ? data : []) as ProductExportRow[];
 
-    // ✅ IMPORTANTÍSSIMO PARA IMPORT:
-    // exportamos establishment_id no CSV
+    // ✅ Header com establishment_id (ESSENCIAL PARA IMPORT)
     const header = [
       "id",
       "establishment_id",
@@ -272,7 +268,7 @@ export async function GET(_request: Request) {
 
       const row = [
         csvField(p.id ?? ""),
-        csvField(p.establishment_id ?? ""),
+        csvField(p.establishment_id ?? ""), // ✅ essencial
         csvField(p.sku ?? ""),
         csvField(p.name ?? ""),
         csvField(p.product_type ?? ""),

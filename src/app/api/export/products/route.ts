@@ -78,7 +78,9 @@ async function resolveEstablishmentId(
 
   // 1) tenta pelo helper do app (o mais compatível com seu projeto)
   try {
-    const { membership } = await getActiveMembershipOrRedirect();
+    const r: any = await getActiveMembershipOrRedirect();
+    const membership = r?.membership ? r.membership : r;
+
     const estId = normalizeId((membership as any)?.establishment_id);
     const orgId = normalizeId((membership as any)?.organization_id);
     const picked = estId ?? orgId ?? null;
@@ -108,8 +110,11 @@ async function resolveEstablishmentId(
     try {
       const { data: m, error: mErr } = await supabase
         .from("memberships")
-        .select("establishment_id, organization_id")
+        .select("establishment_id, organization_id, is_active, created_at")
         .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (mErr) {
@@ -170,7 +175,6 @@ export async function GET(_request: Request) {
     const { establishmentId, debug } = await resolveEstablishmentId(supabase);
 
     if (!establishmentId) {
-      // ✅ mensagem clara + debug no console
       console.error("Export products: establishmentId não resolvido", debug);
       return NextResponse.json(
         {
@@ -181,7 +185,6 @@ export async function GET(_request: Request) {
       );
     }
 
-    // Campos que queremos exportar
     const selectFields = [
       "id",
       "establishment_id",
@@ -192,10 +195,7 @@ export async function GET(_request: Request) {
       "package_qty",
       "qty_per_package",
       "category",
-
-      // ✅ NOVA COLUNA (SETOR)
       "sector_category",
-
       "price",
       "conversion_factor",
       "is_active",
@@ -206,7 +206,6 @@ export async function GET(_request: Request) {
       .select(selectFields)
       .eq("establishment_id", establishmentId);
 
-    // ✅ Cast controlado: evita GenericStringError derrubar build
     const { data, error } = await (query as any);
 
     if (error) {
@@ -220,7 +219,7 @@ export async function GET(_request: Request) {
     const products = (Array.isArray(data) ? data : []) as ProductExportRow[];
 
     // ✅ IMPORTANTÍSSIMO PARA IMPORT:
-    // agora exportamos establishment_id no CSV
+    // exportamos establishment_id no CSV
     const header = [
       "id",
       "establishment_id",
@@ -231,10 +230,7 @@ export async function GET(_request: Request) {
       "package_qty",
       "qty_per_package",
       "category",
-
-      // ✅ NOVA COLUNA (SETOR)
       "sector_category",
-
       "price",
       "conversion_factor",
       "is_active",
@@ -276,7 +272,7 @@ export async function GET(_request: Request) {
 
       const row = [
         csvField(p.id ?? ""),
-        csvField(p.establishment_id ?? ""), // ✅ ESSENCIAL PARA O IMPORT
+        csvField(p.establishment_id ?? ""),
         csvField(p.sku ?? ""),
         csvField(p.name ?? ""),
         csvField(p.product_type ?? ""),
@@ -284,10 +280,7 @@ export async function GET(_request: Request) {
         csvField(packageQtyFormatted),
         csvField(qtyPerPackageText),
         csvField(p.category ?? ""),
-
-        // ✅ NOVA COLUNA (SETOR)
         csvField(sectorCategoryText),
-
         csvField(priceFormatted),
         csvField(conversionFormatted),
         csvField(p.is_active ? 1 : 0),

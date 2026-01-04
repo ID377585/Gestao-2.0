@@ -1,257 +1,298 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-
 import {
-  ClipboardList,
-  Factory,
-  BarChart3,
-  Package,
-  FileText,
-  Tag,
-  History,
-  ShoppingCart,
-  Users,
-  ChevronLeft,
-  ChevronRight,
-  AlertTriangle,
-  ArrowLeftRight,
-  BadgeDollarSign,
-  Menu,
-  X,
-  Boxes, // ✅ ícone do Inventário
+  Bell,
+  HelpCircle,
+  LogOut,
+  Settings,
+  User as UserIcon,
 } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
 
-/* ======================
-   MENU CONFIG
-====================== */
-const menuItems = [
-  { title: "Pedidos", href: "/dashboard/pedidos", icon: ClipboardList },
-  { title: "Produção", href: "/dashboard/producao", icon: Factory },
-  { title: "Produtividade", href: "/dashboard/produtividade", icon: BarChart3 },
-  { title: "Estoque", href: "/dashboard/estoque", icon: Package },
+import NotificationsModal from "@/components/modals/NotificationsModal";
+import { ProfileModal } from "@/components/modals/ProfileModal";
+import { SettingsModal } from "@/components/modals/SettingsModal";
+import { HelpModal } from "@/components/modals/HelpModal";
 
-  // ✅ INVENTÁRIO
-  { title: "Inventário", href: "/dashboard/inventario", icon: Boxes },
+import { SidebarMobile } from "@/components/layout/SidebarMobile";
 
-  // ✅ PRODUTOS
-  { title: "Produtos", href: "/dashboard/produtos", icon: Package },
+import { clearSession, getUser, type AppUser } from "@/lib/auth/session";
 
-  { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },
-  { title: "Etiquetas", href: "/dashboard/etiquetas", icon: Tag },
-  { title: "Histórico", href: "/dashboard/historico-pedidos", icon: History },
+interface Notificacao {
+  id: number;
+  titulo: string;
+  mensagem: string;
+  tipo: "info" | "warning" | "success" | "error";
+  lida: boolean;
+  dataHora: string;
+}
 
-  { title: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },
-  { title: "Transferências", href: "/dashboard/transferencias", icon: ArrowLeftRight },
-
-  { title: "Compras", href: "/dashboard/compras", icon: ShoppingCart },
-  { title: "Controladoria", href: "/dashboard/controladoria", icon: BadgeDollarSign },
-];
-
-const adminItems = [
-  { title: "Usuários", href: "/dashboard/admin/usuarios", icon: Users },
-];
-
-interface SidebarProps {
+interface TopbarProps {
   className?: string;
 }
 
-export function Sidebar({ className }: SidebarProps) {
-  const pathname = usePathname();
+export function Topbar({ className }: TopbarProps) {
+  const [user, setUser] = useState<AppUser | null>(null);
 
-  const [collapsed, setCollapsed] = useState(false); // desktop
-  const [mobileOpen, setMobileOpen] = useState(false); // mobile
+  const [showPerfil, setShowPerfil] = useState(false);
+  const [showConfiguracoes, setShowConfiguracoes] = useState(false);
+  const [showAjuda, setShowAjuda] = useState(false);
+  const [showNotificacoesModal, setShowNotificacoesModal] = useState(false);
 
-  const isActive = (href: string) =>
-    pathname === href || pathname?.startsWith(href + "/");
+  const [notificacoes, setNotificacoes] = useState<Notificacao[]>([
+    {
+      id: 1,
+      titulo: "Estoque crítico",
+      mensagem: "Ovos estão com estoque crítico. Reposição necessária.",
+      tipo: "warning",
+      lida: false,
+      dataHora: "2024-01-15T10:30:00",
+    },
+    {
+      id: 2,
+      titulo: "Pedido concluído",
+      mensagem: "Pedido #102 foi entregue com sucesso.",
+      tipo: "success",
+      lida: false,
+      dataHora: "2024-01-15T09:15:00",
+    },
+  ]);
 
-  // ✅ SINCRONIZA o espaço do layout (md:pl-[var(--sidebar-w)]) com o estado "collapsed"
-  // aberto  = 18rem (equiv. w-72)
-  // fechado = 5rem  (equiv. w-20)
   useEffect(() => {
-    const root = document.documentElement;
-    const width = collapsed ? "5rem" : "18rem";
-    root.style.setProperty("--sidebar-w", width);
-  }, [collapsed]);
+    const currentUser = getUser();
+    setUser(currentUser);
+  }, []);
 
-  function SidebarContent({
-    variant,
-    onNavigate,
-  }: {
-    variant: "desktop" | "mobile";
-    onNavigate?: () => void;
-  }) {
-    const isDesktop = variant === "desktop";
+  const notificacoesNaoLidas = notificacoes.filter((n) => !n.lida).length;
 
-    return (
-      <div className={cn("flex h-full flex-col", isDesktop ? "min-h-screen" : "")}>
-        {/* Header / Logo */}
-        <div className="flex h-16 shrink-0 items-center justify-between border-b px-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-r from-blue-600 to-green-600 text-sm font-bold text-white">
-              G2
-            </div>
+  const marcarTodasLidas = () => {
+    setNotificacoes((prev) => prev.map((n) => ({ ...n, lida: true })));
+  };
 
-            {(variant === "mobile" || !collapsed) && (
-              <span className="text-lg font-semibold tracking-tight">Gestão 2.0</span>
-            )}
-          </div>
+  const handleLogout = () => {
+    clearSession();
+    window.location.assign("/login");
+  };
 
-          {isDesktop ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setCollapsed(!collapsed)}
-              className="h-8 w-8"
-              aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
-            >
-              {collapsed ? (
-                <ChevronRight className="h-4 w-4" />
-              ) : (
-                <ChevronLeft className="h-4 w-4" />
-              )}
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setMobileOpen(false)}
-              className="h-8 w-8"
-              aria-label="Fechar menu"
-            >
-              <X className="h-5 w-5" />
-            </Button>
-          )}
-        </div>
-
-        {/* Menu (SCROLL AQUI) */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
-          <div className="space-y-3">
-            {(variant === "mobile" || !collapsed) && (
-              <h3 className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Menu Principal
-              </h3>
-            )}
-
-            <div className="space-y-2">
-              {menuItems.map((item) => {
-                const active = isActive(item.href);
-                const Icon = item.icon;
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => onNavigate?.()}
-                  >
-                    <Button
-                      variant={active ? "secondary" : "ghost"}
-                      className={cn(
-                        "w-full justify-start gap-3 rounded-xl h-12",
-                        variant === "desktop"
-                          ? collapsed
-                            ? "px-3"
-                            : "px-4"
-                          : "px-4"
-                      )}
-                      title={variant === "desktop" && collapsed ? item.title : undefined}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      {(variant === "mobile" || !collapsed) && (
-                        <span className="text-sm font-medium">{item.title}</span>
-                      )}
-                    </Button>
-                  </Link>
-                );
-              })}
-            </div>
-
-            <div className="py-4">
-              <Separator />
-            </div>
-
-            {(variant === "mobile" || !collapsed) && (
-              <h3 className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Administração
-              </h3>
-            )}
-
-            <div className="space-y-2">
-              {adminItems.map((item) => {
-                const active = isActive(item.href);
-                const Icon = item.icon;
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => onNavigate?.()}
-                  >
-                    <Button
-                      variant={active ? "secondary" : "ghost"}
-                      className={cn(
-                        "w-full justify-start gap-3 rounded-xl h-12",
-                        variant === "desktop"
-                          ? collapsed
-                            ? "px-3"
-                            : "px-4"
-                          : "px-4"
-                      )}
-                      title={variant === "desktop" && collapsed ? item.title : undefined}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      {(variant === "mobile" || !collapsed) && (
-                        <span className="text-sm font-medium">{item.title}</span>
-                      )}
-                    </Button>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        </nav>
-      </div>
-    );
-  }
+  // ✅ Força visual correto (resolve “fundo incolor”)
+  const dropdownBaseClasses =
+    "bg-white text-gray-900 border border-gray-200 shadow-lg rounded-md";
 
   return (
     <>
-      {/* MOBILE trigger */}
-      <div className="md:hidden">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-10 w-10"
-          onClick={() => setMobileOpen(true)}
-          aria-label="Abrir menu"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
+      <header className={`bg-white border-b border-gray-200 ${className ?? ""}`}>
+        <div className="flex h-16 items-center justify-between px-4 md:px-6">
+          {/* Left */}
+          <div className="flex items-center gap-2 md:gap-3">
+            {/* ✅ BOTÃO DO MENU MOBILE (aparece só no mobile) */}
+            <SidebarMobile />
 
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-[300px] p-0 overflow-y-auto">
-            <SidebarContent variant="mobile" onNavigate={() => setMobileOpen(false)} />
-          </SheetContent>
-        </Sheet>
-      </div>
+            <h1 className="text-lg font-semibold text-gray-900">Dashboard</h1>
+          </div>
 
-      {/* DESKTOP */}
-      {/* ✅ NÃO fixe width aqui (w-20 / w-72), senão cria "vão" quando o layout muda */}
-      <aside
-        className={cn(
-          "hidden md:flex min-h-screen flex-col border-r bg-white transition-all duration-300 w-full",
-          className
-        )}
-      >
-        <SidebarContent variant="desktop" />
-      </aside>
+          {/* Right */}
+          <div className="flex items-center gap-2">
+            {/* Notifications */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="relative inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  aria-label="Notificações"
+                >
+                  <Bell className="h-5 w-5 text-gray-700" />
+                  {notificacoesNaoLidas > 0 && (
+                    <span className="absolute -top-1 -right-1">
+                      <Badge className="h-5 min-w-5 justify-center rounded-full px-1 text-[10px]">
+                        {notificacoesNaoLidas}
+                      </Badge>
+                    </span>
+                  )}
+                </button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent
+                align="end"
+                sideOffset={8}
+                className={`w-80 ${dropdownBaseClasses}`}
+              >
+                <DropdownMenuLabel className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-gray-900">
+                    Notificações
+                  </span>
+
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2 text-xs"
+                    onClick={marcarTodasLidas}
+                    disabled={notificacoesNaoLidas === 0}
+                  >
+                    Marcar todas
+                  </Button>
+                </DropdownMenuLabel>
+
+                <DropdownMenuSeparator />
+
+                {notificacoes.length === 0 ? (
+                  <div className="px-3 py-6 text-center text-sm text-gray-600">
+                    Nenhuma notificação
+                  </div>
+                ) : (
+                  <div className="max-h-80 overflow-auto">
+                    {notificacoes.map((n) => (
+                      <DropdownMenuItem
+                        key={n.id}
+                        className="flex cursor-default flex-col items-start gap-1 py-3 focus:bg-gray-50"
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        <div className="flex w-full items-center justify-between gap-3">
+                          <span className="text-sm font-medium text-gray-900">
+                            {n.titulo}
+                          </span>
+                          {!n.lida && (
+                            <span className="h-2 w-2 rounded-full bg-blue-600" />
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-700">{n.mensagem}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  </div>
+                )}
+
+                <DropdownMenuSeparator />
+
+                <div className="p-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setShowNotificacoesModal(true)}
+                  >
+                    Ver todas
+                  </Button>
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* User Menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  aria-label="Menu do usuário"
+                >
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage
+                      src={user?.avatar}
+                      alt={user?.name ?? "Usuário"}
+                    />
+                    <AvatarFallback>
+                      {(user?.name ?? "U")
+                        .split(" ")
+                        .map((n) => n[0])
+                        .join("")}
+                    </AvatarFallback>
+                  </Avatar>
+                </button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent
+                align="end"
+                sideOffset={8}
+                className={`w-64 ${dropdownBaseClasses}`}
+              >
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {user?.name ?? "Usuário"}
+                    </span>
+                    <span className="text-xs text-gray-600">{user?.email ?? ""}</span>
+                    <Badge variant="secondary" className="mt-1 w-fit">
+                      {(user?.role ?? "user") === "admin"
+                        ? "Administrador"
+                        : "Usuário"}
+                    </Badge>
+                  </div>
+                </DropdownMenuLabel>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem
+                  onClick={() => setShowPerfil(true)}
+                  className="focus:bg-gray-50"
+                >
+                  <UserIcon className="mr-2 h-4 w-4" />
+                  Perfil
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={() => setShowConfiguracoes(true)}
+                  className="focus:bg-gray-50"
+                >
+                  <Settings className="mr-2 h-4 w-4" />
+                  Configurações
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={() => setShowAjuda(true)}
+                  className="focus:bg-gray-50"
+                >
+                  <HelpCircle className="mr-2 h-4 w-4" />
+                  Ajuda
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem
+                  onClick={handleLogout}
+                  className="text-red-600 focus:bg-gray-50 focus:text-red-600"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Sair
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </header>
+
+      {/* Modais */}
+      <NotificationsModal
+        open={showNotificacoesModal}
+        onClose={() => setShowNotificacoesModal(false)}
+        notifications={notificacoes}
+      />
+
+      <ProfileModal
+        open={showPerfil}
+        onClose={() => setShowPerfil(false)}
+        user={{
+          name: user?.name ?? "Usuário",
+          email: user?.email ?? "",
+        }}
+      />
+
+      <SettingsModal
+        open={showConfiguracoes}
+        onClose={() => setShowConfiguracoes(false)}
+      />
+
+      <HelpModal open={showAjuda} onClose={() => setShowAjuda(false)} />
     </>
   );
 }

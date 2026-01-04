@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useTransition } from "react";
 import { createProduct, updateProduct } from "./actions";
+import { useFormStatus } from "react-dom";
 
 type ProductFormProps = {
   product?: {
@@ -19,27 +19,25 @@ type ProductFormProps = {
   };
 };
 
-export function ProductForm({ product }: ProductFormProps) {
-  const [isPending, startTransition] = useTransition();
-
-  const isEdit = Boolean(product?.id);
-
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
-    const formData = new FormData(e.currentTarget);
-
-    startTransition(() => {
-      if (isEdit) {
-        updateProduct(formData);
-      } else {
-        createProduct(formData);
-      }
-    });
-  }
+function SubmitButton({ isEdit }: { isEdit: boolean }) {
+  const { pending } = useFormStatus();
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <button
+      type="submit"
+      disabled={pending}
+      className="w-full rounded bg-black px-4 py-2 text-white disabled:opacity-60"
+    >
+      {pending ? "Salvando..." : isEdit ? "Gravar alterações" : "Criar produto"}
+    </button>
+  );
+}
+
+export function ProductForm({ product }: ProductFormProps) {
+  const isEdit = Boolean(product?.id);
+
+  return (
+    <form action={isEdit ? updateProduct : createProduct} className="space-y-4">
       {/* 🔑 ID OBRIGATÓRIO PARA UPDATE */}
       {isEdit && <input type="hidden" name="id" value={product!.id} />}
 
@@ -154,17 +152,7 @@ export function ProductForm({ product }: ProductFormProps) {
         <label>Status ativo</label>
       </div>
 
-      <button
-        type="submit"
-        disabled={isPending}
-        className="w-full rounded bg-black px-4 py-2 text-white disabled:opacity-60"
-      >
-        {isPending
-          ? "Salvando..."
-          : isEdit
-          ? "Gravar alterações"
-          : "Criar produto"}
-      </button>
+      <SubmitButton isEdit={isEdit} />
     </form>
   );
 }

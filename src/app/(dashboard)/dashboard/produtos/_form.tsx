@@ -29,7 +29,16 @@ const SECTOR_CATEGORIES = [
   "Produção",
   "Massaria",
   "Burrataria",
-  "Estoque Secos",
+
+  // ✅ NOVAS CATEGORIAS
+  "Laticínios",
+  "Pescados",
+  "Frutos do Mar",
+  "Carnes",
+
+  // ✅ ALTERADO: antes era "Estoque Secos"
+  "Secos",
+
   "Embalagens",
   "Produto de Limpeza",
   "Descartáveis",

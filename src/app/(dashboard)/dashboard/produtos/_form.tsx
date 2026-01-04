@@ -1,7 +1,7 @@
 "use client";
 
+import { useTransition } from "react";
 import { createProduct, updateProduct } from "./actions";
-import { useFormStatus } from "react-dom";
 
 type ProductFormProps = {
   product?: {
@@ -12,32 +12,47 @@ type ProductFormProps = {
     default_unit_label: string;
     package_qty: number | null;
     qty_per_package: string | null;
-    category: string | null;
+    category: string | null; // (campo antigo já existente na sua tabela)
     price: number | null;
     conversion_factor: number | null;
     is_active: boolean;
+
+    // ✅ NOVO CAMPO (opcional no objeto, não quebra nada)
+    sector_category?: string | null;
   };
 };
 
-function SubmitButton({ isEdit }: { isEdit: boolean }) {
-  const { pending } = useFormStatus();
-
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="w-full rounded bg-black px-4 py-2 text-white disabled:opacity-60"
-    >
-      {pending ? "Salvando..." : isEdit ? "Gravar alterações" : "Criar produto"}
-    </button>
-  );
-}
+const SECTOR_CATEGORIES = [
+  "Confeitaria",
+  "Padaria",
+  "Açougue",
+  "Produção",
+  "Massaria",
+  "Burrataria",
+  "Estoque Secos",
+  "Embalagens",
+  "Produto de Limpeza",
+  "Descartáveis",
+  "Bebidas",
+] as const;
 
 export function ProductForm({ product }: ProductFormProps) {
+  const [isPending, startTransition] = useTransition();
+
   const isEdit = Boolean(product?.id);
 
+  function handleSubmit(formData: FormData) {
+    startTransition(() => {
+      if (isEdit) {
+        updateProduct(formData);
+      } else {
+        createProduct(formData);
+      }
+    });
+  }
+
   return (
-    <form action={isEdit ? updateProduct : createProduct} className="space-y-4">
+    <form action={handleSubmit} className="space-y-4">
       {/* 🔑 ID OBRIGATÓRIO PARA UPDATE */}
       {isEdit && <input type="hidden" name="id" value={product!.id} />}
 
@@ -104,6 +119,7 @@ export function ProductForm({ product }: ProductFormProps) {
             name="qty_per_package"
             defaultValue={product?.qty_per_package ?? ""}
             className="w-full rounded border px-3 py-2"
+            placeholder="Ex.: 12 unidades, BDJ c/ 30 un"
           />
         </div>
 
@@ -117,11 +133,31 @@ export function ProductForm({ product }: ProductFormProps) {
         </div>
       </div>
 
+      {/* ✅ NOVO CAMPO: Setor (Categoria) */}
+      <div>
+        <label className="block text-sm font-medium">Setor (Categoria)</label>
+        <select
+          name="sector_category"
+          defaultValue={product?.sector_category ?? ""}
+          className="w-full rounded border px-3 py-2"
+        >
+          <option value="">— Selecione —</option>
+          {SECTOR_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+
+        <p className="mt-1 text-xs text-muted-foreground">
+          Isso ajuda a identificar em qual setor o item é produzido (e futuramente
+          pode ser usado em Pedidos).
+        </p>
+      </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium">
-            Preço / Custo padrão
-          </label>
+          <label className="block text-sm font-medium">Preço / Custo padrão</label>
           <input
             name="price"
             type="number"
@@ -152,7 +188,13 @@ export function ProductForm({ product }: ProductFormProps) {
         <label>Status ativo</label>
       </div>
 
-      <SubmitButton isEdit={isEdit} />
+      <button
+        type="submit"
+        disabled={isPending}
+        className="w-full rounded bg-black px-4 py-2 text-white disabled:opacity-60"
+      >
+        {isPending ? "Salvando..." : isEdit ? "Gravar alterações" : "Criar produto"}
+      </button>
     </form>
   );
 }

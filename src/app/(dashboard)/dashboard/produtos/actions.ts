@@ -21,6 +21,17 @@ function normalizeId(value: any): string | null {
 }
 
 /**
+ * Normaliza texto (string) para:
+ * - null quando vazio
+ * - string trim quando preenchido
+ */
+function normalizeText(value: FormDataEntryValue | null): string | null {
+  if (value == null) return null;
+  const v = String(value).trim();
+  return v.length > 0 ? v : null;
+}
+
+/**
  * Log seguro (não explode circular) para Vercel Logs
  */
 function safeJson(obj: any) {
@@ -88,7 +99,9 @@ async function getMembershipIds() {
 
   // 1) Tenta pegar membership do helper (fluxo atual/validado)
   const membership = await getActiveMembershipOrRedirect();
-  const establishmentFromHelper = normalizeId((membership as any)?.establishment_id);
+  const establishmentFromHelper = normalizeId(
+    (membership as any)?.establishment_id,
+  );
   const userIdFromHelper = normalizeId((membership as any)?.user_id) ?? null;
 
   // ✅ Debug: ajuda a enxergar no Vercel logs quando der erro
@@ -178,6 +191,7 @@ export async function createProduct(formData: FormData) {
 
   const skuRaw = formData.get("sku");
   const categoryRaw = formData.get("category");
+  const sectorCategoryRaw = formData.get("sector_category"); // ✅ NOVO
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
   const qtyPerPackageRaw = formData.get("qty_per_package");
@@ -204,6 +218,9 @@ export async function createProduct(formData: FormData) {
       ? String(qtyPerPackageRaw).trim()
       : null;
 
+  // ✅ NOVO: setor/categoria (dropdown) — vira null quando vazio
+  const sector_category = normalizeText(sectorCategoryRaw);
+
   const insertData: any = {
     establishment_id: establishmentId,
     name,
@@ -213,6 +230,10 @@ export async function createProduct(formData: FormData) {
     package_qty: package_qty ?? null,
     qty_per_package,
     category,
+
+    // ✅ NOVO CAMPO NO BANCO
+    sector_category,
+
     conversion_factor: conversion_factor ?? 1,
     price: price ?? 0,
     standard_cost: null,
@@ -255,7 +276,7 @@ export async function createProduct(formData: FormData) {
 
   console.log(
     "[products.create] ok",
-    safeJson({ id: data?.id, establishmentId, userId }),
+    safeJson({ id: data?.id, establishmentId, userId, sector_category }),
   );
 
   revalidatePath("/dashboard/produtos");
@@ -283,6 +304,7 @@ export async function updateProduct(formData: FormData) {
 
   const skuRaw = formData.get("sku");
   const categoryRaw = formData.get("category");
+  const sectorCategoryRaw = formData.get("sector_category"); // ✅ NOVO
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
   const qtyPerPackageRaw = formData.get("qty_per_package");
@@ -312,6 +334,9 @@ export async function updateProduct(formData: FormData) {
 
   const is_active = parseBoolean(isActiveRaw);
 
+  // ✅ NOVO: setor/categoria (dropdown)
+  const sector_category = normalizeText(sectorCategoryRaw);
+
   const updateData: any = {
     name,
     sku,
@@ -320,6 +345,10 @@ export async function updateProduct(formData: FormData) {
     package_qty: package_qty ?? null,
     qty_per_package,
     category,
+
+    // ✅ NOVO CAMPO NO BANCO
+    sector_category,
+
     price: price ?? 0,
     conversion_factor: conversion_factor ?? 1,
     is_active,
@@ -375,7 +404,7 @@ export async function updateProduct(formData: FormData) {
 
   console.log(
     "[products.update] ok",
-    safeJson({ id: data?.id, establishmentId, userId }),
+    safeJson({ id: data?.id, establishmentId, userId, sector_category }),
   );
 
   revalidatePath("/dashboard/produtos");

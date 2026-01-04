@@ -31,15 +31,33 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
+const SECTOR_CATEGORIES = [
+  "Confeitaria",
+  "Padaria",
+  "Açougue",
+  "Produção",
+  "Massaria",
+  "Burrataria",
+  "Estoque Secos",
+  "Embalagens",
+  "Produto de Limpeza",
+  "Descartáveis",
+  "Bebidas",
+] as const;
+
 type ProductRow = {
   id: string;
   sku: string | null;
   name: string;
   product_type: "INSU" | "PREP" | "PROD" | string;
   default_unit_label: string | null;
-  package_qty: number | null;      // Qtd total da embalagem (peso/volume) - NUMÉRICO
-  qty_per_package: string | null;  // Qtd por embalagem - TEXTO LIVRE
-  category: string | null;
+  package_qty: number | null; // Qtd total da embalagem (peso/volume) - NUMÉRICO
+  qty_per_package: string | null; // Qtd por embalagem - TEXTO LIVRE
+  category: string | null; // (campo antigo)
+
+  // ✅ NOVO CAMPO (Setor)
+  sector_category: string | null;
+
   is_active: boolean | null;
   price: number | null;
   created_at: string | null;
@@ -55,6 +73,7 @@ type ProfileRow = {
 type PageProps = {
   searchParams?: {
     success?: string;
+    error?: string;
   };
 };
 
@@ -97,7 +116,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   const { data, error } = await supabase
     .from("products")
     .select(
-      "id, sku, name, product_type, default_unit_label, package_qty, qty_per_package, category, is_active, price, created_at, created_by",
+      "id, sku, name, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, is_active, price, created_at, created_by",
     )
     .order("product_type", { ascending: true })
     .order("name", { ascending: true });
@@ -164,9 +183,17 @@ export default async function ProductsPage({ searchParams }: PageProps) {
     null;
 
   const success = searchParams?.success;
+  const errorMsg = searchParams?.error;
 
   return (
     <div className="space-y-6">
+      {/* Avisos de erro */}
+      {errorMsg && (
+        <div className="rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800">
+          Erro: {decodeURIComponent(errorMsg)}
+        </div>
+      )}
+
       {/* Avisos de sucesso */}
       {success === "new" && (
         <div className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
@@ -276,7 +303,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     />
                   </div>
 
-                  {/* Categoria */}
+                  {/* Categoria (antiga) */}
                   <div className="space-y-2">
                     <Label htmlFor="category">Categoria</Label>
                     <Input
@@ -284,6 +311,28 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                       name="category"
                       placeholder="Ex.: Insumos secos, Laticínios, Pré-preparo de confeitaria"
                     />
+                  </div>
+
+                  {/* ✅ Setor (Categoria) - NOVO */}
+                  <div className="md:col-span-2 space-y-2">
+                    <Label htmlFor="sector_category">Setor (Categoria)</Label>
+                    <select
+                      id="sector_category"
+                      name="sector_category"
+                      defaultValue=""
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="">— Selecione —</option>
+                      {SECTOR_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      Use isso para identificar o setor responsável (e futuramente
+                      vamos usar em Pedidos).
+                    </p>
                   </div>
 
                   {/* Preço */}
@@ -357,16 +406,8 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                 className="space-y-4"
               >
                 <div className="space-y-2">
-                  <Label htmlFor="file">
-                    Arquivo (.csv) com os produtos
-                  </Label>
-                  <Input
-                    id="file"
-                    name="file"
-                    type="file"
-                    accept=".csv"
-                    required
-                  />
+                  <Label htmlFor="file">Arquivo (.csv) com os produtos</Label>
+                  <Input id="file" name="file" type="file" accept=".csv" required />
                 </div>
 
                 <p className="text-xs text-muted-foreground">
@@ -392,8 +433,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
         <CardHeader>
           <CardTitle>Lista de produtos</CardTitle>
           <CardDescription>
-            Produtos disponíveis para uso em etiquetas, estoque, produção e
-            fichas técnicas.
+            Produtos disponíveis para uso em etiquetas, estoque, produção e fichas técnicas.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -411,25 +451,26 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                       <TableHead className="w-[90px]">Tipo</TableHead>
                       <TableHead className="w-[110px]">SKU</TableHead>
                       <TableHead>Nome</TableHead>
-                      <TableHead className="w-[110px] text-center">
-                        Qtd
-                      </TableHead>
+                      <TableHead className="w-[110px] text-center">Qtd</TableHead>
                       <TableHead className="w-[80px]">Unidade</TableHead>
                       <TableHead className="w-[160px] text-center">
                         Qtd. por Emb.
                       </TableHead>
+
+                      {/* Categoria (antiga) */}
                       <TableHead>Categoria</TableHead>
+
+                      {/* ✅ NOVA COLUNA */}
+                      <TableHead>Setor</TableHead>
+
                       <TableHead className="w-[110px] text-right">
                         Preço / Custo
                       </TableHead>
-                      <TableHead className="w-[80px] text-center">
-                        Status
-                      </TableHead>
-                      <TableHead className="w-[90px] text-center">
-                        Ações
-                      </TableHead>
+                      <TableHead className="w-[80px] text-center">Status</TableHead>
+                      <TableHead className="w-[90px] text-center">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
+
                   <TableBody>
                     {products.map((product) => (
                       <TableRow key={product.id}>
@@ -448,9 +489,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                         </TableCell>
 
                         {/* Nome */}
-                        <TableCell className="font-medium">
-                          {product.name}
-                        </TableCell>
+                        <TableCell className="font-medium">{product.name}</TableCell>
 
                         {/* Qtd total da embalagem (NUMÉRICO) */}
                         <TableCell className="text-center">
@@ -464,17 +503,21 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
                         {/* Qtd. por embalagem (TEXTO) */}
                         <TableCell className="text-center">
-                          {product.qty_per_package &&
-                          product.qty_per_package.trim().length > 0 ? (
-                            product.qty_per_package
-                          ) : (
+                          {product.qty_per_package?.trim()
+                            ? product.qty_per_package
+                            : <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+
+                        {/* Categoria (antiga) */}
+                        <TableCell>
+                          {product.category ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
 
-                        {/* Categoria */}
+                        {/* ✅ Setor */}
                         <TableCell>
-                          {product.category ?? (
+                          {product.sector_category ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
@@ -514,16 +557,9 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                 </DialogTitle>
                               </DialogHeader>
 
-                              <form
-                                action={updateProduct}
-                                className="space-y-4"
-                              >
+                              <form action={updateProduct} className="space-y-4">
                                 {/* ID oculto */}
-                                <input
-                                  type="hidden"
-                                  name="id"
-                                  value={product.id}
-                                />
+                                <input type="hidden" name="id" value={product.id} />
 
                                 <div className="grid gap-4 md:grid-cols-2">
                                   {/* SKU */}
@@ -540,9 +576,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
                                   {/* Tipo */}
                                   <div className="space-y-2">
-                                    <Label
-                                      htmlFor={`product_type-${product.id}`}
-                                    >
+                                    <Label htmlFor={`product_type-${product.id}`}>
                                       Tipo
                                     </Label>
                                     <select
@@ -551,15 +585,9 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                       defaultValue={product.product_type}
                                       className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                                     >
-                                      <option value="INSU">
-                                        INSU — Insumo
-                                      </option>
-                                      <option value="PREP">
-                                        PREP — Pré-preparo
-                                      </option>
-                                      <option value="PROD">
-                                        PROD — Produto acabado
-                                      </option>
+                                      <option value="INSU">INSU — Insumo</option>
+                                      <option value="PREP">PREP — Pré-preparo</option>
+                                      <option value="PROD">PROD — Produto acabado</option>
                                     </select>
                                   </div>
 
@@ -576,11 +604,9 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                     />
                                   </div>
 
-                                  {/* Qtd total da embalagem (NUMÉRICO) */}
+                                  {/* Qtd total da embalagem */}
                                   <div className="space-y-2">
-                                    <Label
-                                      htmlFor={`package_qty-${product.id}`}
-                                    >
+                                    <Label htmlFor={`package_qty-${product.id}`}>
                                       Qtd (peso/volume da embalagem)
                                     </Label>
                                     <Input
@@ -589,34 +615,26 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                       type="number"
                                       step="0.001"
                                       min="0"
-                                      defaultValue={
-                                        product.package_qty ?? undefined
-                                      }
+                                      defaultValue={product.package_qty ?? undefined}
                                     />
                                   </div>
 
                                   {/* Unidade */}
                                   <div className="space-y-2">
-                                    <Label
-                                      htmlFor={`default_unit_label-${product.id}`}
-                                    >
+                                    <Label htmlFor={`default_unit_label-${product.id}`}>
                                       Unidade padrão
                                     </Label>
                                     <Input
                                       id={`default_unit_label-${product.id}`}
                                       name="default_unit_label"
-                                      defaultValue={
-                                        product.default_unit_label ?? ""
-                                      }
+                                      defaultValue={product.default_unit_label ?? ""}
                                       required
                                     />
                                   </div>
 
-                                  {/* Qtd por embalagem (TEXTO) */}
+                                  {/* Qtd por embalagem */}
                                   <div className="space-y-2">
-                                    <Label
-                                      htmlFor={`qty_per_package-${product.id}`}
-                                    >
+                                    <Label htmlFor={`qty_per_package-${product.id}`}>
                                       Qtd. por Emb.
                                     </Label>
                                     <Input
@@ -627,7 +645,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                     />
                                   </div>
 
-                                  {/* Categoria */}
+                                  {/* Categoria (antiga) */}
                                   <div className="space-y-2">
                                     <Label htmlFor={`category-${product.id}`}>
                                       Categoria
@@ -637,6 +655,26 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                       name="category"
                                       defaultValue={product.category ?? ""}
                                     />
+                                  </div>
+
+                                  {/* ✅ Setor (Categoria) */}
+                                  <div className="space-y-2 md:col-span-2">
+                                    <Label htmlFor={`sector_category-${product.id}`}>
+                                      Setor (Categoria)
+                                    </Label>
+                                    <select
+                                      id={`sector_category-${product.id}`}
+                                      name="sector_category"
+                                      defaultValue={product.sector_category ?? ""}
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      <option value="">— Selecione —</option>
+                                      {SECTOR_CATEGORIES.map((c) => (
+                                        <option key={c} value={c}>
+                                          {c}
+                                        </option>
+                                      ))}
+                                    </select>
                                   </div>
 
                                   {/* Preço */}
@@ -650,17 +688,13 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                       type="number"
                                       step="0.01"
                                       min="0"
-                                      defaultValue={
-                                        product.price ?? undefined
-                                      }
+                                      defaultValue={product.price ?? undefined}
                                     />
                                   </div>
 
                                   {/* Fator de conversão */}
                                   <div className="space-y-2">
-                                    <Label
-                                      htmlFor={`conversion_factor-${product.id}`}
-                                    >
+                                    <Label htmlFor={`conversion_factor-${product.id}`}>
                                       Fator de conversão (opcional)
                                     </Label>
                                     <Input
@@ -669,6 +703,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                       type="number"
                                       step="0.0001"
                                       min="0"
+                                      placeholder="1"
                                     />
                                   </div>
 
@@ -682,9 +717,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                         id={`is_active-${product.id}`}
                                         name="is_active"
                                         type="checkbox"
-                                        defaultChecked={
-                                          product.is_active ?? true
-                                        }
+                                        defaultChecked={product.is_active ?? true}
                                       />
                                       <span className="text-sm text-muted-foreground">
                                         Ativo
@@ -694,9 +727,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                 </div>
 
                                 <div className="flex justify-end gap-2 pt-2">
-                                  <Button type="submit">
-                                    Gravar alterações
-                                  </Button>
+                                  <Button type="submit">Gravar alterações</Button>
                                 </div>
                               </form>
                             </DialogContent>
@@ -713,9 +744,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                 <p className="mt-4 text-xs text-muted-foreground">
                   Último upload/importação de produtos registrado em{" "}
                   <strong>
-                    {new Date(
-                      lastUploadProduct.created_at,
-                    ).toLocaleString("pt-BR")}
+                    {new Date(lastUploadProduct.created_at).toLocaleString("pt-BR")}
                   </strong>
                   {lastUploadUserName && (
                     <>

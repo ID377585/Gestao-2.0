@@ -60,16 +60,47 @@ export default async function DashboardLayout({
   // =========================
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="flex">
+      {/* 
+        ✅ Sidebar width controlado por CSS var:
+        - aberto: 16rem
+        - fechado: 0rem
+        A var será definida no client (Sidebar/Topbar).
+        Se nada definir, o fallback fica 16rem no desktop.
+      */}
+      <div
+        className="flex"
+        style={
+          {
+            // fallback desktop (se seu sidebar ainda não setar a var)
+            ["--sidebar-w" as any]: "16rem",
+          } as React.CSSProperties
+        }
+      >
         {/* Sidebar (Desktop) */}
-        <aside className="hidden md:fixed md:inset-y-0 md:flex md:w-64 md:flex-col">
-          <div className="flex min-h-0 flex-1 flex-col bg-white border-r border-gray-200">
+        <aside
+          className="
+            hidden md:fixed md:inset-y-0 md:flex md:flex-col
+            border-r border-gray-200 bg-white
+          "
+          style={{
+            width: "var(--sidebar-w)",
+            transition: "width 300ms ease",
+            overflow: "hidden",
+          }}
+        >
+          <div className="flex min-h-0 flex-1 flex-col">
             <Sidebar />
           </div>
         </aside>
 
         {/* Conteúdo principal */}
-        <div className="flex min-w-0 flex-1 flex-col md:pl-64">
+        <div
+          className="flex min-w-0 flex-1 flex-col"
+          style={{
+            paddingLeft: "var(--sidebar-w)",
+            transition: "padding-left 300ms ease",
+          }}
+        >
           {/* Topbar */}
           <div className="sticky top-0 z-50 pointer-events-auto">
             <Topbar />

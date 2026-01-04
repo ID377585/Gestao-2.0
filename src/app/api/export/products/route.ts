@@ -125,7 +125,9 @@ async function resolveEstablishmentId(
         if (picked) return { establishmentId: picked, debug };
       }
     } catch (e: any) {
-      debug.push(`fallback memberships: exceção (${e?.message ?? "sem mensagem"})`);
+      debug.push(
+        `fallback memberships: exceção (${e?.message ?? "sem mensagem"})`,
+      );
     }
 
     // profiles (muitos projetos guardam establishment_id aqui)
@@ -149,7 +151,9 @@ async function resolveEstablishmentId(
         if (picked) return { establishmentId: picked, debug };
       }
     } catch (e: any) {
-      debug.push(`fallback profiles: exceção (${e?.message ?? "sem mensagem"})`);
+      debug.push(
+        `fallback profiles: exceção (${e?.message ?? "sem mensagem"})`,
+      );
     }
 
     return { establishmentId: null, debug };
@@ -215,8 +219,11 @@ export async function GET(_request: Request) {
 
     const products = (Array.isArray(data) ? data : []) as ProductExportRow[];
 
+    // ✅ IMPORTANTÍSSIMO PARA IMPORT:
+    // agora exportamos establishment_id no CSV
     const header = [
       "id",
+      "establishment_id",
       "sku",
       "name",
       "product_type",
@@ -269,6 +276,7 @@ export async function GET(_request: Request) {
 
       const row = [
         csvField(p.id ?? ""),
+        csvField(p.establishment_id ?? ""), // ✅ ESSENCIAL PARA O IMPORT
         csvField(p.sku ?? ""),
         csvField(p.name ?? ""),
         csvField(p.product_type ?? ""),

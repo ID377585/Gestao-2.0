@@ -1,4 +1,4 @@
-// src/app/(dashboard)/dashboard/produtos/_actions.ts
+// src/app/(dashboard)/dashboard/produtos/actions.ts
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -18,57 +18,6 @@ function normalizeId(value: any): string | null {
     return null;
   }
   return v;
-}
-
-/**
- * Pega IDs do membership sem quebrar se não tiver establishment
- * e sem obrigar user_id (fica opcional).
- *
- * ✅ AJUSTE: seu banco NÃO tem organization_id na memberships,
- * então aqui usamos SOMENTE establishment_id.
- */
-async function getMembershipIds() {
-  const membership = await getActiveMembershipOrRedirect();
-  const { establishment_id, user_id } = membership as any;
-
-  const establishmentId = normalizeId(establishment_id);
-  const userId = normalizeId(user_id) ?? null;
-
-  if (!establishmentId) {
-    // ✅ melhoria: não derruba a app com throw (evita Digest)
-    redirect("/dashboard/produtos?error=estabelecimento_nao_encontrado");
-  }
-
-  // redirect() interrompe a execução, mas o TS não sabe disso.
-  // então garantimos tipo string aqui:
-  return {
-    establishmentId: establishmentId as string,
-    userId,
-  };
-}
-
-/**
- * Faz parse numérico seguro, sempre evitando retornar NaN.
- */
-function parseNumber(
-  value: FormDataEntryValue | null,
-  decimals: number = 3,
-): number | null {
-  if (value == null) return null;
-  const str = String(value).replace(",", ".").trim();
-  if (!str) return null;
-  const n = Number(str);
-  if (Number.isNaN(n)) return null;
-  return Number(n.toFixed(decimals));
-}
-
-/**
- * Checkbox pode chegar como "on" (HTML), "true" (alguns forms) ou null
- */
-function parseBoolean(value: FormDataEntryValue | null): boolean {
-  if (value == null) return false;
-  const s = String(value).toLowerCase().trim();
-  return s === "on" || s === "true" || s === "1" || s === "yes";
 }
 
 /**
@@ -101,6 +50,116 @@ function supabaseErrorText(error: any) {
 function redirectWithError(message: string) {
   const msg = encodeURIComponent(String(message).slice(0, 180)); // evita URL gigante
   redirect(`/dashboard/produtos?error=${msg}`);
+}
+
+/**
+ * Faz parse numérico seguro, sempre evitando retornar NaN.
+ */
+function parseNumber(
+  value: FormDataEntryValue | null,
+  decimals: number = 3,
+): number | null {
+  if (value == null) return null;
+  const str = String(value).replace(",", ".").trim();
+  if (!str) return null;
+  const n = Number(str);
+  if (Number.isNaN(n)) return null;
+  return Number(n.toFixed(decimals));
+}
+
+/**
+ * Checkbox pode chegar como "on" (HTML), "true" (alguns forms) ou null
+ */
+function parseBoolean(value: FormDataEntryValue | null): boolean {
+  if (value == null) return false;
+  const s = String(value).toLowerCase().trim();
+  return s === "on" || s === "true" || s === "1" || s === "yes";
+}
+
+/**
+ * ✅ MELHORIA CRÍTICA:
+ * Se o helper getActiveMembershipOrRedirect NÃO trouxer establishment_id,
+ * fazemos fallback consultando a tabela memberships.
+ *
+ * Isso resolve o seu erro: ?error=estabelecimento_nao_encontrado
+ */
+async function getMembershipIds() {
+  const supabase = await createSupabaseServerClient();
+
+  // 1) Tenta pegar membership do helper (fluxo atual/validado)
+  const membership = await getActiveMembershipOrRedirect();
+  const establishmentFromHelper = normalizeId((membership as any)?.establishment_id);
+  const userIdFromHelper = normalizeId((membership as any)?.user_id) ?? null;
+
+  // ✅ Debug: ajuda a enxergar no Vercel logs quando der erro
+  console.log(
+    "[products.membership] helper",
+    safeJson({
+      establishment_id: (membership as any)?.establishment_id ?? null,
+      user_id: (membership as any)?.user_id ?? null,
+      role: (membership as any)?.role ?? null,
+      is_active: (membership as any)?.is_active ?? null,
+    }),
+  );
+
+  // 2) Se veio do helper, ok
+  if (establishmentFromHelper) {
+    return {
+      establishmentId: establishmentFromHelper as string,
+      userId: userIdFromHelper,
+    };
+  }
+
+  // 3) Fallback: pegar user_id do auth + consultar memberships diretamente
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+
+  if (authError) {
+    console.error("[products.membership] auth.getUser error", safeJson(authError));
+    redirect("/dashboard/produtos?error=usuario_nao_autenticado");
+  }
+
+  const authUserId = normalizeId(authData?.user?.id);
+  if (!authUserId) {
+    redirect("/dashboard/produtos?error=usuario_nao_autenticado");
+  }
+
+  // Busca o membership ativo mais recente do usuário
+  const { data: mData, error: mError } = await supabase
+    .from("memberships")
+    .select("establishment_id, user_id, role, is_active, created_at")
+    .eq("user_id", authUserId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (mError) {
+    console.error("[products.membership] memberships lookup error", safeJson(mError));
+    redirectWithError(supabaseErrorText(mError));
+  }
+
+  const establishmentId = normalizeId(mData?.establishment_id);
+  const userId = normalizeId(mData?.user_id) ?? authUserId;
+
+  console.log(
+    "[products.membership] fallback",
+    safeJson({
+      authUserId,
+      membershipFound: Boolean(mData),
+      establishment_id: mData?.establishment_id ?? null,
+      role: mData?.role ?? null,
+      is_active: mData?.is_active ?? null,
+    }),
+  );
+
+  if (!establishmentId) {
+    redirect("/dashboard/produtos?error=estabelecimento_nao_encontrado");
+  }
+
+  return {
+    establishmentId: establishmentId as string,
+    userId,
+  };
 }
 
 /* =========================================================
@@ -181,11 +240,9 @@ export async function createProduct(formData: FormData) {
       }),
     );
 
-    // ✅ melhoria: não derruba a app com throw (evita Digest)
     redirectWithError(supabaseErrorText(error));
   }
 
-  // ✅ CRÍTICO: se não retornou id, NÃO houve insert (RLS/policy/trigger)
   if (!data?.id) {
     console.error(
       "[products.create] no-row",
@@ -266,7 +323,6 @@ export async function updateProduct(formData: FormData) {
     price: price ?? 0,
     conversion_factor: conversion_factor ?? 1,
     is_active,
-
     ...(userId
       ? {
           updated_by: userId,
@@ -275,8 +331,7 @@ export async function updateProduct(formData: FormData) {
       : {}),
   };
 
-  // ✅ CRÍTICO: não travar por establishment_id aqui.
-  // Deixa o RLS/policies decidirem, e a gente detecta “0 linhas atualizadas”.
+  // ✅ Mantido como você já tinha validado (sem .eq(establishment_id))
   const { data, error } = await supabase
     .from("products")
     .update(updateData)
@@ -299,11 +354,9 @@ export async function updateProduct(formData: FormData) {
       }),
     );
 
-    // ✅ melhoria: não derruba a app com throw (evita Digest)
     redirectWithError(supabaseErrorText(error));
   }
 
-  // ✅ CRÍTICO: se data veio null, não atualizou nada (RLS bloqueou / id não pertence / id inválido)
   if (!data?.id) {
     console.error(
       "[products.update] no-row-updated",

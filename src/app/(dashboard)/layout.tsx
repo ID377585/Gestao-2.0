@@ -60,19 +60,13 @@ export default async function DashboardLayout({
   // =========================
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* 
-        ✅ Sidebar width controlado por CSS var:
-        - aberto: 16rem
-        - fechado: 0rem
-        A var será definida no client (Sidebar/Topbar).
-        Se nada definir, o fallback fica 16rem no desktop.
-      */}
       <div
         className="flex"
         style={
           {
-            // fallback desktop (se seu sidebar ainda não setar a var)
-            ["--sidebar-w" as any]: "16rem",
+            // ✅ fallback desktop: ABERTO (equiv. w-72)
+            // Sidebar (client) vai sobrescrever pra 5rem quando recolher
+            ["--sidebar-w" as any]: "18rem",
           } as React.CSSProperties
         }
       >
@@ -118,9 +112,7 @@ export default async function DashboardLayout({
       </div>
 
       {/* Mobile sidebar overlay */}
-      <div className="md:hidden">
-        {/* TODO: Implementar sidebar mobile */}
-      </div>
+      <div className="md:hidden">{/* TODO: Implementar sidebar mobile */}</div>
     </div>
   );
 }

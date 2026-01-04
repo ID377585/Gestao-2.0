@@ -21,7 +21,7 @@ import {
   BadgeDollarSign,
   Menu,
   X,
-  Boxes, // ✅ ícone do Inventário
+  Boxes,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -37,27 +37,18 @@ const menuItems = [
   { title: "Produção", href: "/dashboard/producao", icon: Factory },
   { title: "Produtividade", href: "/dashboard/produtividade", icon: BarChart3 },
   { title: "Estoque", href: "/dashboard/estoque", icon: Package },
-
-  // ✅ INVENTÁRIO
   { title: "Inventário", href: "/dashboard/inventario", icon: Boxes },
-
-  // ✅ NOVO ITEM: PRODUTOS
   { title: "Produtos", href: "/dashboard/produtos", icon: Package },
-
   { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },
   { title: "Etiquetas", href: "/dashboard/etiquetas", icon: Tag },
   { title: "Histórico", href: "/dashboard/historico-pedidos", icon: History },
-
   { title: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },
   { title: "Transferências", href: "/dashboard/transferencias", icon: ArrowLeftRight },
-
   { title: "Compras", href: "/dashboard/compras", icon: ShoppingCart },
   { title: "Controladoria", href: "/dashboard/controladoria", icon: BadgeDollarSign },
 ];
 
-const adminItems = [
-  { title: "Usuários", href: "/dashboard/admin/usuarios", icon: Users },
-];
+const adminItems = [{ title: "Usuários", href: "/dashboard/admin/usuarios", icon: Users }];
 
 interface SidebarProps {
   className?: string;
@@ -69,25 +60,16 @@ export function Sidebar({ className }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false); // desktop
   const [mobileOpen, setMobileOpen] = useState(false); // mobile
 
-  // ✅ NOVO: sincroniza largura do sidebar com o layout via CSS var
-  // aberto  = 18rem (equiv. w-72)
-  // fechado = 5rem  (equiv. w-20)
-  useEffect(() => {
-    // Só faz no browser
-    const root = document.documentElement;
-
-    // Se quiser “sumir totalmente” ao recolher, troque "5rem" por "0rem".
-    const width = collapsed ? "5rem" : "18rem";
-    root.style.setProperty("--sidebar-w", width);
-
-    return () => {
-      // opcional: não remove para evitar "piscadas" em navegação
-      // root.style.removeProperty("--sidebar-w");
-    };
-  }, [collapsed]);
-
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(href + "/");
+
+  // ✅ Aqui é onde o "vão" some:
+  // - aberto  = 18rem (equiv. w-72)
+  // - fechado = 5rem  (equiv. w-20)
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--sidebar-w", collapsed ? "5rem" : "18rem");
+  }, [collapsed]);
 
   function SidebarContent({
     variant,
@@ -139,7 +121,7 @@ export function Sidebar({ className }: SidebarProps) {
           )}
         </div>
 
-        {/* Menu (SCROLL AQUI) */}
+        {/* Menu */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <div className="space-y-3">
             {(variant === "mobile" || !collapsed) && (
@@ -154,20 +136,12 @@ export function Sidebar({ className }: SidebarProps) {
                 const Icon = item.icon;
 
                 return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => onNavigate?.()}
-                  >
+                  <Link key={item.href} href={item.href} onClick={() => onNavigate?.()}>
                     <Button
                       variant={active ? "secondary" : "ghost"}
                       className={cn(
                         "w-full justify-start gap-3 rounded-xl h-12",
-                        variant === "desktop"
-                          ? collapsed
-                            ? "px-3"
-                            : "px-4"
-                          : "px-4"
+                        variant === "desktop" ? (collapsed ? "px-3" : "px-4") : "px-4"
                       )}
                       title={variant === "desktop" && collapsed ? item.title : undefined}
                     >
@@ -197,20 +171,12 @@ export function Sidebar({ className }: SidebarProps) {
                 const Icon = item.icon;
 
                 return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => onNavigate?.()}
-                  >
+                  <Link key={item.href} href={item.href} onClick={() => onNavigate?.()}>
                     <Button
                       variant={active ? "secondary" : "ghost"}
                       className={cn(
                         "w-full justify-start gap-3 rounded-xl h-12",
-                        variant === "desktop"
-                          ? collapsed
-                            ? "px-3"
-                            : "px-4"
-                          : "px-4"
+                        variant === "desktop" ? (collapsed ? "px-3" : "px-4") : "px-4"
                       )}
                       title={variant === "desktop" && collapsed ? item.title : undefined}
                     >
@@ -231,7 +197,7 @@ export function Sidebar({ className }: SidebarProps) {
 
   return (
     <>
-      {/* MOBILE trigger */}
+      {/* MOBILE trigger (se você já usa SidebarMobile no Topbar, pode manter assim mesmo) */}
       <div className="md:hidden">
         <Button
           variant="ghost"
@@ -244,7 +210,6 @@ export function Sidebar({ className }: SidebarProps) {
         </Button>
 
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          {/* ✅ overflow-y-auto + h-full garantem o scroll */}
           <SheetContent side="left" className="w-[300px] p-0 overflow-y-auto">
             <SidebarContent variant="mobile" onNavigate={() => setMobileOpen(false)} />
           </SheetContent>
@@ -252,15 +217,10 @@ export function Sidebar({ className }: SidebarProps) {
       </div>
 
       {/* DESKTOP */}
-      {/* ✅ IMPORTANTE: aqui não forçamos mais w-20/w-72, porque a largura agora vem do layout via --sidebar-w */}
-      <aside
-        className={cn(
-          "hidden md:flex min-h-screen flex-col bg-white transition-all duration-300 w-full",
-          className
-        )}
-      >
+      {/* ✅ Aqui NÃO definimos w-20/w-72: a largura real vem do layout via --sidebar-w */}
+      <div className={cn("hidden md:flex h-full w-full flex-col", className)}>
         <SidebarContent variant="desktop" />
-      </aside>
+      </div>
     </>
   );
 }

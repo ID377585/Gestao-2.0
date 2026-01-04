@@ -60,16 +60,11 @@ export default async function DashboardLayout({
   // =========================
   return (
     <div className="min-h-screen bg-gray-50">
-      <div
-        className="flex"
-        style={
-          {
-            // ✅ fallback desktop: ABERTO (equiv. w-72)
-            // Sidebar (client) vai sobrescrever pra 5rem quando recolher
-            ["--sidebar-w" as any]: "18rem",
-          } as React.CSSProperties
-        }
-      >
+      {/* ✅ NÃO defina --sidebar-w aqui.
+          O Sidebar (client) controla essa variável no :root,
+          e o layout só “consome” var(--sidebar-w).
+      */}
+      <div className="flex">
         {/* Sidebar (Desktop) */}
         <aside
           className="

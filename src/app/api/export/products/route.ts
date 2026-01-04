@@ -47,6 +47,10 @@ type ProductExportRow = {
   package_qty: number | string | null;
   qty_per_package: string | null;
   category: string | null;
+
+  // ✅ NOVA COLUNA (SETOR)
+  sector_category: string | null;
+
   price: number | string | null;
   conversion_factor: number | string | null;
   is_active: boolean | null;
@@ -79,7 +83,9 @@ async function resolveEstablishmentId(
     const orgId = normalizeId((membership as any)?.organization_id);
     const picked = estId ?? orgId ?? null;
 
-    debug.push(`membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`);
+    debug.push(
+      `membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
+    );
     if (picked) return { establishmentId: picked, debug };
 
     debug.push("membership-helper: sem establishment/org no membership");
@@ -113,7 +119,9 @@ async function resolveEstablishmentId(
         const orgId = normalizeId((m as any)?.organization_id);
         const picked = estId ?? orgId ?? null;
 
-        debug.push(`fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`);
+        debug.push(
+          `fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
+        );
         if (picked) return { establishmentId: picked, debug };
       }
     } catch (e: any) {
@@ -135,7 +143,9 @@ async function resolveEstablishmentId(
         const orgId = normalizeId((p as any)?.organization_id);
         const picked = estId ?? orgId ?? null;
 
-        debug.push(`fallback profiles: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`);
+        debug.push(
+          `fallback profiles: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
+        );
         if (picked) return { establishmentId: picked, debug };
       }
     } catch (e: any) {
@@ -178,6 +188,10 @@ export async function GET(_request: Request) {
       "package_qty",
       "qty_per_package",
       "category",
+
+      // ✅ NOVA COLUNA (SETOR)
+      "sector_category",
+
       "price",
       "conversion_factor",
       "is_active",
@@ -210,6 +224,10 @@ export async function GET(_request: Request) {
       "package_qty",
       "qty_per_package",
       "category",
+
+      // ✅ NOVA COLUNA (SETOR)
+      "sector_category",
+
       "price",
       "conversion_factor",
       "is_active",
@@ -244,6 +262,11 @@ export async function GET(_request: Request) {
         conversionFormatted = !Number.isNaN(n) ? formatNumber(n, 4) : "";
       }
 
+      const sectorCategoryText =
+        p.sector_category !== null && p.sector_category !== undefined
+          ? String(p.sector_category)
+          : "";
+
       const row = [
         csvField(p.id ?? ""),
         csvField(p.sku ?? ""),
@@ -253,6 +276,10 @@ export async function GET(_request: Request) {
         csvField(packageQtyFormatted),
         csvField(qtyPerPackageText),
         csvField(p.category ?? ""),
+
+        // ✅ NOVA COLUNA (SETOR)
+        csvField(sectorCategoryText),
+
         csvField(priceFormatted),
         csvField(conversionFormatted),
         csvField(p.is_active ? 1 : 0),

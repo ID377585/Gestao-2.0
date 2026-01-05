@@ -69,12 +69,12 @@ async function getContextOrThrow() {
   };
 }
 
-// 🔹 Lista colaboradores do ESTABELECIMENTO (profiles + membership) + email do Auth
+// 🔹 Lista colaboradores do ESTABELECIMENTO (membership + profile) + email do Auth
 export async function listCollaborators(): Promise<Collaborator[]> {
   const ctx = await getContextOrThrow();
   const supabaseAdmin = getSupabaseAdmin();
 
-  // 1) Pega memberships do estabelecimento + profiles (para nome/role/setor)
+  // 1) memberships ativos do estabelecimento (isso define o ROLE real)
   const { data: memberships, error: memErr } = await supabaseAdmin
     .from("establishment_memberships")
     .select("user_id, role, is_active")
@@ -86,12 +86,20 @@ export async function listCollaborators(): Promise<Collaborator[]> {
     throw new Error("Erro ao listar colaboradores.");
   }
 
-  const userIds = (memberships ?? []).map((m: any) => m.user_id);
+  const membershipByUserId = new Map<string, { role: ProfileRole }>();
+  for (const m of memberships ?? []) {
+    if (m?.user_id) {
+      membershipByUserId.set(m.user_id, { role: m.role as ProfileRole });
+    }
+  }
+
+  const userIds = Array.from(membershipByUserId.keys());
   if (userIds.length === 0) return [];
 
+  // 2) profiles (nome + setor)
   const { data: profiles, error: profilesErr } = await supabaseAdmin
     .from("profiles")
-    .select("id, full_name, role, sector")
+    .select("id, full_name, sector")
     .in("id", userIds)
     .order("full_name", { ascending: true });
 
@@ -100,23 +108,15 @@ export async function listCollaborators(): Promise<Collaborator[]> {
     throw new Error("Erro ao listar colaboradores.");
   }
 
-  const profilesById = new Map<
-    string,
-    { id: string; full_name: string; role: string; sector: string | null }
-  >(
-    (profiles ?? []).map((p: any) => [
-      p.id,
-      {
-        id: p.id,
-        full_name: p.full_name,
-        role: p.role,
-        sector: p.sector ?? null,
-      },
-    ])
-  );
+  const profileById = new Map<string, { full_name: string; sector: string | null }>();
+  for (const p of profiles ?? []) {
+    profileById.set(p.id, {
+      full_name: (p.full_name ?? "").toString(),
+      sector: (p.sector ?? null) as string | null,
+    });
+  }
 
-  // 2) Pega usuários do Auth para mapear email
-  //    (listUsers pode ser paginado; para instalações pequenas isso resolve bem)
+  // 3) Auth users (email) — pode ser paginado; para base pequena ok
   const { data: usersList, error: usersErr } =
     await supabaseAdmin.auth.admin.listUsers();
 
@@ -130,28 +130,31 @@ export async function listCollaborators(): Promise<Collaborator[]> {
     if (u?.id) emailById.set(u.id, u.email ?? "");
   }
 
+  // 4) monta resultado final
   const result: Collaborator[] = [];
 
   for (const userId of userIds) {
-    const profile = profilesById.get(userId);
-    if (!profile) continue;
+    const mem = membershipByUserId.get(userId);
+    if (!mem) continue;
+
+    const prof = profileById.get(userId);
 
     result.push({
       id: userId,
       email: emailById.get(userId) ?? "",
-      full_name: profile.full_name ?? "",
-      role: (profile.role ?? "producao") as ProfileRole,
-      sector: profile.sector,
+      full_name: prof?.full_name ?? "",
+      role: mem.role,
+      sector: prof?.sector ?? null,
     });
   }
 
-  // ordena por nome (caso algum venha vazio)
+  // Ordena por nome (garante previsibilidade)
   result.sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
 
   return result;
 }
 
-// 🔹 Cria usuário (Auth) + profile + membership no estabelecimento
+// 🔹 Cria usuário (Auth) + profile + membership no establishment
 export async function createCollaborator(formData: FormData) {
   const ctx = await getContextOrThrow();
   const supabaseAdmin = getSupabaseAdmin();
@@ -168,13 +171,17 @@ export async function createCollaborator(formData: FormData) {
     throw new Error("Preencha Nome, E-mail, Senha e Papel.");
   }
 
-  // 1) Cria o usuário no Auth
+  // 1) Cria usuário no Auth
   const { data: userResp, error: userErr } =
     await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: { full_name },
+      user_metadata: {
+        full_name,
+        role,
+        sector,
+      },
     });
 
   if (userErr || !userResp?.user) {
@@ -184,32 +191,40 @@ export async function createCollaborator(formData: FormData) {
 
   const userId = userResp.user.id;
 
-  // 2) Cria/insere profile
-  const { error: profileErr } = await supabaseAdmin.from("profiles").insert({
-    id: userId,
-    full_name,
-    role,
-    sector,
-  });
+  // 2) Profile: use UPSERT para não quebrar se já existir (ex.: triggers)
+  const { error: profileErr } = await supabaseAdmin.from("profiles").upsert(
+    {
+      id: userId,
+      full_name,
+      role,
+      sector,
+    },
+    { onConflict: "id" }
+  );
 
   if (profileErr) {
-    console.error("Erro ao criar profile:", profileErr);
+    console.error("Erro ao criar/atualizar profile:", profileErr);
     throw new Error("Usuário criado, mas falhou ao salvar o perfil.");
   }
 
-  // 3) Vincula ao estabelecimento (membership)
+  // 3) Membership: use UPSERT para não quebrar com unique(establishment_id,user_id)
   const { error: membershipErr } = await supabaseAdmin
     .from("establishment_memberships")
-    .insert({
-      establishment_id: ctx.establishment_id,
-      user_id: userId,
-      role,
-      is_active: true,
-    });
+    .upsert(
+      {
+        establishment_id: ctx.establishment_id,
+        user_id: userId,
+        role,
+        is_active: true,
+      },
+      { onConflict: "establishment_id,user_id" }
+    );
 
   if (membershipErr) {
-    console.error("Erro ao criar membership:", membershipErr);
-    throw new Error("Usuário criado, mas falhou ao vincular ao estabelecimento.");
+    console.error("Erro ao criar/atualizar membership:", membershipErr);
+    throw new Error(
+      "Usuário criado, mas falhou ao vincular ao estabelecimento."
+    );
   }
 
   revalidatePath("/dashboard/admin/usuarios");

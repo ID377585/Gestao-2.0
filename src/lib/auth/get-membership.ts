@@ -16,7 +16,7 @@ export type ActiveMembership = {
   user_id: string;
   role: Role;
 
-  // estes campos existem no seu tipo antigo — vamos manter para não quebrar imports
+  // compat legado (não quebrar imports antigos)
   org_id: string | null;
   unit_id: string | null;
 
@@ -27,7 +27,7 @@ export type ActiveMembership = {
 };
 
 export type MembershipContext = {
-  user: any; // se você tiver o tipo User do supabase, posso tipar certinho
+  user: any;
   membership: ActiveMembership;
   role: Role;
   orgId: string | null;
@@ -37,21 +37,21 @@ export type MembershipContext = {
 
 type Options = {
   redirectToLogin?: string; // default: "/login"
-  redirectToNoMembership?: string; // default: "/acesso-servicos"
+  redirectToNoMembership?: string; // default: "/sem-acesso"
 };
 
 /**
- * Retorna membership ativo + role + escopo.
- * Se não estiver logado ou não tiver membership ativo, redireciona.
- *
  * FONTE ÚNICA DA VERDADE (ATUAL): public.establishment_memberships
+ * - Se não estiver logado => /login
+ * - Se não tiver membership ativo => /sem-acesso
  */
 export async function getActiveMembershipOrRedirect(
   options?: Options
 ): Promise<MembershipContext> {
   const redirectToLogin = options?.redirectToLogin ?? "/login";
-  const redirectToNoMembership =
-    options?.redirectToNoMembership ?? "/acesso-servicos";
+
+  // IMPORTANTE: este default precisa bater com a página real que você criou
+  const redirectToNoMembership = options?.redirectToNoMembership ?? "/sem-acesso";
 
   const supabase = await createSupabaseServerClient();
 
@@ -63,42 +63,54 @@ export async function getActiveMembershipOrRedirect(
 
   if (userErr || !user) redirect(redirectToLogin);
 
-  // 2) membership ativo (fonte única da verdade)
-  // IMPORTANTe: agora é establishment_memberships
-  const { data, error } = await supabase
+  // 2) memberships ativos (podem existir >1; escolhemos o melhor)
+  const { data: rows, error } = await supabase
     .from("establishment_memberships")
     .select("id,user_id,role,establishment_id,is_active,created_at")
     .eq("user_id", user.id)
     .eq("is_active", true)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(10);
 
   if (error) {
-    console.error(
-      "[getActiveMembershipOrRedirect] establishment_memberships select error:",
-      {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-      }
-    );
+    console.error("[getActiveMembershipOrRedirect] select error:", {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+    });
     redirect(redirectToNoMembership);
   }
 
-  if (!data) redirect(redirectToNoMembership);
+  if (!rows || rows.length === 0) {
+    console.error("[getActiveMembershipOrRedirect] no active membership", {
+      user_id: user.id,
+    });
+    redirect(redirectToNoMembership);
+  }
 
-  // Mantém compatibilidade com o tipo antigo (org_id/unit_id)
+  // 3) escolhe o melhor membership (prioriza admin/operacao; senão o mais recente)
+  const priority: Record<string, number> = { admin: 2, operacao: 1 };
+  const picked =
+    rows
+      .slice()
+      .sort((a: any, b: any) => {
+        const pa = priority[String(a.role)] ?? 0;
+        const pb = priority[String(b.role)] ?? 0;
+        if (pb !== pa) return pb - pa;
+        // fallback por created_at desc (já veio desc, mas garantimos)
+        return String(b.created_at).localeCompare(String(a.created_at));
+      })[0] ?? rows[0];
+
   const membership: ActiveMembership = {
-    id: String((data as any).id),
-    user_id: String((data as any).user_id),
-    role: (data as any).role as Role,
-    establishment_id: (data as any).establishment_id ?? null,
-    is_active: Boolean((data as any).is_active),
-    created_at: String((data as any).created_at),
+    id: String((picked as any).id),
+    user_id: String((picked as any).user_id),
+    role: (picked as any).role as Role,
+    establishment_id: (picked as any).establishment_id ?? null,
+    is_active: Boolean((picked as any).is_active),
+    created_at: String((picked as any).created_at),
 
-    // não existem mais nesse fluxo; mantém null para não quebrar o app
+    // compat legado
     org_id: null,
     unit_id: null,
   };
@@ -107,14 +119,14 @@ export async function getActiveMembershipOrRedirect(
     user,
     membership,
     role: membership.role,
-    orgId: membership.org_id ?? null,
-    unitId: membership.unit_id ?? null,
-    establishmentId: membership.establishment_id ?? null,
+    orgId: membership.org_id,
+    unitId: membership.unit_id,
+    establishmentId: membership.establishment_id,
   };
 }
 
 /**
- * Variante "soft" (não redireciona) – útil se quiser só checar.
+ * Variante "soft" (não redireciona).
  */
 export async function getActiveMembership() {
   const supabase = await createSupabaseServerClient();
@@ -126,26 +138,46 @@ export async function getActiveMembership() {
 
   if (userErr || !user) return { user: null, membership: null };
 
-  const { data } = await supabase
+  const { data: rows, error } = await supabase
     .from("establishment_memberships")
     .select("id,user_id,role,establishment_id,is_active,created_at")
     .eq("user_id", user.id)
     .eq("is_active", true)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(10);
 
-  if (!data) return { user, membership: null };
+  if (error || !rows || rows.length === 0) {
+    if (error) {
+      console.error("[getActiveMembership] select error:", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      });
+    }
+    return { user, membership: null };
+  }
+
+  const priority: Record<string, number> = { admin: 2, operacao: 1 };
+  const picked =
+    rows
+      .slice()
+      .sort((a: any, b: any) => {
+        const pa = priority[String(a.role)] ?? 0;
+        const pb = priority[String(b.role)] ?? 0;
+        if (pb !== pa) return pb - pa;
+        return String(b.created_at).localeCompare(String(a.created_at));
+      })[0] ?? rows[0];
 
   const membership: ActiveMembership = {
-    id: String((data as any).id),
-    user_id: String((data as any).user_id),
-    role: (data as any).role as Role,
-    establishment_id: (data as any).establishment_id ?? null,
-    is_active: Boolean((data as any).is_active),
-    created_at: String((data as any).created_at),
+    id: String((picked as any).id),
+    user_id: String((picked as any).user_id),
+    role: (picked as any).role as Role,
+    establishment_id: (picked as any).establishment_id ?? null,
+    is_active: Boolean((picked as any).is_active),
+    created_at: String((picked as any).created_at),
 
-    // compat
+    // compat legado
     org_id: null,
     unit_id: null,
   };

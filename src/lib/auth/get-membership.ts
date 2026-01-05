@@ -15,9 +15,13 @@ export type ActiveMembership = {
   id: string;
   user_id: string;
   role: Role;
+
+  // estes campos existem no seu tipo antigo — vamos manter para não quebrar imports
   org_id: string | null;
   unit_id: string | null;
+
   establishment_id: string | null;
+
   is_active: boolean;
   created_at: string;
 };
@@ -39,6 +43,8 @@ type Options = {
 /**
  * Retorna membership ativo + role + escopo.
  * Se não estiver logado ou não tiver membership ativo, redireciona.
+ *
+ * FONTE ÚNICA DA VERDADE (ATUAL): public.establishment_memberships
  */
 export async function getActiveMembershipOrRedirect(
   options?: Options
@@ -58,11 +64,10 @@ export async function getActiveMembershipOrRedirect(
   if (userErr || !user) redirect(redirectToLogin);
 
   // 2) membership ativo (fonte única da verdade)
+  // IMPORTANTe: agora é establishment_memberships
   const { data, error } = await supabase
-    .from("memberships")
-    .select(
-      "id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at"
-    )
+    .from("establishment_memberships")
+    .select("id,user_id,role,establishment_id,is_active,created_at")
     .eq("user_id", user.id)
     .eq("is_active", true)
     .order("created_at", { ascending: false })
@@ -70,18 +75,33 @@ export async function getActiveMembershipOrRedirect(
     .maybeSingle();
 
   if (error) {
-    console.error("[getActiveMembershipOrRedirect] memberships select error:", {
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-      code: error.code,
-    });
+    console.error(
+      "[getActiveMembershipOrRedirect] establishment_memberships select error:",
+      {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      }
+    );
     redirect(redirectToNoMembership);
   }
 
   if (!data) redirect(redirectToNoMembership);
 
-  const membership = data as ActiveMembership;
+  // Mantém compatibilidade com o tipo antigo (org_id/unit_id)
+  const membership: ActiveMembership = {
+    id: String((data as any).id),
+    user_id: String((data as any).user_id),
+    role: (data as any).role as Role,
+    establishment_id: (data as any).establishment_id ?? null,
+    is_active: Boolean((data as any).is_active),
+    created_at: String((data as any).created_at),
+
+    // não existem mais nesse fluxo; mantém null para não quebrar o app
+    org_id: null,
+    unit_id: null,
+  };
 
   return {
     user,
@@ -107,15 +127,28 @@ export async function getActiveMembership() {
   if (userErr || !user) return { user: null, membership: null };
 
   const { data } = await supabase
-    .from("memberships")
-    .select(
-      "id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at"
-    )
+    .from("establishment_memberships")
+    .select("id,user_id,role,establishment_id,is_active,created_at")
     .eq("user_id", user.id)
     .eq("is_active", true)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  return { user, membership: (data as ActiveMembership) ?? null };
+  if (!data) return { user, membership: null };
+
+  const membership: ActiveMembership = {
+    id: String((data as any).id),
+    user_id: String((data as any).user_id),
+    role: (data as any).role as Role,
+    establishment_id: (data as any).establishment_id ?? null,
+    is_active: Boolean((data as any).is_active),
+    created_at: String((data as any).created_at),
+
+    // compat
+    org_id: null,
+    unit_id: null,
+  };
+
+  return { user, membership };
 }

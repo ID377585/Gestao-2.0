@@ -43,16 +43,17 @@ async function getContextOrThrow() {
     error: userError,
   } = await supabase.auth.getUser();
 
-  if (userError || !user) {
-    throw new Error("Não autenticado.");
-  }
+  if (userError || !user) throw new Error("Não autenticado.");
 
+  // Fonte única: establishment_memberships (precisa RLS select own membership)
   const { data: membership, error: membershipError } = await supabase
     .from("establishment_memberships")
-    .select("establishment_id, role, is_active")
+    .select("establishment_id, role, is_active, created_at")
     .eq("user_id", user.id)
     .eq("is_active", true)
-    .single();
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if (membershipError || !membership) {
     throw new Error("Sem acesso (membership).");
@@ -69,12 +70,12 @@ async function getContextOrThrow() {
   };
 }
 
-// 🔹 Lista colaboradores do ESTABELECIMENTO (membership + profile) + email do Auth
+// Lista colaboradores do ESTABELECIMENTO (profiles + membership) + email do Auth
 export async function listCollaborators(): Promise<Collaborator[]> {
   const ctx = await getContextOrThrow();
   const supabaseAdmin = getSupabaseAdmin();
 
-  // 1) memberships ativos do estabelecimento (isso define o ROLE real)
+  // 1) Memberships do estabelecimento
   const { data: memberships, error: memErr } = await supabaseAdmin
     .from("establishment_memberships")
     .select("user_id, role, is_active")
@@ -86,20 +87,13 @@ export async function listCollaborators(): Promise<Collaborator[]> {
     throw new Error("Erro ao listar colaboradores.");
   }
 
-  const membershipByUserId = new Map<string, { role: ProfileRole }>();
-  for (const m of memberships ?? []) {
-    if (m?.user_id) {
-      membershipByUserId.set(m.user_id, { role: m.role as ProfileRole });
-    }
-  }
-
-  const userIds = Array.from(membershipByUserId.keys());
+  const userIds = (memberships ?? []).map((m: any) => m.user_id);
   if (userIds.length === 0) return [];
 
-  // 2) profiles (nome + setor)
+  // 2) Profiles
   const { data: profiles, error: profilesErr } = await supabaseAdmin
     .from("profiles")
-    .select("id, full_name, sector")
+    .select("id, full_name, role, sector")
     .in("id", userIds)
     .order("full_name", { ascending: true });
 
@@ -108,53 +102,62 @@ export async function listCollaborators(): Promise<Collaborator[]> {
     throw new Error("Erro ao listar colaboradores.");
   }
 
-  const profileById = new Map<string, { full_name: string; sector: string | null }>();
-  for (const p of profiles ?? []) {
-    profileById.set(p.id, {
-      full_name: (p.full_name ?? "").toString(),
-      sector: (p.sector ?? null) as string | null,
-    });
-  }
+  const profilesById = new Map<
+    string,
+    { id: string; full_name: string; role: string; sector: string | null }
+  >(
+    (profiles ?? []).map((p: any) => [
+      p.id,
+      {
+        id: p.id,
+        full_name: p.full_name,
+        role: p.role,
+        sector: p.sector ?? null,
+      },
+    ])
+  );
 
-  // 3) Auth users (email) — pode ser paginado; para base pequena ok
-  const { data: usersList, error: usersErr } =
-    await supabaseAdmin.auth.admin.listUsers();
-
-  if (usersErr) {
-    console.error("Erro ao listar usuários auth:", usersErr);
-    throw new Error("Erro ao listar colaboradores.");
-  }
-
+  // 3) Auth users (email) - com paginação (evita perder emails se tiver mais usuários)
   const emailById = new Map<string, string>();
-  for (const u of usersList.users) {
-    if (u?.id) emailById.set(u.id, u.email ?? "");
+  const perPage = 200;
+  for (let page = 1; page <= 10; page++) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) {
+      console.error("Erro ao listar usuários auth:", error);
+      throw new Error("Erro ao listar colaboradores.");
+    }
+
+    for (const u of data.users) {
+      if (u?.id) emailById.set(u.id, u.email ?? "");
+    }
+
+    if (data.users.length < perPage) break;
   }
 
-  // 4) monta resultado final
   const result: Collaborator[] = [];
 
   for (const userId of userIds) {
-    const mem = membershipByUserId.get(userId);
-    if (!mem) continue;
-
-    const prof = profileById.get(userId);
+    const profile = profilesById.get(userId);
+    if (!profile) continue;
 
     result.push({
       id: userId,
       email: emailById.get(userId) ?? "",
-      full_name: prof?.full_name ?? "",
-      role: mem.role,
-      sector: prof?.sector ?? null,
+      full_name: profile.full_name ?? "",
+      role: (profile.role ?? "producao") as ProfileRole,
+      sector: profile.sector,
     });
   }
 
-  // Ordena por nome (garante previsibilidade)
   result.sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
-
   return result;
 }
 
-// 🔹 Cria usuário (Auth) + profile + membership no establishment
+// Cria usuário (Auth) + profile + membership no estabelecimento
 export async function createCollaborator(formData: FormData) {
   const ctx = await getContextOrThrow();
   const supabaseAdmin = getSupabaseAdmin();
@@ -171,17 +174,13 @@ export async function createCollaborator(formData: FormData) {
     throw new Error("Preencha Nome, E-mail, Senha e Papel.");
   }
 
-  // 1) Cria usuário no Auth
+  // 1) Cria o usuário no Auth
   const { data: userResp, error: userErr } =
     await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: {
-        full_name,
-        role,
-        sector,
-      },
+      user_metadata: { full_name },
     });
 
   if (userErr || !userResp?.user) {
@@ -191,7 +190,7 @@ export async function createCollaborator(formData: FormData) {
 
   const userId = userResp.user.id;
 
-  // 2) Profile: use UPSERT para não quebrar se já existir (ex.: triggers)
+  // 2) Upsert do profile (evita quebrar se já existir por algum motivo)
   const { error: profileErr } = await supabaseAdmin.from("profiles").upsert(
     {
       id: userId,
@@ -203,11 +202,11 @@ export async function createCollaborator(formData: FormData) {
   );
 
   if (profileErr) {
-    console.error("Erro ao criar/atualizar profile:", profileErr);
+    console.error("Erro ao salvar profile:", profileErr);
     throw new Error("Usuário criado, mas falhou ao salvar o perfil.");
   }
 
-  // 3) Membership: use UPSERT para não quebrar com unique(establishment_id,user_id)
+  // 3) Upsert do membership (evita duplicate key)
   const { error: membershipErr } = await supabaseAdmin
     .from("establishment_memberships")
     .upsert(
@@ -221,7 +220,7 @@ export async function createCollaborator(formData: FormData) {
     );
 
   if (membershipErr) {
-    console.error("Erro ao criar/atualizar membership:", membershipErr);
+    console.error("Erro ao salvar membership:", membershipErr);
     throw new Error(
       "Usuário criado, mas falhou ao vincular ao estabelecimento."
     );

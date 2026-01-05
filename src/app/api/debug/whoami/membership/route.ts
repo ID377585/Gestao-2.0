@@ -1,3 +1,4 @@
+import "server-only";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -13,23 +14,20 @@ export async function GET() {
     } = await supabase.auth.getUser();
 
     if (userErr || !user) {
-      return NextResponse.json({
-        ok: false,
-        step: "auth.getUser",
-        user: null,
-        userErr: userErr
-          ? { message: userErr.message, status: (userErr as any).status }
-          : null,
-      });
+      return NextResponse.json(
+        { ok: false, step: "auth.getUser", user: null, error: userErr?.message ?? "not_logged_in" },
+        { status: 401 }
+      );
     }
 
+    // tenta buscar membership ativo (fonte atual)
     const { data, error } = await supabase
       .from("establishment_memberships")
-      .select("id,establishment_id,user_id,role,is_active,created_at")
+      .select("id, establishment_id, user_id, role, is_active, created_at")
       .eq("user_id", user.id)
       .eq("is_active", true)
       .order("created_at", { ascending: false })
-      .limit(5);
+      .limit(10);
 
     return NextResponse.json({
       ok: true,
@@ -46,7 +44,7 @@ export async function GET() {
     });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, message: e?.message ?? "unknown error" },
+      { ok: false, step: "catch", error: String(e?.message ?? e) },
       { status: 500 }
     );
   }

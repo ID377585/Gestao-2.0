@@ -16,7 +16,7 @@ export type ActiveMembership = {
   user_id: string;
   role: Role;
 
-  // compat com código antigo (mantém para não quebrar imports)
+  // compat com legado
   org_id: string | null;
   unit_id: string | null;
 
@@ -37,14 +37,12 @@ export type MembershipContext = {
 
 type Options = {
   redirectToLogin?: string; // default: "/login"
-  redirectToNoMembership?: string; // default: "/sem-acesso"
+  redirectToNoMembership?: string; // default: "/sem-acesso" ou "/acesso-servicos"
 };
 
 /**
- * Retorna membership ativo + role + establishment.
- * Se não estiver logado ou não tiver membership ativo, redireciona.
- *
- * FONTE ÚNICA DA VERDADE: public.establishment_memberships
+ * Fonte principal: public.establishment_memberships
+ * Fallback: public.memberships (legado), se existir.
  */
 export async function getActiveMembershipOrRedirect(
   options?: Options
@@ -52,7 +50,7 @@ export async function getActiveMembershipOrRedirect(
   const redirectToLogin = options?.redirectToLogin ?? "/login";
   const redirectToNoMembership = options?.redirectToNoMembership ?? "/sem-acesso";
 
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
 
   // 1) auth obrigatório
   const {
@@ -60,10 +58,15 @@ export async function getActiveMembershipOrRedirect(
     error: userErr,
   } = await supabase.auth.getUser();
 
-  if (userErr || !user) redirect(redirectToLogin);
+  if (userErr || !user) {
+    console.error("[getActiveMembershipOrRedirect] not authenticated:", {
+      message: userErr?.message,
+    });
+    redirect(redirectToLogin);
+  }
 
-  // 2) membership ativo
-  const { data, error } = await supabase
+  // 2) tenta establishment_memberships (principal)
+  const { data: emData, error: emErr } = await supabase
     .from("establishment_memberships")
     .select("id,user_id,role,establishment_id,is_active,created_at")
     .eq("user_id", user.id)
@@ -72,48 +75,97 @@ export async function getActiveMembershipOrRedirect(
     .limit(1)
     .maybeSingle();
 
-  if (error) {
-    console.error("[getActiveMembershipOrRedirect] select error:", {
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-      code: error.code,
+  if (emErr) {
+    console.error("[getActiveMembershipOrRedirect] establishment_memberships error:", {
+      message: emErr.message,
+      details: emErr.details,
+      hint: emErr.hint,
+      code: emErr.code,
+      user_id: user.id,
+      email: user.email,
     });
-    redirect(redirectToNoMembership);
   }
 
-  if (!data) {
-    redirect(redirectToNoMembership);
+  if (emData) {
+    const membership: ActiveMembership = {
+      id: String((emData as any).id),
+      user_id: String((emData as any).user_id),
+      role: (emData as any).role as Role,
+      establishment_id: (emData as any).establishment_id ?? null,
+      is_active: Boolean((emData as any).is_active),
+      created_at: String((emData as any).created_at),
+      org_id: null,
+      unit_id: null,
+    };
+
+    return {
+      user,
+      membership,
+      role: membership.role,
+      orgId: null,
+      unitId: null,
+      establishmentId: membership.establishment_id ?? null,
+    };
   }
 
-  const membership: ActiveMembership = {
-    id: String((data as any).id),
-    user_id: String((data as any).user_id),
-    role: (data as any).role as Role,
-    establishment_id: (data as any).establishment_id ?? null,
-    is_active: Boolean((data as any).is_active),
-    created_at: String((data as any).created_at),
+  // 3) fallback legado: memberships (se existir)
+  //    (se a tabela não existir, vai dar erro — a gente loga e segue para redirect)
+  const { data: legacyData, error: legacyErr } = await supabase
+    .from("memberships")
+    .select("id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-    // compat (não existe neste fluxo atual)
-    org_id: null,
-    unit_id: null,
-  };
+  if (legacyErr) {
+    console.error("[getActiveMembershipOrRedirect] memberships (legacy) error:", {
+      message: legacyErr.message,
+      details: legacyErr.details,
+      hint: legacyErr.hint,
+      code: legacyErr.code,
+      user_id: user.id,
+      email: user.email,
+    });
+  }
 
-  return {
-    user,
-    membership,
-    role: membership.role,
-    orgId: membership.org_id ?? null,
-    unitId: membership.unit_id ?? null,
-    establishmentId: membership.establishment_id ?? null,
-  };
+  if (legacyData) {
+    const membership: ActiveMembership = {
+      id: String((legacyData as any).id),
+      user_id: String((legacyData as any).user_id),
+      role: (legacyData as any).role as Role,
+      establishment_id: (legacyData as any).establishment_id ?? null,
+      is_active: Boolean((legacyData as any).is_active),
+      created_at: String((legacyData as any).created_at),
+      org_id: (legacyData as any).org_id ?? null,
+      unit_id: (legacyData as any).unit_id ?? null,
+    };
+
+    return {
+      user,
+      membership,
+      role: membership.role,
+      orgId: membership.org_id ?? null,
+      unitId: membership.unit_id ?? null,
+      establishmentId: membership.establishment_id ?? null,
+    };
+  }
+
+  // 4) nada encontrado -> sem acesso
+  console.error("[getActiveMembershipOrRedirect] no active membership found:", {
+    user_id: user.id,
+    email: user.email,
+  });
+
+  redirect(redirectToNoMembership);
 }
 
 /**
- * Variante "soft" (não redireciona) – útil para checagem.
+ * Soft check (sem redirect)
  */
 export async function getActiveMembership() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
 
   const {
     data: { user },
@@ -122,7 +174,7 @@ export async function getActiveMembership() {
 
   if (userErr || !user) return { user: null, membership: null };
 
-  const { data, error } = await supabase
+  const { data: emData } = await supabase
     .from("establishment_memberships")
     .select("id,user_id,role,establishment_id,is_active,created_at")
     .eq("user_id", user.id)
@@ -131,27 +183,42 @@ export async function getActiveMembership() {
     .limit(1)
     .maybeSingle();
 
-  if (error) {
-    console.error("[getActiveMembership] select error:", {
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-      code: error.code,
-    });
-    return { user, membership: null };
+  if (emData) {
+    const membership: ActiveMembership = {
+      id: String((emData as any).id),
+      user_id: String((emData as any).user_id),
+      role: (emData as any).role as Role,
+      establishment_id: (emData as any).establishment_id ?? null,
+      is_active: Boolean((emData as any).is_active),
+      created_at: String((emData as any).created_at),
+      org_id: null,
+      unit_id: null,
+    };
+
+    return { user, membership };
   }
 
-  if (!data) return { user, membership: null };
+  // fallback legado
+  const { data: legacyData } = await supabase
+    .from("memberships")
+    .select("id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!legacyData) return { user, membership: null };
 
   const membership: ActiveMembership = {
-    id: String((data as any).id),
-    user_id: String((data as any).user_id),
-    role: (data as any).role as Role,
-    establishment_id: (data as any).establishment_id ?? null,
-    is_active: Boolean((data as any).is_active),
-    created_at: String((data as any).created_at),
-    org_id: null,
-    unit_id: null,
+    id: String((legacyData as any).id),
+    user_id: String((legacyData as any).user_id),
+    role: (legacyData as any).role as Role,
+    establishment_id: (legacyData as any).establishment_id ?? null,
+    is_active: Boolean((legacyData as any).is_active),
+    created_at: String((legacyData as any).created_at),
+    org_id: (legacyData as any).org_id ?? null,
+    unit_id: (legacyData as any).unit_id ?? null,
   };
 
   return { user, membership };

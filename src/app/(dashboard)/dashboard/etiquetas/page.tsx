@@ -1337,10 +1337,17 @@ export default function EtiquetasPage() {
                           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-full p-0">
+
+                      {/* ✅ FIX: PopoverContent acima do overlay do modal */}
+                      <PopoverContent
+                        className="p-0 z-[9999] w-[var(--radix-popover-trigger-width)]"
+                        align="start"
+                        side="bottom"
+                        sideOffset={4}
+                      >
                         <Command>
                           <CommandInput placeholder="Digite para buscar..." />
-                          <CommandList>
+                          <CommandList className="max-h-64 overflow-auto">
                             <CommandEmpty>Nenhum item encontrado.</CommandEmpty>
 
                             <CommandGroup>

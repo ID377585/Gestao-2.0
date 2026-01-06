@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+// src/app/(dashboard)/dashboard/etiquetas/page.tsx
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,14 +32,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// ✅ NOVO: Combobox pesquisável (shadcn)
+// ✅ Combobox pesquisável (shadcn)
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -60,7 +57,7 @@ type InventoryLabelRow = {
 };
 
 /* =========================
-   ✅ NOVO: Tipos de produtos (route handler /api/products)
+   ✅ Tipos de produtos (route handler /api/products)
 ========================= */
 type ProductOption = {
   id: string;
@@ -125,7 +122,7 @@ async function apiCreateInventoryLabel(payload: {
   }
 }
 
-// ✅ NOVO: lista produtos do banco (sessão Produtos)
+// ✅ lista produtos do banco (sessão Produtos)
 async function apiListProducts(): Promise<ProductOption[]> {
   const res = await fetch("/api/products", { method: "GET" });
   const contentType = res.headers.get("content-type") || "";
@@ -299,7 +296,6 @@ const addDaysISO = (isoDate: string, days: number) => {
 };
 
 const isoToDDMMYY = (iso: string) => {
-  // iso: yyyy-mm-dd
   if (!iso || iso.length < 10) return "";
   const yyyy = iso.slice(2, 4);
   const mm = iso.slice(5, 7);
@@ -311,7 +307,6 @@ const removeAccents = (s: string) =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
 const getInsumoCode2 = (nome: string) => {
-  // regra simples e previsível: 2 primeiras letras do 1º termo (Cacau -> CA)
   const first = (nome || "").trim().split(/\s+/)[0] ?? "";
   const cleaned = removeAccents(first).toUpperCase();
   return cleaned.slice(0, 2) || "XX";
@@ -324,9 +319,8 @@ const getShelfLifeDiasByNome = (nome: string) => {
   return found?.shelfLifeDias ?? 0;
 };
 
-// ✅ sufixo aleatório para garantir unicidade do lote
 const gerarSufixoRandomico = (tamanho = 3) => {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem 0 e 1
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let result = "";
   for (let i = 0; i < tamanho; i++) {
     const idx = Math.floor(Math.random() * chars.length);
@@ -335,7 +329,7 @@ const gerarSufixoRandomico = (tamanho = 3) => {
   return result;
 };
 
-// ✅ Porcionamento: cada linha é uma etiqueta (mesmo produto/umd, qtd variável)
+// ✅ Porcionamento
 type LinhaPorcao = { id: string; qtd: string };
 const makeLinhaId = () =>
   `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -351,18 +345,16 @@ type LinhaErro = {
 const buildQrPayloadFromEtiqueta = (e: EtiquetaGerada) => {
   const payload = {
     v: 1,
-    lt: e.loteMan, // <= usado no back pra localizar em inventory_labels.label_code
+    lt: e.loteMan,
     p: e.insumo,
     q: e.qtd,
     u: e.umd,
     dv: e.dataVenc,
   };
-
   return JSON.stringify(payload);
 };
 
 export default function EtiquetasPage() {
-  // Histórico de etiquetas (agora vindo do banco)
   const [etiquetasGeradas, setEtiquetasGeradas] = useState<EtiquetaGerada[]>(
     []
   );
@@ -373,7 +365,6 @@ export default function EtiquetasPage() {
   const [tipoSelecionado, setTipoSelecionado] =
     useState<TipoSel>("MANIPULACAO");
 
-  // ✅ Já inicia com "Grande" selecionado
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState("Grande");
 
   const defaultForm = useMemo(
@@ -391,7 +382,6 @@ export default function EtiquetasPage() {
       dataVencimento: "",
       sif: "",
       loteFab: "",
-      // ✅ Local de envio default = nome do estabelecimento
       localEnvio: ESTABELECIMENTO_NOME,
       localArmazenado: "",
     }),
@@ -401,21 +391,43 @@ export default function EtiquetasPage() {
   const [formData, setFormData] = useState(defaultForm);
   const [linhasPorcao, setLinhasPorcao] = useState<LinhaPorcao[]>([]);
 
-  // ✅ ERROS (borda vermelha quando vazio)
   const [erros, setErros] = useState<LinhaErro>({ baseQtd: false, porcoes: {} });
 
-  // ✅ NOVO: produtos do banco (sessão Produtos) para o ComboBox pesquisável
+  // ✅ Produtos do banco para o combobox
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [carregandoProdutos, setCarregandoProdutos] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
+
+  // ✅ FIX DEFINITIVO: dropdown INLINE (sem portal) + close on click outside / ESC
+  const productBoxRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!productOpen) return;
+
+    const onMouseDown = (e: MouseEvent) => {
+      const el = productBoxRef.current;
+      if (!el) return;
+      if (!el.contains(e.target as Node)) setProductOpen(false);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setProductOpen(false);
+    };
+
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [productOpen]);
 
   const selectedProduct = useMemo(
     () => products.find((p) => p.id === selectedProductId) ?? null,
     [products, selectedProductId]
   );
 
-  // --- helpers de data/format ---
   const formatDate = (dateString: string) => {
     if (!dateString) return "";
     return new Date(dateString).toLocaleDateString("pt-BR");
@@ -430,7 +442,7 @@ export default function EtiquetasPage() {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  // ✅ carregar histórico do Supabase na abertura da página
+  // ✅ carregar histórico
   useEffect(() => {
     const carregarDoBanco = async () => {
       try {
@@ -447,11 +459,7 @@ export default function EtiquetasPage() {
             try {
               extra = JSON.parse(row.notes) as Partial<EtiquetaGerada>;
             } catch (e) {
-              console.error(
-                "Erro ao fazer parse do notes da etiqueta:",
-                row.id,
-                e
-              );
+              console.error("Erro ao fazer parse do notes da etiqueta:", row.id, e);
             }
           }
 
@@ -494,7 +502,7 @@ export default function EtiquetasPage() {
     void carregarDoBanco();
   }, []);
 
-  // ✅ NOVO: carregar produtos do banco (sessão Produtos)
+  // ✅ carregar produtos
   useEffect(() => {
     const carregarProdutos = async () => {
       setCarregandoProdutos(true);
@@ -512,7 +520,7 @@ export default function EtiquetasPage() {
     void carregarProdutos();
   }, []);
 
-  // ✅ quando abre o modal: reseta form + seta hoje + zera porções + zera erros
+  // ✅ reset ao abrir modal
   useEffect(() => {
     if (showNovaEtiqueta) {
       const hojeISO = getTodayISO();
@@ -526,13 +534,11 @@ export default function EtiquetasPage() {
       setLinhasPorcao([]);
       setErros({ baseQtd: false, porcoes: {} });
 
-      // ✅ reset do combobox
       setSelectedProductId("");
       setProductOpen(false);
     }
   }, [showNovaEtiqueta, defaultForm]);
 
-  // ✅ (MANTIDO) quando seleciona um insumo (mock): preenche UMD + calcula vencimento usando shelfLifeDias
   const handleSelectInsumo = (insumoId: string) => {
     const insumo = insumosCadastroExemplo.find((i) => i.id === insumoId);
     const hojeISO = getTodayISO();
@@ -570,11 +576,9 @@ export default function EtiquetasPage() {
     }));
   };
 
-  // ✅ NOVO: seleção de produto real do banco (sem quebrar o fluxo atual)
   const handleSelectProductFromDb = (p: ProductOption) => {
     const hojeISO = getTodayISO();
 
-    // tenta achar no mock para autopreencher shelfLife/alergênico/armazenamento/ingredientes
     const mock = insumosCadastroExemplo.find(
       (i) => i.nome.toLowerCase() === p.name.toLowerCase()
     );
@@ -595,7 +599,6 @@ export default function EtiquetasPage() {
       localEnvio: prev.localEnvio || ESTABELECIMENTO_NOME,
     }));
 
-    // ao trocar produto, limpa porcionamento para evitar inconsistência
     setLinhasPorcao([]);
     setErros({ baseQtd: false, porcoes: {} });
   };
@@ -629,9 +632,8 @@ export default function EtiquetasPage() {
     }));
   };
 
-  // ✅ LOTE no padrão: IE-XX-DDMMAA-90D-XXX (sufixo randômico p/ unicidade)
   const gerarLoteVigilancia = () => {
-    const ie = "IE"; // Ivan Escobar
+    const ie = "IE";
     const cod = getInsumoCode2(formData.insumo);
     const dt = isoToDDMMYY(formData.dataManip);
     const shelf = getShelfLifeDiasByNome(formData.insumo);
@@ -641,9 +643,6 @@ export default function EtiquetasPage() {
     return `${base}-${sufixo}`;
   };
 
-  /* =========================
-     ✅ QR IMAGE (offline / local)
-  ========================= */
   const makeQrDataUrl = async (text: string) => {
     return await QRCode.toDataURL(text, {
       errorCorrectionLevel: "M",
@@ -652,9 +651,6 @@ export default function EtiquetasPage() {
     });
   };
 
-  /* =========================
-     ✅ Impressão: 1 página por etiqueta (PDF do navegador)
-  ========================= */
   const imprimirBatchNoBrowser = async (etqs: EtiquetaGerada[]) => {
     const w = window.open("", "_blank", "width=900,height=700");
     if (!w) return;
@@ -880,7 +876,6 @@ export default function EtiquetasPage() {
       parts.push(pageHtml);
     });
 
-    // ✅ Espera imagens carregarem antes do print
     parts.push(`
 <script>
   function waitImagesLoaded() {
@@ -911,7 +906,6 @@ export default function EtiquetasPage() {
     w.document.close();
   };
 
-  // ✅ validação de quantidades (destaca vazias)
   const validarQuantidades = () => {
     const baseVazia = !String(formData.qtd || "").trim();
     const porcoesErros: Record<string, boolean> = {};
@@ -944,7 +938,6 @@ export default function EtiquetasPage() {
         ? Math.max(...etiquetasGeradas.map((e) => e.id))
         : 0;
 
-    // ✅ 1 LOTE POR ETIQUETA
     const novas: EtiquetaGerada[] = qtds.map((qtdStr, idx) => {
       const loteUnico = gerarLoteVigilancia();
       return {
@@ -971,7 +964,6 @@ export default function EtiquetasPage() {
       };
     });
 
-    // 1) Salvar todas as etiquetas no Supabase (via Route Handler)
     try {
       await Promise.all(
         novas.map((et) =>
@@ -980,38 +972,28 @@ export default function EtiquetasPage() {
             qty: et.qtd,
             unitLabel: et.umd,
             labelCode: et.loteMan,
-            extraPayload: et, // guarda todo o objeto no campo notes
+            extraPayload: et,
           })
         )
       );
     } catch (e: any) {
       console.error("Erro ao salvar etiquetas no banco:", e);
-      alert(
-        e?.message ?? "Falha ao salvar etiqueta no banco. Verifique o console."
-      );
-      // Se falhar, NÃO imprime para não gerar divergência
+      alert(e?.message ?? "Falha ao salvar etiqueta no banco. Verifique o console.");
       return;
     }
 
-    // 2) Atualiza histórico localmente
     setEtiquetasGeradas((prev) => [...novas, ...prev]);
 
-    // 3) Imprime todas (N páginas)
     await imprimirBatchNoBrowser(novas);
 
-    // 4) Fecha modal
     setShowNovaEtiqueta(false);
   };
 
-  /* =========================
-     ✅ TIPOS VISÍVEIS (apenas MANIPULAÇÃO)
-  ========================= */
   const tiposVisiveis = useMemo(
     () => tiposEtiqueta.filter((t) => t.nome === "MANIPULACAO"),
     []
   );
 
-  // ✅ "HOJE" dinâmico
   const hojeISO = useMemo(() => getTodayISO(), []);
   const etiquetasHoje = useMemo(
     () =>
@@ -1025,12 +1007,8 @@ export default function EtiquetasPage() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            Sistema de Etiquetas
-          </h1>
-          <p className="text-gray-600">
-            Impressão térmica de etiquetas de manipulação
-          </p>
+          <h1 className="text-3xl font-bold text-gray-900">Sistema de Etiquetas</h1>
+          <p className="text-gray-600">Impressão térmica de etiquetas de manipulação</p>
         </div>
         <div className="flex space-x-2">
           <Button variant="outline">
@@ -1054,9 +1032,7 @@ export default function EtiquetasPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total de Etiquetas
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Total de Etiquetas</CardTitle>
             <span className="text-2xl">🏷️</span>
           </CardHeader>
           <CardContent>
@@ -1074,9 +1050,7 @@ export default function EtiquetasPage() {
             <div className="text-2xl font-bold">
               {etiquetasGeradas.filter((e) => e.tipo === "MANIPULACAO").length}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Etiquetas de manipulação
-            </p>
+            <p className="text-xs text-muted-foreground">Etiquetas de manipulação</p>
           </CardContent>
         </Card>
 
@@ -1089,9 +1063,7 @@ export default function EtiquetasPage() {
             <div className="text-2xl font-bold">
               {etiquetasGeradas.filter((e) => e.tipo === "REVALIDAR").length}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Etiquetas com dados do fabricante
-            </p>
+            <p className="text-xs text-muted-foreground">Etiquetas com dados do fabricante</p>
           </CardContent>
         </Card>
 
@@ -1102,9 +1074,7 @@ export default function EtiquetasPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{etiquetasHoje}</div>
-            <p className="text-xs text-muted-foreground">
-              Etiquetas geradas hoje
-            </p>
+            <p className="text-xs text-muted-foreground">Etiquetas geradas hoje</p>
           </CardContent>
         </Card>
       </div>
@@ -1155,15 +1125,11 @@ export default function EtiquetasPage() {
       <Card>
         <CardHeader>
           <CardTitle>Histórico de Etiquetas Geradas</CardTitle>
-          <CardDescription>
-            Todas as etiquetas geradas com opção de reimpressão
-          </CardDescription>
+          <CardDescription>Todas as etiquetas geradas com opção de reimpressão</CardDescription>
         </CardHeader>
         <CardContent>
           {carregandoHistorico ? (
-            <div className="text-sm text-muted-foreground">
-              Carregando histórico de etiquetas...
-            </div>
+            <div className="text-sm text-muted-foreground">Carregando histórico de etiquetas...</div>
           ) : (
             <Table>
               <TableHeader>
@@ -1182,10 +1148,7 @@ export default function EtiquetasPage() {
               <TableBody>
                 {etiquetasGeradas.length === 0 ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={9}
-                      className="text-sm text-muted-foreground text-center"
-                    >
+                    <TableCell colSpan={9} className="text-sm text-muted-foreground text-center">
                       Nenhuma etiqueta gerada ainda.
                     </TableCell>
                   </TableRow>
@@ -1204,27 +1167,21 @@ export default function EtiquetasPage() {
                           {TIPO_LABEL[etiqueta.tipo]}
                         </Badge>
                       </TableCell>
-                      <TableCell className="font-medium">
-                        {etiqueta.insumo}
-                      </TableCell>
+                      <TableCell className="font-medium">{etiqueta.insumo}</TableCell>
                       <TableCell>
                         {etiqueta.qtd} {etiqueta.umd}
                       </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {etiqueta.loteMan}
-                      </TableCell>
+                      <TableCell className="font-mono text-sm">{etiqueta.loteMan}</TableCell>
                       <TableCell>{etiqueta.responsavel}</TableCell>
                       <TableCell>{formatDateTime(etiqueta.createdAt)}</TableCell>
                       <TableCell>{formatDate(etiqueta.dataVenc)}</TableCell>
                       <TableCell>
                         <div className="text-sm">
                           <p>
-                            <strong>Envio:</strong>{" "}
-                            {etiqueta.localEnvio || "-"}
+                            <strong>Envio:</strong> {etiqueta.localEnvio || "-"}
                           </p>
                           <p>
-                            <strong>Armazenado:</strong>{" "}
-                            {etiqueta.localArmazenado || "-"}
+                            <strong>Armazenado:</strong> {etiqueta.localArmazenado || "-"}
                           </p>
                         </div>
                       </TableCell>
@@ -1320,88 +1277,75 @@ export default function EtiquetasPage() {
                   <div className="min-w-0 md:col-span-6">
                     <Label>Insumo/Produto *</Label>
 
-                    {/* ✅ ComboBox pesquisável */}
-                    <Popover open={productOpen} onOpenChange={setProductOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={productOpen}
-                          className="w-full justify-between"
-                          // ✅ FIX 1: abre mesmo dentro do modal/overlay (Radix + modal custom)
-                          onPointerDown={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setProductOpen((v) => !v);
-                          }}
-                          // ✅ fallback
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setProductOpen((v) => !v);
-                          }}
-                        >
-                          {formData.insumo
-                            ? formData.insumo
-                            : carregandoProdutos
-                            ? "Carregando produtos..."
-                            : "Selecionar insumo"}
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-
-                      {/* ✅ FIX 2: evita briga de foco (abre e fecha instantâneo) */}
-                      <PopoverContent
-                        className="p-0 z-[9999] w-[var(--radix-popover-trigger-width)]"
-                        align="start"
-                        side="bottom"
-                        sideOffset={6}
-                        onOpenAutoFocus={(e) => e.preventDefault()}
+                    {/* ✅ COMBOBOX INLINE (NÃO TRAVA no modal) */}
+                    <div ref={productBoxRef} className="relative">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={productOpen}
+                        className="w-full justify-between"
+                        disabled={carregandoProdutos}
+                        onClick={() => setProductOpen((v) => !v)}
                       >
-                        <Command>
-                          <CommandInput placeholder="Digite para buscar..." />
-                          <CommandList className="max-h-64 overflow-auto">
-                            <CommandEmpty>Nenhum item encontrado.</CommandEmpty>
+                        {formData.insumo
+                          ? formData.insumo
+                          : carregandoProdutos
+                          ? "Carregando produtos..."
+                          : "Selecionar insumo"}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
 
-                            <CommandGroup>
-                              {products.map((p) => (
-                                <CommandItem
-                                  key={p.id}
-                                  value={p.name}
-                                  onSelect={() => {
-                                    setSelectedProductId(p.id);
-                                    setProductOpen(false);
-                                    handleSelectProductFromDb(p);
-                                  }}
-                                >
-                                  <Check
-                                    className={cn(
-                                      "mr-2 h-4 w-4",
-                                      selectedProductId === p.id
-                                        ? "opacity-100"
-                                        : "opacity-0"
-                                    )}
-                                  />
-                                  <div className="flex flex-col">
-                                    <span>{p.name}</span>
-                                    {(p.category || p.unit) && (
-                                      <span className="text-xs text-muted-foreground">
-                                        {p.category || ""}{" "}
-                                        {p.category && p.unit ? "•" : ""}{" "}
-                                        {p.unit || ""}
-                                      </span>
-                                    )}
-                                  </div>
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
+                      {productOpen && (
+                        <div className="absolute left-0 right-0 mt-2 z-[9999] rounded-md border bg-white shadow-md">
+                          <Command>
+                            <CommandInput placeholder="Digite para buscar..." />
+                            <CommandList className="max-h-64 overflow-auto">
+                              <CommandEmpty>
+                                {carregandoProdutos
+                                  ? "Carregando..."
+                                  : "Nenhum item encontrado."}
+                              </CommandEmpty>
 
-                    {/* (mantido) selectedInsumoId é do mock; não removi para evitar mexer no validado */}
+                              <CommandGroup>
+                                {products.map((p) => (
+                                  <CommandItem
+                                    key={p.id}
+                                    value={p.name}
+                                    onSelect={() => {
+                                      setSelectedProductId(p.id);
+                                      setProductOpen(false);
+                                      handleSelectProductFromDb(p);
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        selectedProductId === p.id
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
+                                    <div className="flex flex-col">
+                                      <span>{p.name}</span>
+                                      {(p.category || p.unit) && (
+                                        <span className="text-xs text-muted-foreground">
+                                          {p.category || ""}{" "}
+                                          {p.category && p.unit ? "•" : ""}{" "}
+                                          {p.unit || ""}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* (mantido) hidden inputs */}
                     <input type="hidden" value={selectedInsumoId} readOnly />
                     <input
                       type="hidden"
@@ -1409,7 +1353,6 @@ export default function EtiquetasPage() {
                       readOnly
                     />
 
-                    {/* ✅ Ajuda visual se não carregou nada */}
                     {!carregandoProdutos && products.length === 0 && (
                       <p className="text-xs text-muted-foreground mt-1">
                         Nenhum produto carregado (verifique /api/products e RLS).
@@ -1445,12 +1388,7 @@ export default function EtiquetasPage() {
                   {/* Unidade */}
                   <div className="min-w-0 md:col-span-2">
                     <Label>Unidade *</Label>
-                    <Input
-                      className="w-full min-w-0"
-                      value={formData.umd}
-                      disabled
-                      readOnly
-                    />
+                    <Input className="w-full min-w-0" value={formData.umd} disabled readOnly />
                   </div>
 
                   {/* Add */}
@@ -1470,8 +1408,7 @@ export default function EtiquetasPage() {
                 {linhasPorcao.length > 0 && (
                   <div className="space-y-2">
                     <div className="text-sm text-muted-foreground">
-                      Porcionamento: mesmo produto/unidade (travados). Só a
-                      quantidade muda.
+                      Porcionamento: mesmo produto/unidade (travados). Só a quantidade muda.
                     </div>
 
                     {linhasPorcao.map((linha) => {
@@ -1483,12 +1420,7 @@ export default function EtiquetasPage() {
                         >
                           <div className="min-w-0 md:col-span-6">
                             <Label>Insumo/Produto</Label>
-                            <Input
-                              className="w-full min-w-0"
-                              value={formData.insumo}
-                              disabled
-                              readOnly
-                            />
+                            <Input className="w-full min-w-0" value={formData.insumo} disabled readOnly />
                           </div>
 
                           <div className="min-w-0 md:col-span-3">
@@ -1496,9 +1428,7 @@ export default function EtiquetasPage() {
                             <Input
                               type="number"
                               value={linha.qtd}
-                              onChange={(e) =>
-                                handleChangeLinhaQtd(linha.id, e.target.value)
-                              }
+                              onChange={(e) => handleChangeLinhaQtd(linha.id, e.target.value)}
                               placeholder="0"
                               className={
                                 hasErr
@@ -1515,12 +1445,7 @@ export default function EtiquetasPage() {
 
                           <div className="min-w-0 md:col-span-2">
                             <Label>Unidade</Label>
-                            <Input
-                              className="w-full min-w-0"
-                              value={formData.umd}
-                              disabled
-                              readOnly
-                            />
+                            <Input className="w-full min-w-0" value={formData.umd} disabled readOnly />
                           </div>
 
                           <div className="min-w-0 md:col-span-1 md:flex md:items-end">
@@ -1544,24 +1469,12 @@ export default function EtiquetasPage() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="min-w-0">
                   <Label>Data de Manipulação *</Label>
-                  <Input
-                    className="w-full min-w-0"
-                    value={formData.dataManip}
-                    type="date"
-                    disabled
-                    readOnly
-                  />
+                  <Input className="w-full min-w-0" value={formData.dataManip} type="date" disabled readOnly />
                 </div>
 
                 <div className="min-w-0">
                   <Label>Data de Vencimento *</Label>
-                  <Input
-                    className="w-full min-w-0"
-                    type="date"
-                    value={formData.dataVenc}
-                    disabled
-                    readOnly
-                  />
+                  <Input className="w-full min-w-0" type="date" value={formData.dataVenc} disabled readOnly />
                 </div>
               </div>
 
@@ -1581,9 +1494,7 @@ export default function EtiquetasPage() {
               {/* Campos REVALIDAR */}
               {tipoSelecionado === "REVALIDAR" && (
                 <div className="p-4 bg-green-50 rounded-lg space-y-4">
-                  <h4 className="font-semibold text-green-800">
-                    Dados do Fabricante
-                  </h4>
+                  <h4 className="font-semibold text-green-800">Dados do Fabricante</h4>
 
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div className="min-w-0">
@@ -1592,9 +1503,7 @@ export default function EtiquetasPage() {
                         className="w-full min-w-0"
                         type="date"
                         value={formData.dataFabricante}
-                        onChange={(e) =>
-                          handleInputChange("dataFabricante", e.target.value)
-                        }
+                        onChange={(e) => handleInputChange("dataFabricante", e.target.value)}
                       />
                     </div>
 
@@ -1604,9 +1513,7 @@ export default function EtiquetasPage() {
                         className="w-full min-w-0"
                         type="date"
                         value={formData.dataVencimento}
-                        onChange={(e) =>
-                          handleInputChange("dataVencimento", e.target.value)
-                        }
+                        onChange={(e) => handleInputChange("dataVencimento", e.target.value)}
                       />
                     </div>
 
@@ -1615,9 +1522,7 @@ export default function EtiquetasPage() {
                       <Input
                         className="w-full min-w-0"
                         value={formData.sif}
-                        onChange={(e) =>
-                          handleInputChange("sif", e.target.value)
-                        }
+                        onChange={(e) => handleInputChange("sif", e.target.value)}
                         placeholder="Ex: SIF 123"
                       />
                     </div>
@@ -1627,9 +1532,7 @@ export default function EtiquetasPage() {
                       <Input
                         className="w-full min-w-0"
                         value={formData.loteFab}
-                        onChange={(e) =>
-                          handleInputChange("loteFab", e.target.value)
-                        }
+                        onChange={(e) => handleInputChange("loteFab", e.target.value)}
                         placeholder="Lote original"
                       />
                     </div>
@@ -1641,33 +1544,18 @@ export default function EtiquetasPage() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="min-w-0">
                   <Label>Responsável *</Label>
-                  <Input
-                    className="w-full min-w-0"
-                    value={formData.responsavel}
-                    disabled
-                    readOnly
-                  />
+                  <Input className="w-full min-w-0" value={formData.responsavel} disabled readOnly />
                 </div>
 
                 <div className="min-w-0">
                   <Label>Alergênico</Label>
-                  <Input
-                    className="w-full min-w-0"
-                    value={formData.alergenico}
-                    disabled
-                    readOnly
-                  />
+                  <Input className="w-full min-w-0" value={formData.alergenico} disabled readOnly />
                 </div>
               </div>
 
               <div className="min-w-0">
                 <Label>Condições de Armazenamento</Label>
-                <Input
-                  className="w-full min-w-0"
-                  value={formData.armazenamento}
-                  disabled
-                  readOnly
-                />
+                <Input className="w-full min-w-0" value={formData.armazenamento} disabled readOnly />
               </div>
 
               <div className="min-w-0">
@@ -1689,9 +1577,7 @@ export default function EtiquetasPage() {
                   <Input
                     className="w-full min-w-0"
                     value={formData.localEnvio}
-                    onChange={(e) =>
-                      handleInputChange("localEnvio", e.target.value)
-                    }
+                    onChange={(e) => handleInputChange("localEnvio", e.target.value)}
                     placeholder="Para onde será enviado"
                   />
                 </div>
@@ -1700,9 +1586,7 @@ export default function EtiquetasPage() {
                   <Input
                     className="w-full min-w-0"
                     value={formData.localArmazenado}
-                    onChange={(e) =>
-                      handleInputChange("localArmazenado", e.target.value)
-                    }
+                    onChange={(e) => handleInputChange("localArmazenado", e.target.value)}
                     placeholder="Onde está armazenado"
                   />
                 </div>
@@ -1710,18 +1594,13 @@ export default function EtiquetasPage() {
 
               {/* Ações */}
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 sm:gap-0">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowNovaEtiqueta(false)}
-                >
+                <Button variant="outline" onClick={() => setShowNovaEtiqueta(false)}>
                   Cancelar
                 </Button>
 
                 <Button
                   onClick={handleGerarEImprimir}
-                  disabled={
-                    !tipoSelecionado || !tamanhoSelecionado || !formData.insumo
-                  }
+                  disabled={!tipoSelecionado || !tamanhoSelecionado || !formData.insumo}
                 >
                   <span className="mr-2">🖨️</span>
                   Gerar e Imprimir Etiqueta(s)

@@ -17,13 +17,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -1264,48 +1257,37 @@ export default function EtiquetasPage() {
             <div className="space-y-6">
               {/* Tipo & Tamanho */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {/* ✅ Agora é SELECT NATIVO (sem shadcn combobox) */}
                 <div className="min-w-0">
                   <Label>Tipo de Etiqueta</Label>
-                  <Select
+                  <select
                     value={tipoSelecionado}
-                    onValueChange={(value: TipoSel) => setTipoSelecionado(value)}
+                    onChange={(e) => setTipoSelecionado(e.target.value as TipoSel)}
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
-                    <SelectTrigger className="w-full min-w-0">
-                      <SelectValue placeholder="Selecionar tipo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="MANIPULACAO">MANIPULAÇÃO</SelectItem>
-                      <SelectItem value="REVALIDAR">FABRICANTE</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <option value="MANIPULACAO">MANIPULAÇÃO</option>
+                    <option value="REVALIDAR">FABRICANTE</option>
+                  </select>
                 </div>
 
+                {/* ✅ Agora é SELECT NATIVO (sem shadcn combobox) */}
                 <div className="min-w-0">
                   <Label>Tamanho da Etiqueta</Label>
-                  <Select
+                  <select
                     value={tamanhoSelecionado}
-                    onValueChange={setTamanhoSelecionado}
+                    onChange={(e) => setTamanhoSelecionado(e.target.value)}
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
-                    <SelectTrigger className="w-full min-w-0">
-                      <SelectValue placeholder="Selecionar tamanho" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {[
-                        { id: "1", nome: "Pequena", largura: 5.0, altura: 3.0 },
-                        { id: "2", nome: "Média", largura: 10.0, altura: 6.0 },
-                        {
-                          id: "3",
-                          nome: "Grande",
-                          largura: 15.0,
-                          altura: 10.0,
-                        },
-                      ].map((tamanho: TamanhoEtiqueta) => (
-                        <SelectItem key={tamanho.id} value={tamanho.nome}>
-                          {tamanho.nome} ({tamanho.largura}×{tamanho.altura}cm)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    {[
+                      { id: "1", nome: "Pequena", largura: 5.0, altura: 3.0 },
+                      { id: "2", nome: "Média", largura: 10.0, altura: 6.0 },
+                      { id: "3", nome: "Grande", largura: 15.0, altura: 10.0 },
+                    ].map((tamanho: TamanhoEtiqueta) => (
+                      <option key={tamanho.id} value={tamanho.nome}>
+                        {tamanho.nome} ({tamanho.largura}×{tamanho.altura}cm)
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

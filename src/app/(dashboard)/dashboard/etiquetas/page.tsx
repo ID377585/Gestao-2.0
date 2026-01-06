@@ -82,7 +82,7 @@ async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
     try {
       if (contentType.includes("application/json")) {
         const j = await res.json();
-        message = j?.error || message;
+        message = (j as any)?.error || message;
       } else {
         const t = await res.text();
         if (t) message = t;
@@ -115,7 +115,7 @@ async function apiCreateInventoryLabel(payload: {
     try {
       if (contentType.includes("application/json")) {
         const j = await res.json();
-        message = j?.error || message;
+        message = (j as any)?.error || message;
       } else {
         const t = await res.text();
         if (t) message = t;
@@ -135,7 +135,7 @@ async function apiListProducts(): Promise<ProductOption[]> {
     try {
       if (contentType.includes("application/json")) {
         const j = await res.json();
-        message = j?.error || message;
+        message = (j as any)?.error || message;
       } else {
         const t = await res.text();
         if (t) message = t;
@@ -1329,7 +1329,18 @@ export default function EtiquetasPage() {
                           role="combobox"
                           aria-expanded={productOpen}
                           className="w-full justify-between"
-                          disabled={carregandoProdutos}
+                          // ✅ FIX 1: abre mesmo dentro do modal/overlay (Radix + modal custom)
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setProductOpen((v) => !v);
+                          }}
+                          // ✅ fallback
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setProductOpen((v) => !v);
+                          }}
                         >
                           {formData.insumo
                             ? formData.insumo
@@ -1340,12 +1351,13 @@ export default function EtiquetasPage() {
                         </Button>
                       </PopoverTrigger>
 
-                      {/* ✅ FIX: Popover acima do overlay do modal + largura igual ao trigger + scroll */}
+                      {/* ✅ FIX 2: evita briga de foco (abre e fecha instantâneo) */}
                       <PopoverContent
                         className="p-0 z-[9999] w-[var(--radix-popover-trigger-width)]"
                         align="start"
                         side="bottom"
                         sideOffset={6}
+                        onOpenAutoFocus={(e) => e.preventDefault()}
                       >
                         <Command>
                           <CommandInput placeholder="Digite para buscar..." />

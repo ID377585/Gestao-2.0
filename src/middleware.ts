@@ -9,6 +9,14 @@ function isAuthRoute(pathname: string) {
   );
 }
 
+function isPublicRoute(pathname: string) {
+  return (
+    isAuthRoute(pathname) ||
+    pathname === "/" ||
+    pathname.startsWith("/sem-acesso")
+  );
+}
+
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
 
@@ -32,27 +40,32 @@ export async function middleware(req: NextRequest) {
 
   const pathname = req.nextUrl.pathname;
 
-  // ✅ Mais confiável/leve que getUser no middleware
   const {
     data: { session },
   } = await supabase.auth.getSession();
 
-  // Não logado tentando dashboard -> login
+  // ❌ Não logado tentando dashboard → login
   if (!session && pathname.startsWith("/dashboard")) {
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // Logado indo para login/forgot/reset -> manda pro dashboard
+  // ✅ Logado tentando login → dashboard
   if (session && isAuthRoute(pathname)) {
     return NextResponse.redirect(new URL("/dashboard/pedidos", req.url));
   }
 
-  // ✅ NÃO validar role/membership aqui
+  // ✅ Middleware NÃO valida membership
   return res;
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login", "/forgot-password", "/reset-password"],
+  matcher: [
+    "/dashboard/:path*",
+    "/login",
+    "/forgot-password",
+    "/reset-password",
+    "/sem-acesso",
+  ],
 };

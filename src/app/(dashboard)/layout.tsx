@@ -3,18 +3,23 @@ import { Topbar } from "@/components/layout/Topbar";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
+type AllowedRole =
+  | "admin"
+  | "operacao"
+  | "producao"
+  | "estoque"
+  | "fiscal"
+  | "entrega";
+
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // =========================
-  // SUPABASE SERVER
-  // =========================
   const supabase = createSupabaseServerClient();
 
   // =========================
-  // USUÁRIO LOGADO
+  // USUÁRIO LOGADO (robusto)
   // =========================
   const {
     data: { user },
@@ -26,44 +31,50 @@ export default async function DashboardLayout({
   }
 
   // =========================
-  // MEMBERSHIP ATIVO
+  // MEMBERSHIP ATIVO (ROBUSTO - FONTE ÚNICA)
+  // ✅ Usa SOMENTE public.memberships
+  // Motivo: establishment_memberships está com RLS em recursão (42P17)
   // =========================
   const { data: membership, error: membershipError } = await supabase
-    .from("establishment_memberships")
-    .select("establishment_id, role")
+    .from("memberships")
+    .select("role, is_active")
     .eq("user_id", user.id)
     .eq("is_active", true)
-    .single();
+    .maybeSingle();
 
-  if (membershipError || !membership) {
+  if (membershipError || !membership?.role) {
+    console.error("Membership check failed (memberships):", {
+      message: membershipError?.message,
+      code: (membershipError as any)?.code,
+      user_id: user.id,
+      email: user.email,
+    });
     redirect("/sem-acesso");
   }
+
+  const role = membership.role as AllowedRole;
 
   // =========================
   // ROLES PERMITIDOS
   // =========================
-  const allowedRoles = [
+  const allowedRoles: AllowedRole[] = [
     "admin",
     "operacao",
     "producao",
     "estoque",
     "fiscal",
     "entrega",
-  ] as const;
+  ];
 
-  if (!allowedRoles.includes(membership.role as (typeof allowedRoles)[number])) {
+  if (!allowedRoles.includes(role)) {
     redirect("/sem-acesso");
   }
 
   // =========================
-  // LAYOUT
+  // LAYOUT (mantido 100%)
   // =========================
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* ✅ NÃO defina --sidebar-w aqui.
-          O Sidebar (client) controla essa variável no :root,
-          e o layout só “consome” var(--sidebar-w).
-      */}
       <div className="flex">
         {/* Sidebar (Desktop) */}
         <aside
@@ -98,9 +109,8 @@ export default async function DashboardLayout({
           {/* Main */}
           <main className="relative z-0 flex-1 overflow-y-auto focus:outline-none">
             <div className="py-6">
-              <div className="mx-auto max-w-7xl px-4 sm:px-6 md:px-8">
-                {children}
-              </div>
+              {/* ✅ mantém seu ajuste para expandir a largura quando recolhe o sidebar */}
+              <div className="w-full px-4 sm:px-6 md:px-8">{children}</div>
             </div>
           </main>
         </div>

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
-export type ProductOption = {
+export const dynamic = "force-dynamic";
+
+type ProductRow = {
   id: string;
   name: string;
   unit: string | null;
@@ -12,43 +13,44 @@ export type ProductOption = {
 export async function GET() {
   try {
     const supabase = await createSupabaseServerClient();
-    const { membership } = await getActiveMembershipOrRedirect();
 
-    const establishmentId = (membership as any).establishment_id;
-
-    if (!establishmentId) {
+    // ✅ garante que tem usuário logado (senão, RLS vai bloquear e/ou retornar vazio)
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError) {
       return NextResponse.json(
-        { error: "Estabelecimento não encontrado no membership." },
-        { status: 400 }
+        { error: authError.message || "Falha ao validar sessão." },
+        { status: 401 }
+      );
+    }
+    if (!authData?.user) {
+      return NextResponse.json(
+        { error: "Não autenticado." },
+        { status: 401 }
       );
     }
 
+    // ✅ BUSCA PRODUTOS
+    // (campos usados pelo seu combobox: id, name, unit, category)
     const { data, error } = await supabase
       .from("products")
       .select("id, name, unit, category")
-      .eq("establishment_id", establishmentId)
-      .order("name", { ascending: true });
+      .order("name", { ascending: true })
+      .limit(1000);
 
     if (error) {
-      console.error("Erro ao listar produtos (products):", error);
+      console.error("GET /api/products - supabase error:", error);
       return NextResponse.json(
-        { error: "Erro ao carregar produtos do banco." },
+        { error: error.message || "Erro ao listar produtos." },
         { status: 500 }
       );
     }
 
-    const mapped: ProductOption[] = (data ?? []).map((p: any) => ({
-      id: p.id,
-      name: p.name,
-      unit: p.unit ?? null,
-      category: p.category ?? null,
-    }));
-
-    return NextResponse.json(mapped, { status: 200 });
+    const rows = (data ?? []) as ProductRow[];
+    return NextResponse.json(rows, { status: 200 });
   } catch (e: any) {
-    console.error("Erro em GET /api/products:", e);
+    console.error("GET /api/products - unexpected:", e);
     return NextResponse.json(
-      { error: e?.message ?? "Erro inesperado ao carregar produtos." },
+      { error: e?.message || "Erro inesperado ao listar produtos." },
       { status: 500 }
     );
   }

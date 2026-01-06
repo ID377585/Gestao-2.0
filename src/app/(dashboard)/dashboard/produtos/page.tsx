@@ -55,8 +55,11 @@ type ProductRow = {
   qty_per_package: string | null; // Qtd por embalagem - TEXTO LIVRE
   category: string | null; // (campo antigo)
 
-  // ✅ NOVO CAMPO (Setor)
+  // ✅ Setor (Categoria)
   sector_category: string | null;
+
+  // ✅ NOVO: Shelf life em dias
+  shelf_life_days: number | null;
 
   is_active: boolean | null;
   price: number | null;
@@ -67,7 +70,6 @@ type ProductRow = {
 type ProfileRow = {
   id: string;
   full_name: string | null;
-  email: string | null;
 };
 
 type PageProps = {
@@ -116,7 +118,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   const { data, error } = await supabase
     .from("products")
     .select(
-      "id, sku, name, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, is_active, price, created_at, created_by",
+      "id, sku, name, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, shelf_life_days, is_active, price, created_at, created_by",
     )
     .order("product_type", { ascending: true })
     .order("name", { ascending: true });
@@ -139,9 +141,10 @@ export default async function ProductsPage({ searchParams }: PageProps) {
     );
 
     if (userIds.length > 0) {
+      // ✅ ROBUSTO: seu banco não tem profiles.email (no log deu erro).
       const { data: profilesData, error: profilesError } = await supabase
         .from("profiles")
-        .select("id, full_name, email")
+        .select("id, full_name")
         .in("id", userIds);
 
       if (profilesError) {
@@ -177,10 +180,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
       : null;
 
   const lastUploadUserName =
-    lastUploadProfile?.full_name ||
-    lastUploadProfile?.email ||
-    lastUploadProduct?.created_by ||
-    null;
+    lastUploadProfile?.full_name || lastUploadProduct?.created_by || null;
 
   const success = searchParams?.success;
   const errorMsg = searchParams?.error;
@@ -313,7 +313,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     />
                   </div>
 
-                  {/* ✅ Setor (Categoria) - NOVO */}
+                  {/* ✅ Setor (Categoria) */}
                   <div className="md:col-span-2 space-y-2">
                     <Label htmlFor="sector_category">Setor (Categoria)</Label>
                     <select
@@ -332,6 +332,22 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     <p className="text-xs text-muted-foreground">
                       Use isso para identificar o setor responsável (e futuramente
                       vamos usar em Pedidos).
+                    </p>
+                  </div>
+
+                  {/* ✅ NOVO: Shelf life (dias) */}
+                  <div className="space-y-2">
+                    <Label htmlFor="shelf_life_days">Shelf life (dias)</Label>
+                    <Input
+                      id="shelf_life_days"
+                      name="shelf_life_days"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="Ex.: 3"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Dias corridos de vida útil após manipulação.
                     </p>
                   </div>
 
@@ -460,8 +476,13 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                       {/* Categoria (antiga) */}
                       <TableHead>Categoria</TableHead>
 
-                      {/* ✅ NOVA COLUNA */}
+                      {/* Setor */}
                       <TableHead>Setor</TableHead>
+
+                      {/* ✅ NOVO: Shelf life */}
+                      <TableHead className="w-[140px] text-center">
+                        Shelf life (dias)
+                      </TableHead>
 
                       <TableHead className="w-[110px] text-right">
                         Preço / Custo
@@ -503,9 +524,11 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
                         {/* Qtd. por embalagem (TEXTO) */}
                         <TableCell className="text-center">
-                          {product.qty_per_package?.trim()
-                            ? product.qty_per_package
-                            : <span className="text-muted-foreground">—</span>}
+                          {product.qty_per_package?.trim() ? (
+                            product.qty_per_package
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
 
                         {/* Categoria (antiga) */}
@@ -515,9 +538,16 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                           )}
                         </TableCell>
 
-                        {/* ✅ Setor */}
+                        {/* Setor */}
                         <TableCell>
                           {product.sector_category ?? (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+
+                        {/* ✅ Shelf life */}
+                        <TableCell className="text-center">
+                          {product.shelf_life_days ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
@@ -657,7 +687,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                     />
                                   </div>
 
-                                  {/* ✅ Setor (Categoria) */}
+                                  {/* Setor (Categoria) */}
                                   <div className="space-y-2 md:col-span-2">
                                     <Label htmlFor={`sector_category-${product.id}`}>
                                       Setor (Categoria)
@@ -675,6 +705,22 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                         </option>
                                       ))}
                                     </select>
+                                  </div>
+
+                                  {/* ✅ NOVO: Shelf life */}
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`shelf_life_days-${product.id}`}>
+                                      Shelf life (dias)
+                                    </Label>
+                                    <Input
+                                      id={`shelf_life_days-${product.id}`}
+                                      name="shelf_life_days"
+                                      type="number"
+                                      min="0"
+                                      step="1"
+                                      defaultValue={product.shelf_life_days ?? undefined}
+                                      placeholder="Ex.: 3"
+                                    />
                                   </div>
 
                                   {/* Preço */}

@@ -79,6 +79,20 @@ function parseNumber(
 }
 
 /**
+ * ✅ NOVO: parse inteiro (dias) seguro
+ */
+function parseIntSafe(value: FormDataEntryValue | null): number | null {
+  if (value == null) return null;
+  const str = String(value).trim();
+  if (!str) return null;
+  const n = Number(str);
+  if (Number.isNaN(n)) return null;
+  const i = Math.trunc(n);
+  if (i < 0) return null;
+  return i;
+}
+
+/**
  * Checkbox pode chegar como "on" (HTML), "true" (alguns forms) ou null
  */
 function parseBoolean(value: FormDataEntryValue | null): boolean {
@@ -191,7 +205,8 @@ export async function createProduct(formData: FormData) {
 
   const skuRaw = formData.get("sku");
   const categoryRaw = formData.get("category");
-  const sectorCategoryRaw = formData.get("sector_category"); // ✅ NOVO
+  const sectorCategoryRaw = formData.get("sector_category"); // ✅ já existente
+  const shelfLifeRaw = formData.get("shelf_life_days"); // ✅ NOVO
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
   const qtyPerPackageRaw = formData.get("qty_per_package");
@@ -204,6 +219,9 @@ export async function createProduct(formData: FormData) {
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
   const conversion_factor = parseNumber(conversionRaw, 4);
+
+  // ✅ NOVO: shelf life (inteiro)
+  const shelf_life_days = parseIntSafe(shelfLifeRaw);
 
   const sku =
     skuRaw && String(skuRaw).trim().length > 0 ? String(skuRaw).trim() : null;
@@ -218,7 +236,7 @@ export async function createProduct(formData: FormData) {
       ? String(qtyPerPackageRaw).trim()
       : null;
 
-  // ✅ NOVO: setor/categoria (dropdown) — vira null quando vazio
+  // Setor/categoria — vira null quando vazio
   const sector_category = normalizeText(sectorCategoryRaw);
 
   const insertData: any = {
@@ -231,8 +249,11 @@ export async function createProduct(formData: FormData) {
     qty_per_package,
     category,
 
-    // ✅ NOVO CAMPO NO BANCO
+    // ✅ Setor
     sector_category,
+
+    // ✅ NOVO: shelf life
+    shelf_life_days,
 
     conversion_factor: conversion_factor ?? 1,
     price: price ?? 0,
@@ -276,7 +297,7 @@ export async function createProduct(formData: FormData) {
 
   console.log(
     "[products.create] ok",
-    safeJson({ id: data?.id, establishmentId, userId, sector_category }),
+    safeJson({ id: data?.id, establishmentId, userId, sector_category, shelf_life_days }),
   );
 
   revalidatePath("/dashboard/produtos");
@@ -304,7 +325,8 @@ export async function updateProduct(formData: FormData) {
 
   const skuRaw = formData.get("sku");
   const categoryRaw = formData.get("category");
-  const sectorCategoryRaw = formData.get("sector_category"); // ✅ NOVO
+  const sectorCategoryRaw = formData.get("sector_category");
+  const shelfLifeRaw = formData.get("shelf_life_days"); // ✅ NOVO
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
   const qtyPerPackageRaw = formData.get("qty_per_package");
@@ -318,6 +340,9 @@ export async function updateProduct(formData: FormData) {
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
   const conversion_factor = parseNumber(conversionRaw, 4);
+
+  // ✅ NOVO: shelf life (inteiro)
+  const shelf_life_days = parseIntSafe(shelfLifeRaw);
 
   const sku =
     skuRaw && String(skuRaw).trim().length > 0 ? String(skuRaw).trim() : null;
@@ -334,7 +359,7 @@ export async function updateProduct(formData: FormData) {
 
   const is_active = parseBoolean(isActiveRaw);
 
-  // ✅ NOVO: setor/categoria (dropdown)
+  // Setor/categoria (dropdown)
   const sector_category = normalizeText(sectorCategoryRaw);
 
   const updateData: any = {
@@ -346,8 +371,11 @@ export async function updateProduct(formData: FormData) {
     qty_per_package,
     category,
 
-    // ✅ NOVO CAMPO NO BANCO
+    // Setor
     sector_category,
+
+    // ✅ NOVO: shelf life
+    shelf_life_days,
 
     price: price ?? 0,
     conversion_factor: conversion_factor ?? 1,
@@ -404,7 +432,7 @@ export async function updateProduct(formData: FormData) {
 
   console.log(
     "[products.update] ok",
-    safeJson({ id: data?.id, establishmentId, userId, sector_category }),
+    safeJson({ id: data?.id, establishmentId, userId, sector_category, shelf_life_days }),
   );
 
   revalidatePath("/dashboard/produtos");

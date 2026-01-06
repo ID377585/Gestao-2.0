@@ -64,6 +64,7 @@ type ProductOption = {
   name: string;
   unit: string | null;
   category: string | null;
+  umd: (p.unit as any) ?? "",
 };
 
 /* =========================

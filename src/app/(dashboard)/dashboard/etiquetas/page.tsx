@@ -30,6 +30,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+// ✅ NOVO: Combobox pesquisável (shadcn)
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+
 /* =========================
    ✅ TIPOS DO BACK (route handler /api/inventory-labels)
 ========================= */
@@ -40,6 +57,16 @@ type InventoryLabelRow = {
   unit_label: string;
   notes: string | null;
   created_at: string;
+};
+
+/* =========================
+   ✅ NOVO: Tipos de produtos (route handler /api/products)
+========================= */
+type ProductOption = {
+  id: string;
+  name: string;
+  unit: string | null;
+  category: string | null;
 };
 
 /* =========================
@@ -96,6 +123,29 @@ async function apiCreateInventoryLabel(payload: {
     } catch {}
     throw new Error(message);
   }
+}
+
+// ✅ NOVO: lista produtos do banco (sessão Produtos)
+async function apiListProducts(): Promise<ProductOption[]> {
+  const res = await fetch("/api/products", { method: "GET" });
+  const contentType = res.headers.get("content-type") || "";
+
+  if (!res.ok) {
+    let message = `Erro ao carregar produtos (HTTP ${res.status}).`;
+    try {
+      if (contentType.includes("application/json")) {
+        const j = await res.json();
+        message = j?.error || message;
+      } else {
+        const t = await res.text();
+        if (t) message = t;
+      }
+    } catch {}
+    throw new Error(message);
+  }
+
+  const data = (await res.json()) as ProductOption[];
+  return Array.isArray(data) ? data : [];
 }
 
 /* =========================
@@ -354,6 +404,17 @@ export default function EtiquetasPage() {
   // ✅ ERROS (borda vermelha quando vazio)
   const [erros, setErros] = useState<LinhaErro>({ baseQtd: false, porcoes: {} });
 
+  // ✅ NOVO: produtos do banco (sessão Produtos) para o ComboBox pesquisável
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [carregandoProdutos, setCarregandoProdutos] = useState(false);
+  const [productOpen, setProductOpen] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+
+  const selectedProduct = useMemo(
+    () => products.find((p) => p.id === selectedProductId) ?? null,
+    [products, selectedProductId]
+  );
+
   // --- helpers de data/format ---
   const formatDate = (dateString: string) => {
     if (!dateString) return "";
@@ -433,6 +494,24 @@ export default function EtiquetasPage() {
     void carregarDoBanco();
   }, []);
 
+  // ✅ NOVO: carregar produtos do banco (sessão Produtos)
+  useEffect(() => {
+    const carregarProdutos = async () => {
+      setCarregandoProdutos(true);
+      try {
+        const list = await apiListProducts();
+        setProducts(list);
+      } catch (e) {
+        console.error("Erro ao carregar produtos:", e);
+        setProducts([]);
+      } finally {
+        setCarregandoProdutos(false);
+      }
+    };
+
+    void carregarProdutos();
+  }, []);
+
   // ✅ quando abre o modal: reseta form + seta hoje + zera porções + zera erros
   useEffect(() => {
     if (showNovaEtiqueta) {
@@ -446,10 +525,14 @@ export default function EtiquetasPage() {
       setTamanhoSelecionado("Grande");
       setLinhasPorcao([]);
       setErros({ baseQtd: false, porcoes: {} });
+
+      // ✅ reset do combobox
+      setSelectedProductId("");
+      setProductOpen(false);
     }
   }, [showNovaEtiqueta, defaultForm]);
 
-  // ✅ quando seleciona um insumo: preenche UMD + calcula vencimento usando shelfLifeDias
+  // ✅ (MANTIDO) quando seleciona um insumo (mock): preenche UMD + calcula vencimento usando shelfLifeDias
   const handleSelectInsumo = (insumoId: string) => {
     const insumo = insumosCadastroExemplo.find((i) => i.id === insumoId);
     const hojeISO = getTodayISO();
@@ -485,6 +568,36 @@ export default function EtiquetasPage() {
       ingredientes: insumo.ingredientes || "",
       localEnvio: prev.localEnvio || ESTABELECIMENTO_NOME,
     }));
+  };
+
+  // ✅ NOVO: seleção de produto real do banco (sem quebrar o fluxo atual)
+  const handleSelectProductFromDb = (p: ProductOption) => {
+    const hojeISO = getTodayISO();
+
+    // tenta achar no mock para autopreencher shelfLife/alergênico/armazenamento/ingredientes
+    const mock = insumosCadastroExemplo.find(
+      (i) => i.nome.toLowerCase() === p.name.toLowerCase()
+    );
+
+    const shelf = mock?.shelfLifeDias ?? 0;
+    const vencISO = addDaysISO(hojeISO, shelf);
+
+    setFormData((prev) => ({
+      ...prev,
+      insumo: p.name,
+      umd: (p.unit as any) || prev.umd || "",
+      dataManip: hojeISO,
+      dataVenc: vencISO,
+      responsavel: USUARIO_LOGADO_NOME,
+      alergenico: mock?.alergenico || "",
+      armazenamento: mock?.armazenamento || "",
+      ingredientes: mock?.ingredientes || "",
+      localEnvio: prev.localEnvio || ESTABELECIMENTO_NOME,
+    }));
+
+    // ao trocar produto, limpa porcionamento para evitar inconsistência
+    setLinhasPorcao([]);
+    setErros({ baseQtd: false, porcoes: {} });
   };
 
   const selectedInsumoId = useMemo(() => {
@@ -1206,21 +1319,74 @@ export default function EtiquetasPage() {
                   {/* Insumo */}
                   <div className="min-w-0 md:col-span-6">
                     <Label>Insumo/Produto *</Label>
-                    <Select
-                      value={selectedInsumoId}
-                      onValueChange={(insumoId) => handleSelectInsumo(insumoId)}
-                    >
-                      <SelectTrigger className="w-full min-w-0">
-                        <SelectValue placeholder="Selecionar insumo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {insumosCadastroExemplo.map((ins) => (
-                          <SelectItem key={ins.id} value={ins.id}>
-                            {ins.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+
+                    {/* ✅ NOVO: ComboBox pesquisável (lista produtos da sessão Produtos) */}
+                    <Popover open={productOpen} onOpenChange={setProductOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={productOpen}
+                          className="w-full justify-between"
+                        >
+                          {formData.insumo
+                            ? formData.insumo
+                            : carregandoProdutos
+                            ? "Carregando produtos..."
+                            : "Selecionar insumo"}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-full p-0">
+                        <Command>
+                          <CommandInput placeholder="Digite para buscar..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum item encontrado.</CommandEmpty>
+
+                            <CommandGroup>
+                              {products.map((p) => (
+                                <CommandItem
+                                  key={p.id}
+                                  value={p.name}
+                                  onSelect={() => {
+                                    setSelectedProductId(p.id);
+                                    setProductOpen(false);
+                                    handleSelectProductFromDb(p);
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      selectedProductId === p.id
+                                        ? "opacity-100"
+                                        : "opacity-0"
+                                    )}
+                                  />
+                                  <div className="flex flex-col">
+                                    <span>{p.name}</span>
+                                    {(p.category || p.unit) && (
+                                      <span className="text-xs text-muted-foreground">
+                                        {p.category || ""}{" "}
+                                        {p.category && p.unit ? "•" : ""}{" "}
+                                        {p.unit || ""}
+                                      </span>
+                                    )}
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+
+                    {/* (mantido) selectedInsumoId é do mock; não removi para evitar mexer no validado */}
+                    <input type="hidden" value={selectedInsumoId} readOnly />
+                    <input
+                      type="hidden"
+                      value={selectedProduct ? selectedProduct.id : ""}
+                      readOnly
+                    />
                   </div>
 
                   {/* Quantidade */}
@@ -1421,7 +1587,9 @@ export default function EtiquetasPage() {
                       <Input
                         className="w-full min-w-0"
                         value={formData.sif}
-                        onChange={(e) => handleInputChange("sif", e.target.value)}
+                        onChange={(e) =>
+                          handleInputChange("sif", e.target.value)
+                        }
                         placeholder="Ex: SIF 123"
                       />
                     </div>

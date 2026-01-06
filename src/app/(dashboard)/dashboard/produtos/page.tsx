@@ -31,6 +31,14 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
+/**
+ * ✅ Melhorias de formulário (sem mexer em lógica já validada):
+ * - Unidade padrão: select (un, kg, g, L, mL)
+ * - Categoria (armazenamento): select (Resfriado, Congelado, Temp. Ambiente)
+ */
+const UNIT_OPTIONS = ["un", "kg", "g", "L", "mL"] as const;
+const STORAGE_CATEGORIES = ["Resfriado", "Congelado", "Temp. Ambiente"] as const;
+
 const SECTOR_CATEGORIES = [
   "Confeitaria",
   "Padaria",
@@ -38,8 +46,9 @@ const SECTOR_CATEGORIES = [
   "Produção",
   "Massaria",
   "Burrataria",
-  "Estoque Secos",
+  "Secos",
   "Embalagens",
+  "Hortifruti",
   "Produto de Limpeza",
   "Descartáveis",
   "Bebidas",
@@ -53,7 +62,7 @@ type ProductRow = {
   default_unit_label: string | null;
   package_qty: number | null; // Qtd total da embalagem (peso/volume) - NUMÉRICO
   qty_per_package: string | null; // Qtd por embalagem - TEXTO LIVRE
-  category: string | null; // (campo antigo)
+  category: string | null; // agora será usado como categoria de armazenamento (Resfriado/Congelado/Temp. Ambiente)
 
   // ✅ Setor (Categoria)
   sector_category: string | null;
@@ -282,15 +291,22 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     />
                   </div>
 
-                  {/* Unidade */}
+                  {/* ✅ Unidade (agora SELECT) */}
                   <div className="space-y-2">
                     <Label htmlFor="default_unit_label">Unidade padrão</Label>
-                    <Input
+                    <select
                       id="default_unit_label"
                       name="default_unit_label"
-                      placeholder="Ex.: kg, g, L, un"
+                      defaultValue="un"
                       required
-                    />
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {UNIT_OPTIONS.map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* Qtd. por embalagem (TEXTO LIVRE) */}
@@ -303,14 +319,22 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     />
                   </div>
 
-                  {/* Categoria (antiga) */}
+                  {/* ✅ Categoria (armazenamento) (agora SELECT) */}
                   <div className="space-y-2">
-                    <Label htmlFor="category">Categoria</Label>
-                    <Input
+                    <Label htmlFor="category">Categoria (armazenamento)</Label>
+                    <select
                       id="category"
                       name="category"
-                      placeholder="Ex.: Insumos secos, Laticínios, Pré-preparo de confeitaria"
-                    />
+                      defaultValue=""
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="">— Selecione —</option>
+                      {STORAGE_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* ✅ Setor (Categoria) */}
@@ -473,7 +497,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                         Qtd. por Emb.
                       </TableHead>
 
-                      {/* Categoria (antiga) */}
+                      {/* Categoria (armazenamento) */}
                       <TableHead>Categoria</TableHead>
 
                       {/* Setor */}
@@ -531,7 +555,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                           )}
                         </TableCell>
 
-                        {/* Categoria (antiga) */}
+                        {/* Categoria (armazenamento) */}
                         <TableCell>
                           {product.category ?? (
                             <span className="text-muted-foreground">—</span>
@@ -649,17 +673,24 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                     />
                                   </div>
 
-                                  {/* Unidade */}
+                                  {/* ✅ Unidade (agora SELECT) */}
                                   <div className="space-y-2">
                                     <Label htmlFor={`default_unit_label-${product.id}`}>
                                       Unidade padrão
                                     </Label>
-                                    <Input
+                                    <select
                                       id={`default_unit_label-${product.id}`}
                                       name="default_unit_label"
-                                      defaultValue={product.default_unit_label ?? ""}
+                                      defaultValue={product.default_unit_label ?? "un"}
                                       required
-                                    />
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {UNIT_OPTIONS.map((u) => (
+                                        <option key={u} value={u}>
+                                          {u}
+                                        </option>
+                                      ))}
+                                    </select>
                                   </div>
 
                                   {/* Qtd por embalagem */}
@@ -675,16 +706,24 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                     />
                                   </div>
 
-                                  {/* Categoria (antiga) */}
+                                  {/* ✅ Categoria (armazenamento) (agora SELECT) */}
                                   <div className="space-y-2">
                                     <Label htmlFor={`category-${product.id}`}>
-                                      Categoria
+                                      Categoria (armazenamento)
                                     </Label>
-                                    <Input
+                                    <select
                                       id={`category-${product.id}`}
                                       name="category"
                                       defaultValue={product.category ?? ""}
-                                    />
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      <option value="">— Selecione —</option>
+                                      {STORAGE_CATEGORIES.map((c) => (
+                                        <option key={c} value={c}>
+                                          {c}
+                                        </option>
+                                      ))}
+                                    </select>
                                   </div>
 
                                   {/* Setor (Categoria) */}

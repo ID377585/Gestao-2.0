@@ -3,24 +3,47 @@
 import { useTransition } from "react";
 import { createProduct, updateProduct } from "./actions";
 
+type ProductType = "INSU" | "PREP" | "PROD";
+type StorageCategory = "Resfriado" | "Congelado" | "Temp. Ambiente";
+
 type ProductFormProps = {
   product?: {
     id: string;
     sku: string | null;
     name: string;
-    product_type: "INSU" | "PREP" | "PROD";
-    default_unit_label: string;
+
+    product_type: ProductType | null;
+
+    // Qtd (peso/volume da embalagem) -> número
     package_qty: number | null;
+
+    // Unidade padrão -> texto (kg, g, L, mL, un)
+    default_unit_label: string;
+
     qty_per_package: string | null;
-    category: string | null; // (campo antigo já existente na sua tabela)
+
+    // Categoria (armazenamento)
+    category: StorageCategory | null;
+
     price: number | null;
     conversion_factor: number | null;
     is_active: boolean;
 
-    // ✅ NOVO CAMPO (opcional no objeto, não quebra nada)
-    sector_category?: string | null;
+    // ✅ Setor
+    sector_category: string | null;
+
+    // (Opcional) aparece no seu modal
+    shelf_life_days?: number | null;
   };
 };
+
+const UNIT_OPTIONS = ["un", "kg", "g", "L", "mL"] as const;
+
+const STORAGE_CATEGORIES: StorageCategory[] = [
+  "Resfriado",
+  "Congelado",
+  "Temp. Ambiente",
+];
 
 const SECTOR_CATEGORIES = [
   "Confeitaria",
@@ -30,14 +53,13 @@ const SECTOR_CATEGORIES = [
   "Massaria",
   "Burrataria",
 
-  // ✅ NOVAS CATEGORIAS
+  "Hortifruti", // ✅ NOVO
   "Laticínios",
   "Pescados",
   "Frutos do Mar",
   "Carnes",
 
-  // ✅ ALTERADO: antes era "Estoque Secos"
-  "Secos",
+  "Secos", // ✅ ALTERADO (antes era “Estoque Secos”)
 
   "Embalagens",
   "Produto de Limpeza",
@@ -47,22 +69,18 @@ const SECTOR_CATEGORIES = [
 
 export function ProductForm({ product }: ProductFormProps) {
   const [isPending, startTransition] = useTransition();
-
   const isEdit = Boolean(product?.id);
 
   function handleSubmit(formData: FormData) {
     startTransition(() => {
-      if (isEdit) {
-        updateProduct(formData);
-      } else {
-        createProduct(formData);
-      }
+      if (isEdit) updateProduct(formData);
+      else createProduct(formData);
     });
   }
 
   return (
     <form action={handleSubmit} className="space-y-4">
-      {/* 🔑 ID OBRIGATÓRIO PARA UPDATE */}
+      {/* 🔑 ID para update */}
       {isEdit && <input type="hidden" name="id" value={product!.id} />}
 
       <div>
@@ -71,6 +89,7 @@ export function ProductForm({ product }: ProductFormProps) {
           name="sku"
           defaultValue={product?.sku ?? ""}
           className="w-full rounded border px-3 py-2"
+          placeholder="Ex.: 1001711"
         />
       </div>
 
@@ -94,6 +113,7 @@ export function ProductForm({ product }: ProductFormProps) {
           required
           defaultValue={product?.name ?? ""}
           className="w-full rounded border px-3 py-2"
+          placeholder="Ex.: Farinha de Trigo, Creme Base Chocolate..."
         />
       </div>
 
@@ -108,16 +128,23 @@ export function ProductForm({ product }: ProductFormProps) {
             step="0.001"
             defaultValue={product?.package_qty ?? ""}
             className="w-full rounded border px-3 py-2"
+            placeholder="Ex.: 1, 2.5, 0.5"
           />
         </div>
 
         <div>
           <label className="block text-sm font-medium">Unidade padrão</label>
-          <input
+          <select
             name="default_unit_label"
             defaultValue={product?.default_unit_label ?? "un"}
             className="w-full rounded border px-3 py-2"
-          />
+          >
+            {UNIT_OPTIONS.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -133,16 +160,23 @@ export function ProductForm({ product }: ProductFormProps) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium">Categoria</label>
-          <input
+          <label className="block text-sm font-medium">Categoria (armazenamento)</label>
+          <select
             name="category"
             defaultValue={product?.category ?? ""}
             className="w-full rounded border px-3 py-2"
-          />
+          >
+            <option value="">— Selecione —</option>
+            {STORAGE_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* ✅ NOVO CAMPO: Setor (Categoria) */}
+      {/* ✅ Setor */}
       <div>
         <label className="block text-sm font-medium">Setor (Categoria)</label>
         <select
@@ -159,12 +193,27 @@ export function ProductForm({ product }: ProductFormProps) {
         </select>
 
         <p className="mt-1 text-xs text-muted-foreground">
-          Isso ajuda a identificar em qual setor o item é produzido (e futuramente
-          pode ser usado em Pedidos).
+          Use isso para identificar o setor responsável (e futuramente usar em Pedidos).
         </p>
       </div>
 
+      {/* (Opcional) Shelf life */}
       <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium">Shelf life (dias)</label>
+          <input
+            name="shelf_life_days"
+            type="number"
+            step="1"
+            defaultValue={product?.shelf_life_days ?? ""}
+            className="w-full rounded border px-3 py-2"
+            placeholder="Ex.: 3"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Dias corridos de vida útil após manipulação.
+          </p>
+        </div>
+
         <div>
           <label className="block text-sm font-medium">Preço / Custo padrão</label>
           <input
@@ -173,9 +222,12 @@ export function ProductForm({ product }: ProductFormProps) {
             step="0.01"
             defaultValue={product?.price ?? ""}
             className="w-full rounded border px-3 py-2"
+            placeholder="0,00"
           />
         </div>
+      </div>
 
+      <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium">Fator de conversão</label>
           <input
@@ -186,15 +238,15 @@ export function ProductForm({ product }: ProductFormProps) {
             className="w-full rounded border px-3 py-2"
           />
         </div>
-      </div>
 
-      <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          name="is_active"
-          defaultChecked={product?.is_active ?? true}
-        />
-        <label>Status ativo</label>
+        <div className="flex items-center gap-2 pt-7">
+          <input
+            type="checkbox"
+            name="is_active"
+            defaultChecked={product?.is_active ?? true}
+          />
+          <label>Status ativo</label>
+        </div>
       </div>
 
       <button

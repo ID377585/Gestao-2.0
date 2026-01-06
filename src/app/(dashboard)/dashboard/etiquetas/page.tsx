@@ -99,10 +99,27 @@ async function apiCreateInventoryLabel(payload: {
   labelCode: string;
   extraPayload?: any;
 }): Promise<void> {
+  // ✅ CORREÇÃO: envia snake_case (comum no backend) SEM remover os campos atuais
+  const bodyToSend: any = {
+    // mantém compatibilidade com seu código atual
+    ...payload,
+
+    // ✅ normalmente o route handler valida esses nomes:
+    product_name: payload.productName,
+    unit_label: payload.unitLabel,
+    label_code: payload.labelCode,
+
+    // ✅ notes costuma ser string no banco:
+    notes:
+      payload.extraPayload !== undefined
+        ? JSON.stringify(payload.extraPayload)
+        : null,
+  };
+
   const res = await fetch("/api/inventory-labels", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(bodyToSend),
   });
 
   const contentType = res.headers.get("content-type") || "";
@@ -512,6 +529,7 @@ export default function EtiquetasPage() {
 
         // ✅ debug opcional (não interfere no app)
         (window as any).__lastProducts = list;
+        // console.log("Produtos carregados:", list);
       } catch (e) {
         console.error("Erro ao carregar produtos:", e);
         setProducts([]);
@@ -543,6 +561,43 @@ export default function EtiquetasPage() {
     }
   }, [showNovaEtiqueta, defaultForm]);
 
+  const handleSelectInsumo = (insumoId: string) => {
+    const insumo = insumosCadastroExemplo.find((i) => i.id === insumoId);
+    const hojeISO = getTodayISO();
+
+    if (!insumo) {
+      setFormData((prev) => ({
+        ...prev,
+        insumo: "",
+        umd: "",
+        dataManip: hojeISO,
+        dataVenc: "",
+        responsavel: USUARIO_LOGADO_NOME,
+        alergenico: "",
+        armazenamento: "",
+        ingredientes: "",
+        localEnvio: ESTABELECIMENTO_NOME,
+      }));
+      setLinhasPorcao([]);
+      return;
+    }
+
+    const vencISO = addDaysISO(hojeISO, insumo.shelfLifeDias);
+
+    setFormData((prev) => ({
+      ...prev,
+      insumo: insumo.nome,
+      umd: insumo.umd,
+      dataManip: hojeISO,
+      dataVenc: vencISO,
+      responsavel: USUARIO_LOGADO_NOME,
+      alergenico: insumo.alergenico || "",
+      armazenamento: insumo.armazenamento || "",
+      ingredientes: insumo.ingredientes || "",
+      localEnvio: prev.localEnvio || ESTABELECIMENTO_NOME,
+    }));
+  };
+
   const handleSelectProductFromDb = (p: ProductOption) => {
     const hojeISO = getTodayISO();
 
@@ -553,16 +608,14 @@ export default function EtiquetasPage() {
     const shelf = mock?.shelfLifeDias ?? 0;
     const vencISO = addDaysISO(hojeISO, shelf);
 
-    // ✅ PRINCIPAL FIX:
-    // - prioridade: unidade que vem do banco
-    // - fallback: unidade do mock (se existir)
-    // - senão: vazio (e aí o botão de gerar fica desabilitado)
-    const unitFinal = (p.unit ?? "").trim() || (mock?.umd ?? "");
-
     setFormData((prev) => ({
       ...prev,
       insumo: p.name,
-      umd: (unitFinal as any) ?? "",
+
+      // ✅ FIX: não reutiliza a unidade anterior.
+      // Se o produto não trouxer unidade, fica "" (mostra vazio e evita “stale value”).
+      umd: (p.unit as any) ?? "",
+
       dataManip: hojeISO,
       dataVenc: vencISO,
       responsavel: USUARIO_LOGADO_NOME,
@@ -839,7 +892,9 @@ export default function EtiquetasPage() {
 
             <div class="footer">
               <span>${e.localEnvio ? "Envio: " + e.localEnvio : ""}</span>
-              <span>${e.localArmazenado ? "Arm.: " + e.localArmazenado : ""}</span>
+              <span>${
+                e.localArmazenado ? "Arm.: " + e.localArmazenado : ""
+              }</span>
             </div>
           </div>
         </div>
@@ -892,18 +947,6 @@ export default function EtiquetasPage() {
   };
 
   const handleGerarEImprimir = async () => {
-    // ✅ NOVO: bloqueia payload inválido ANTES de bater no backend
-    if (!String(formData.insumo || "").trim()) {
-      alert("Selecione um insumo/produto.");
-      return;
-    }
-    if (!String(formData.umd || "").trim()) {
-      alert(
-        "Este produto está sem UNIDADE cadastrada. \n\nCadastre a unidade no Produto (ex: kg, g, lt, ml, un...) para conseguir gerar a etiqueta."
-      );
-      return;
-    }
-
     const ok = validarQuantidades();
     if (!ok) return;
 
@@ -953,7 +996,7 @@ export default function EtiquetasPage() {
           apiCreateInventoryLabel({
             productName: et.insumo,
             qty: et.qtd,
-            unitLabel: et.umd, // ✅ garantido acima que não é vazio
+            unitLabel: et.umd,
             labelCode: et.loteMan,
             extraPayload: et,
           })
@@ -1581,31 +1624,14 @@ export default function EtiquetasPage() {
                   Cancelar
                 </Button>
 
-                {/* ✅ NOVO: desabilita se não tiver unidade */}
                 <Button
                   onClick={handleGerarEImprimir}
-                  disabled={
-                    !tipoSelecionado ||
-                    !tamanhoSelecionado ||
-                    !String(formData.insumo || "").trim() ||
-                    !String(formData.umd || "").trim()
-                  }
-                  title={
-                    !String(formData.umd || "").trim()
-                      ? "Cadastre a unidade do produto para gerar etiqueta."
-                      : ""
-                  }
+                  disabled={!tipoSelecionado || !tamanhoSelecionado || !formData.insumo}
                 >
                   <span className="mr-2">🖨️</span>
                   Gerar e Imprimir Etiqueta(s)
                 </Button>
               </div>
-
-              {!String(formData.umd || "").trim() && String(formData.insumo || "").trim() && (
-                <p className="text-xs text-amber-700">
-                  ⚠️ Este produto está sem unidade. Cadastre a unidade no Produto (ex: kg, g, lt, ml, un...) para gerar etiquetas.
-                </p>
-              )}
 
               <div className="text-xs text-muted-foreground" />
             </div>

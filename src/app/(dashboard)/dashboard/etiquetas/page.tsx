@@ -1320,14 +1320,16 @@ export default function EtiquetasPage() {
                   <div className="min-w-0 md:col-span-6">
                     <Label>Insumo/Produto *</Label>
 
-                    {/* ✅ NOVO: ComboBox pesquisável (lista produtos da sessão Produtos) */}
+                    {/* ✅ ComboBox pesquisável */}
                     <Popover open={productOpen} onOpenChange={setProductOpen}>
                       <PopoverTrigger asChild>
                         <Button
+                          type="button"
                           variant="outline"
                           role="combobox"
                           aria-expanded={productOpen}
                           className="w-full justify-between"
+                          disabled={carregandoProdutos}
                         >
                           {formData.insumo
                             ? formData.insumo
@@ -1338,12 +1340,12 @@ export default function EtiquetasPage() {
                         </Button>
                       </PopoverTrigger>
 
-                      {/* ✅ FIX: PopoverContent acima do overlay do modal */}
+                      {/* ✅ FIX: Popover acima do overlay do modal + largura igual ao trigger + scroll */}
                       <PopoverContent
                         className="p-0 z-[9999] w-[var(--radix-popover-trigger-width)]"
                         align="start"
                         side="bottom"
-                        sideOffset={4}
+                        sideOffset={6}
                       >
                         <Command>
                           <CommandInput placeholder="Digite para buscar..." />
@@ -1394,6 +1396,13 @@ export default function EtiquetasPage() {
                       value={selectedProduct ? selectedProduct.id : ""}
                       readOnly
                     />
+
+                    {/* ✅ Ajuda visual se não carregou nada */}
+                    {!carregandoProdutos && products.length === 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Nenhum produto carregado (verifique /api/products e RLS).
+                      </p>
+                    )}
                   </div>
 
                   {/* Quantidade */}

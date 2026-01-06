@@ -509,9 +509,13 @@ export default function EtiquetasPage() {
       try {
         const list = await apiListProducts();
         setProducts(list);
+
+        // ✅ debug opcional (não interfere no app)
+        (window as any).__lastProducts = list;
       } catch (e) {
         console.error("Erro ao carregar produtos:", e);
         setProducts([]);
+        (window as any).__lastProducts = [];
       } finally {
         setCarregandoProdutos(false);
       }
@@ -539,43 +543,6 @@ export default function EtiquetasPage() {
     }
   }, [showNovaEtiqueta, defaultForm]);
 
-  const handleSelectInsumo = (insumoId: string) => {
-    const insumo = insumosCadastroExemplo.find((i) => i.id === insumoId);
-    const hojeISO = getTodayISO();
-
-    if (!insumo) {
-      setFormData((prev) => ({
-        ...prev,
-        insumo: "",
-        umd: "",
-        dataManip: hojeISO,
-        dataVenc: "",
-        responsavel: USUARIO_LOGADO_NOME,
-        alergenico: "",
-        armazenamento: "",
-        ingredientes: "",
-        localEnvio: ESTABELECIMENTO_NOME,
-      }));
-      setLinhasPorcao([]);
-      return;
-    }
-
-    const vencISO = addDaysISO(hojeISO, insumo.shelfLifeDias);
-
-    setFormData((prev) => ({
-      ...prev,
-      insumo: insumo.nome,
-      umd: insumo.umd,
-      dataManip: hojeISO,
-      dataVenc: vencISO,
-      responsavel: USUARIO_LOGADO_NOME,
-      alergenico: insumo.alergenico || "",
-      armazenamento: insumo.armazenamento || "",
-      ingredientes: insumo.ingredientes || "",
-      localEnvio: prev.localEnvio || ESTABELECIMENTO_NOME,
-    }));
-  };
-
   const handleSelectProductFromDb = (p: ProductOption) => {
     const hojeISO = getTodayISO();
 
@@ -586,10 +553,16 @@ export default function EtiquetasPage() {
     const shelf = mock?.shelfLifeDias ?? 0;
     const vencISO = addDaysISO(hojeISO, shelf);
 
+    // ✅ PRINCIPAL FIX:
+    // - prioridade: unidade que vem do banco
+    // - fallback: unidade do mock (se existir)
+    // - senão: vazio (e aí o botão de gerar fica desabilitado)
+    const unitFinal = (p.unit ?? "").trim() || (mock?.umd ?? "");
+
     setFormData((prev) => ({
       ...prev,
       insumo: p.name,
-      umd: (p.unit as any) || prev.umd || "",
+      umd: (unitFinal as any) ?? "",
       dataManip: hojeISO,
       dataVenc: vencISO,
       responsavel: USUARIO_LOGADO_NOME,
@@ -866,9 +839,7 @@ export default function EtiquetasPage() {
 
             <div class="footer">
               <span>${e.localEnvio ? "Envio: " + e.localEnvio : ""}</span>
-              <span>${
-                e.localArmazenado ? "Arm.: " + e.localArmazenado : ""
-              }</span>
+              <span>${e.localArmazenado ? "Arm.: " + e.localArmazenado : ""}</span>
             </div>
           </div>
         </div>
@@ -921,6 +892,18 @@ export default function EtiquetasPage() {
   };
 
   const handleGerarEImprimir = async () => {
+    // ✅ NOVO: bloqueia payload inválido ANTES de bater no backend
+    if (!String(formData.insumo || "").trim()) {
+      alert("Selecione um insumo/produto.");
+      return;
+    }
+    if (!String(formData.umd || "").trim()) {
+      alert(
+        "Este produto está sem UNIDADE cadastrada. \n\nCadastre a unidade no Produto (ex: kg, g, lt, ml, un...) para conseguir gerar a etiqueta."
+      );
+      return;
+    }
+
     const ok = validarQuantidades();
     if (!ok) return;
 
@@ -970,7 +953,7 @@ export default function EtiquetasPage() {
           apiCreateInventoryLabel({
             productName: et.insumo,
             qty: et.qtd,
-            unitLabel: et.umd,
+            unitLabel: et.umd, // ✅ garantido acima que não é vazio
             labelCode: et.loteMan,
             extraPayload: et,
           })
@@ -1598,14 +1581,31 @@ export default function EtiquetasPage() {
                   Cancelar
                 </Button>
 
+                {/* ✅ NOVO: desabilita se não tiver unidade */}
                 <Button
                   onClick={handleGerarEImprimir}
-                  disabled={!tipoSelecionado || !tamanhoSelecionado || !formData.insumo}
+                  disabled={
+                    !tipoSelecionado ||
+                    !tamanhoSelecionado ||
+                    !String(formData.insumo || "").trim() ||
+                    !String(formData.umd || "").trim()
+                  }
+                  title={
+                    !String(formData.umd || "").trim()
+                      ? "Cadastre a unidade do produto para gerar etiqueta."
+                      : ""
+                  }
                 >
                   <span className="mr-2">🖨️</span>
                   Gerar e Imprimir Etiqueta(s)
                 </Button>
               </div>
+
+              {!String(formData.umd || "").trim() && String(formData.insumo || "").trim() && (
+                <p className="text-xs text-amber-700">
+                  ⚠️ Este produto está sem unidade. Cadastre a unidade no Produto (ex: kg, g, lt, ml, un...) para gerar etiquetas.
+                </p>
+              )}
 
               <div className="text-xs text-muted-foreground" />
             </div>

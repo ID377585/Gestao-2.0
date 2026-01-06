@@ -3,6 +3,52 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
+/* ===========================================================
+   ✅ NOVO: Lista de produtos para o ComboBox pesquisável
+   - Puxa items da tabela products (mesma da sessão Produtos)
+   - Filtra por establishment_id (mesmo padrão das etiquetas)
+   =========================================================== */
+
+export type ProductOption = {
+  id: string;
+  name: string;
+  unit: string | null;
+  category: string | null;
+};
+
+export async function listProducts(): Promise<ProductOption[]> {
+  const supabase = await createSupabaseServerClient();
+  const { membership } = await getActiveMembershipOrRedirect();
+
+  const establishmentId = (membership as any).establishment_id;
+
+  if (!establishmentId) {
+    throw new Error("Estabelecimento não encontrado no membership.");
+  }
+
+  // ⚠️ Ajuste os nomes das colunas se seu schema for diferente:
+  // - name: "name"
+  // - unit: "unit"
+  // - category: "category" (ou "sector"/"setor")
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, name, unit, category")
+    .eq("establishment_id", establishmentId)
+    .order("name", { ascending: true });
+
+  if (error) {
+    console.error("Erro ao listar produtos (products):", error);
+    throw new Error("Erro ao carregar produtos do banco.");
+  }
+
+  return (data ?? []).map((p: any) => ({
+    id: p.id,
+    name: p.name,
+    unit: p.unit ?? null,
+    category: p.category ?? null,
+  }));
+}
+
 /**
  * Linha bruta da tabela inventory_labels
  */
@@ -83,8 +129,7 @@ export async function createInventoryLabel(
     productId = product.id;
   }
 
-  const notesJson =
-    extraPayload != null ? JSON.stringify(extraPayload) : null;
+  const notesJson = extraPayload != null ? JSON.stringify(extraPayload) : null;
 
   /* ======================================================
      1️⃣ Insere a etiqueta em inventory_labels
@@ -118,7 +163,8 @@ export async function createInventoryLabel(
     }
 
     const msg =
-      (insertErr as any)?.message ?? "Falha ao salvar etiqueta no banco (insert).";
+      (insertErr as any)?.message ??
+      "Falha ao salvar etiqueta no banco (insert).";
     throw new Error(msg);
   }
 

@@ -51,6 +51,9 @@ type ProductExportRow = {
   // ✅ NOVA COLUNA (SETOR)
   sector_category: string | null;
 
+  // ✅ NOVA COLUNA (SHELF LIFE)
+  shelf_life_days: number | string | null;
+
   price: number | string | null;
   conversion_factor: number | string | null;
   is_active: boolean | null;
@@ -193,6 +196,7 @@ export async function GET(_request: Request) {
       "qty_per_package",
       "category",
       "sector_category",
+      "shelf_life_days", // ✅ NOVO: exportar Shelf life
       "price",
       "conversion_factor",
       "is_active",
@@ -227,6 +231,7 @@ export async function GET(_request: Request) {
       "qty_per_package",
       "category",
       "sector_category",
+      "shelf_life_days", // ✅ NOVO
       "price",
       "conversion_factor",
       "is_active",
@@ -248,6 +253,13 @@ export async function GET(_request: Request) {
         p.qty_per_package !== null && p.qty_per_package !== undefined
           ? String(p.qty_per_package)
           : "";
+
+      // ✅ Shelf life (dias) — inteiro (sem mexer no resto)
+      let shelfLifeFormatted = "";
+      if (p.shelf_life_days !== null && p.shelf_life_days !== undefined) {
+        const n = Number(p.shelf_life_days);
+        shelfLifeFormatted = !Number.isNaN(n) ? String(Math.trunc(n)) : "";
+      }
 
       let priceFormatted = "";
       if (p.price !== null && p.price !== undefined) {
@@ -277,6 +289,7 @@ export async function GET(_request: Request) {
         csvField(qtyPerPackageText),
         csvField(p.category ?? ""),
         csvField(sectorCategoryText),
+        csvField(shelfLifeFormatted), // ✅ NOVO
         csvField(priceFormatted),
         csvField(conversionFormatted),
         csvField(p.is_active ? 1 : 0),

@@ -30,11 +30,73 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import {
-  createInventoryLabel,
-  listInventoryLabels,
-  type InventoryLabelRow,
-} from "./actions";
+/* =========================
+   ✅ TIPOS DO BACK (route handler /api/inventory-labels)
+========================= */
+type InventoryLabelRow = {
+  id: string;
+  label_code: string;
+  qty: number;
+  unit_label: string;
+  notes: string | null;
+  created_at: string;
+};
+
+/* =========================
+   ✅ API helpers (CLIENT -> Route Handler)
+   - Evita importar "use server" em Client
+========================= */
+async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
+  const res = await fetch("/api/inventory-labels", { method: "GET" });
+  const contentType = res.headers.get("content-type") || "";
+
+  if (!res.ok) {
+    let message = `Erro ao carregar histórico de etiquetas (HTTP ${res.status}).`;
+    try {
+      if (contentType.includes("application/json")) {
+        const j = await res.json();
+        message = j?.error || message;
+      } else {
+        const t = await res.text();
+        if (t) message = t;
+      }
+    } catch {}
+    throw new Error(message);
+  }
+
+  const data = (await res.json()) as InventoryLabelRow[];
+  return Array.isArray(data) ? data : [];
+}
+
+async function apiCreateInventoryLabel(payload: {
+  productName: string;
+  qty: number;
+  unitLabel: string;
+  labelCode: string;
+  extraPayload?: any;
+}): Promise<void> {
+  const res = await fetch("/api/inventory-labels", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const contentType = res.headers.get("content-type") || "";
+
+  if (!res.ok) {
+    let message = `Erro ao salvar etiqueta (HTTP ${res.status}).`;
+    try {
+      if (contentType.includes("application/json")) {
+        const j = await res.json();
+        message = j?.error || message;
+      } else {
+        const t = await res.text();
+        if (t) message = t;
+      }
+    } catch {}
+    throw new Error(message);
+  }
+}
 
 /* =========================
    ✅ MOCK USUÁRIO LOGADO
@@ -311,7 +373,7 @@ export default function EtiquetasPage() {
   useEffect(() => {
     const carregarDoBanco = async () => {
       try {
-        const rows: InventoryLabelRow[] = await listInventoryLabels();
+        const rows: InventoryLabelRow[] = await apiListInventoryLabels();
 
         if (!rows || rows.length === 0) {
           setEtiquetasGeradas([]);
@@ -360,7 +422,7 @@ export default function EtiquetasPage() {
         });
 
         setEtiquetasGeradas(mapped);
-      } catch (e) {
+      } catch (e: any) {
         console.error("Erro ao carregar etiquetas do banco:", e);
         setEtiquetasGeradas([]);
       } finally {
@@ -479,10 +541,6 @@ export default function EtiquetasPage() {
 
   /* =========================
      ✅ Impressão: 1 página por etiqueta (PDF do navegador)
-     - CORREÇÃO CRÍTICA:
-       * NÃO trava html/body no tamanho da etiqueta
-       * cada .page define o tamanho e quebra de página
-       * espera imagens carregarem antes de print
   ========================= */
   const imprimirBatchNoBrowser = async (etqs: EtiquetaGerada[]) => {
     const w = window.open("", "_blank", "width=900,height=700");
@@ -540,9 +598,6 @@ export default function EtiquetasPage() {
   <style>
     @page { size: ${LABEL_W_MM}mm ${LABEL_H_MM}mm; margin: 0; }
 
-    /* ✅ IMPORTANTÍSSIMO:
-       Não fixar o body na altura de uma etiqueta.
-       Deixe o documento crescer, e quem define a página é a .page */
     html, body {
       margin: 0;
       padding: 0;
@@ -776,7 +831,7 @@ export default function EtiquetasPage() {
         ? Math.max(...etiquetasGeradas.map((e) => e.id))
         : 0;
 
-    // ✅ 1 LOTE POR ETIQUETA (CORREÇÃO CRÍTICA)
+    // ✅ 1 LOTE POR ETIQUETA
     const novas: EtiquetaGerada[] = qtds.map((qtdStr, idx) => {
       const loteUnico = gerarLoteVigilancia();
       return {
@@ -803,15 +858,15 @@ export default function EtiquetasPage() {
       };
     });
 
-    // 1) Salvar todas as etiquetas no Supabase
+    // 1) Salvar todas as etiquetas no Supabase (via Route Handler)
     try {
       await Promise.all(
         novas.map((et) =>
-          createInventoryLabel({
+          apiCreateInventoryLabel({
             productName: et.insumo,
             qty: et.qtd,
             unitLabel: et.umd,
-            labelCode: et.loteMan, // 1 lote por etiqueta
+            labelCode: et.loteMan,
             extraPayload: et, // guarda todo o objeto no campo notes
           })
         )
@@ -982,6 +1037,7 @@ export default function EtiquetasPage() {
           </Card>
         ))}
       </div>
+
       {/* Histórico de Etiquetas */}
       <Card>
         <CardHeader>

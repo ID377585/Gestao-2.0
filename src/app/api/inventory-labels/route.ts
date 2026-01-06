@@ -107,9 +107,15 @@ export async function GET() {
 
     const { establishmentId, debug } = await resolveEstablishmentId(supabase);
     if (!establishmentId) {
-      console.error("GET /api/inventory-labels: establishmentId não resolvido", debug);
+      console.error(
+        "GET /api/inventory-labels: establishmentId não resolvido",
+        debug,
+      );
       return NextResponse.json(
-        { error: "Não foi possível identificar o estabelecimento do usuário." },
+        {
+          error: "Não foi possível identificar o estabelecimento do usuário.",
+          debug,
+        },
         { status: 403 },
       );
     }
@@ -123,16 +129,27 @@ export async function GET() {
     if (error) {
       console.error("GET /api/inventory-labels erro:", error);
       return NextResponse.json(
-        { error: "Erro ao carregar histórico de etiquetas." },
+        {
+          error: `Erro ao carregar histórico de etiquetas: ${error.message}`,
+          code: (error as any)?.code ?? null,
+          details: (error as any)?.details ?? null,
+          hint: (error as any)?.hint ?? null,
+        },
         { status: 500 },
       );
     }
 
-    return NextResponse.json((data ?? []) as InventoryLabelRow[], { status: 200 });
-  } catch (err) {
+    return NextResponse.json((data ?? []) as InventoryLabelRow[], {
+      status: 200,
+    });
+  } catch (err: any) {
     console.error("GET /api/inventory-labels erro inesperado:", err);
     return NextResponse.json(
-      { error: "Erro inesperado ao carregar etiquetas." },
+      {
+        error: `Erro inesperado ao carregar etiquetas: ${
+          err?.message ?? "sem mensagem"
+        }`,
+      },
       { status: 500 },
     );
   }
@@ -148,9 +165,15 @@ export async function POST(req: Request) {
 
     const { establishmentId, debug } = await resolveEstablishmentId(supabase);
     if (!establishmentId) {
-      console.error("POST /api/inventory-labels: establishmentId não resolvido", debug);
+      console.error(
+        "POST /api/inventory-labels: establishmentId não resolvido",
+        debug,
+      );
       return NextResponse.json(
-        { error: "Não foi possível identificar o estabelecimento do usuário." },
+        {
+          error: "Não foi possível identificar o estabelecimento do usuário.",
+          debug,
+        },
         { status: 403 },
       );
     }
@@ -173,28 +196,41 @@ export async function POST(req: Request) {
       );
     }
 
-    const { error } = await supabase.from("inventory_labels").insert({
-      establishment_id: establishmentId,
-      product_name,
-      qty,
-      unit_label,
-      label_code,
-      notes,
-    });
+    const { data, error } = await supabase
+      .from("inventory_labels")
+      .insert({
+        establishment_id: establishmentId,
+        product_name,
+        qty,
+        unit_label,
+        label_code,
+        notes,
+      })
+      .select("id")
+      .maybeSingle();
 
     if (error) {
       console.error("POST /api/inventory-labels erro:", error);
       return NextResponse.json(
-        { error: "Erro ao salvar etiqueta no banco." },
+        {
+          error: `Erro ao salvar etiqueta no banco: ${error.message}`,
+          code: (error as any)?.code ?? null,
+          details: (error as any)?.details ?? null,
+          hint: (error as any)?.hint ?? null,
+        },
         { status: 500 },
       );
     }
 
-    return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (err) {
+    return NextResponse.json({ ok: true, id: data?.id ?? null }, { status: 200 });
+  } catch (err: any) {
     console.error("POST /api/inventory-labels erro inesperado:", err);
     return NextResponse.json(
-      { error: "Erro inesperado ao salvar etiqueta." },
+      {
+        error: `Erro inesperado ao salvar etiqueta: ${
+          err?.message ?? "sem mensagem"
+        }`,
+      },
       { status: 500 },
     );
   }

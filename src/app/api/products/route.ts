@@ -11,6 +11,47 @@ type ProductRow = {
 };
 
 /**
+ * ✅ NOVO: normaliza unidade para evitar variações tipo "UND", "Unidade", "Kg", "LT" etc.
+ * - Não força um enum; apenas padroniza valores comuns.
+ */
+function normalizeUnit(input: any): string | null {
+  if (input === null || input === undefined) return null;
+
+  const raw = typeof input === "string" ? input : String(input);
+  const v = raw.trim();
+  if (!v) return null;
+
+  const low = v.toLowerCase();
+
+  // normalizações comuns
+  if (low === "kg" || low.includes("quilo") || low.includes("kilogram")) return "kg";
+  if (low === "g" || low.includes("grama")) return "g";
+
+  // litro: aceita "l", "lt", "litro"
+  if (low === "l" || low === "lt" || low.includes("litro")) return "lt";
+
+  if (low === "ml" || low.includes("mililit")) return "ml";
+
+  // unidade: "un", "und", "unid", "unidade", "pc", "pç"
+  if (
+    low === "un" ||
+    low === "und" ||
+    low === "unid" ||
+    low.includes("unidade") ||
+    low === "pc" ||
+    low === "pç"
+  ) {
+    return "un";
+  }
+
+  if (low === "cx" || low.includes("caixa")) return "cx";
+  if (low === "pct" || low.includes("pacote")) return "pct";
+
+  // fallback: mantém o valor original “como veio”
+  return v;
+}
+
+/**
  * ✅ NOVO: tenta extrair unidade de QUALQUER coluna comum
  * (mesmo que o nome real não esteja na lista unitColumnCandidates)
  */
@@ -38,71 +79,13 @@ function pickUnitFromAnyColumn(p: any): string | null {
   ];
 
   for (const c of candidates) {
-    if (typeof c === "string" && c.trim().length > 0) return c.trim();
+    const n = normalizeUnit(c);
+    if (typeof n === "string" && n.trim().length > 0) return n.trim();
   }
   return null;
 }
 
-/**
- * ✅ NOVO: tenta montar label de unidade quando buscamos em tabela de unidades
- */
-function pickBestUnitLabel(u: any): string | null {
-  const candidates = [u?.abbr, u?.code, u?.short, u?.name, u?.label, u?.title];
-  for (const c of candidates) {
-    if (typeof c === "string" && c.trim().length > 0) return c.trim();
-  }
-  return null;
-}
-
-/**
- * ✅ NOVO: tenta resolver unidade via FK (unit_id / uom_id / etc.)
- * sem assumir o schema — tenta várias colunas e várias tabelas comuns.
- */
-async function resolveUnitViaForeignKey(supabase: any, productsRaw: any[]) {
-  if (!Array.isArray(productsRaw) || productsRaw.length === 0) return null;
-
-  const fkCandidates = ["unit_id", "uom_id", "umd_id", "measurement_unit_id"];
-
-  const sample = productsRaw[0] ?? {};
-  const fkCol =
-    fkCandidates.find(
-      (c) =>
-        Object.prototype.hasOwnProperty.call(sample, c) &&
-        productsRaw.some((p) => p?.[c])
-    ) ?? null;
-
-  if (!fkCol) return null;
-
-  const ids = Array.from(
-    new Set(productsRaw.map((p) => p?.[fkCol]).filter(Boolean))
-  );
-
-  if (ids.length === 0) return null;
-
-  const unitTables = ["units", "uoms", "measurement_units", "unit_measures"];
-
-  for (const t of unitTables) {
-    const { data: unitsData, error } = await supabase.from(t).select("*").in("id", ids);
-
-    // tabela não existe => tenta a próxima (Postgres: 42P01)
-    if (error?.code === "42P01") continue;
-
-    // qualquer outro erro => devolve
-    if (error) return { map: null, error };
-
-    const map = new Map<string, string>();
-    for (const u of unitsData ?? []) {
-      const label = pickBestUnitLabel(u);
-      if (u?.id && label) map.set(u.id, label);
-    }
-
-    if (map.size > 0) return { fkCol, map, error: null, table: t };
-  }
-
-  return null;
-}
-
-async function fetchProductsWithUnitFallbacks(supabase: any, debug = false) {
+async function fetchProductsWithUnitFallbacks(supabase: any) {
   // Tentativas de nomes possíveis de coluna para "unidade"
   // (não quebra se nenhuma existir; só cai para próximo)
   const unitColumnCandidates = [
@@ -112,11 +95,13 @@ async function fetchProductsWithUnitFallbacks(supabase: any, debug = false) {
     "unit_label",
     "unit_measure",
     "unit_measurement",
+    "unit_measure_unit",
     "unidade",
     "unidade_medida",
     "unidade_de_medida",
     "um",
     "und",
+    "unid",
   ];
 
   // 1) tenta com uma coluna de unidade existente (rápido e leve)
@@ -139,20 +124,8 @@ async function fetchProductsWithUnitFallbacks(supabase: any, debug = false) {
       id: p.id,
       name: p.name,
       category: p.category ?? null,
-      unit: p?.[col] ?? null,
+      unit: normalizeUnit(p?.[col]),
     }));
-
-    if (debug) {
-      return {
-        data: rows,
-        error: null,
-        debug: {
-          mode: "directColumn",
-          usedColumn: col,
-          sampleKeys: Object.keys((data ?? [])[0] ?? {}),
-        },
-      };
-    }
 
     return { data: rows, error: null };
   }
@@ -169,80 +142,21 @@ async function fetchProductsWithUnitFallbacks(supabase: any, debug = false) {
     .limit(1000);
 
   if (!allErr) {
-    const rowsByAnyColumn: ProductRow[] = (allData ?? []).map((p: any) => ({
+    const rows: ProductRow[] = (allData ?? []).map((p: any) => ({
       id: p.id,
       name: p.name,
       category: p.category ?? null,
       unit: pickUnitFromAnyColumn(p),
     }));
 
-    const anyUnitByAnyColumn = rowsByAnyColumn.some(
+    // Se pelo menos 1 item vier com unit preenchido, já resolvemos
+    const anyUnit = rows.some(
       (r) => typeof r.unit === "string" && r.unit.trim().length > 0
     );
-
-    if (anyUnitByAnyColumn) {
-      if (debug) {
-        return {
-          data: rowsByAnyColumn,
-          error: null,
-          debug: {
-            mode: "pickUnitFromAnyColumn",
-            sampleKeys: Object.keys((allData ?? [])[0] ?? {}),
-          },
-        };
-      }
-      return { data: rowsByAnyColumn, error: null };
-    }
-
-    /**
-     * 3) ✅ NOVO: tenta resolver via FK (unit_id / uom_id / etc.)
-     * caso nenhuma coluna string tenha a unidade.
-     */
-    const resolved = await resolveUnitViaForeignKey(supabase, allData ?? []);
-    if (resolved?.error) return { data: null, error: resolved.error };
-
-    if (resolved?.map && resolved?.fkCol) {
-      const rowsByFk: ProductRow[] = (allData ?? []).map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        category: p.category ?? null,
-        unit: resolved.map.get(p?.[resolved.fkCol]) ?? null,
-      }));
-
-      const anyUnitByFk = rowsByFk.some(
-        (r) => typeof r.unit === "string" && r.unit.trim().length > 0
-      );
-
-      if (anyUnitByFk) {
-        if (debug) {
-          return {
-            data: rowsByFk,
-            error: null,
-            debug: {
-              mode: "foreignKeyLookup",
-              fkCol: resolved.fkCol,
-              table: resolved.table,
-              sampleKeys: Object.keys((allData ?? [])[0] ?? {}),
-            },
-          };
-        }
-        return { data: rowsByFk, error: null };
-      }
-    }
-
-    if (debug) {
-      return {
-        data: rowsByAnyColumn,
-        error: null,
-        debug: {
-          mode: "noUnitFound",
-          sampleKeys: Object.keys((allData ?? [])[0] ?? {}),
-        },
-      };
-    }
+    if (anyUnit) return { data: rows, error: null };
   }
 
-  // 4) fallback final: sem unidade (igual seu comportamento atual)
+  // 3) fallback final: sem unidade (igual seu comportamento atual)
   const { data, error } = await supabase
     .from("products")
     .select("id, name, category")
@@ -258,21 +172,10 @@ async function fetchProductsWithUnitFallbacks(supabase: any, debug = false) {
     unit: null,
   }));
 
-  if (debug) {
-    return {
-      data: rows,
-      error: null,
-      debug: {
-        mode: "fallbackNoUnit",
-        sampleKeys: Object.keys((data ?? [])[0] ?? {}),
-      },
-    };
-  }
-
   return { data: rows, error: null };
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
     const supabase = await createSupabaseServerClient();
 
@@ -290,28 +193,18 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
     }
 
-    const url = new URL(req.url);
-    const debug = url.searchParams.get("debug") === "1";
+    // ✅ BUSCA PRODUTOS com fallback de colunas de unidade
+    const { data: rows, error } = await fetchProductsWithUnitFallbacks(supabase);
 
-    // ✅ BUSCA PRODUTOS com fallback de colunas de unidade + FK
-    const result = await fetchProductsWithUnitFallbacks(supabase, debug);
-
-    if (result.error) {
-      console.error("GET /api/products - supabase error:", result.error);
+    if (error) {
+      console.error("GET /api/products - supabase error:", error);
       return NextResponse.json(
-        { error: (result.error as any)?.message || "Erro ao listar produtos." },
+        { error: error.message || "Erro ao listar produtos." },
         { status: 500 }
       );
     }
 
-    if (debug) {
-      return NextResponse.json(
-        { rows: result.data ?? [], debug: (result as any).debug ?? null },
-        { status: 200 }
-      );
-    }
-
-    return NextResponse.json(result.data ?? [], { status: 200 });
+    return NextResponse.json(rows ?? [], { status: 200 });
   } catch (e: any) {
     console.error("GET /api/products - unexpected:", e);
     return NextResponse.json(

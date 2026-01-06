@@ -25,6 +25,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+// ✅ Combobox shadcn (dropdown ao clicar no campo)
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+
 /* =========================
    ✅ TIPOS DO BACK (route handler /api/inventory-labels)
 ========================= */
@@ -414,7 +427,8 @@ export default function EtiquetasPage() {
   const [carregandoProdutos, setCarregandoProdutos] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
 
-  // ✅ busca para a listagem
+  // ✅ Combobox state
+  const [comboOpen, setComboOpen] = useState(false);
   const [productQuery, setProductQuery] = useState("");
 
   const selectedProduct = useMemo(
@@ -546,6 +560,7 @@ export default function EtiquetasPage() {
 
       setSelectedProductId("");
       setProductQuery("");
+      setComboOpen(false);
     }
   }, [showNovaEtiqueta, defaultForm]);
 
@@ -1257,7 +1272,7 @@ export default function EtiquetasPage() {
             <div className="space-y-6">
               {/* Tipo & Tamanho */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {/* ✅ Agora é SELECT NATIVO (sem shadcn combobox) */}
+                {/* ✅ SELECT NATIVO */}
                 <div className="min-w-0">
                   <Label>Tipo de Etiqueta</Label>
                   <select
@@ -1270,7 +1285,7 @@ export default function EtiquetasPage() {
                   </select>
                 </div>
 
-                {/* ✅ Agora é SELECT NATIVO (sem shadcn combobox) */}
+                {/* ✅ SELECT NATIVO */}
                 <div className="min-w-0">
                   <Label>Tamanho da Etiqueta</Label>
                   <select
@@ -1294,48 +1309,75 @@ export default function EtiquetasPage() {
               {/* Linha base + porcionamento */}
               <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
-                  {/* Insumo */}
+                  {/* ✅ Insumo/Produto — agora é 1 campo (combobox), sem lista fixa embaixo */}
                   <div className="min-w-0 md:col-span-6">
                     <Label>Insumo/Produto *</Label>
 
-                    {/* ✅ CAIXA DE LISTAGEM (sem combobox) */}
-                    <div className="space-y-2">
-                      <Input
-                        value={productQuery}
-                        onChange={(e) => setProductQuery(e.target.value)}
-                        placeholder={
-                          carregandoProdutos
+                    <Popover open={comboOpen} onOpenChange={setComboOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={comboOpen}
+                          className={cn(
+                            "w-full justify-between font-normal",
+                            !selectedProduct ? "text-muted-foreground" : ""
+                          )}
+                          disabled={carregandoProdutos}
+                        >
+                          {carregandoProdutos
                             ? "Carregando produtos..."
-                            : "Buscar produto..."
-                        }
-                        disabled={carregandoProdutos}
-                      />
+                            : selectedProduct
+                              ? selectedProduct.name
+                              : "Selecione um produto..."}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-60" />
+                        </Button>
+                      </PopoverTrigger>
 
-                      <div className="rounded-md border bg-white">
-                        <div className="max-h-56 overflow-auto">
-                          {carregandoProdutos ? (
-                            <div className="p-3 text-sm text-muted-foreground">
-                              Carregando...
-                            </div>
-                          ) : productsFiltered.length === 0 ? (
-                            <div className="p-3 text-sm text-muted-foreground">
-                              Nenhum item encontrado.
-                            </div>
-                          ) : (
-                            <div className="divide-y">
-                              {productsFiltered.map((p) => {
-                                const active = selectedProductId === p.id;
-                                return (
-                                  <button
-                                    key={p.id}
-                                    type="button"
-                                    onClick={() => setSelectedProductId(p.id)}
-                                    className={[
-                                      "w-full text-left px-3 py-2 hover:bg-gray-50",
-                                      active ? "bg-gray-50" : "",
-                                    ].join(" ")}
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
+                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                        <Command shouldFilter={false}>
+                          <div className="p-2 border-b">
+                            <CommandInput
+                              value={productQuery}
+                              onValueChange={setProductQuery}
+                              placeholder="Buscar produto..."
+                            />
+                          </div>
+
+                          <CommandList className="max-h-64 overflow-auto">
+                            {carregandoProdutos ? (
+                              <div className="p-3 text-sm text-muted-foreground">
+                                Carregando...
+                              </div>
+                            ) : products.length === 0 ? (
+                              <div className="p-3 text-sm text-muted-foreground">
+                                Nenhum produto carregado (verifique /api/products e RLS).
+                              </div>
+                            ) : productsFiltered.length === 0 ? (
+                              <CommandEmpty>Nenhum item encontrado.</CommandEmpty>
+                            ) : (
+                              <CommandGroup>
+                                {productsFiltered.map((p) => {
+                                  const active = selectedProductId === p.id;
+                                  return (
+                                    <CommandItem
+                                      key={p.id}
+                                      value={p.id}
+                                      onSelect={() => {
+                                        setSelectedProductId(p.id);
+                                        setComboOpen(false);
+                                        setProductQuery("");
+                                      }}
+                                      className="flex items-start gap-2"
+                                    >
+                                      <Check
+                                        className={cn(
+                                          "mt-0.5 h-4 w-4",
+                                          active ? "opacity-100" : "opacity-0"
+                                        )}
+                                      />
+
                                       <div className="min-w-0">
                                         <div className="font-medium truncate">
                                           {p.name}
@@ -1348,51 +1390,27 @@ export default function EtiquetasPage() {
                                           </div>
                                         )}
                                       </div>
-                                      {active && (
-                                        <span className="text-[11px] font-semibold px-2 py-1 rounded bg-gray-200 shrink-0">
-                                          Selecionado
-                                        </span>
-                                      )}
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
+                                    </CommandItem>
+                                  );
+                                })}
+                              </CommandGroup>
+                            )}
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+
+                    {selectedProduct &&
+                      !String(selectedProduct.unit || "").trim() && (
+                        <div className="text-xs text-red-600 mt-2">
+                          Unidade não retornou para este produto (verifique o
+                          /api/products: ele precisa retornar <code>unit_label</code> ou equivalente).
                         </div>
-
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-t">
-                          Selecionado:{" "}
-                          <span className="font-medium">
-                            {selectedProduct ? selectedProduct.name : "-"}
-                          </span>
-                        </div>
-                      </div>
-
-                      {selectedProduct &&
-                        !String(selectedProduct.unit || "").trim() && (
-                          <div className="text-xs text-red-600">
-                            Unidade não retornou para este produto (verifique o
-                            /api/products: ele precisa retornar{" "}
-                            <code>unit_label</code> ou equivalente).
-                          </div>
-                        )}
-
-                      {!carregandoProdutos && products.length === 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          Nenhum produto carregado (verifique /api/products e
-                          RLS).
-                        </p>
                       )}
-                    </div>
 
                     {/* (mantido) hidden inputs */}
                     <input type="hidden" value={selectedInsumoId} readOnly />
-                    <input
-                      type="hidden"
-                      value={selectedProduct?.id ?? ""}
-                      readOnly
-                    />
+                    <input type="hidden" value={selectedProduct?.id ?? ""} readOnly />
                   </div>
 
                   {/* Quantidade */}

@@ -112,10 +112,7 @@ export async function GET() {
         debug,
       );
       return NextResponse.json(
-        {
-          error: "Não foi possível identificar o estabelecimento do usuário.",
-          debug,
-        },
+        { error: "Não foi possível identificar o estabelecimento do usuário.", debug },
         { status: 403 },
       );
     }
@@ -139,17 +136,11 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json((data ?? []) as InventoryLabelRow[], {
-      status: 200,
-    });
+    return NextResponse.json((data ?? []) as InventoryLabelRow[], { status: 200 });
   } catch (err: any) {
     console.error("GET /api/inventory-labels erro inesperado:", err);
     return NextResponse.json(
-      {
-        error: `Erro inesperado ao carregar etiquetas: ${
-          err?.message ?? "sem mensagem"
-        }`,
-      },
+      { error: `Erro inesperado ao carregar etiquetas: ${err?.message ?? "sem mensagem"}` },
       { status: 500 },
     );
   }
@@ -170,37 +161,40 @@ export async function POST(req: Request) {
         debug,
       );
       return NextResponse.json(
-        {
-          error: "Não foi possível identificar o estabelecimento do usuário.",
-          debug,
-        },
+        { error: "Não foi possível identificar o estabelecimento do usuário.", debug },
         { status: 403 },
       );
     }
 
     const body = await req.json();
 
-    const product_name = String(body?.productName ?? "").trim();
+    // ⚠️ productName continua vindo do front, mas NÃO é mais gravado em coluna
+    // (porque a coluna product_name não existe em inventory_labels)
+    const productName = String(body?.productName ?? "").trim();
+
     const qty = Number(body?.qty);
     const unit_label = String(body?.unitLabel ?? "").trim();
     const label_code = String(body?.labelCode ?? "").trim();
+
     const notes =
       body?.extraPayload !== undefined && body?.extraPayload !== null
         ? JSON.stringify(body.extraPayload)
         : null;
 
-    if (!product_name || !unit_label || !label_code || !Number.isFinite(qty)) {
+    // ✅ validação mínima (mantendo seu comportamento)
+    // productName não é obrigatório para inserir no banco, pois pode ficar só no notes.
+    if (!unit_label || !label_code || !Number.isFinite(qty)) {
       return NextResponse.json(
         { error: "Payload inválido para criar etiqueta." },
         { status: 400 },
       );
     }
 
+    // ✅ INSERT apenas com colunas que realmente existem
     const { data, error } = await supabase
       .from("inventory_labels")
       .insert({
         establishment_id: establishmentId,
-        product_name,
         qty,
         unit_label,
         label_code,
@@ -217,6 +211,8 @@ export async function POST(req: Request) {
           code: (error as any)?.code ?? null,
           details: (error as any)?.details ?? null,
           hint: (error as any)?.hint ?? null,
+          // só pra você enxergar no log o que chegou
+          debug_payload: { productName, qty, unit_label, label_code },
         },
         { status: 500 },
       );
@@ -226,11 +222,7 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error("POST /api/inventory-labels erro inesperado:", err);
     return NextResponse.json(
-      {
-        error: `Erro inesperado ao salvar etiqueta: ${
-          err?.message ?? "sem mensagem"
-        }`,
-      },
+      { error: `Erro inesperado ao salvar etiqueta: ${err?.message ?? "sem mensagem"}` },
       { status: 500 },
     );
   }

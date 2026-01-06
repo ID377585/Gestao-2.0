@@ -10,6 +10,39 @@ type ProductRow = {
   category: string | null;
 };
 
+/**
+ * ✅ NOVO: tenta extrair unidade de QUALQUER coluna comum
+ * (mesmo que o nome real não esteja na lista unitColumnCandidates)
+ */
+function pickUnitFromAnyColumn(p: any): string | null {
+  const candidates = [
+    p.unit,
+    p.umd,
+    p.uom,
+    p.unit_label,
+    p.unit_measure,
+    p.unit_measurement,
+    p.unit_measure_unit,
+    p.unidade,
+    p.unidade_medida,
+    p.unidade_de_medida,
+    p.medida,
+    p.measure_unit,
+    p.measurement_unit,
+    p.um,
+    p.und,
+    p.unid,
+    p.unit_code,
+    p.unit_abbr,
+    p.unit_short,
+  ];
+
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) return c.trim();
+  }
+  return null;
+}
+
 async function fetchProductsWithUnitFallbacks(supabase: any) {
   // Tentativas de nomes possíveis de coluna para "unidade"
   // (não quebra se nenhuma existir; só cai para próximo)
@@ -19,10 +52,15 @@ async function fetchProductsWithUnitFallbacks(supabase: any) {
     "uom",
     "unit_label",
     "unit_measure",
+    "unit_measurement",
     "unidade",
+    "unidade_medida",
+    "unidade_de_medida",
+    "um",
+    "und",
   ];
 
-  // 1) tenta com uma coluna de unidade existente
+  // 1) tenta com uma coluna de unidade existente (rápido e leve)
   for (const col of unitColumnCandidates) {
     const { data, error } = await supabase
       .from("products")
@@ -48,7 +86,32 @@ async function fetchProductsWithUnitFallbacks(supabase: any) {
     return { data: rows, error: null };
   }
 
-  // 2) fallback final: sem unidade (igual seu comportamento atual)
+  /**
+   * 2) ✅ NOVO: fallback inteligente
+   * Busca "*" para não depender do nome exato da coluna e tenta extrair unidade
+   * sem quebrar o contrato do frontend.
+   */
+  const { data: allData, error: allErr } = await supabase
+    .from("products")
+    .select("*")
+    .order("name", { ascending: true })
+    .limit(1000);
+
+  if (!allErr) {
+    const rows: ProductRow[] = (allData ?? []).map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      category: p.category ?? null,
+      unit: pickUnitFromAnyColumn(p),
+    }));
+
+    // Se pelo menos 1 item vier com unit preenchido, já resolvemos
+    // (mesmo que alguns não tenham unidade cadastrada)
+    const anyUnit = rows.some((r) => typeof r.unit === "string" && r.unit.trim().length > 0);
+    if (anyUnit) return { data: rows, error: null };
+  }
+
+  // 3) fallback final: sem unidade (igual seu comportamento atual)
   const { data, error } = await supabase
     .from("products")
     .select("id, name, category")

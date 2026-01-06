@@ -11,49 +11,7 @@ type ProductRow = {
 };
 
 /**
- * ✅ NOVO: normaliza unidade para evitar variações tipo "UND", "Unidade", "Kg", "LT" etc.
- * - Não força um enum; apenas padroniza valores comuns.
- */
-function normalizeUnit(input: any): string | null {
-  if (input === null || input === undefined) return null;
-
-  const raw = typeof input === "string" ? input : String(input);
-  const v = raw.trim();
-  if (!v) return null;
-
-  const low = v.toLowerCase();
-
-  // normalizações comuns
-  if (low === "kg" || low.includes("quilo") || low.includes("kilogram")) return "kg";
-  if (low === "g" || low.includes("grama")) return "g";
-
-  // litro: aceita "l", "lt", "litro"
-  if (low === "l" || low === "lt" || low.includes("litro")) return "lt";
-
-  if (low === "ml" || low.includes("mililit")) return "ml";
-
-  // unidade: "un", "und", "unid", "unidade", "pc", "pç"
-  if (
-    low === "un" ||
-    low === "und" ||
-    low === "unid" ||
-    low.includes("unidade") ||
-    low === "pc" ||
-    low === "pç"
-  ) {
-    return "un";
-  }
-
-  if (low === "cx" || low.includes("caixa")) return "cx";
-  if (low === "pct" || low.includes("pacote")) return "pct";
-
-  // fallback: mantém o valor original “como veio”
-  return v;
-}
-
-/**
- * ✅ NOVO: tenta extrair unidade de QUALQUER coluna comum
- * (mesmo que o nome real não esteja na lista unitColumnCandidates)
+ * ✅ tenta extrair unidade de QUALQUER coluna comum
  */
 function pickUnitFromAnyColumn(p: any): string | null {
   const candidates = [
@@ -79,15 +37,13 @@ function pickUnitFromAnyColumn(p: any): string | null {
   ];
 
   for (const c of candidates) {
-    const n = normalizeUnit(c);
-    if (typeof n === "string" && n.trim().length > 0) return n.trim();
+    if (typeof c === "string" && c.trim().length > 0) return c.trim();
   }
   return null;
 }
 
 async function fetchProductsWithUnitFallbacks(supabase: any) {
   // Tentativas de nomes possíveis de coluna para "unidade"
-  // (não quebra se nenhuma existir; só cai para próximo)
   const unitColumnCandidates = [
     "unit",
     "umd",
@@ -95,16 +51,14 @@ async function fetchProductsWithUnitFallbacks(supabase: any) {
     "unit_label",
     "unit_measure",
     "unit_measurement",
-    "unit_measure_unit",
     "unidade",
     "unidade_medida",
     "unidade_de_medida",
     "um",
     "und",
-    "unid",
   ];
 
-  // 1) tenta com uma coluna de unidade existente (rápido e leve)
+  // 1) tenta com uma coluna de unidade existente
   for (const col of unitColumnCandidates) {
     const { data, error } = await supabase
       .from("products")
@@ -112,28 +66,31 @@ async function fetchProductsWithUnitFallbacks(supabase: any) {
       .order("name", { ascending: true })
       .limit(1000);
 
-    // Se deu erro porque a coluna não existe, tenta a próxima
-    // Postgres: undefined_column => 42703
+    // coluna não existe -> tenta próxima
     if (error?.code === "42703") continue;
 
-    // Qualquer outro erro: devolve pra quem chamou tratar
+    // outro erro -> retorna
     if (error) return { data: null, error };
 
-    // Achou uma coluna válida, normaliza para { unit }
     const rows: ProductRow[] = (data ?? []).map((p: any) => ({
       id: p.id,
       name: p.name,
       category: p.category ?? null,
-      unit: normalizeUnit(p?.[col]),
+      unit: typeof p?.[col] === "string" ? String(p[col]).trim() : p?.[col] ?? null,
     }));
+
+    // ✅ MELHORIA: se a coluna existe MAS não trouxe unidade em nenhum item,
+    // NÃO para aqui — tenta próxima coluna / fallback "*"
+    const anyUnit = rows.some(
+      (r) => typeof r.unit === "string" && r.unit.trim().length > 0
+    );
+    if (!anyUnit) continue;
 
     return { data: rows, error: null };
   }
 
   /**
-   * 2) ✅ fallback inteligente
-   * Busca "*" para não depender do nome exato da coluna e tenta extrair unidade
-   * sem quebrar o contrato do frontend.
+   * 2) fallback inteligente: busca "*" e tenta extrair unidade
    */
   const { data: allData, error: allErr } = await supabase
     .from("products")
@@ -149,14 +106,13 @@ async function fetchProductsWithUnitFallbacks(supabase: any) {
       unit: pickUnitFromAnyColumn(p),
     }));
 
-    // Se pelo menos 1 item vier com unit preenchido, já resolvemos
     const anyUnit = rows.some(
       (r) => typeof r.unit === "string" && r.unit.trim().length > 0
     );
     if (anyUnit) return { data: rows, error: null };
   }
 
-  // 3) fallback final: sem unidade (igual seu comportamento atual)
+  // 3) fallback final: sem unidade
   const { data, error } = await supabase
     .from("products")
     .select("id, name, category")

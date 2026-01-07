@@ -810,7 +810,7 @@ export default function EtiquetasPage() {
 
             <div className="space-y-6">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="min-w-0">
+                <div className="min-w-0 md:col-span-6">
                   <Label>Tipo de Etiqueta</Label>
                   <select
                     value={tipoSelecionado}
@@ -822,7 +822,7 @@ export default function EtiquetasPage() {
                   </select>
                 </div>
 
-                <div className="min-w-0">
+                <div className="min-w-0 md:col-span-6">
                   <Label>Tamanho da Etiqueta</Label>
                   <select
                     value={tamanhoSelecionado}
@@ -863,16 +863,21 @@ export default function EtiquetasPage() {
                         </Button>
                       </PopoverTrigger>
 
+                      {/* ✅ AJUSTE: força fundo/texto/borda/sombra para evitar “lista invisível” */}
                       <PopoverContent
-                        className="w-[--radix-popover-trigger-width] p-0 z-[99999]"
+                        className="w-[--radix-popover-trigger-width] p-0 z-[99999] bg-white text-gray-900 border border-gray-200 shadow-lg"
                         align="start"
                         side="bottom"
                         sideOffset={6}
                         avoidCollisions
                         collisionPadding={12}
                       >
-                        <Command>
-                          <CommandInput placeholder="Buscar produto..." />
+                        {/* ✅ AJUSTE: força contraste dentro do Command */}
+                        <Command className="bg-white text-gray-900">
+                          <CommandInput
+                            placeholder="Buscar produto..."
+                            className="text-gray-900"
+                          />
 
                           {/* ✅ DEBUG VISUAL */}
                           <div className="px-3 py-2 text-xs text-muted-foreground border-b">
@@ -888,7 +893,8 @@ export default function EtiquetasPage() {
                             )}
                           </div>
 
-                          <CommandList className="max-h-[320px] overflow-auto">
+                          {/* ✅ AJUSTE: garante fundo branco na área de scroll */}
+                          <CommandList className="max-h-[320px] overflow-auto bg-white">
                             <CommandEmpty>
                               {productsLoading
                                 ? "Carregando..."

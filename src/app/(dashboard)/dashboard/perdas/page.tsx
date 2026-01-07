@@ -537,20 +537,29 @@ export default function PerdasPage() {
               <Popover open={productOpen} onOpenChange={setProductOpen}>
                 <PopoverTrigger asChild>
                   <Button
+                    type="button"
                     variant="outline"
                     role="combobox"
+                    aria-expanded={productOpen}
                     className={cn(
                       "w-full justify-between",
                       !selectedProductId && "text-muted-foreground"
                     )}
                     disabled={loadingProducts}
+                    onClick={() => {
+                      if (!loadingProducts) setProductOpen((v) => !v);
+                    }}
                   >
                     {selectedProduct ? selectedProduct.name : "Selecione..."}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
 
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                <PopoverContent
+                  align="start"
+                  sideOffset={6}
+                  className="w-[--radix-popover-trigger-width] p-0 z-50"
+                >
                   <Command>
                     <CommandInput placeholder="Buscar produto..." />
                     <CommandList>
@@ -791,6 +800,8 @@ export default function PerdasPage() {
 
                 setSubmitError(null);
                 setLastResult(null);
+
+                setProductOpen(false);
               }}
               disabled={submitting}
             >

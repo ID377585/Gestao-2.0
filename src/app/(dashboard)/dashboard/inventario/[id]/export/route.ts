@@ -30,10 +30,14 @@ type InventoryItemRow = {
  */
 function getProductName(products: ProductJoin): string {
   if (!products) return "";
-  if (Array.isArray(products)) {
-    return products[0]?.name ?? "";
-  }
+  if (Array.isArray(products)) return products[0]?.name ?? "";
   return products.name ?? "";
+}
+
+function csvEscape(value: unknown) {
+  const v = value ?? "";
+  const s = String(v).replace(/"/g, '""');
+  return `"${s}"`;
 }
 
 /* =========================================================
@@ -42,7 +46,7 @@ function getProductName(products: ProductJoin): string {
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: { id: string } }
 ) {
   try {
     const inventoryId = params.id;
@@ -62,7 +66,7 @@ export async function GET(
     if (countError || !count || count.establishment_id !== establishmentId) {
       return NextResponse.json(
         { error: "Inventário não encontrado ou não autorizado." },
-        { status: 404 },
+        { status: 404 }
       );
     }
 
@@ -78,7 +82,7 @@ export async function GET(
         products (
           name
         )
-      `,
+      `
       )
       .eq("inventory_count_id", inventoryId);
 
@@ -86,7 +90,7 @@ export async function GET(
       console.error("Erro ao carregar itens para export:", error);
       return NextResponse.json(
         { error: "Erro ao carregar itens de inventário." },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
@@ -104,26 +108,26 @@ export async function GET(
       ]),
     ];
 
-    const csv = rows
-      .map((cols) =>
-        cols
-          .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-          .join(";"),
-      )
-      .join("\n");
+    const csvBody = rows
+      .map((cols) => cols.map(csvEscape).join(";"))
+      .join("\r\n");
+
+    // ✅ BOM para Excel + no-store
+    const csv = "\uFEFF" + csvBody;
 
     return new NextResponse(csv, {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="inventario-${inventoryId}.csv"`,
+        "Cache-Control": "no-store",
       },
     });
   } catch (err) {
     console.error("Erro inesperado ao exportar inventário:", err);
     return NextResponse.json(
       { error: "Erro inesperado ao exportar inventário." },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

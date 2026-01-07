@@ -778,10 +778,20 @@ export default function EtiquetasPage() {
                           >
                             🖨️
                           </Button>
-                          <Button size="sm" variant="outline" title="Visualizar" disabled>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Visualizar"
+                            disabled
+                          >
                             👁️
                           </Button>
-                          <Button size="sm" variant="outline" title="Copiar" disabled>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Copiar"
+                            disabled
+                          >
                             📋
                           </Button>
                         </div>
@@ -814,7 +824,9 @@ export default function EtiquetasPage() {
                   <Label>Tipo de Etiqueta</Label>
                   <select
                     value={tipoSelecionado}
-                    onChange={(e) => setTipoSelecionado(e.target.value as TipoSel)}
+                    onChange={(e) =>
+                      setTipoSelecionado(e.target.value as TipoSel)
+                    }
                     className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
                     <option value="MANIPULACAO">MANIPULAÇÃO</option>
@@ -844,13 +856,11 @@ export default function EtiquetasPage() {
                   <div className="min-w-0 md:col-span-6">
                     <Label>Insumo/Produto *</Label>
 
-                    {/* ✅ Melhorias do Combo:
-                       - Popover sem modal (evita bug dentro do overlay)
-                       - side="bottom" + collisions
-                       - CommandList com altura e scroll
-                       - Debug visual (loading/erro/contador)
-                    */}
-                    <Popover open={productOpen} onOpenChange={setProductOpen}>
+                    <Popover
+                      open={productOpen}
+                      onOpenChange={setProductOpen}
+                      modal={false}
+                    >
                       <PopoverTrigger asChild>
                         <Button
                           type="button"
@@ -865,7 +875,7 @@ export default function EtiquetasPage() {
                       </PopoverTrigger>
 
                       <PopoverContent
-                        className="w-[--radix-popover-trigger-width] p-0 z-[99999]"
+                        className="w-[--radix-popover-trigger-width] p-0 z-[99999] pointer-events-auto"
                         align="start"
                         side="bottom"
                         sideOffset={6}
@@ -905,7 +915,10 @@ export default function EtiquetasPage() {
                                     setSelectedProductId(p.id);
                                     handleInputChange("insumo", p.name);
 
-                                    if (p.unit && !String(formData.umd || "").trim()) {
+                                    if (
+                                      p.unit &&
+                                      !String(formData.umd || "").trim()
+                                    ) {
                                       handleInputChange("umd", p.unit);
                                     }
 
@@ -1077,7 +1090,9 @@ export default function EtiquetasPage() {
                     className="w-full min-w-0"
                     value={formData.dataManip}
                     type="date"
-                    onChange={(e) => handleInputChange("dataManip", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("dataManip", e.target.value)
+                    }
                   />
                 </div>
 
@@ -1087,7 +1102,9 @@ export default function EtiquetasPage() {
                     className="w-full min-w-0"
                     type="date"
                     value={formData.dataVenc}
-                    onChange={(e) => handleInputChange("dataVenc", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("dataVenc", e.target.value)
+                    }
                   />
                 </div>
               </div>
@@ -1219,7 +1236,9 @@ export default function EtiquetasPage() {
                   <Input
                     className="w-full min-w-0"
                     value={formData.localEnvio}
-                    onChange={(e) => handleInputChange("localEnvio", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("localEnvio", e.target.value)
+                    }
                     placeholder="Para onde será enviado"
                   />
                 </div>

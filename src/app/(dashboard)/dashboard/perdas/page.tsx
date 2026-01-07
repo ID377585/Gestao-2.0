@@ -525,7 +525,12 @@ export default function PerdasPage() {
             <div className="space-y-2">
               <Label>Produto *</Label>
 
-              <Popover open={productOpen} onOpenChange={setProductOpen}>
+              {/* ✅ Mantido controlado, mas sem onClick manual no Button (evita conflito do Radix) */}
+              <Popover
+                open={productOpen}
+                onOpenChange={setProductOpen}
+                modal={false}
+              >
                 <PopoverTrigger asChild>
                   <Button
                     type="button"
@@ -537,9 +542,6 @@ export default function PerdasPage() {
                       !selectedProductId && "text-muted-foreground"
                     )}
                     disabled={loadingProducts}
-                    onClick={() => {
-                      if (!loadingProducts) setProductOpen((v) => !v);
-                    }}
                   >
                     {selectedProduct ? selectedProduct.name : "Selecione..."}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -548,14 +550,15 @@ export default function PerdasPage() {
 
                 <PopoverContent
                   align="start"
+                  side="bottom"
                   sideOffset={6}
-                  // ✅ IMPORTANTE: altura + overflow (lista longa) e z alto
-                  className="w-[--radix-popover-trigger-width] p-0 z-[9999] max-h-[320px] overflow-hidden"
+                  avoidCollisions
+                  collisionPadding={12}
+                  className="w-[--radix-popover-trigger-width] p-0 z-[99999] max-h-[320px] overflow-hidden pointer-events-auto"
                 >
                   <Command>
                     <CommandInput placeholder="Buscar produto..." />
-                    {/* ✅ lista rola dentro do popover */}
-                    <CommandList className="max-h-[272px] overflow-auto">
+                    <CommandList className="max-h-[320px] overflow-auto">
                       <CommandEmpty>Nenhum produto encontrado.</CommandEmpty>
                       <CommandGroup>
                         {products.map((p) => (
@@ -713,7 +716,9 @@ export default function PerdasPage() {
               {labelPreview ? (
                 <Card className="mt-2 border-dashed">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Etiqueta encontrada</CardTitle>
+                    <CardTitle className="text-sm">
+                      Etiqueta encontrada
+                    </CardTitle>
                     <CardDescription>
                       Confirme saldo e lote antes de registrar.
                     </CardDescription>
@@ -916,7 +921,9 @@ export default function PerdasPage() {
                       </TableCell>
 
                       <TableCell className="align-top">
-                        <Badge variant="secondary">{row.unit_label || "-"}</Badge>
+                        <Badge variant="secondary">
+                          {row.unit_label || "-"}
+                        </Badge>
                       </TableCell>
 
                       <TableCell className="align-top">

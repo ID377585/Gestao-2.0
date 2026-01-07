@@ -6,13 +6,10 @@ export const dynamic = "force-dynamic";
 type ProductRow = {
   id: string;
   name: string;
-  unit: string | null; // mantém o campo esperado pelo combobox
+  unit: string | null;
   category: string | null;
 };
 
-/**
- * ✅ tenta extrair unidade de QUALQUER coluna comum
- */
 function pickUnitFromAnyColumn(p: any): string | null {
   const candidates = [
     p.unit,
@@ -43,7 +40,6 @@ function pickUnitFromAnyColumn(p: any): string | null {
 }
 
 async function fetchProductsWithUnitFallbacks(supabase: any) {
-  // Tentativas de nomes possíveis de coluna para "unidade"
   const unitColumnCandidates = [
     "unit",
     "umd",
@@ -58,7 +54,6 @@ async function fetchProductsWithUnitFallbacks(supabase: any) {
     "und",
   ];
 
-  // 1) tenta com uma coluna de unidade existente
   for (const col of unitColumnCandidates) {
     const { data, error } = await supabase
       .from("products")
@@ -66,10 +61,7 @@ async function fetchProductsWithUnitFallbacks(supabase: any) {
       .order("name", { ascending: true })
       .limit(1000);
 
-    // coluna não existe -> tenta próxima
     if (error?.code === "42703") continue;
-
-    // outro erro -> retorna
     if (error) return { data: null, error };
 
     const rows: ProductRow[] = (data ?? []).map((p: any) => ({
@@ -79,19 +71,13 @@ async function fetchProductsWithUnitFallbacks(supabase: any) {
       unit: typeof p?.[col] === "string" ? String(p[col]).trim() : p?.[col] ?? null,
     }));
 
-    // ✅ MELHORIA: se a coluna existe MAS não trouxe unidade em nenhum item,
-    // NÃO para aqui — tenta próxima coluna / fallback "*"
-    const anyUnit = rows.some(
-      (r) => typeof r.unit === "string" && r.unit.trim().length > 0
-    );
+    const anyUnit = rows.some((r) => typeof r.unit === "string" && r.unit.trim().length > 0);
     if (!anyUnit) continue;
 
     return { data: rows, error: null };
   }
 
-  /**
-   * 2) fallback inteligente: busca "*" e tenta extrair unidade
-   */
+  // fallback "*"
   const { data: allData, error: allErr } = await supabase
     .from("products")
     .select("*")
@@ -106,13 +92,11 @@ async function fetchProductsWithUnitFallbacks(supabase: any) {
       unit: pickUnitFromAnyColumn(p),
     }));
 
-    const anyUnit = rows.some(
-      (r) => typeof r.unit === "string" && r.unit.trim().length > 0
-    );
+    const anyUnit = rows.some((r) => typeof r.unit === "string" && r.unit.trim().length > 0);
     if (anyUnit) return { data: rows, error: null };
   }
 
-  // 3) fallback final: sem unidade
+  // fallback final: sem unidade
   const { data, error } = await supabase
     .from("products")
     .select("id, name, category")
@@ -135,7 +119,6 @@ export async function GET() {
   try {
     const supabase = await createSupabaseServerClient();
 
-    // ✅ garante sessão (RLS depende disso)
     const { data: authData, error: authError } = await supabase.auth.getUser();
 
     if (authError) {
@@ -149,14 +132,23 @@ export async function GET() {
       return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
     }
 
-    // ✅ BUSCA PRODUTOS com fallback de colunas de unidade
     const { data: rows, error } = await fetchProductsWithUnitFallbacks(supabase);
 
     if (error) {
-      console.error("GET /api/products - supabase error:", error);
+      // ✅ melhora: RLS geralmente dá 42501 (insufficient_privilege) ou mensagem "permission denied"
+      const msg = error.message || "Erro ao listar produtos.";
+      const code = error.code || "";
+
+      console.error("GET /api/products - supabase error:", { code, msg });
+
+      const isRls =
+        code === "42501" ||
+        /permission denied/i.test(msg) ||
+        /row level security/i.test(msg);
+
       return NextResponse.json(
-        { error: error.message || "Erro ao listar produtos." },
-        { status: 500 }
+        { error: msg },
+        { status: isRls ? 403 : 500 }
       );
     }
 

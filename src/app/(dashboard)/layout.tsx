@@ -102,7 +102,8 @@ export default async function DashboardLayout({
           }}
         >
           {/* Topbar */}
-          <div className="sticky top-0 z-50 pointer-events-auto">
+          {/* ✅ Ajuste mínimo: reduz z-index do header sticky para não cobrir popovers/dropdowns */}
+          <div className="sticky top-0 z-40 pointer-events-auto">
             <Topbar />
           </div>
 

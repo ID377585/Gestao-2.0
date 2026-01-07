@@ -38,16 +38,6 @@ type InventoryLabelRow = {
 };
 
 /* =========================
-   ✅ Tipos de produtos (route handler /api/products)
-========================= */
-type ProductOption = {
-  id: string;
-  name: string;
-  unit: string | null;
-  category: string | null;
-};
-
-/* =========================
    ✅ API helpers (CLIENT -> Route Handler)
    - Evita importar "use server" em Client
 ========================= */
@@ -78,15 +68,13 @@ async function apiCreateInventoryLabel(payload: {
   qty: number;
   unitLabel: string;
   labelCode: string;
-  productId?: string;
   extraPayload?: any;
 }): Promise<void> {
   const bodyToSend: any = {
-    ...payload,
     product_name: payload.productName,
+    qty: payload.qty,
     unit_label: payload.unitLabel,
     label_code: payload.labelCode,
-    ...(payload.productId ? { product_id: payload.productId } : {}),
     notes:
       payload.extraPayload !== undefined
         ? JSON.stringify(payload.extraPayload)
@@ -114,52 +102,6 @@ async function apiCreateInventoryLabel(payload: {
     } catch {}
     throw new Error(message);
   }
-}
-
-// ✅ lista produtos do banco (sessão Produtos)
-async function apiListProducts(): Promise<ProductOption[]> {
-  const res = await fetch("/api/products", { method: "GET" });
-  const contentType = res.headers.get("content-type") || "";
-
-  if (!res.ok) {
-    let message = `Erro ao carregar produtos (HTTP ${res.status}).`;
-    try {
-      if (contentType.includes("application/json")) {
-        const j = await res.json();
-        message = (j as any)?.error || message;
-      } else {
-        const t = await res.text();
-        if (t) message = t;
-      }
-    } catch {}
-    throw new Error(message);
-  }
-
-  const raw = (await res.json()) as any[];
-
-  // ✅ NORMALIZA os nomes que podem vir do backend
-  const normalized: ProductOption[] = (Array.isArray(raw) ? raw : []).map(
-    (p: any) => ({
-      id: String(p?.id ?? ""),
-      name: String(p?.name ?? p?.nome ?? p?.product_name ?? ""),
-      unit:
-        (p?.unit ??
-          p?.unit_label ??
-          p?.unidade ??
-          p?.uom ??
-          p?.unit_of_measure ??
-          p?.unitMeasure ??
-          null) ?? null,
-      category:
-        (p?.category ??
-          p?.categoria ??
-          p?.sector ??
-          p?.setor ??
-          null) ?? null,
-    })
-  );
-
-  return normalized.filter((p) => p.id && p.name);
 }
 
 /* =========================
@@ -207,70 +149,7 @@ interface EtiquetaGerada {
   localEnvio?: string;
   localArmazenado?: string;
   createdAt: string; // ISO datetime
-  productId?: string; // ✅ NOVO (não quebra)
 }
-
-// ✅ Cadastro de Insumos (EXEMPLO / MOCK)
-type UnidadeMedida = "kg" | "g" | "lt" | "ml" | "un" | "cx" | "pct";
-
-interface InsumoCadastro {
-  id: string;
-  nome: string;
-  umd: UnidadeMedida;
-  shelfLifeDias: number;
-
-  alergenico?: string;
-  armazenamento?: string;
-  ingredientes?: string;
-}
-
-const insumosCadastroExemplo: InsumoCadastro[] = [
-  {
-    id: "ins-1",
-    nome: "Cacau em pó",
-    umd: "g",
-    shelfLifeDias: 30,
-    alergenico: "Não contém",
-    armazenamento: "Local seco e fresco",
-    ingredientes: "Cacau em pó 100%",
-  },
-  {
-    id: "ins-2",
-    nome: "Ricota fresca",
-    umd: "kg",
-    shelfLifeDias: 3,
-    alergenico: "Contém leite",
-    armazenamento: "Refrigeração 0-4°C",
-    ingredientes: "Leite pasteurizado, fermento lácteo",
-  },
-  {
-    id: "ins-3",
-    nome: "Carne bovina",
-    umd: "kg",
-    shelfLifeDias: 2,
-    alergenico: "Não contém",
-    armazenamento: "Refrigeração 0-4°C",
-    ingredientes: "Carne bovina",
-  },
-  {
-    id: "ins-4",
-    nome: "Farinha de trigo",
-    umd: "kg",
-    shelfLifeDias: 90,
-    alergenico: "Contém glúten",
-    armazenamento: "Local seco e arejado",
-    ingredientes: "Farinha de trigo",
-  },
-  {
-    id: "ins-5",
-    nome: "Leite integral",
-    umd: "lt",
-    shelfLifeDias: 2,
-    alergenico: "Contém leite",
-    armazenamento: "Refrigeração 0-4°C",
-    ingredientes: "Leite integral",
-  },
-];
 
 // ✅ helpers de label (apenas visual)
 type TipoSel = "MANIPULACAO" | "REVALIDAR";
@@ -302,16 +181,6 @@ const getTodayISO = () => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
-const addDaysISO = (isoDate: string, days: number) => {
-  if (!isoDate) return "";
-  const base = new Date(isoDate + "T00:00:00");
-  base.setDate(base.getDate() + days);
-  const yyyy = base.getFullYear();
-  const mm = String(base.getMonth() + 1).padStart(2, "0");
-  const dd = String(base.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-};
-
 const isoToDDMMYY = (iso: string) => {
   if (!iso || iso.length < 10) return "";
   const yyyy = iso.slice(2, 4);
@@ -327,13 +196,6 @@ const getInsumoCode2 = (nome: string) => {
   const first = (nome || "").trim().split(/\s+/)[0] ?? "";
   const cleaned = removeAccents(first).toUpperCase();
   return cleaned.slice(0, 2) || "XX";
-};
-
-const getShelfLifeDiasByNome = (nome: string) => {
-  const found = insumosCadastroExemplo.find(
-    (i) => i.nome.toLowerCase() === (nome || "").toLowerCase()
-  );
-  return found?.shelfLifeDias ?? 0;
 };
 
 const gerarSufixoRandomico = (tamanho = 3) => {
@@ -387,7 +249,7 @@ export default function EtiquetasPage() {
     () => ({
       insumo: "",
       qtd: "",
-      umd: "" as UnidadeMedida | "",
+      umd: "", // ✅ AGORA É LIVRE (DIGITÁVEL)
       dataManip: "",
       dataVenc: "",
       responsavel: USUARIO_LOGADO_NOME,
@@ -400,7 +262,6 @@ export default function EtiquetasPage() {
       loteFab: "",
       localEnvio: ESTABELECIMENTO_NOME,
       localArmazenado: "",
-      productId: "", // ✅ NOVO
     }),
     []
   );
@@ -408,10 +269,6 @@ export default function EtiquetasPage() {
   const [formData, setFormData] = useState(defaultForm);
   const [linhasPorcao, setLinhasPorcao] = useState<LinhaPorcao[]>([]);
   const [erros, setErros] = useState<LinhaErro>({ baseQtd: false, porcoes: {} });
-
-  // ✅ Produtos do banco (mantemos, mas SEM combobox)
-  const [products, setProducts] = useState<ProductOption[]>([]);
-  const [carregandoProdutos, setCarregandoProdutos] = useState(false);
 
   const formatDate = (dateString: string) => {
     if (!dateString) return "";
@@ -476,7 +333,6 @@ export default function EtiquetasPage() {
             localEnvio: extra.localEnvio,
             localArmazenado: extra.localArmazenado,
             createdAt: extra.createdAt ?? createdAt,
-            productId: extra.productId,
           };
         });
 
@@ -492,26 +348,6 @@ export default function EtiquetasPage() {
     void carregarDoBanco();
   }, []);
 
-  // ✅ carregar produtos (mantido: usamos pra "auto reconhecer" pelo nome digitado)
-  useEffect(() => {
-    const carregarProdutos = async () => {
-      setCarregandoProdutos(true);
-      try {
-        const list = await apiListProducts();
-        setProducts(list);
-        (window as any).__lastProducts = list;
-      } catch (e) {
-        console.error("Erro ao carregar produtos:", e);
-        setProducts([]);
-        (window as any).__lastProducts = [];
-      } finally {
-        setCarregandoProdutos(false);
-      }
-    };
-
-    void carregarProdutos();
-  }, []);
-
   // ✅ reset ao abrir modal
   useEffect(() => {
     if (showNovaEtiqueta) {
@@ -519,6 +355,7 @@ export default function EtiquetasPage() {
       setFormData({
         ...defaultForm,
         dataManip: hojeISO,
+        dataVenc: hojeISO,
         responsavel: USUARIO_LOGADO_NOME,
         localEnvio: ESTABELECIMENTO_NOME,
       });
@@ -528,79 +365,11 @@ export default function EtiquetasPage() {
     }
   }, [showNovaEtiqueta, defaultForm]);
 
-  // ✅ SEM COMBOBOX: reconhece produto pelo NOME digitado (match exato, case-insensitive)
-  useEffect(() => {
-    if (!showNovaEtiqueta) return;
-
-    const nome = String(formData.insumo || "").trim();
-    if (!nome) {
-      // limpa tudo dependente do produto quando apagar o nome
-      setFormData((prev) => ({
-        ...prev,
-        insumo: "",
-        umd: "" as any,
-        productId: "",
-        alergenico: "",
-        armazenamento: "",
-        ingredientes: "",
-      }));
-      setLinhasPorcao([]);
-      setErros({ baseQtd: false, porcoes: {} });
-      return;
-    }
-
-    // tenta achar no cadastro de produtos do banco
-    const p =
-      products.find((x) => x.name.toLowerCase() === nome.toLowerCase()) ?? null;
-
-    if (!p) {
-      // se não achou, zera unidade e productId (evita ficar "unidade velha" sem perceber)
-      setFormData((prev) => ({
-        ...prev,
-        productId: "",
-        umd: "" as any,
-        // mantém o texto digitado
-      }));
-      setLinhasPorcao([]);
-      setErros({ baseQtd: false, porcoes: {} });
-      return;
-    }
-
-    const hojeISO = getTodayISO();
-
-    const mock = insumosCadastroExemplo.find(
-      (i) => i.nome.toLowerCase() === p.name.toLowerCase()
-    );
-    const shelf = mock?.shelfLifeDias ?? 0;
-    const vencISO = addDaysISO(hojeISO, shelf);
-
-    const unit = String(p.unit ?? "").trim();
-
-    setFormData((prev) => ({
-      ...prev,
-      insumo: p.name, // normaliza pro nome oficial
-      umd: (unit as any) ?? "",
-      productId: p.id,
-      dataManip: hojeISO,
-      dataVenc: vencISO,
-      responsavel: USUARIO_LOGADO_NOME,
-      alergenico: mock?.alergenico || "",
-      armazenamento: mock?.armazenamento || "",
-      ingredientes: mock?.ingredientes || "",
-      localEnvio: prev.localEnvio || ESTABELECIMENTO_NOME,
-    }));
-
-    setLinhasPorcao([]);
-    setErros({ baseQtd: false, porcoes: {} });
-  }, [formData.insumo, products, showNovaEtiqueta]);
-
-  const selectedInsumoId = useMemo(() => {
-    const found = insumosCadastroExemplo.find((i) => i.nome === formData.insumo);
-    return found?.id ?? "";
-  }, [formData.insumo]);
-
   const handleAddLinha = () => {
-    if (!formData.insumo || !formData.umd) return;
+    // ✅ porcionamento só se tiver insumo e unidade preenchidos
+    if (!String(formData.insumo || "").trim()) return;
+    if (!String(formData.umd || "").trim()) return;
+
     setLinhasPorcao((prev) => [...prev, { id: makeLinhaId(), qtd: "" }]);
   };
 
@@ -627,8 +396,8 @@ export default function EtiquetasPage() {
     const ie = "IE";
     const cod = getInsumoCode2(formData.insumo);
     const dt = isoToDDMMYY(formData.dataManip);
-    const shelf = getShelfLifeDiasByNome(formData.insumo);
-    const shelfPart = `${shelf}D`;
+    // ✅ SEM shelf-life automático: fixo 0D
+    const shelfPart = `0D`;
     const base = `${ie}-${cod}-${dt}-${shelfPart}`;
     const sufixo = gerarSufixoRandomico(3);
     return `${base}-${sufixo}`;
@@ -913,11 +682,14 @@ export default function EtiquetasPage() {
     const ok = validarQuantidades();
     if (!ok) return;
 
-    // ✅ trava se não tiver unidade
+    // ✅ unidade agora é MANUAL -> só valida se foi preenchida
     if (!String(formData.umd || "").trim()) {
-      alert(
-        "Unidade não encontrada para este produto. Digite o nome EXATAMENTE como está cadastrado em Produtos (ou ajuste /api/products para devolver a unidade)."
-      );
+      alert("Preencha a Unidade para imprimir (ex: kg, g, un).");
+      return;
+    }
+
+    if (!String(formData.insumo || "").trim()) {
+      alert("Preencha o campo Insumo/Produto.");
       return;
     }
 
@@ -958,7 +730,6 @@ export default function EtiquetasPage() {
         localEnvio: formData.localEnvio || undefined,
         localArmazenado: formData.localArmazenado || undefined,
         createdAt: nowISO,
-        productId: formData.productId || undefined,
       };
     });
 
@@ -970,7 +741,6 @@ export default function EtiquetasPage() {
             qty: et.qtd,
             unitLabel: et.umd,
             labelCode: et.loteMan,
-            productId: et.productId,
             extraPayload: et,
           })
         )
@@ -1255,7 +1025,6 @@ export default function EtiquetasPage() {
             <div className="space-y-6">
               {/* Tipo & Tamanho */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {/* ✅ SELECT NATIVO */}
                 <div className="min-w-0">
                   <Label>Tipo de Etiqueta</Label>
                   <select
@@ -1270,7 +1039,6 @@ export default function EtiquetasPage() {
                   </select>
                 </div>
 
-                {/* ✅ SELECT NATIVO */}
                 <div className="min-w-0">
                   <Label>Tamanho da Etiqueta</Label>
                   <select
@@ -1294,34 +1062,17 @@ export default function EtiquetasPage() {
               {/* Linha base + porcionamento */}
               <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
-                  {/* ✅ Insumo/Produto — INPUT SIMPLES (SEM LISTA/COMBOBOX) */}
+                  {/* ✅ Insumo/Produto — INPUT LIVRE (SEM FUNÇÕES) */}
                   <div className="min-w-0 md:col-span-6">
                     <Label>Insumo/Produto *</Label>
-
                     <Input
                       value={formData.insumo}
-                      onChange={(e) => handleInputChange("insumo", e.target.value)}
-                      placeholder={
-                        carregandoProdutos
-                          ? "Carregando produtos..."
-                          : "Digite exatamente como cadastrado em Produtos"
+                      onChange={(e) =>
+                        handleInputChange("insumo", e.target.value)
                       }
+                      placeholder="Digite o que quiser"
                       className="w-full min-w-0"
                     />
-
-                    {/* Feedback discreto */}
-                    {!carregandoProdutos &&
-                      String(formData.insumo || "").trim().length > 0 &&
-                      !String(formData.umd || "").trim() && (
-                        <div className="text-xs text-red-600 mt-2">
-                          Produto não reconhecido pelo nome (ou unidade não veio
-                          no /api/products). Sem unidade não dá para imprimir.
-                        </div>
-                      )}
-
-                    {/* (mantido) hidden inputs */}
-                    <input type="hidden" value={selectedInsumoId} readOnly />
-                    <input type="hidden" value={formData.productId ?? ""} readOnly />
                   </div>
 
                   {/* Quantidade */}
@@ -1349,14 +1100,16 @@ export default function EtiquetasPage() {
                     )}
                   </div>
 
-                  {/* Unidade */}
+                  {/* Unidade (MANUAL) */}
                   <div className="min-w-0 md:col-span-2">
                     <Label>Unidade *</Label>
                     <Input
                       className="w-full min-w-0"
                       value={formData.umd}
-                      disabled
-                      readOnly
+                      onChange={(e) =>
+                        handleInputChange("umd", e.target.value)
+                      }
+                      placeholder="Ex: kg, g, un"
                     />
                   </div>
 
@@ -1365,7 +1118,10 @@ export default function EtiquetasPage() {
                     <Button
                       type="button"
                       onClick={handleAddLinha}
-                      disabled={!formData.insumo || !formData.umd}
+                      disabled={
+                        !String(formData.insumo || "").trim() ||
+                        !String(formData.umd || "").trim()
+                      }
                       className="w-full md:w-auto"
                     >
                       Add +
@@ -1447,7 +1203,7 @@ export default function EtiquetasPage() {
                 )}
               </div>
 
-              {/* Datas */}
+              {/* Datas (AGORA EDITÁVEIS) */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="min-w-0">
                   <Label>Data de Manipulação *</Label>
@@ -1455,8 +1211,9 @@ export default function EtiquetasPage() {
                     className="w-full min-w-0"
                     value={formData.dataManip}
                     type="date"
-                    disabled
-                    readOnly
+                    onChange={(e) =>
+                      handleInputChange("dataManip", e.target.value)
+                    }
                   />
                 </div>
 
@@ -1466,21 +1223,20 @@ export default function EtiquetasPage() {
                     className="w-full min-w-0"
                     type="date"
                     value={formData.dataVenc}
-                    disabled
-                    readOnly
+                    onChange={(e) => handleInputChange("dataVenc", e.target.value)}
                   />
                 </div>
               </div>
 
               {/* Lote Preview */}
-              {formData.insumo && formData.dataManip && (
+              {String(formData.insumo || "").trim() && formData.dataManip && (
                 <div className="p-3 bg-gray-50 rounded border">
                   <div className="text-sm">
                     <strong>Lote (automático):</strong>{" "}
                     <span className="font-mono">{gerarLoteVigilancia()}</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Formato: IE-XX-DDMMAA-##D-XXX
+                    Formato: IE-XX-DDMMAA-0D-XXX
                   </p>
                 </div>
               )}
@@ -1559,8 +1315,10 @@ export default function EtiquetasPage() {
                   <Input
                     className="w-full min-w-0"
                     value={formData.alergenico}
-                    disabled
-                    readOnly
+                    onChange={(e) =>
+                      handleInputChange("alergenico", e.target.value)
+                    }
+                    placeholder="Ex: Contém leite"
                   />
                 </div>
               </div>
@@ -1570,8 +1328,10 @@ export default function EtiquetasPage() {
                 <Input
                   className="w-full min-w-0"
                   value={formData.armazenamento}
-                  disabled
-                  readOnly
+                  onChange={(e) =>
+                    handleInputChange("armazenamento", e.target.value)
+                  }
+                  placeholder="Ex: Refrigerado 0-4°C"
                 />
               </div>
 
@@ -1580,8 +1340,9 @@ export default function EtiquetasPage() {
                 <Textarea
                   className="w-full min-w-0"
                   value={formData.ingredientes}
-                  disabled
-                  readOnly
+                  onChange={(e) =>
+                    handleInputChange("ingredientes", e.target.value)
+                  }
                   placeholder="Lista de ingredientes..."
                   rows={3}
                 />
@@ -1627,7 +1388,8 @@ export default function EtiquetasPage() {
                   disabled={
                     !tipoSelecionado ||
                     !tamanhoSelecionado ||
-                    !formData.insumo ||
+                    !String(formData.insumo || "").trim() ||
+                    !String(formData.qtd || "").trim() ||
                     !String(formData.umd || "").trim()
                   }
                 >

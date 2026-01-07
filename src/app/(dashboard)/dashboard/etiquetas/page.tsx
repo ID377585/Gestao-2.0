@@ -2,7 +2,7 @@
 
 // src/app/(dashboard)/dashboard/etiquetas/page.tsx
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 
 import { Button } from "@/components/ui/button";
@@ -52,72 +52,6 @@ type InventoryLabelRow = {
 };
 
 /* =========================
-   ✅ API helpers (CLIENT -> Route Handler)
-========================= */
-async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
-  const res = await fetch("/api/inventory-labels", { method: "GET" });
-  const contentType = res.headers.get("content-type") || "";
-
-  if (!res.ok) {
-    let message = `Erro ao carregar histórico de etiquetas (HTTP ${res.status}).`;
-    try {
-      if (contentType.includes("application/json")) {
-        const j = await res.json();
-        message = (j as any)?.error || message;
-      } else {
-        const t = await res.text();
-        if (t) message = t;
-      }
-    } catch {}
-    throw new Error(message);
-  }
-
-  const data = (await res.json()) as InventoryLabelRow[];
-  return Array.isArray(data) ? data : [];
-}
-
-async function apiCreateInventoryLabel(payload: {
-  productName: string;
-  qty: number;
-  unitLabel: string;
-  labelCode: string;
-  extraPayload?: any;
-}): Promise<void> {
-  const bodyToSend: any = {
-    product_name: payload.productName,
-    qty: payload.qty,
-    unit_label: payload.unitLabel,
-    label_code: payload.labelCode,
-    notes:
-      payload.extraPayload !== undefined
-        ? JSON.stringify(payload.extraPayload)
-        : null,
-  };
-
-  const res = await fetch("/api/inventory-labels", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(bodyToSend),
-  });
-
-  const contentType = res.headers.get("content-type") || "";
-
-  if (!res.ok) {
-    let message = `Erro ao salvar etiqueta (HTTP ${res.status}).`;
-    try {
-      if (contentType.includes("application/json")) {
-        const j = await res.json();
-        message = (j as any)?.error || message;
-      } else {
-        const t = await res.text();
-        if (t) message = t;
-      }
-    } catch {}
-    throw new Error(message);
-  }
-}
-
-/* =========================
    ✅ Produtos (GET /api/products) — para o combo Insumo/Produto
 ========================= */
 type ProductOption = {
@@ -127,35 +61,15 @@ type ProductOption = {
   unit: string | null;
 };
 
-async function apiListProducts(): Promise<ProductOption[]> {
-  const res = await fetch("/api/products", { method: "GET" });
-  const contentType = res.headers.get("content-type") || "";
-
-  if (!res.ok) {
-    let message = `Erro ao listar produtos (HTTP ${res.status}).`;
-    try {
-      if (contentType.includes("application/json")) {
-        const j = await res.json();
-        message = (j as any)?.error || message;
-      } else {
-        const t = await res.text();
-        if (t) message = t;
-      }
-    } catch {}
-    throw new Error(message);
-  }
-
-  const data = (await res.json()) as ProductOption[];
-  return Array.isArray(data) ? data : [];
-}
-
 /* =========================
-   ✅ MOCKS
+   ✅ MOCKS (depois a gente troca por auth real)
 ========================= */
 const USUARIO_LOGADO_NOME = "Admin User";
 const ESTABELECIMENTO_NOME = "Matriz";
 
-// Tipos
+/* =========================
+   ✅ Tipos de etiqueta
+========================= */
 type TipoSel = "MANIPULACAO" | "REVALIDAR";
 
 interface TipoEtiqueta {
@@ -172,7 +86,7 @@ interface TamanhoEtiqueta {
 }
 
 interface EtiquetaGerada {
-  id: number;
+  id: string; // ✅ agora é estável: usa row.id do banco quando vem do histórico
   tipo: TipoSel;
   tamanho: string;
   insumo: string;
@@ -214,7 +128,15 @@ const tiposEtiqueta: TipoEtiqueta[] = [
   { id: "2", nome: "REVALIDAR", descricao: "Etiqueta com dados do fabricante" },
 ];
 
-// Helpers datas
+const tamanhosEtiqueta: TamanhoEtiqueta[] = [
+  { id: "1", nome: "Pequena", largura: 5.0, altura: 3.0 },
+  { id: "2", nome: "Média", largura: 10.0, altura: 6.0 },
+  { id: "3", nome: "Grande", largura: 15.0, altura: 10.0 },
+];
+
+/* =========================
+   ✅ Helpers
+========================= */
 const getTodayISO = () => {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -272,6 +194,120 @@ const buildQrPayloadFromEtiqueta = (e: EtiquetaGerada) => {
   return JSON.stringify(payload);
 };
 
+const safeJsonParse = <T,>(s: string): T | null => {
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    return null;
+  }
+};
+
+const createDefaultForm = () => ({
+  insumo: "",
+  qtd: "",
+  umd: "",
+  dataManip: "",
+  dataVenc: "",
+  responsavel: USUARIO_LOGADO_NOME,
+
+  alergenico: "",
+  armazenamento: "",
+  ingredientes: "",
+
+  dataFabricante: "",
+  dataVencimento: "",
+  sif: "",
+  loteFab: "",
+
+  localEnvio: ESTABELECIMENTO_NOME,
+  localArmazenado: "",
+});
+
+/* =========================
+   ✅ API helpers (CLIENT -> Route Handler)
+========================= */
+async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
+  const res = await fetch("/api/inventory-labels", { method: "GET" });
+  const contentType = res.headers.get("content-type") || "";
+
+  if (!res.ok) {
+    let message = `Erro ao carregar histórico de etiquetas (HTTP ${res.status}).`;
+    try {
+      if (contentType.includes("application/json")) {
+        const j = await res.json();
+        message = (j as any)?.error || message;
+      } else {
+        const t = await res.text();
+        if (t) message = t;
+      }
+    } catch {}
+    throw new Error(message);
+  }
+
+  const data = (await res.json()) as InventoryLabelRow[];
+  return Array.isArray(data) ? data : [];
+}
+
+async function apiCreateInventoryLabel(payload: {
+  productName: string;
+  qty: number;
+  unitLabel: string;
+  labelCode: string;
+  extraPayload?: unknown;
+}): Promise<void> {
+  const bodyToSend: any = {
+    product_name: payload.productName,
+    qty: payload.qty,
+    unit_label: payload.unitLabel,
+    label_code: payload.labelCode,
+    notes: payload.extraPayload !== undefined ? JSON.stringify(payload.extraPayload) : null,
+  };
+
+  const res = await fetch("/api/inventory-labels", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bodyToSend),
+  });
+
+  const contentType = res.headers.get("content-type") || "";
+
+  if (!res.ok) {
+    let message = `Erro ao salvar etiqueta (HTTP ${res.status}).`;
+    try {
+      if (contentType.includes("application/json")) {
+        const j = await res.json();
+        message = (j as any)?.error || message;
+      } else {
+        const t = await res.text();
+        if (t) message = t;
+      }
+    } catch {}
+    throw new Error(message);
+  }
+}
+
+async function apiListProducts(): Promise<ProductOption[]> {
+  const res = await fetch("/api/products", { method: "GET" });
+  const contentType = res.headers.get("content-type") || "";
+
+  if (!res.ok) {
+    let message = `Erro ao listar produtos (HTTP ${res.status}).`;
+    try {
+      if (contentType.includes("application/json")) {
+        const j = await res.json();
+        message = (j as any)?.error || message;
+      } else {
+        const t = await res.text();
+        if (t) message = t;
+      }
+    } catch {}
+    throw new Error(message);
+  }
+
+  const data = (await res.json()) as ProductOption[];
+  return Array.isArray(data) ? data : [];
+}
+
 export default function EtiquetasPage() {
   const [etiquetasGeradas, setEtiquetasGeradas] = useState<EtiquetaGerada[]>([]);
   const [carregandoHistorico, setCarregandoHistorico] = useState(true);
@@ -286,124 +322,123 @@ export default function EtiquetasPage() {
   const [productOpen, setProductOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
-  const defaultForm = useMemo(
-    () => ({
-      insumo: "",
-      qtd: "",
-      umd: "",
-      dataManip: "",
-      dataVenc: "",
-      responsavel: USUARIO_LOGADO_NOME,
-
-      alergenico: "",
-      armazenamento: "",
-      ingredientes: "",
-
-      dataFabricante: "",
-      dataVencimento: "",
-      sif: "",
-      loteFab: "",
-
-      localEnvio: ESTABELECIMENTO_NOME,
-      localArmazenado: "",
-    }),
-    []
-  );
-
-  const [formData, setFormData] = useState(defaultForm);
+  const [formData, setFormData] = useState(createDefaultForm());
   const [linhasPorcao, setLinhasPorcao] = useState<LinhaPorcao[]>([]);
   const [erros, setErros] = useState<LinhaErro>({ baseQtd: false, porcoes: {} });
 
-  const formatDate = (dateString: string) => {
+  const formatDate = useCallback((dateString: string) => {
     if (!dateString) return "";
     return new Date(dateString).toLocaleDateString("pt-BR");
-  };
+  }, []);
 
-  const formatDateTime = (dateString: string) => {
+  const formatDateTime = useCallback((dateString: string) => {
     if (!dateString) return "";
     return new Date(dateString).toLocaleString("pt-BR");
-  };
+  }, []);
 
-  const handleInputChange = (field: keyof typeof formData, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-  };
+  const handleInputChange = useCallback(
+    (field: keyof typeof formData, value: string) => {
+      setFormData((prev) => ({ ...prev, [field]: value }));
+    },
+    []
+  );
 
-  // ✅ carregar produtos 1x (para o combo)
+  const selectedProduct = useMemo(() => {
+    if (!selectedProductId) return null;
+    return products.find((p) => p.id === selectedProductId) ?? null;
+  }, [products, selectedProductId]);
+
+  const displayInsumoLabel = useMemo(() => {
+    const manual = String(formData.insumo || "").trim();
+    if (manual) return manual;
+    if (productsLoading) return "Carregando produtos...";
+    return "Selecionar produto...";
+  }, [formData.insumo, productsLoading]);
+
+  // ✅ carregar produtos 1x
   useEffect(() => {
+    let mounted = true;
     const loadProducts = async () => {
       setProductsLoading(true);
       try {
         const rows = await apiListProducts();
-        setProducts(rows);
+        const sorted = [...rows].sort((a, b) =>
+          (a.name || "").localeCompare(b.name || "", "pt-BR", { sensitivity: "base" })
+        );
+        if (mounted) setProducts(sorted);
       } catch (e) {
         console.error("Erro ao carregar produtos:", e);
-        setProducts([]);
+        if (mounted) setProducts([]);
       } finally {
-        setProductsLoading(false);
+        if (mounted) setProductsLoading(false);
       }
     };
 
     void loadProducts();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // carregar histórico
   useEffect(() => {
+    let mounted = true;
+
     const carregarDoBanco = async () => {
       try {
-        const rows: InventoryLabelRow[] = await apiListInventoryLabels();
+        const rows = await apiListInventoryLabels();
+
+        if (!mounted) return;
 
         if (!rows || rows.length === 0) {
           setEtiquetasGeradas([]);
           return;
         }
 
-        const mapped: EtiquetaGerada[] = rows.map((row, idx) => {
-          let extra: Partial<EtiquetaGerada> = {};
-          if (row.notes) {
-            try {
-              extra = JSON.parse(row.notes) as Partial<EtiquetaGerada>;
-            } catch {}
-          }
-
+        const mapped: EtiquetaGerada[] = rows.map((row) => {
+          const extra = row.notes ? safeJsonParse<Partial<EtiquetaGerada>>(row.notes) : null;
           const createdAt = row.created_at;
           const createdDateISO = createdAt?.slice(0, 10) ?? getTodayISO();
 
           return {
-            id: idx + 1,
-            tipo: extra.tipo ?? "MANIPULACAO",
-            tamanho: extra.tamanho ?? "",
-            insumo: extra.insumo ?? "",
-            qtd: extra.qtd ?? row.qty,
-            umd: extra.umd ?? row.unit_label,
-            dataManip: extra.dataManip ?? createdDateISO,
-            dataVenc: extra.dataVenc ?? createdDateISO,
-            loteMan: extra.loteMan ?? row.label_code,
-            responsavel: extra.responsavel ?? USUARIO_LOGADO_NOME,
+            id: row.id, // ✅ id estável do banco
+            tipo: (extra?.tipo as TipoSel) ?? "MANIPULACAO",
+            tamanho: extra?.tamanho ?? "",
+            insumo: extra?.insumo ?? "",
+            qtd: typeof extra?.qtd === "number" ? extra.qtd : row.qty,
+            umd: extra?.umd ?? row.unit_label,
+            dataManip: extra?.dataManip ?? createdDateISO,
+            dataVenc: extra?.dataVenc ?? createdDateISO,
+            loteMan: extra?.loteMan ?? row.label_code,
+            responsavel: extra?.responsavel ?? USUARIO_LOGADO_NOME,
 
-            alergenico: extra.alergenico,
-            armazenamento: extra.armazenamento,
-            ingredientes: extra.ingredientes,
-            dataFabricante: extra.dataFabricante,
-            dataVencimento: extra.dataVencimento,
-            sif: extra.sif,
-            loteFab: extra.loteFab,
-            localEnvio: extra.localEnvio,
-            localArmazenado: extra.localArmazenado,
+            alergenico: extra?.alergenico,
+            armazenamento: extra?.armazenamento,
+            ingredientes: extra?.ingredientes,
+            dataFabricante: extra?.dataFabricante,
+            dataVencimento: extra?.dataVencimento,
+            sif: extra?.sif,
+            loteFab: extra?.loteFab,
+            localEnvio: extra?.localEnvio,
+            localArmazenado: extra?.localArmazenado,
 
-            createdAt: extra.createdAt ?? createdAt,
+            createdAt: extra?.createdAt ?? createdAt,
           };
         });
 
         setEtiquetasGeradas(mapped);
       } catch (e) {
         console.error("Erro ao carregar etiquetas do banco:", e);
-        setEtiquetasGeradas([]);
+        if (mounted) setEtiquetasGeradas([]);
       } finally {
-        setCarregandoHistorico(false);
+        if (mounted) setCarregandoHistorico(false);
       }
     };
 
     void carregarDoBanco();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // reset ao abrir modal
@@ -411,7 +446,7 @@ export default function EtiquetasPage() {
     if (showNovaEtiqueta) {
       const hojeISO = getTodayISO();
       setFormData({
-        ...defaultForm,
+        ...createDefaultForm(),
         dataManip: hojeISO,
         dataVenc: hojeISO,
         responsavel: USUARIO_LOGADO_NOME,
@@ -425,34 +460,32 @@ export default function EtiquetasPage() {
       setSelectedProductId(null);
       setProductOpen(false);
     }
-  }, [showNovaEtiqueta, defaultForm]);
+  }, [showNovaEtiqueta]);
 
-  const handleAddLinha = () => {
+  const handleAddLinha = useCallback(() => {
     if (!String(formData.insumo || "").trim()) return;
     if (!String(formData.umd || "").trim()) return;
     setLinhasPorcao((prev) => [...prev, { id: makeLinhaId(), qtd: "" }]);
-  };
+  }, [formData.insumo, formData.umd]);
 
-  const handleRemoveLinha = (id: string) => {
+  const handleRemoveLinha = useCallback((id: string) => {
     setLinhasPorcao((prev) => prev.filter((l) => l.id !== id));
     setErros((prev) => {
       const next = { ...prev, porcoes: { ...prev.porcoes } };
       delete next.porcoes[id];
       return next;
     });
-  };
+  }, []);
 
-  const handleChangeLinhaQtd = (id: string, qtd: string) => {
-    setLinhasPorcao((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, qtd } : l))
-    );
+  const handleChangeLinhaQtd = useCallback((id: string, qtd: string) => {
+    setLinhasPorcao((prev) => prev.map((l) => (l.id === id ? { ...l, qtd } : l)));
     setErros((prev) => ({
       ...prev,
       porcoes: { ...prev.porcoes, [id]: false },
     }));
-  };
+  }, []);
 
-  const gerarLoteVigilancia = () => {
+  const gerarLoteVigilancia = useCallback(() => {
     const ie = "IE";
     const cod = getInsumoCode2(formData.insumo);
     const dt = isoToDDMMYY(formData.dataManip);
@@ -460,64 +493,65 @@ export default function EtiquetasPage() {
     const base = `${ie}-${cod}-${dt}-${shelfPart}`;
     const sufixo = gerarSufixoRandomico(3);
     return `${base}-${sufixo}`;
-  };
+  }, [formData.insumo, formData.dataManip]);
 
-  const makeQrDataUrl = async (text: string) => {
+  const makeQrDataUrl = useCallback(async (text: string) => {
     return await QRCode.toDataURL(text, {
       errorCorrectionLevel: "M",
       margin: 0,
       width: 220,
     });
-  };
+  }, []);
 
-  const imprimirBatchNoBrowser = async (etqs: EtiquetaGerada[]) => {
-    const w = window.open("", "_blank", "width=900,height=700");
-    if (!w) return;
+  const imprimirBatchNoBrowser = useCallback(
+    async (etqs: EtiquetaGerada[]) => {
+      const w = window.open("", "_blank", "width=900,height=700");
+      if (!w) return;
 
-    const LABEL_W_MM = 104;
-    const LABEL_H_MM = 50.8;
+      const LABEL_W_MM = 104;
+      const LABEL_H_MM = 50.8;
 
-    const qrDataUrls = await Promise.all(
-      etqs.map((e) => makeQrDataUrl(buildQrPayloadFromEtiqueta(e)))
-    );
+      const qrDataUrls = await Promise.all(
+        etqs.map((e) => makeQrDataUrl(buildQrPayloadFromEtiqueta(e)))
+      );
 
-    const buildExtraFab = (e: EtiquetaGerada) => {
-      let html = "";
+      const buildExtraFab = (e: EtiquetaGerada) => {
+        let html = "";
 
-      if (e.dataFabricante) {
-        html +=
-          `<div class="row"><span class="k">Fabricação:</span><span class="v">` +
-          formatDate(e.dataFabricante) +
-          `</span></div>`;
-      }
+        if (e.dataFabricante) {
+          html +=
+            `<div class="row"><span class="k">Fabricação:</span><span class="v">` +
+            formatDate(e.dataFabricante) +
+            `</span></div>`;
+        }
 
-      if (e.dataVencimento) {
-        html +=
-          `<div class="row"><span class="k">Val. Original:</span><span class="v">` +
-          formatDate(e.dataVencimento) +
-          `</span></div>`;
-      }
+        if (e.dataVencimento) {
+          html +=
+            `<div class="row"><span class="k">Val. Original:</span><span class="v">` +
+            formatDate(e.dataVencimento) +
+            `</span></div>`;
+        }
 
-      if (e.sif) {
-        html +=
-          `<div class="row"><span class="k">SIF:</span><span class="v">` +
-          e.sif +
-          `</span></div>`;
-      }
+        if (e.sif) {
+          html +=
+            `<div class="row"><span class="k">SIF:</span><span class="v">` +
+            e.sif +
+            `</span></div>`;
+        }
 
-      if (e.loteFab) {
-        html +=
-          `<div class="row"><span class="k">Lote Fab.:</span><span class="v">` +
-          e.loteFab +
-          `</span></div>`;
-      }
+        if (e.loteFab) {
+          html +=
+            `<div class="row"><span class="k">Lote Fab.:</span><span class="v">` +
+            e.loteFab +
+            `</span></div>`;
+        }
 
-      return html;
-    };
+        return html;
+      };
 
-    const parts: string[] = [];
+      const parts: string[] = [];
 
-    const head = `<!doctype html>
+      const head = `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -643,14 +677,14 @@ export default function EtiquetasPage() {
 </head>
 <body>
 `;
-    parts.push(head);
+      parts.push(head);
 
-    etqs.forEach((e, i) => {
-      const isFab = e.tipo === "REVALIDAR";
-      const extraFab = isFab ? buildExtraFab(e) : "";
-      const qrSrc = qrDataUrls[i];
+      etqs.forEach((e, i) => {
+        const isFab = e.tipo === "REVALIDAR";
+        const extraFab = isFab ? buildExtraFab(e) : "";
+        const qrSrc = qrDataUrls[i];
 
-      const pageHtml = `
+        const pageHtml = `
         <div class="page">
           <div class="label">
             <div class="main">
@@ -690,10 +724,10 @@ export default function EtiquetasPage() {
           </div>
         </div>
       `;
-      parts.push(pageHtml);
-    });
+        parts.push(pageHtml);
+      });
 
-    parts.push(`
+      parts.push(`
 <script>
   function waitImagesLoaded() {
     const imgs = Array.from(document.images || []);
@@ -716,12 +750,14 @@ export default function EtiquetasPage() {
 </body>
 </html>`);
 
-    w.document.open();
-    w.document.write(parts.join("\n"));
-    w.document.close();
-  };
+      w.document.open();
+      w.document.write(parts.join("\n"));
+      w.document.close();
+    },
+    [formatDate, makeQrDataUrl]
+  );
 
-  const validarQuantidades = () => {
+  const validarQuantidades = useCallback(() => {
     const baseVazia = !String(formData.qtd || "").trim();
     const porcoesErros: Record<string, boolean> = {};
 
@@ -732,9 +768,9 @@ export default function EtiquetasPage() {
 
     setErros({ baseQtd: baseVazia, porcoes: porcoesErros });
     return !(baseVazia || Object.keys(porcoesErros).length > 0);
-  };
+  }, [formData.qtd, linhasPorcao]);
 
-  const handleGerarEImprimir = async () => {
+  const handleGerarEImprimir = useCallback(async () => {
     const ok = validarQuantidades();
     if (!ok) return;
 
@@ -764,15 +800,10 @@ export default function EtiquetasPage() {
       .map((x) => String(x.qtd ?? "").trim())
       .filter((v) => v.length > 0);
 
-    const lastId =
-      etiquetasGeradas.length > 0
-        ? Math.max(...etiquetasGeradas.map((e) => e.id))
-        : 0;
-
     const novas: EtiquetaGerada[] = qtds.map((qtdStr, idx) => {
       const loteUnico = gerarLoteVigilancia();
       return {
-        id: lastId + idx + 1,
+        id: `${nowISO}-${idx}-${Math.random().toString(16).slice(2)}`, // ✅ id local (antes do banco)
         tipo: tipoSelecionado,
         tamanho: tamanhoSelecionado,
         insumo: formData.insumo,
@@ -819,7 +850,15 @@ export default function EtiquetasPage() {
     setEtiquetasGeradas((prev) => [...novas, ...prev]);
     await imprimirBatchNoBrowser(novas);
     setShowNovaEtiqueta(false);
-  };
+  }, [
+    formData,
+    gerarLoteVigilancia,
+    imprimirBatchNoBrowser,
+    linhasPorcao,
+    tamanhoSelecionado,
+    tipoSelecionado,
+    validarQuantidades,
+  ]);
 
   const tiposVisiveis = useMemo(
     () => tiposEtiqueta.filter((t) => t.nome === "MANIPULACAO"),
@@ -828,8 +867,7 @@ export default function EtiquetasPage() {
 
   const hojeISO = useMemo(() => getTodayISO(), []);
   const etiquetasHoje = useMemo(
-    () =>
-      etiquetasGeradas.filter((e) => (e.createdAt || "").startsWith(hojeISO)).length,
+    () => etiquetasGeradas.filter((e) => (e.createdAt || "").startsWith(hojeISO)).length,
     [etiquetasGeradas, hojeISO]
   );
 
@@ -1036,10 +1074,10 @@ export default function EtiquetasPage() {
                           >
                             🖨️
                           </Button>
-                          <Button size="sm" variant="outline" title="Visualizar">
+                          <Button size="sm" variant="outline" title="Visualizar" disabled>
                             👁️
                           </Button>
-                          <Button size="sm" variant="outline" title="Copiar">
+                          <Button size="sm" variant="outline" title="Copiar" disabled>
                             📋
                           </Button>
                         </div>
@@ -1087,11 +1125,7 @@ export default function EtiquetasPage() {
                     onChange={(e) => setTamanhoSelecionado(e.target.value)}
                     className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
-                    {[
-                      { id: "1", nome: "Pequena", largura: 5.0, altura: 3.0 },
-                      { id: "2", nome: "Média", largura: 10.0, altura: 6.0 },
-                      { id: "3", nome: "Grande", largura: 15.0, altura: 10.0 },
-                    ].map((tamanho: TamanhoEtiqueta) => (
+                    {tamanhosEtiqueta.map((tamanho) => (
                       <option key={tamanho.id} value={tamanho.nome}>
                         {tamanho.nome} ({tamanho.largura}×{tamanho.altura}cm)
                       </option>
@@ -1100,13 +1134,13 @@ export default function EtiquetasPage() {
                 </div>
               </div>
 
-              {/* ✅ INSUMO/PRODUTO (COMBO IGUAL PEDIDOS: busca + lista products) */}
+              {/* ✅ INSUMO/PRODUTO */}
               <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
                   <div className="min-w-0 md:col-span-6">
                     <Label>Insumo/Produto *</Label>
 
-                    <Popover open={productOpen} onOpenChange={setProductOpen}>
+                    <Popover open={productOpen} onOpenChange={setProductOpen} modal>
                       <PopoverTrigger asChild>
                         <Button
                           type="button"
@@ -1115,18 +1149,15 @@ export default function EtiquetasPage() {
                           aria-expanded={productOpen}
                           className="w-full justify-between"
                         >
-                          {String(formData.insumo || "").trim()
-                            ? formData.insumo
-                            : productsLoading
-                            ? "Carregando produtos..."
-                            : "Selecionar produto..."}
+                          {displayInsumoLabel}
                           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                         </Button>
                       </PopoverTrigger>
 
                       <PopoverContent
-                        className="w-[--radix-popover-trigger-width] p-0"
+                        className="w-[--radix-popover-trigger-width] p-0 z-[9999]"
                         align="start"
+                        sideOffset={6}
                       >
                         <Command>
                           <CommandInput placeholder="Buscar produto..." />
@@ -1136,26 +1167,15 @@ export default function EtiquetasPage() {
                             </CommandEmpty>
 
                             <CommandGroup>
-                              <CommandItem
-                                value="__clear__"
-                                onSelect={() => {
-                                  setSelectedProductId(null);
-                                  handleInputChange("insumo", "");
-                                  setProductOpen(false);
-                                }}
-                              >
-                                <span className="text-muted-foreground">Limpar seleção</span>
-                              </CommandItem>
-
                               {products.map((p) => (
                                 <CommandItem
                                   key={p.id}
+                                  // value influencia a busca do CommandInput
                                   value={`${p.name} ${p.category ?? ""}`}
                                   onSelect={() => {
                                     setSelectedProductId(p.id);
                                     handleInputChange("insumo", p.name);
 
-                                    // ✅ opcional: preenche unidade se vier do produto e o campo estiver vazio
                                     if (p.unit && !String(formData.umd || "").trim()) {
                                       handleInputChange("umd", p.unit);
                                     }
@@ -1169,10 +1189,10 @@ export default function EtiquetasPage() {
                                       selectedProductId === p.id ? "opacity-100" : "opacity-0"
                                     )}
                                   />
-                                  <div className="flex flex-col">
-                                    <span className="font-medium">{p.name}</span>
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="truncate">{p.name}</span>
                                     {p.category ? (
-                                      <span className="text-xs text-muted-foreground">
+                                      <span className="text-xs text-muted-foreground truncate">
                                         {p.category}
                                       </span>
                                     ) : null}
@@ -1184,6 +1204,14 @@ export default function EtiquetasPage() {
                         </Command>
                       </PopoverContent>
                     </Popover>
+
+                    {/* dica rápida */}
+                    {selectedProduct ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Selecionado: <strong>{selectedProduct.name}</strong>
+                        {selectedProduct.unit ? ` • Unidade: ${selectedProduct.unit}` : ""}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="min-w-0 md:col-span-3">
@@ -1251,12 +1279,7 @@ export default function EtiquetasPage() {
                         >
                           <div className="min-w-0 md:col-span-6">
                             <Label>Insumo/Produto</Label>
-                            <Input
-                              className="w-full min-w-0"
-                              value={formData.insumo}
-                              disabled
-                              readOnly
-                            />
+                            <Input className="w-full min-w-0" value={formData.insumo} disabled readOnly />
                           </div>
 
                           <div className="min-w-0 md:col-span-3">
@@ -1281,12 +1304,7 @@ export default function EtiquetasPage() {
 
                           <div className="min-w-0 md:col-span-2">
                             <Label>Unidade</Label>
-                            <Input
-                              className="w-full min-w-0"
-                              value={formData.umd}
-                              disabled
-                              readOnly
-                            />
+                            <Input className="w-full min-w-0" value={formData.umd} disabled readOnly />
                           </div>
 
                           <div className="min-w-0 md:col-span-1 md:flex md:items-end">
@@ -1395,12 +1413,7 @@ export default function EtiquetasPage() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="min-w-0">
                   <Label>Responsável *</Label>
-                  <Input
-                    className="w-full min-w-0"
-                    value={formData.responsavel}
-                    disabled
-                    readOnly
-                  />
+                  <Input className="w-full min-w-0" value={formData.responsavel} disabled readOnly />
                 </div>
 
                 <div className="min-w-0">

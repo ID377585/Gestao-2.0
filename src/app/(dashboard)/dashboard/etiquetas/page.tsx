@@ -25,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// ✅ Combo (igual pedidos)
+// ✅ Combo (shadcn)
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -185,7 +185,10 @@ async function apiCreateInventoryLabel(payload: {
     qty: payload.qty,
     unit_label: payload.unitLabel,
     label_code: payload.labelCode,
-    notes: payload.extraPayload !== undefined ? JSON.stringify(payload.extraPayload) : null,
+    notes:
+      payload.extraPayload !== undefined
+        ? JSON.stringify(payload.extraPayload)
+        : null,
   };
 
   const res = await fetch("/api/inventory-labels", {
@@ -211,28 +214,6 @@ async function apiCreateInventoryLabel(payload: {
   }
 }
 
-async function apiListProducts(): Promise<ProductOption[]> {
-  const res = await fetch("/api/products", { method: "GET" });
-  const contentType = res.headers.get("content-type") || "";
-
-  if (!res.ok) {
-    let message = `Erro ao listar produtos (HTTP ${res.status}).`;
-    try {
-      if (contentType.includes("application/json")) {
-        const j = await res.json();
-        message = (j as any)?.error || message;
-      } else {
-        const t = await res.text();
-        if (t) message = t;
-      }
-    } catch {}
-    throw new Error(message);
-  }
-
-  const data = (await res.json()) as ProductOption[];
-  return Array.isArray(data) ? data : [];
-}
-
 export default function EtiquetasPage() {
   const [etiquetasGeradas, setEtiquetasGeradas] = useState<EtiquetaGerada[]>([]);
   const [carregandoHistorico, setCarregandoHistorico] = useState(true);
@@ -244,6 +225,7 @@ export default function EtiquetasPage() {
   // ✅ produtos pro combo
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState<string>(""); // ✅ DEBUG (mostra erro real)
   const [productOpen, setProductOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
@@ -261,7 +243,7 @@ export default function EtiquetasPage() {
     return new Date(dateString).toLocaleString("pt-BR");
   }, []);
 
-  // ✅ melhoria: dependency correta (sem formData)
+  // ✅ melhoria: sem dependência de formData
   const handleInputChange = useCallback(
     (field: keyof typeof formData, value: string) => {
       setFormData((prev) => ({ ...prev, [field]: value }));
@@ -281,23 +263,45 @@ export default function EtiquetasPage() {
     return "Selecionar produto...";
   }, [formData.insumo, productsLoading]);
 
-  // ✅ carregar produtos 1x
+  // ✅ carregar produtos (com debug real de erro)
   useEffect(() => {
     let mounted = true;
 
     const loadProducts = async () => {
       setProductsLoading(true);
+      setProductsError("");
+
       try {
-        const rows = await apiListProducts();
-        const sorted = [...rows].sort((a, b) =>
-          (a.name || "").localeCompare(b.name || "", "pt-BR", {
-            sensitivity: "base",
-          })
+        const res = await fetch("/api/products", { method: "GET" });
+        const contentType = res.headers.get("content-type") || "";
+
+        if (!res.ok) {
+          let msg = `Erro ao listar produtos (HTTP ${res.status}).`;
+          try {
+            if (contentType.includes("application/json")) {
+              const j = await res.json();
+              msg = (j as any)?.error || msg;
+            } else {
+              const t = await res.text();
+              if (t) msg = t;
+            }
+          } catch {}
+          throw new Error(msg);
+        }
+
+        const rows = (await res.json()) as ProductOption[];
+        const list = Array.isArray(rows) ? rows : [];
+        const sorted = [...list].sort((a, b) =>
+          (a.name || "").localeCompare(b.name || "", "pt-BR", { sensitivity: "base" })
         );
+
         if (mounted) setProducts(sorted);
-      } catch (e) {
+      } catch (e: any) {
         console.error("Erro ao carregar produtos:", e);
-        if (mounted) setProducts([]);
+        if (mounted) {
+          setProducts([]);
+          setProductsError(e?.message ?? "Falha ao carregar produtos.");
+        }
       } finally {
         if (mounted) setProductsLoading(false);
       }
@@ -422,7 +426,7 @@ export default function EtiquetasPage() {
     const ie = "IE";
     const cod = getInsumoCode2(formData.insumo);
     const dt = isoToDDMMYY(formData.dataManip);
-    const shelfPart = `0D`; // fixo
+    const shelfPart = `0D`;
     const base = `${ie}-${cod}-${dt}-${shelfPart}`;
     const sufixo = gerarSufixoRandomico(3);
     return `${base}-${sufixo}`;
@@ -520,14 +524,12 @@ export default function EtiquetasPage() {
 
     setEtiquetasGeradas((prev) => [...novas, ...prev]);
 
-    // ✅ impressão isolada
     await imprimirBatchNoBrowser(novas);
 
     setShowNovaEtiqueta(false);
   }, [
     formData,
     gerarLoteVigilancia,
-    imprimirBatchNoBrowser, // ✅ importante
     linhasPorcao,
     tamanhoSelecionado,
     tipoSelecionado,
@@ -541,9 +543,7 @@ export default function EtiquetasPage() {
 
   const hojeISO = useMemo(() => getTodayISO(), []);
   const etiquetasHoje = useMemo(
-    () =>
-      etiquetasGeradas.filter((e) => (e.createdAt || "").startsWith(hojeISO))
-        .length,
+    () => etiquetasGeradas.filter((e) => (e.createdAt || "").startsWith(hojeISO)).length,
     [etiquetasGeradas, hojeISO]
   );
 
@@ -697,10 +697,7 @@ export default function EtiquetasPage() {
               <TableBody>
                 {etiquetasGeradas.length === 0 ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={9}
-                      className="text-sm text-muted-foreground text-center"
-                    >
+                    <TableCell colSpan={9} className="text-sm text-muted-foreground text-center">
                       Nenhuma etiqueta gerada ainda.
                     </TableCell>
                   </TableRow>
@@ -733,8 +730,7 @@ export default function EtiquetasPage() {
                             <strong>Envio:</strong> {etiqueta.localEnvio || "-"}
                           </p>
                           <p>
-                            <strong>Armazenado:</strong>{" "}
-                            {etiqueta.localArmazenado || "-"}
+                            <strong>Armazenado:</strong> {etiqueta.localArmazenado || "-"}
                           </p>
                         </div>
                       </TableCell>
@@ -814,7 +810,13 @@ export default function EtiquetasPage() {
                   <div className="min-w-0 md:col-span-6">
                     <Label>Insumo/Produto *</Label>
 
-                    <Popover open={productOpen} onOpenChange={setProductOpen} modal>
+                    {/* ✅ FIXES:
+                       - remove "modal" (evita comportamento estranho dentro do dialog)
+                       - força side="bottom" e collisions
+                       - CommandList com altura e scroll
+                       - Debug visual: mostra erro/quantidade carregada
+                    */}
+                    <Popover open={productOpen} onOpenChange={setProductOpen}>
                       <PopoverTrigger asChild>
                         <Button
                           type="button"
@@ -829,17 +831,32 @@ export default function EtiquetasPage() {
                       </PopoverTrigger>
 
                       <PopoverContent
-                        className="w-[--radix-popover-trigger-width] p-0 z-[9999]"
+                        className="w-[--radix-popover-trigger-width] p-0 z-[99999]"
                         align="start"
+                        side="bottom"
                         sideOffset={6}
+                        avoidCollisions
+                        collisionPadding={12}
                       >
                         <Command>
                           <CommandInput placeholder="Buscar produto..." />
-                          <CommandList>
+
+                          {/* ✅ DEBUG VISUAL */}
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-b">
+                            {productsLoading ? (
+                              <>Carregando produtos...</>
+                            ) : productsError ? (
+                              <span className="text-red-600">{productsError}</span>
+                            ) : (
+                              <>
+                                Produtos carregados: <strong>{products.length}</strong>
+                              </>
+                            )}
+                          </div>
+
+                          <CommandList className="max-h-[320px] overflow-auto">
                             <CommandEmpty>
-                              {productsLoading
-                                ? "Carregando..."
-                                : "Nenhum produto encontrado."}
+                              {productsLoading ? "Carregando..." : "Nenhum produto encontrado."}
                             </CommandEmpty>
 
                             <CommandGroup>
@@ -851,7 +868,6 @@ export default function EtiquetasPage() {
                                     setSelectedProductId(p.id);
                                     handleInputChange("insumo", p.name);
 
-                                    // ✅ autopreenche unidade só se estiver vazia
                                     if (p.unit && !String(formData.umd || "").trim()) {
                                       handleInputChange("umd", p.unit);
                                     }
@@ -862,9 +878,7 @@ export default function EtiquetasPage() {
                                   <Check
                                     className={cn(
                                       "mr-2 h-4 w-4",
-                                      selectedProductId === p.id
-                                        ? "opacity-100"
-                                        : "opacity-0"
+                                      selectedProductId === p.id ? "opacity-100" : "opacity-0"
                                     )}
                                   />
                                   <div className="flex flex-col min-w-0">
@@ -886,9 +900,7 @@ export default function EtiquetasPage() {
                     {selectedProduct ? (
                       <div className="mt-1 text-xs text-muted-foreground">
                         Selecionado: <strong>{selectedProduct.name}</strong>
-                        {selectedProduct.unit
-                          ? ` • Unidade: ${selectedProduct.unit}`
-                          : ""}
+                        {selectedProduct.unit ? ` • Unidade: ${selectedProduct.unit}` : ""}
                       </div>
                     ) : null}
                   </div>
@@ -946,8 +958,7 @@ export default function EtiquetasPage() {
                 {linhasPorcao.length > 0 && (
                   <div className="space-y-2">
                     <div className="text-sm text-muted-foreground">
-                      Porcionamento: mesmo produto/unidade (travados). Só a
-                      quantidade muda.
+                      Porcionamento: mesmo produto/unidade (travados). Só a quantidade muda.
                     </div>
 
                     {linhasPorcao.map((linha) => {
@@ -959,12 +970,7 @@ export default function EtiquetasPage() {
                         >
                           <div className="min-w-0 md:col-span-6">
                             <Label>Insumo/Produto</Label>
-                            <Input
-                              className="w-full min-w-0"
-                              value={formData.insumo}
-                              disabled
-                              readOnly
-                            />
+                            <Input className="w-full min-w-0" value={formData.insumo} disabled readOnly />
                           </div>
 
                           <div className="min-w-0 md:col-span-3">
@@ -972,9 +978,7 @@ export default function EtiquetasPage() {
                             <Input
                               type="number"
                               value={linha.qtd}
-                              onChange={(e) =>
-                                handleChangeLinhaQtd(linha.id, e.target.value)
-                              }
+                              onChange={(e) => handleChangeLinhaQtd(linha.id, e.target.value)}
                               placeholder="0"
                               className={
                                 hasErr
@@ -991,12 +995,7 @@ export default function EtiquetasPage() {
 
                           <div className="min-w-0 md:col-span-2">
                             <Label>Unidade</Label>
-                            <Input
-                              className="w-full min-w-0"
-                              value={formData.umd}
-                              disabled
-                              readOnly
-                            />
+                            <Input className="w-full min-w-0" value={formData.umd} disabled readOnly />
                           </div>
 
                           <div className="min-w-0 md:col-span-1 md:flex md:items-end">
@@ -1064,9 +1063,7 @@ export default function EtiquetasPage() {
                         className="w-full min-w-0"
                         type="date"
                         value={formData.dataFabricante}
-                        onChange={(e) =>
-                          handleInputChange("dataFabricante", e.target.value)
-                        }
+                        onChange={(e) => handleInputChange("dataFabricante", e.target.value)}
                       />
                     </div>
 
@@ -1076,9 +1073,7 @@ export default function EtiquetasPage() {
                         className="w-full min-w-0"
                         type="date"
                         value={formData.dataVencimento}
-                        onChange={(e) =>
-                          handleInputChange("dataVencimento", e.target.value)
-                        }
+                        onChange={(e) => handleInputChange("dataVencimento", e.target.value)}
                       />
                     </div>
 
@@ -1109,12 +1104,7 @@ export default function EtiquetasPage() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="min-w-0">
                   <Label>Responsável *</Label>
-                  <Input
-                    className="w-full min-w-0"
-                    value={formData.responsavel}
-                    disabled
-                    readOnly
-                  />
+                  <Input className="w-full min-w-0" value={formData.responsavel} disabled readOnly />
                 </div>
 
                 <div className="min-w-0">
@@ -1165,9 +1155,7 @@ export default function EtiquetasPage() {
                   <Input
                     className="w-full min-w-0"
                     value={formData.localArmazenado}
-                    onChange={(e) =>
-                      handleInputChange("localArmazenado", e.target.value)
-                    }
+                    onChange={(e) => handleInputChange("localArmazenado", e.target.value)}
                     placeholder="Onde está armazenado"
                   />
                 </div>

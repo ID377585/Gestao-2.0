@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/select";
 
 // ✅ Combobox pesquisável (shadcn)
-import { Check, ChevronsUpDown, RefreshCcw } from "lucide-react";
+import { Check, ChevronsUpDown, RefreshCcw, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -433,6 +433,14 @@ export default function PerdasPage() {
     }
   }
 
+  /* =========================
+     EXPORT CSV (NOVO - SEGURO)
+  ========================= */
+  function handleExportCSV() {
+    // faz download abrindo a rota em nova aba
+    window.open("/api/export/losses", "_blank");
+  }
+
   return (
     <div className="space-y-6">
       {/* =========================
@@ -818,15 +826,29 @@ export default function PerdasPage() {
             <CardDescription>Consulte registros anteriores.</CardDescription>
           </div>
 
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={loadLosses}
-            disabled={loadingLosses}
-          >
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            Atualizar histórico
-          </Button>
+          {/* ✅ AQUI: adicionamos Exportar CSV sem mexer no resto */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={loadLosses}
+              disabled={loadingLosses}
+            >
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              Atualizar histórico
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleExportCSV}
+              disabled={loadingLosses}
+              title="Baixar CSV do histórico de perdas"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Exportar CSV
+            </Button>
+          </div>
         </CardHeader>
 
         <CardContent>

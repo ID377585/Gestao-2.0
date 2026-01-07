@@ -2,7 +2,7 @@
 
 // src/app/(dashboard)/dashboard/etiquetas/page.tsx
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 
 import { Button } from "@/components/ui/button";
@@ -86,7 +86,7 @@ interface TamanhoEtiqueta {
 }
 
 interface EtiquetaGerada {
-  id: string; // ✅ agora é estável: usa row.id do banco quando vem do histórico
+  id: string; // ✅ estável: row.id do banco quando vem do histórico / local quando recém-criada
   tipo: TipoSel;
   tamanho: string;
   insumo: string;
@@ -181,7 +181,7 @@ type LinhaErro = {
   porcoes: Record<string, boolean>;
 };
 
-// QR payload
+// QR payload (unificado)
 const buildQrPayloadFromEtiqueta = (e: EtiquetaGerada) => {
   const payload = {
     v: 1,
@@ -260,7 +260,10 @@ async function apiCreateInventoryLabel(payload: {
     qty: payload.qty,
     unit_label: payload.unitLabel,
     label_code: payload.labelCode,
-    notes: payload.extraPayload !== undefined ? JSON.stringify(payload.extraPayload) : null,
+    notes:
+      payload.extraPayload !== undefined
+        ? JSON.stringify(payload.extraPayload)
+        : null,
   };
 
   const res = await fetch("/api/inventory-labels", {
@@ -308,12 +311,22 @@ async function apiListProducts(): Promise<ProductOption[]> {
   return Array.isArray(data) ? data : [];
 }
 
+/* =========================
+   ✅ Inventário (UI mock) — mantendo o que já estava validado
+========================= */
+type InventarioItem = {
+  key: string;
+  payload: any;
+  scannedAt: string;
+};
+
 export default function EtiquetasPage() {
   const [etiquetasGeradas, setEtiquetasGeradas] = useState<EtiquetaGerada[]>([]);
   const [carregandoHistorico, setCarregandoHistorico] = useState(true);
 
   const [showNovaEtiqueta, setShowNovaEtiqueta] = useState(false);
-  const [tipoSelecionado, setTipoSelecionado] = useState<TipoSel>("MANIPULACAO");
+  const [tipoSelecionado, setTipoSelecionado] =
+    useState<TipoSel>("MANIPULACAO");
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState("Grande");
 
   // ✅ produtos pro combo
@@ -325,6 +338,106 @@ export default function EtiquetasPage() {
   const [formData, setFormData] = useState(createDefaultForm());
   const [linhasPorcao, setLinhasPorcao] = useState<LinhaPorcao[]>([]);
   const [erros, setErros] = useState<LinhaErro>({ baseQtd: false, porcoes: {} });
+
+  // ✅ Inventário (mantido)
+  const [inventarioAtivo, setInventarioAtivo] = useState(false);
+  const [inventarioId, setInventarioId] = useState<string>("");
+  const [inventarioItens, setInventarioItens] = useState<InventarioItem[]>([]);
+  const [inventarioScannedKeys, setInventarioScannedKeys] = useState<
+    Record<string, true>
+  >({});
+  const [qrInput, setQrInput] = useState("");
+  const [toastMsg, setToastMsg] = useState<string>("");
+  const toastTimerRef = useRef<number | null>(null);
+  const qrInputRef = useRef<HTMLInputElement | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToastMsg(msg);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastMsg("");
+    }, 3000);
+  }, []);
+
+  const iniciarInventario = useCallback(() => {
+    const id = `inv-${Date.now()}`;
+    setInventarioAtivo(true);
+    setInventarioId(id);
+    setInventarioItens([]);
+    setInventarioScannedKeys({});
+    setQrInput("");
+    showToast("Inventário iniciado!");
+    setTimeout(() => {
+      qrInputRef.current?.focus();
+    }, 50);
+  }, [showToast]);
+
+  const finalizarInventario = useCallback(() => {
+    setInventarioAtivo(false);
+    setInventarioId("");
+    setInventarioItens([]);
+    setInventarioScannedKeys({});
+    setQrInput("");
+    showToast("Inventário finalizado!");
+  }, [showToast]);
+
+  const parseQrPayload = useCallback((raw: string) => {
+    const cleaned = String(raw || "").trim();
+    if (!cleaned) return null;
+
+    try {
+      const obj = JSON.parse(cleaned);
+      return obj;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const makeInventarioKey = useCallback((payload: any) => {
+    const p = String(payload?.p || payload?.ins || payload?.insumo || "");
+    const q = String(payload?.q || payload?.qtd || "");
+    const u = String(payload?.u || payload?.umd || "");
+    return `${p}__${q}__${u}`;
+  }, []);
+
+  const registrarLeituraInventario = useCallback(
+    (payload: any) => {
+      const key = makeInventarioKey(payload);
+
+      if (inventarioScannedKeys[key]) {
+        showToast("Este produto já foi contado!");
+        return;
+      }
+
+      setInventarioScannedKeys((prev) => ({ ...prev, [key]: true }));
+      setInventarioItens((prev) => [
+        {
+          key,
+          payload,
+          scannedAt: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+    },
+    [inventarioScannedKeys, makeInventarioKey, showToast]
+  );
+
+  const handleQrSubmit = useCallback(() => {
+    if (!inventarioAtivo) {
+      showToast("Inicie um inventário primeiro.");
+      return;
+    }
+
+    const payload = parseQrPayload(qrInput);
+    if (!payload) {
+      showToast("QR inválido (não é JSON).");
+      return;
+    }
+
+    registrarLeituraInventario(payload);
+    setQrInput("");
+    setTimeout(() => qrInputRef.current?.focus(), 10);
+  }, [inventarioAtivo, parseQrPayload, qrInput, registrarLeituraInventario, showToast]);
 
   const formatDate = useCallback((dateString: string) => {
     if (!dateString) return "";
@@ -340,7 +453,7 @@ export default function EtiquetasPage() {
     (field: keyof typeof formData, value: string) => {
       setFormData((prev) => ({ ...prev, [field]: value }));
     },
-    []
+    [formData]
   );
 
   const selectedProduct = useMemo(() => {
@@ -380,14 +493,13 @@ export default function EtiquetasPage() {
     };
   }, []);
 
-  // carregar histórico
+  // ✅ carregar histórico
   useEffect(() => {
     let mounted = true;
 
     const carregarDoBanco = async () => {
       try {
         const rows = await apiListInventoryLabels();
-
         if (!mounted) return;
 
         if (!rows || rows.length === 0) {
@@ -401,7 +513,7 @@ export default function EtiquetasPage() {
           const createdDateISO = createdAt?.slice(0, 10) ?? getTodayISO();
 
           return {
-            id: row.id, // ✅ id estável do banco
+            id: row.id,
             tipo: (extra?.tipo as TipoSel) ?? "MANIPULACAO",
             tamanho: extra?.tamanho ?? "",
             insumo: extra?.insumo ?? "",
@@ -441,7 +553,7 @@ export default function EtiquetasPage() {
     };
   }, []);
 
-  // reset ao abrir modal
+  // ✅ reset ao abrir modal
   useEffect(() => {
     if (showNovaEtiqueta) {
       const hojeISO = getTodayISO();
@@ -485,6 +597,7 @@ export default function EtiquetasPage() {
     }));
   }, []);
 
+  // ✅ LOTE: IE-XX-DDMMAA-0D-XXX (mantido fixo 0D como você já validou)
   const gerarLoteVigilancia = useCallback(() => {
     const ie = "IE";
     const cod = getInsumoCode2(formData.insumo);
@@ -727,6 +840,7 @@ export default function EtiquetasPage() {
         parts.push(pageHtml);
       });
 
+      // ✅ melhoria: aguardar imagens (QR) carregarem antes de imprimir
       parts.push(`
 <script>
   function waitImagesLoaded() {
@@ -803,7 +917,7 @@ export default function EtiquetasPage() {
     const novas: EtiquetaGerada[] = qtds.map((qtdStr, idx) => {
       const loteUnico = gerarLoteVigilancia();
       return {
-        id: `${nowISO}-${idx}-${Math.random().toString(16).slice(2)}`, // ✅ id local (antes do banco)
+        id: `${nowISO}-${idx}-${Math.random().toString(16).slice(2)}`, // id local (antes do reload/histórico do banco)
         tipo: tipoSelecionado,
         tamanho: tamanhoSelecionado,
         insumo: formData.insumo,
@@ -873,6 +987,15 @@ export default function EtiquetasPage() {
 
   return (
     <div className="space-y-6">
+      {/* ✅ Toast (Inventário) */}
+      {toastMsg && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999]">
+          <div className="px-6 py-3 rounded-lg shadow-lg bg-red-600 text-white text-lg font-extrabold">
+            {toastMsg}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -896,6 +1019,104 @@ export default function EtiquetasPage() {
           </Button>
         </div>
       </div>
+
+      {/* ✅ Inventário / Contagem por QR Code (mantido do que já funcionava) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Inventário / Contagem por QR Code</CardTitle>
+          <CardDescription>
+            Cada etiqueta pode ser lida apenas 1 vez por inventário. Ao finalizar, a contagem
+            reinicia para permitir nova leitura no próximo inventário.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2 flex-wrap items-center">
+            {!inventarioAtivo ? (
+              <Button onClick={iniciarInventario}>▶️ Iniciar Inventário</Button>
+            ) : (
+              <Button variant="destructive" onClick={finalizarInventario}>
+                ⏹️ Finalizar Inventário
+              </Button>
+            )}
+
+            <div className="text-sm text-muted-foreground">
+              Status: <strong>{inventarioAtivo ? "ATIVO" : "INATIVO"}</strong>{" "}
+              {inventarioAtivo ? `(${inventarioId})` : ""}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <div className="md:col-span-2">
+              <Label>Leitura do QR (scanner cola o texto e dá Enter)</Label>
+              <Input
+                ref={qrInputRef}
+                value={qrInput}
+                onChange={(e) => setQrInput(e.target.value)}
+                placeholder='Ex.: {"v":1,"lt":"IE-FA-...","p":"Farinha","q":2,"u":"kg","dv":"2026-01-07"}'
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleQrSubmit();
+                  }
+                }}
+                disabled={!inventarioAtivo}
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                className="w-full"
+                onClick={handleQrSubmit}
+                disabled={!inventarioAtivo || !qrInput.trim()}
+              >
+                Ler QR
+              </Button>
+            </div>
+          </div>
+
+          <div className="text-sm">
+            <strong>Itens contados:</strong> {inventarioItens.length}
+          </div>
+
+          {inventarioItens.length > 0 && (
+            <div className="max-h-[240px] overflow-auto border rounded">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Produto</TableHead>
+                    <TableHead>Qtd</TableHead>
+                    <TableHead>Lote</TableHead>
+                    <TableHead>Venc.</TableHead>
+                    <TableHead>Data Leitura</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {inventarioItens.map((it) => (
+                    <TableRow key={it.key}>
+                      <TableCell className="font-medium">
+                        {it.payload?.p || it.payload?.ins || it.payload?.insumo || "-"}
+                      </TableCell>
+                      <TableCell>
+                        {String(it.payload?.q ?? it.payload?.qtd ?? "-")}{" "}
+                        {String(it.payload?.u ?? it.payload?.umd ?? "")}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {it.payload?.lt || "-"}
+                      </TableCell>
+                      <TableCell>
+                        {it.payload?.dv ? formatDate(it.payload.dv) : "-"}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {formatDateTime(it.scannedAt)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1047,9 +1268,7 @@ export default function EtiquetasPage() {
                       <TableCell>
                         {etiqueta.qtd} {etiqueta.umd}
                       </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {etiqueta.loteMan}
-                      </TableCell>
+                      <TableCell className="font-mono text-sm">{etiqueta.loteMan}</TableCell>
                       <TableCell>{etiqueta.responsavel}</TableCell>
                       <TableCell>{formatDateTime(etiqueta.createdAt)}</TableCell>
                       <TableCell>{formatDate(etiqueta.dataVenc)}</TableCell>
@@ -1059,8 +1278,7 @@ export default function EtiquetasPage() {
                             <strong>Envio:</strong> {etiqueta.localEnvio || "-"}
                           </p>
                           <p>
-                            <strong>Armazenado:</strong>{" "}
-                            {etiqueta.localArmazenado || "-"}
+                            <strong>Armazenado:</strong> {etiqueta.localArmazenado || "-"}
                           </p>
                         </div>
                       </TableCell>
@@ -1134,7 +1352,7 @@ export default function EtiquetasPage() {
                 </div>
               </div>
 
-              {/* ✅ INSUMO/PRODUTO */}
+              {/* ✅ INSUMO/PRODUTO (Combo pesquisável — sem “segunda listagem” embaixo) */}
               <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
                   <div className="min-w-0 md:col-span-6">
@@ -1170,12 +1388,12 @@ export default function EtiquetasPage() {
                               {products.map((p) => (
                                 <CommandItem
                                   key={p.id}
-                                  // value influencia a busca do CommandInput
                                   value={`${p.name} ${p.category ?? ""}`}
                                   onSelect={() => {
                                     setSelectedProductId(p.id);
                                     handleInputChange("insumo", p.name);
 
+                                    // ✅ autopreenche unidade só se ainda estiver vazia
                                     if (p.unit && !String(formData.umd || "").trim()) {
                                       handleInputChange("umd", p.unit);
                                     }
@@ -1205,7 +1423,6 @@ export default function EtiquetasPage() {
                       </PopoverContent>
                     </Popover>
 
-                    {/* dica rápida */}
                     {selectedProduct ? (
                       <div className="mt-1 text-xs text-muted-foreground">
                         Selecionado: <strong>{selectedProduct.name}</strong>
@@ -1264,6 +1481,7 @@ export default function EtiquetasPage() {
                   </div>
                 </div>
 
+                {/* Porcionamento */}
                 {linhasPorcao.length > 0 && (
                   <div className="space-y-2">
                     <div className="text-sm text-muted-foreground">

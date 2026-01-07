@@ -25,19 +25,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// ✅ Combobox shadcn (dropdown ao clicar no campo)
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import { Check, ChevronsUpDown } from "lucide-react";
-import { cn } from "@/lib/utils";
-
 /* =========================
    ✅ TIPOS DO BACK (route handler /api/inventory-labels)
 ========================= */
@@ -422,28 +409,9 @@ export default function EtiquetasPage() {
   const [linhasPorcao, setLinhasPorcao] = useState<LinhaPorcao[]>([]);
   const [erros, setErros] = useState<LinhaErro>({ baseQtd: false, porcoes: {} });
 
-  // ✅ Produtos do banco para a listagem
+  // ✅ Produtos do banco (mantemos, mas SEM combobox)
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [carregandoProdutos, setCarregandoProdutos] = useState(false);
-  const [selectedProductId, setSelectedProductId] = useState<string>("");
-
-  // ✅ Combobox state
-  const [comboOpen, setComboOpen] = useState(false);
-  const [productQuery, setProductQuery] = useState("");
-
-  const selectedProduct = useMemo(
-    () => products.find((p) => p.id === selectedProductId) ?? null,
-    [products, selectedProductId]
-  );
-
-  const productsFiltered = useMemo(() => {
-    const q = productQuery.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter((p) => {
-      const hay = `${p.name} ${p.category ?? ""} ${p.unit ?? ""}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [products, productQuery]);
 
   const formatDate = (dateString: string) => {
     if (!dateString) return "";
@@ -524,7 +492,7 @@ export default function EtiquetasPage() {
     void carregarDoBanco();
   }, []);
 
-  // ✅ carregar produtos
+  // ✅ carregar produtos (mantido: usamos pra "auto reconhecer" pelo nome digitado)
   useEffect(() => {
     const carregarProdutos = async () => {
       setCarregandoProdutos(true);
@@ -557,31 +525,46 @@ export default function EtiquetasPage() {
       setTamanhoSelecionado("Grande");
       setLinhasPorcao([]);
       setErros({ baseQtd: false, porcoes: {} });
-
-      setSelectedProductId("");
-      setProductQuery("");
-      setComboOpen(false);
     }
   }, [showNovaEtiqueta, defaultForm]);
 
-  // ✅ ao selecionar produto, autopreenche unidade/datas
+  // ✅ SEM COMBOBOX: reconhece produto pelo NOME digitado (match exato, case-insensitive)
   useEffect(() => {
     if (!showNovaEtiqueta) return;
 
-    if (!selectedProductId) {
+    const nome = String(formData.insumo || "").trim();
+    if (!nome) {
+      // limpa tudo dependente do produto quando apagar o nome
       setFormData((prev) => ({
         ...prev,
         insumo: "",
         umd: "" as any,
         productId: "",
+        alergenico: "",
+        armazenamento: "",
+        ingredientes: "",
       }));
       setLinhasPorcao([]);
       setErros({ baseQtd: false, porcoes: {} });
       return;
     }
 
-    const p = products.find((x) => x.id === selectedProductId);
-    if (!p) return;
+    // tenta achar no cadastro de produtos do banco
+    const p =
+      products.find((x) => x.name.toLowerCase() === nome.toLowerCase()) ?? null;
+
+    if (!p) {
+      // se não achou, zera unidade e productId (evita ficar "unidade velha" sem perceber)
+      setFormData((prev) => ({
+        ...prev,
+        productId: "",
+        umd: "" as any,
+        // mantém o texto digitado
+      }));
+      setLinhasPorcao([]);
+      setErros({ baseQtd: false, porcoes: {} });
+      return;
+    }
 
     const hojeISO = getTodayISO();
 
@@ -595,7 +578,7 @@ export default function EtiquetasPage() {
 
     setFormData((prev) => ({
       ...prev,
-      insumo: p.name,
+      insumo: p.name, // normaliza pro nome oficial
       umd: (unit as any) ?? "",
       productId: p.id,
       dataManip: hojeISO,
@@ -609,7 +592,7 @@ export default function EtiquetasPage() {
 
     setLinhasPorcao([]);
     setErros({ baseQtd: false, porcoes: {} });
-  }, [selectedProductId, products, showNovaEtiqueta]);
+  }, [formData.insumo, products, showNovaEtiqueta]);
 
   const selectedInsumoId = useMemo(() => {
     const found = insumosCadastroExemplo.find((i) => i.nome === formData.insumo);
@@ -933,7 +916,7 @@ export default function EtiquetasPage() {
     // ✅ trava se não tiver unidade
     if (!String(formData.umd || "").trim()) {
       alert(
-        "Unidade não encontrada para este produto. Verifique se /api/products está retornando o campo de unidade."
+        "Unidade não encontrada para este produto. Digite o nome EXATAMENTE como está cadastrado em Produtos (ou ajuste /api/products para devolver a unidade)."
       );
       return;
     }
@@ -1277,7 +1260,9 @@ export default function EtiquetasPage() {
                   <Label>Tipo de Etiqueta</Label>
                   <select
                     value={tipoSelecionado}
-                    onChange={(e) => setTipoSelecionado(e.target.value as TipoSel)}
+                    onChange={(e) =>
+                      setTipoSelecionado(e.target.value as TipoSel)
+                    }
                     className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
                     <option value="MANIPULACAO">MANIPULAÇÃO</option>
@@ -1309,108 +1294,34 @@ export default function EtiquetasPage() {
               {/* Linha base + porcionamento */}
               <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
-                  {/* ✅ Insumo/Produto — agora é 1 campo (combobox), sem lista fixa embaixo */}
+                  {/* ✅ Insumo/Produto — INPUT SIMPLES (SEM LISTA/COMBOBOX) */}
                   <div className="min-w-0 md:col-span-6">
                     <Label>Insumo/Produto *</Label>
 
-                    <Popover open={comboOpen} onOpenChange={setComboOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={comboOpen}
-                          className={cn(
-                            "w-full justify-between font-normal",
-                            !selectedProduct ? "text-muted-foreground" : ""
-                          )}
-                          disabled={carregandoProdutos}
-                        >
-                          {carregandoProdutos
-                            ? "Carregando produtos..."
-                            : selectedProduct
-                              ? selectedProduct.name
-                              : "Selecione um produto..."}
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-60" />
-                        </Button>
-                      </PopoverTrigger>
+                    <Input
+                      value={formData.insumo}
+                      onChange={(e) => handleInputChange("insumo", e.target.value)}
+                      placeholder={
+                        carregandoProdutos
+                          ? "Carregando produtos..."
+                          : "Digite exatamente como cadastrado em Produtos"
+                      }
+                      className="w-full min-w-0"
+                    />
 
-                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                        <Command shouldFilter={false}>
-                          <div className="p-2 border-b">
-                            <CommandInput
-                              value={productQuery}
-                              onValueChange={setProductQuery}
-                              placeholder="Buscar produto..."
-                            />
-                          </div>
-
-                          <CommandList className="max-h-64 overflow-auto">
-                            {carregandoProdutos ? (
-                              <div className="p-3 text-sm text-muted-foreground">
-                                Carregando...
-                              </div>
-                            ) : products.length === 0 ? (
-                              <div className="p-3 text-sm text-muted-foreground">
-                                Nenhum produto carregado (verifique /api/products e RLS).
-                              </div>
-                            ) : productsFiltered.length === 0 ? (
-                              <CommandEmpty>Nenhum item encontrado.</CommandEmpty>
-                            ) : (
-                              <CommandGroup>
-                                {productsFiltered.map((p) => {
-                                  const active = selectedProductId === p.id;
-                                  return (
-                                    <CommandItem
-                                      key={p.id}
-                                      value={p.id}
-                                      onSelect={() => {
-                                        setSelectedProductId(p.id);
-                                        setComboOpen(false);
-                                        setProductQuery("");
-                                      }}
-                                      className="flex items-start gap-2"
-                                    >
-                                      <Check
-                                        className={cn(
-                                          "mt-0.5 h-4 w-4",
-                                          active ? "opacity-100" : "opacity-0"
-                                        )}
-                                      />
-
-                                      <div className="min-w-0">
-                                        <div className="font-medium truncate">
-                                          {p.name}
-                                        </div>
-                                        {(p.category || p.unit) && (
-                                          <div className="text-xs text-muted-foreground truncate">
-                                            {p.category || ""}
-                                            {p.category && p.unit ? " • " : ""}
-                                            {p.unit || ""}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </CommandItem>
-                                  );
-                                })}
-                              </CommandGroup>
-                            )}
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-
-                    {selectedProduct &&
-                      !String(selectedProduct.unit || "").trim() && (
+                    {/* Feedback discreto */}
+                    {!carregandoProdutos &&
+                      String(formData.insumo || "").trim().length > 0 &&
+                      !String(formData.umd || "").trim() && (
                         <div className="text-xs text-red-600 mt-2">
-                          Unidade não retornou para este produto (verifique o
-                          /api/products: ele precisa retornar <code>unit_label</code> ou equivalente).
+                          Produto não reconhecido pelo nome (ou unidade não veio
+                          no /api/products). Sem unidade não dá para imprimir.
                         </div>
                       )}
 
                     {/* (mantido) hidden inputs */}
                     <input type="hidden" value={selectedInsumoId} readOnly />
-                    <input type="hidden" value={selectedProduct?.id ?? ""} readOnly />
+                    <input type="hidden" value={formData.productId ?? ""} readOnly />
                   </div>
 
                   {/* Quantidade */}
@@ -1714,7 +1625,10 @@ export default function EtiquetasPage() {
                 <Button
                   onClick={handleGerarEImprimir}
                   disabled={
-                    !tipoSelecionado || !tamanhoSelecionado || !formData.insumo
+                    !tipoSelecionado ||
+                    !tamanhoSelecionado ||
+                    !formData.insumo ||
+                    !String(formData.umd || "").trim()
                   }
                 >
                   <span className="mr-2">🖨️</span>

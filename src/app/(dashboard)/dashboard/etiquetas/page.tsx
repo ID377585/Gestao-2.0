@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
+
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -24,6 +25,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+
+// ✅ Combo (igual pedidos)
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 
 /* =========================
    ✅ TIPOS DO BACK (route handler /api/inventory-labels)
@@ -101,6 +115,38 @@ async function apiCreateInventoryLabel(payload: {
     } catch {}
     throw new Error(message);
   }
+}
+
+/* =========================
+   ✅ Produtos (GET /api/products) — para o combo Insumo/Produto
+========================= */
+type ProductOption = {
+  id: string;
+  name: string;
+  category: string | null;
+  unit: string | null;
+};
+
+async function apiListProducts(): Promise<ProductOption[]> {
+  const res = await fetch("/api/products", { method: "GET" });
+  const contentType = res.headers.get("content-type") || "";
+
+  if (!res.ok) {
+    let message = `Erro ao listar produtos (HTTP ${res.status}).`;
+    try {
+      if (contentType.includes("application/json")) {
+        const j = await res.json();
+        message = (j as any)?.error || message;
+      } else {
+        const t = await res.text();
+        if (t) message = t;
+      }
+    } catch {}
+    throw new Error(message);
+  }
+
+  const data = (await res.json()) as ProductOption[];
+  return Array.isArray(data) ? data : [];
 }
 
 /* =========================
@@ -206,8 +252,7 @@ const gerarSufixoRandomico = (tamanho = 3) => {
 
 // Porcionamento
 type LinhaPorcao = { id: string; qtd: string };
-const makeLinhaId = () =>
-  `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const makeLinhaId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 type LinhaErro = {
   baseQtd: boolean;
@@ -234,6 +279,12 @@ export default function EtiquetasPage() {
   const [showNovaEtiqueta, setShowNovaEtiqueta] = useState(false);
   const [tipoSelecionado, setTipoSelecionado] = useState<TipoSel>("MANIPULACAO");
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState("Grande");
+
+  // ✅ produtos pro combo
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productOpen, setProductOpen] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
   const defaultForm = useMemo(
     () => ({
@@ -276,6 +327,24 @@ export default function EtiquetasPage() {
   const handleInputChange = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
+
+  // ✅ carregar produtos 1x (para o combo)
+  useEffect(() => {
+    const loadProducts = async () => {
+      setProductsLoading(true);
+      try {
+        const rows = await apiListProducts();
+        setProducts(rows);
+      } catch (e) {
+        console.error("Erro ao carregar produtos:", e);
+        setProducts([]);
+      } finally {
+        setProductsLoading(false);
+      }
+    };
+
+    void loadProducts();
+  }, []);
 
   // carregar histórico
   useEffect(() => {
@@ -351,6 +420,10 @@ export default function EtiquetasPage() {
       setTamanhoSelecionado("Grande");
       setLinhasPorcao([]);
       setErros({ baseQtd: false, porcoes: {} });
+
+      // ✅ reset combo
+      setSelectedProductId(null);
+      setProductOpen(false);
     }
   }, [showNovaEtiqueta, defaultForm]);
 
@@ -756,8 +829,7 @@ export default function EtiquetasPage() {
   const hojeISO = useMemo(() => getTodayISO(), []);
   const etiquetasHoje = useMemo(
     () =>
-      etiquetasGeradas.filter((e) => (e.createdAt || "").startsWith(hojeISO))
-        .length,
+      etiquetasGeradas.filter((e) => (e.createdAt || "").startsWith(hojeISO)).length,
     [etiquetasGeradas, hojeISO]
   );
 
@@ -884,7 +956,9 @@ export default function EtiquetasPage() {
       <Card>
         <CardHeader>
           <CardTitle>Histórico de Etiquetas Geradas</CardTitle>
-          <CardDescription>Todas as etiquetas geradas com opção de reimpressão</CardDescription>
+          <CardDescription>
+            Todas as etiquetas geradas com opção de reimpressão
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {carregandoHistorico ? (
@@ -909,7 +983,10 @@ export default function EtiquetasPage() {
               <TableBody>
                 {etiquetasGeradas.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-sm text-muted-foreground text-center">
+                    <TableCell
+                      colSpan={9}
+                      className="text-sm text-muted-foreground text-center"
+                    >
                       Nenhuma etiqueta gerada ainda.
                     </TableCell>
                   </TableRow>
@@ -932,7 +1009,9 @@ export default function EtiquetasPage() {
                       <TableCell>
                         {etiqueta.qtd} {etiqueta.umd}
                       </TableCell>
-                      <TableCell className="font-mono text-sm">{etiqueta.loteMan}</TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {etiqueta.loteMan}
+                      </TableCell>
                       <TableCell>{etiqueta.responsavel}</TableCell>
                       <TableCell>{formatDateTime(etiqueta.createdAt)}</TableCell>
                       <TableCell>{formatDate(etiqueta.dataVenc)}</TableCell>
@@ -942,7 +1021,8 @@ export default function EtiquetasPage() {
                             <strong>Envio:</strong> {etiqueta.localEnvio || "-"}
                           </p>
                           <p>
-                            <strong>Armazenado:</strong> {etiqueta.localArmazenado || "-"}
+                            <strong>Armazenado:</strong>{" "}
+                            {etiqueta.localArmazenado || "-"}
                           </p>
                         </div>
                       </TableCell>
@@ -1020,18 +1100,90 @@ export default function EtiquetasPage() {
                 </div>
               </div>
 
-              {/* ✅ INSUMO/PRODUTO 100% LIVRE (SEM LISTA, SEM COMBO, SEM FUNÇÕES) */}
+              {/* ✅ INSUMO/PRODUTO (COMBO IGUAL PEDIDOS: busca + lista products) */}
               <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
                   <div className="min-w-0 md:col-span-6">
                     <Label>Insumo/Produto *</Label>
-                    <Input
-                      value={formData.insumo}
-                      onChange={(e) => handleInputChange("insumo", e.target.value)}
-                      placeholder="Digite o que quiser"
-                      className="w-full min-w-0"
-                      autoComplete="off"
-                    />
+
+                    <Popover open={productOpen} onOpenChange={setProductOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={productOpen}
+                          className="w-full justify-between"
+                        >
+                          {String(formData.insumo || "").trim()
+                            ? formData.insumo
+                            : productsLoading
+                            ? "Carregando produtos..."
+                            : "Selecionar produto..."}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+
+                      <PopoverContent
+                        className="w-[--radix-popover-trigger-width] p-0"
+                        align="start"
+                      >
+                        <Command>
+                          <CommandInput placeholder="Buscar produto..." />
+                          <CommandList>
+                            <CommandEmpty>
+                              {productsLoading ? "Carregando..." : "Nenhum produto encontrado."}
+                            </CommandEmpty>
+
+                            <CommandGroup>
+                              <CommandItem
+                                value="__clear__"
+                                onSelect={() => {
+                                  setSelectedProductId(null);
+                                  handleInputChange("insumo", "");
+                                  setProductOpen(false);
+                                }}
+                              >
+                                <span className="text-muted-foreground">Limpar seleção</span>
+                              </CommandItem>
+
+                              {products.map((p) => (
+                                <CommandItem
+                                  key={p.id}
+                                  value={`${p.name} ${p.category ?? ""}`}
+                                  onSelect={() => {
+                                    setSelectedProductId(p.id);
+                                    handleInputChange("insumo", p.name);
+
+                                    // ✅ opcional: preenche unidade se vier do produto e o campo estiver vazio
+                                    if (p.unit && !String(formData.umd || "").trim()) {
+                                      handleInputChange("umd", p.unit);
+                                    }
+
+                                    setProductOpen(false);
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      selectedProductId === p.id ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{p.name}</span>
+                                    {p.category ? (
+                                      <span className="text-xs text-muted-foreground">
+                                        {p.category}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   </div>
 
                   <div className="min-w-0 md:col-span-3">
@@ -1099,7 +1251,12 @@ export default function EtiquetasPage() {
                         >
                           <div className="min-w-0 md:col-span-6">
                             <Label>Insumo/Produto</Label>
-                            <Input className="w-full min-w-0" value={formData.insumo} disabled readOnly />
+                            <Input
+                              className="w-full min-w-0"
+                              value={formData.insumo}
+                              disabled
+                              readOnly
+                            />
                           </div>
 
                           <div className="min-w-0 md:col-span-3">
@@ -1124,7 +1281,12 @@ export default function EtiquetasPage() {
 
                           <div className="min-w-0 md:col-span-2">
                             <Label>Unidade</Label>
-                            <Input className="w-full min-w-0" value={formData.umd} disabled readOnly />
+                            <Input
+                              className="w-full min-w-0"
+                              value={formData.umd}
+                              disabled
+                              readOnly
+                            />
                           </div>
 
                           <div className="min-w-0 md:col-span-1 md:flex md:items-end">
@@ -1233,7 +1395,12 @@ export default function EtiquetasPage() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="min-w-0">
                   <Label>Responsável *</Label>
-                  <Input className="w-full min-w-0" value={formData.responsavel} disabled readOnly />
+                  <Input
+                    className="w-full min-w-0"
+                    value={formData.responsavel}
+                    disabled
+                    readOnly
+                  />
                 </div>
 
                 <div className="min-w-0">

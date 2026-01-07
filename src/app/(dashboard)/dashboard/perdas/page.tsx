@@ -97,6 +97,17 @@ type InventoryLabelPreview = {
   expiration_date: string | null;
 };
 
+type RpcLossResult = {
+  loss_id: string;
+  establishment_id: string;
+  user_id: string;
+  stock_before: number | null;
+  stock_after: number | null;
+  label_id: string | null;
+  label_before: number | null;
+  label_after: number | null;
+};
+
 const LOSS_REASONS = [
   "Fora do padrão",
   "Vencido",
@@ -134,6 +145,12 @@ function formatDateBR(iso: string) {
   } catch {
     return iso;
   }
+}
+
+function formatMaybeNumber(n: any) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "-";
+  return String(x);
 }
 
 export default function PerdasPage() {
@@ -176,6 +193,12 @@ export default function PerdasPage() {
   const [checkingLabel, setCheckingLabel] = useState(false);
 
   /* =========================
+     STATE: FEEDBACK (SEM ALERT)
+  ========================= */
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<RpcLossResult | null>(null);
+
+  /* =========================
      LOAD: PRODUTOS
   ========================= */
   async function loadProducts() {
@@ -185,7 +208,6 @@ export default function PerdasPage() {
       if (!res.ok) throw new Error("Falha ao carregar produtos.");
       const data = await res.json();
 
-      // Esperado: data = { products: [...] } ou direto [...]
       const list: ProductOption[] = Array.isArray(data)
         ? data
         : Array.isArray(data?.products)
@@ -204,9 +226,7 @@ export default function PerdasPage() {
       setProducts(normalized);
     } catch (err: any) {
       console.error(err);
-      // Mantive alert aqui só pra não mexer na sua UX global.
-      // Se quiser, na próxima etapa eu troco por toast/inline.
-      alert(err?.message ?? "Erro ao carregar produtos.");
+      setSubmitError(err?.message ?? "Erro ao carregar produtos.");
     } finally {
       setLoadingProducts(false);
     }
@@ -233,7 +253,7 @@ export default function PerdasPage() {
 
       setLosses(list);
     } catch (err) {
-      console.warn("Histórico ainda não disponível (/api/losses GET).");
+      console.warn("Histórico não disponível.");
       setLosses([]);
     } finally {
       setLoadingLosses(false);
@@ -260,14 +280,11 @@ export default function PerdasPage() {
   }, [selectedProduct]);
 
   /* =========================
-     PREVIEW QR (inventory_labels.label_code)
-     - busca /api/inventory-labels/preview?code=...
-     - valida se etiqueta é do mesmo produto selecionado
+     PREVIEW QR
   ========================= */
   useEffect(() => {
     const code = qrcode.trim();
 
-    // se não tem QR ou muito curto, limpa
     if (!code || code.length < 3) {
       setLabelPreview(null);
       setLabelError(null);
@@ -275,7 +292,6 @@ export default function PerdasPage() {
       return;
     }
 
-    // debounce + cancel
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
@@ -289,15 +305,15 @@ export default function PerdasPage() {
 
         const data = await res.json().catch(() => ({}));
 
-        if (!res.ok) {
-          throw new Error(data?.error ?? "Etiqueta inválida.");
-        }
+        if (!res.ok) throw new Error(data?.error ?? "Etiqueta inválida.");
 
         const label: InventoryLabelPreview | undefined = data?.label;
         if (!label) throw new Error("Resposta inválida do preview da etiqueta.");
 
-        // Se já escolheu produto, confere compatibilidade
-        if (selectedProductId && String(label.product_id) !== String(selectedProductId)) {
+        if (
+          selectedProductId &&
+          String(label.product_id) !== String(selectedProductId)
+        ) {
           throw new Error("Este QR pertence a outro produto.");
         }
 
@@ -332,10 +348,6 @@ export default function PerdasPage() {
     if (!Number.isFinite(qtyNumber) || qtyNumber <= 0) return false;
     if (reason === "Outro" && reasonDetail.trim().length < 3) return false;
 
-    // se tem QR, precisa:
-    // - preview ok
-    // - sem erro
-    // - saldo suficiente
     if (qrcode.trim()) {
       if (checkingLabel) return false;
       if (labelError) return false;
@@ -356,11 +368,14 @@ export default function PerdasPage() {
   ]);
 
   /* =========================
-     SUBMIT
+     SUBMIT (SEM ALERT + RESUMO)
   ========================= */
   async function handleSubmit() {
+    setSubmitError(null);
+    setLastResult(null);
+
     if (!canSubmit) {
-      alert("Preencha os campos obrigatórios corretamente.");
+      setSubmitError("Preencha os campos obrigatórios corretamente.");
       return;
     }
 
@@ -377,7 +392,6 @@ export default function PerdasPage() {
             : reasonDetail.trim()
             ? reasonDetail.trim()
             : null,
-        // IMPORTANTE: aqui você manda o label_code no campo qrcode
         qrcode: qrcode.trim() ? qrcode.trim() : null,
       };
 
@@ -393,7 +407,10 @@ export default function PerdasPage() {
         throw new Error(data?.error ?? "Erro ao registrar perda.");
       }
 
-      // Reset parcial
+      const result: RpcLossResult | null = data?.result ?? null;
+      setLastResult(result);
+
+      // Reset form
       setSelectedProductId("");
       setReason("");
       setReasonDetail("");
@@ -406,13 +423,11 @@ export default function PerdasPage() {
       setLabelError(null);
       setCheckingLabel(false);
 
-      alert("Perda registrada com sucesso e estoque atualizado.");
-
       // Atualiza histórico
       await loadLosses();
     } catch (err: any) {
       console.error(err);
-      alert(err?.message ?? "Erro ao registrar perda.");
+      setSubmitError(err?.message ?? "Erro ao registrar perda.");
     } finally {
       setSubmitting(false);
     }
@@ -432,6 +447,68 @@ export default function PerdasPage() {
       </div>
 
       {/* =========================
+          RESUMO PÓS-REGISTRO
+      ========================= */}
+      {lastResult ? (
+        <Card className="border-green-200">
+          <CardHeader>
+            <CardTitle className="text-base">Perda registrada ✅</CardTitle>
+            <CardDescription>
+              Resumo da operação (retorno transacional).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">Estoque</div>
+              <div className="text-sm font-medium">
+                {formatMaybeNumber(lastResult.stock_before)} →{" "}
+                {formatMaybeNumber(lastResult.stock_after)}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">Etiqueta</div>
+              <div className="text-sm font-medium">
+                {lastResult.label_id
+                  ? `${formatMaybeNumber(lastResult.label_before)} → ${formatMaybeNumber(
+                      lastResult.label_after
+                    )}`
+                  : "—"}
+              </div>
+              {!lastResult.label_id ? (
+                <div className="text-xs text-muted-foreground">
+                  (Sem QR informado)
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">Registro</div>
+              <div className="text-sm font-medium break-all">
+                {lastResult.loss_id}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* =========================
+          ERRO INLINE
+      ========================= */}
+      {submitError ? (
+        <Card className="border-red-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-red-600">
+              Não foi possível registrar
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-red-600">{submitError}</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* =========================
           REGISTRAR PERDA
       ========================= */}
       <Card>
@@ -444,7 +521,7 @@ export default function PerdasPage() {
         </CardHeader>
 
         <CardContent className="space-y-6">
-          {/* Linha 1: Produto (combobox), SKU, Unidade */}
+          {/* Linha 1 */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="space-y-2">
               <Label>Produto *</Label>
@@ -491,7 +568,8 @@ export default function PerdasPage() {
                             <div className="flex flex-col">
                               <span className="text-sm">{p.name}</span>
                               <span className="text-xs text-muted-foreground">
-                                SKU: {p.sku || "-"} • Unidade: {p.unit_label || "-"}
+                                SKU: {p.sku || "-"} • Unidade:{" "}
+                                {p.unit_label || "-"}
                               </span>
                             </div>
                           </CommandItem>
@@ -533,7 +611,7 @@ export default function PerdasPage() {
             </div>
           </div>
 
-          {/* Linha 2: Qtd, Lote, Motivo */}
+          {/* Linha 2 */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="space-y-2">
               <Label>Qtd *</Label>
@@ -583,7 +661,7 @@ export default function PerdasPage() {
             </div>
           </div>
 
-          {/* Linha 3: Detalhe motivo (condicional) + QR */}
+          {/* Linha 3 */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>
@@ -612,7 +690,6 @@ export default function PerdasPage() {
                 placeholder="Cole ou digite o QR Code (label_code)"
               />
 
-              {/* Status inline do QR */}
               {checkingLabel ? (
                 <p className="text-xs text-muted-foreground">
                   Validando etiqueta...
@@ -623,7 +700,6 @@ export default function PerdasPage() {
                 <p className="text-xs text-red-500">{labelError}</p>
               ) : null}
 
-              {/* Preview da etiqueta */}
               {labelPreview ? (
                 <Card className="mt-2 border-dashed">
                   <CardHeader className="pb-2">
@@ -704,6 +780,9 @@ export default function PerdasPage() {
                 setLabelPreview(null);
                 setLabelError(null);
                 setCheckingLabel(false);
+
+                setSubmitError(null);
+                setLastResult(null);
               }}
               disabled={submitting}
             >
@@ -736,9 +815,7 @@ export default function PerdasPage() {
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Histórico de perdas</CardTitle>
-            <CardDescription>
-              Consulte registros anteriores.
-            </CardDescription>
+            <CardDescription>Consulte registros anteriores.</CardDescription>
           </div>
 
           <Button

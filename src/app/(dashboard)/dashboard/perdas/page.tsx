@@ -437,15 +437,12 @@ export default function PerdasPage() {
      EXPORT CSV (NOVO - SEGURO)
   ========================= */
   function handleExportCSV() {
-    // faz download abrindo a rota em nova aba
     window.open("/api/export/losses", "_blank");
   }
 
   return (
     <div className="space-y-6">
-      {/* =========================
-          HEADER
-      ========================= */}
+      {/* HEADER */}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold">Perdas</h1>
         <p className="text-sm text-muted-foreground">
@@ -454,9 +451,7 @@ export default function PerdasPage() {
         </p>
       </div>
 
-      {/* =========================
-          RESUMO PÓS-REGISTRO
-      ========================= */}
+      {/* RESUMO PÓS-REGISTRO */}
       {lastResult ? (
         <Card className="border-green-200">
           <CardHeader>
@@ -500,9 +495,7 @@ export default function PerdasPage() {
         </Card>
       ) : null}
 
-      {/* =========================
-          ERRO INLINE
-      ========================= */}
+      {/* ERRO INLINE */}
       {submitError ? (
         <Card className="border-red-200">
           <CardHeader className="pb-2">
@@ -516,9 +509,7 @@ export default function PerdasPage() {
         </Card>
       ) : null}
 
-      {/* =========================
-          REGISTRAR PERDA
-      ========================= */}
+      {/* REGISTRAR PERDA */}
       <Card>
         <CardHeader>
           <CardTitle>Registrar perda</CardTitle>
@@ -558,11 +549,13 @@ export default function PerdasPage() {
                 <PopoverContent
                   align="start"
                   sideOffset={6}
-                  className="w-[--radix-popover-trigger-width] p-0 z-50"
+                  // ✅ IMPORTANTE: altura + overflow (lista longa) e z alto
+                  className="w-[--radix-popover-trigger-width] p-0 z-[9999] max-h-[320px] overflow-hidden"
                 >
                   <Command>
                     <CommandInput placeholder="Buscar produto..." />
-                    <CommandList>
+                    {/* ✅ lista rola dentro do popover */}
+                    <CommandList className="max-h-[272px] overflow-auto">
                       <CommandEmpty>Nenhum produto encontrado.</CommandEmpty>
                       <CommandGroup>
                         {products.map((p) => (
@@ -827,9 +820,7 @@ export default function PerdasPage() {
         </CardContent>
       </Card>
 
-      {/* =========================
-          HISTÓRICO
-      ========================= */}
+      {/* HISTÓRICO */}
       <Card>
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -837,7 +828,6 @@ export default function PerdasPage() {
             <CardDescription>Consulte registros anteriores.</CardDescription>
           </div>
 
-          {/* ✅ AQUI: adicionamos Exportar CSV sem mexer no resto */}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Button
               type="button"

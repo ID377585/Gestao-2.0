@@ -93,14 +93,17 @@ export default async function DashboardLayout({
           </div>
         </aside>
 
-        {/* Conteúdo principal */}
+        {/* ✅ Spacer SOMENTE no desktop para reservar o espaço do sidebar */}
         <div
-          className="flex min-w-0 flex-1 flex-col"
+          className="hidden md:block shrink-0"
           style={{
-            paddingLeft: "var(--sidebar-w)",
-            transition: "padding-left 300ms ease",
+            width: "var(--sidebar-w)",
+            transition: "width 300ms ease",
           }}
-        >
+        />
+
+        {/* Conteúdo principal */}
+        <div className="flex min-w-0 flex-1 flex-col">
           {/* Topbar */}
           {/* ✅ Ajuste mínimo: reduz z-index do header sticky para não cobrir popovers/dropdowns */}
           <div className="sticky top-0 z-40 pointer-events-auto">

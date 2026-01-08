@@ -26,7 +26,7 @@ function normalizeId(value: any): string | null {
 }
 
 async function resolveEstablishmentId(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
 ): Promise<{ establishmentId: string | null; debug: string[] }> {
   const debug: string[] = [];
 
@@ -40,7 +40,7 @@ async function resolveEstablishmentId(
     const picked = estId ?? orgId ?? null;
 
     debug.push(
-      `membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
+      `membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`
     );
 
     return { establishmentId: picked, debug };
@@ -74,7 +74,7 @@ async function resolveEstablishmentId(
 
   if (estId ?? orgId) {
     debug.push(
-      `fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
+      `fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`
     );
     return { establishmentId: estId ?? orgId ?? null, debug };
   }
@@ -91,7 +91,7 @@ async function resolveEstablishmentId(
   const orgId2 = normalizeId((p as any)?.organization_id);
 
   debug.push(
-    `fallback profiles: ok (est=${estId2 ?? "null"} org=${orgId2 ?? "null"})`,
+    `fallback profiles: ok (est=${estId2 ?? "null"} org=${orgId2 ?? "null"})`
   );
 
   return { establishmentId: estId2 ?? orgId2 ?? null, debug };
@@ -109,11 +109,14 @@ export async function GET() {
     if (!establishmentId) {
       console.error(
         "GET /api/inventory-labels: establishmentId não resolvido",
-        debug,
+        debug
       );
       return NextResponse.json(
-        { error: "Não foi possível identificar o estabelecimento do usuário.", debug },
-        { status: 403 },
+        {
+          error: "Não foi possível identificar o estabelecimento do usuário.",
+          debug,
+        },
+        { status: 403 }
       );
     }
 
@@ -132,16 +135,22 @@ export async function GET() {
           details: (error as any)?.details ?? null,
           hint: (error as any)?.hint ?? null,
         },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
-    return NextResponse.json((data ?? []) as InventoryLabelRow[], { status: 200 });
+    return NextResponse.json((data ?? []) as InventoryLabelRow[], {
+      status: 200,
+    });
   } catch (err: any) {
     console.error("GET /api/inventory-labels erro inesperado:", err);
     return NextResponse.json(
-      { error: `Erro inesperado ao carregar etiquetas: ${err?.message ?? "sem mensagem"}` },
-      { status: 500 },
+      {
+        error: `Erro inesperado ao carregar etiquetas: ${
+          err?.message ?? "sem mensagem"
+        }`,
+      },
+      { status: 500 }
     );
   }
 }
@@ -158,39 +167,60 @@ export async function POST(req: Request) {
     if (!establishmentId) {
       console.error(
         "POST /api/inventory-labels: establishmentId não resolvido",
-        debug,
+        debug
       );
       return NextResponse.json(
-        { error: "Não foi possível identificar o estabelecimento do usuário.", debug },
-        { status: 403 },
+        {
+          error: "Não foi possível identificar o estabelecimento do usuário.",
+          debug,
+        },
+        { status: 403 }
       );
     }
 
     const body = await req.json();
 
-    // ⚠️ productName continua vindo do front, mas NÃO é mais gravado em coluna
-    // (porque a coluna product_name não existe em inventory_labels)
-    const productName = String(body?.productName ?? "").trim();
+    // ✅ Compat: aceita camelCase e snake_case (sem quebrar nada)
+    const productName = String(
+      body?.productName ?? body?.product_name ?? body?.product_name ?? ""
+    ).trim();
 
     const qty = Number(body?.qty);
-    const unit_label = String(body?.unitLabel ?? "").trim();
-    const label_code = String(body?.labelCode ?? "").trim();
 
+    const unit_label = String(
+      body?.unitLabel ?? body?.unit_label ?? body?.unit ?? ""
+    ).trim();
+
+    const label_code = String(
+      body?.labelCode ?? body?.label_code ?? body?.code ?? ""
+    ).trim();
+
+    // ✅ notes: preferimos extraPayload (camelCase) e, se não vier, aceitamos notes direto
     const notes =
       body?.extraPayload !== undefined && body?.extraPayload !== null
         ? JSON.stringify(body.extraPayload)
+        : body?.notes !== undefined
+        ? String(body.notes)
         : null;
 
     // ✅ validação mínima (mantendo seu comportamento)
-    // productName não é obrigatório para inserir no banco, pois pode ficar só no notes.
     if (!unit_label || !label_code || !Number.isFinite(qty)) {
       return NextResponse.json(
-        { error: "Payload inválido para criar etiqueta." },
-        { status: 400 },
+        {
+          error: "Payload inválido para criar etiqueta.",
+          // ✅ debug útil para você enxergar o que chegou
+          debug_payload: {
+            productName,
+            qty,
+            unit_label,
+            label_code,
+            received_keys: Object.keys(body ?? {}),
+          },
+        },
+        { status: 400 }
       );
     }
 
-    // ✅ INSERT apenas com colunas que realmente existem
     const { data, error } = await supabase
       .from("inventory_labels")
       .insert({
@@ -211,10 +241,9 @@ export async function POST(req: Request) {
           code: (error as any)?.code ?? null,
           details: (error as any)?.details ?? null,
           hint: (error as any)?.hint ?? null,
-          // só pra você enxergar no log o que chegou
           debug_payload: { productName, qty, unit_label, label_code },
         },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
@@ -222,8 +251,12 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error("POST /api/inventory-labels erro inesperado:", err);
     return NextResponse.json(
-      { error: `Erro inesperado ao salvar etiqueta: ${err?.message ?? "sem mensagem"}` },
-      { status: 500 },
+      {
+        error: `Erro inesperado ao salvar etiqueta: ${
+          err?.message ?? "sem mensagem"
+        }`,
+      },
+      { status: 500 }
     );
   }
 }

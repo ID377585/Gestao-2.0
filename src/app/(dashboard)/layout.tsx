@@ -71,11 +71,13 @@ export default async function DashboardLayout({
   }
 
   // =========================
-  // LAYOUT (mantido 100%)
+  // LAYOUT (mantido 100% no desktop / corrigido no mobile)
   // =========================
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="flex">
+    // ✅ MOBILE: vira viewport fixa (evita pull-to-refresh no body)
+    <div className="h-[100dvh] md:min-h-screen bg-gray-50 overflow-hidden md:overflow-visible">
+      {/* ✅ MOBILE: garante altura total para o <main> rolar por dentro */}
+      <div className="flex h-full">
         {/* Sidebar (Desktop) */}
         <aside
           className="
@@ -106,12 +108,13 @@ export default async function DashboardLayout({
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Topbar */}
           {/* ✅ Ajuste mínimo: reduz z-index do header sticky para não cobrir popovers/dropdowns */}
-          <div className="sticky top-0 z-40 pointer-events-auto">
+          <div className="sticky top-0 z-40 pointer-events-auto shrink-0">
             <Topbar />
           </div>
 
           {/* Main */}
-          <main className="relative z-0 flex-1 overflow-y-auto focus:outline-none">
+          {/* ✅ MOBILE: scroll aqui + impede overscroll/pull-to-refresh */}
+          <main className="relative z-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y focus:outline-none">
             <div className="py-6">
               {/* ✅ mantém seu ajuste para expandir a largura quando recolhe o sidebar */}
               <div className="w-full px-4 sm:px-6 md:px-8">{children}</div>

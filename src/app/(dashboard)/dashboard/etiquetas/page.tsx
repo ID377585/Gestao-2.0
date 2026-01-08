@@ -28,11 +28,7 @@ import {
 // ✅ Combo (shadcn)
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -79,6 +75,7 @@ type ProductOption = {
   name: string;
   category: string | null;
   unit: string | null;
+  shelf_life_days?: number | null; // ✅ NOVO: shelf life (dias)
 };
 
 /* =========================
@@ -147,6 +144,15 @@ const createDefaultForm = () => ({
   localEnvio: ESTABELECIMENTO_NOME,
   localArmazenado: "",
 });
+
+/* =========================
+   Helpers (datas)
+========================= */
+function addDaysISO(baseISO: string, days: number) {
+  const d = new Date(`${baseISO}T00:00:00`);
+  d.setDate(d.getDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
 
 /* =========================
    API helpers (CLIENT -> Route Handler)
@@ -222,7 +228,8 @@ export default function EtiquetasPage() {
   const [carregandoHistorico, setCarregandoHistorico] = useState(true);
 
   const [showNovaEtiqueta, setShowNovaEtiqueta] = useState(false);
-  const [tipoSelecionado, setTipoSelecionado] = useState<TipoSel>("MANIPULACAO");
+  const [tipoSelecionado, setTipoSelecionado] =
+    useState<TipoSel>("MANIPULACAO");
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState("Grande");
 
   // ✅ produtos pro combo
@@ -230,7 +237,9 @@ export default function EtiquetasPage() {
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState<string>(""); // ✅ DEBUG (mostra erro real)
   const [productOpen, setProductOpen] = useState(false);
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(
+    null
+  );
 
   const [formData, setFormData] = useState(createDefaultForm());
   const [linhasPorcao, setLinhasPorcao] = useState<LinhaPorcao[]>([]);
@@ -787,7 +796,9 @@ export default function EtiquetasPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => void imprimirBatchNoBrowser([etiqueta])}
+                            onClick={() =>
+                              void imprimirBatchNoBrowser([etiqueta])
+                            }
                             title="Reimprimir"
                           >
                             🖨️
@@ -800,12 +811,7 @@ export default function EtiquetasPage() {
                           >
                             👁️
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            title="Copiar"
-                            disabled
-                          >
+                          <Button size="sm" variant="outline" title="Copiar" disabled>
                             📋
                           </Button>
                         </div>
@@ -892,15 +898,7 @@ export default function EtiquetasPage() {
                           }
                         }}
                       >
-                        {/*
-                         * Use PopoverTrigger without asChild. The trigger expects a single child element
-                         * that forwards its ref correctly. A plain div is used here to avoid ref/forwardRef issues.
-                         */}
                         <PopoverTrigger>
-                          {/*
-                           * Trigger "visual" element: role combobox + ARIA attributes.
-                           * ✅ FIX ESLint a11y: add aria-controls and keep aria-expanded.
-                           */}
                           <div
                             role="combobox"
                             aria-expanded={productOpen}
@@ -919,12 +917,8 @@ export default function EtiquetasPage() {
                         {/* ✅ MELHORIAS VISUAIS DO POPOVER (FUNDO/LEITURA/LARGURA) */}
                         <PopoverContent
                           className={cn(
-                            // base
                             "p-0 z-[99999] border shadow-md",
-                            // ✅ fundo branco + texto escuro (legível)
                             "bg-white text-gray-900",
-                            // ✅ largura: mais largo que o trigger, mas responsivo
-                            // mantém mínimo do trigger, abre até 90% da tela
                             "min-w-[520px] w-auto max-w-[90vw]"
                           )}
                           align="start"
@@ -973,20 +967,31 @@ export default function EtiquetasPage() {
                                     key={p.id}
                                     value={`${p.name} ${p.category ?? ""}`}
                                     onSelect={() => {
+                                      const hojeISO = getTodayISO();
+
                                       setSelectedProductId(p.id);
+
+                                      // ✅ sempre usa o produto selecionado
                                       handleInputChange("insumo", p.name);
 
-                                      if (
-                                        p.unit &&
-                                        !String(formData.umd || "").trim()
-                                      ) {
-                                        handleInputChange("umd", p.unit);
-                                      }
+                                      // ✅ Unidade do cadastro (sempre)
+                                      handleInputChange(
+                                        "umd",
+                                        p.unit ? String(p.unit) : ""
+                                      );
+
+                                      // ✅ Data manipulação = hoje (travada no input)
+                                      handleInputChange("dataManip", hojeISO);
+
+                                      // ✅ Data vencimento = hoje + shelf life
+                                      const shelf = Number(p.shelf_life_days ?? 0);
+                                      const vencISO =
+                                        shelf > 0 ? addDaysISO(hojeISO, shelf) : hojeISO;
+                                      handleInputChange("dataVenc", vencISO);
 
                                       setProductOpen(false);
                                     }}
                                     className={cn(
-                                      // ✅ garante legibilidade e hover claro
                                       "bg-white text-gray-900",
                                       "data-[selected=true]:bg-gray-100 data-[selected=true]:text-gray-900"
                                     )}
@@ -1000,7 +1005,6 @@ export default function EtiquetasPage() {
                                       )}
                                     />
 
-                                    {/* ✅ não truncar: quebra linha e não corta no meio */}
                                     <div className="flex flex-col">
                                       <span className="whitespace-normal break-words leading-snug">
                                         {p.name}
@@ -1024,6 +1028,10 @@ export default function EtiquetasPage() {
                           Selecionado: <strong>{selectedProduct.name}</strong>
                           {selectedProduct.unit
                             ? ` • Unidade: ${selectedProduct.unit}`
+                            : ""}
+                          {typeof selectedProduct.shelf_life_days === "number" &&
+                          selectedProduct.shelf_life_days !== null
+                            ? ` • Shelf life: ${selectedProduct.shelf_life_days} dia(s)`
                             : ""}
                         </div>
                       ) : null}
@@ -1058,7 +1066,9 @@ export default function EtiquetasPage() {
                       <Input
                         className="w-full min-w-0"
                         value={formData.umd}
-                        onChange={(e) => handleInputChange("umd", e.target.value)}
+                        onChange={(e) =>
+                          handleInputChange("umd", e.target.value)
+                        }
                         placeholder="Ex: kg, g, un"
                         autoComplete="off"
                       />
@@ -1161,9 +1171,8 @@ export default function EtiquetasPage() {
                       className="w-full min-w-0"
                       value={formData.dataManip}
                       type="date"
-                      onChange={(e) =>
-                        handleInputChange("dataManip", e.target.value)
-                      }
+                      disabled
+                      readOnly
                     />
                   </div>
 
@@ -1173,9 +1182,8 @@ export default function EtiquetasPage() {
                       className="w-full min-w-0"
                       type="date"
                       value={formData.dataVenc}
-                      onChange={(e) =>
-                        handleInputChange("dataVenc", e.target.value)
-                      }
+                      disabled
+                      readOnly
                     />
                   </div>
                 </div>
@@ -1208,7 +1216,10 @@ export default function EtiquetasPage() {
                           type="date"
                           value={formData.dataFabricante}
                           onChange={(e) =>
-                            handleInputChange("dataFabricante", e.target.value)
+                            handleInputChange(
+                              "dataFabricante",
+                              e.target.value
+                            )
                           }
                         />
                       </div>
@@ -1220,7 +1231,10 @@ export default function EtiquetasPage() {
                           type="date"
                           value={formData.dataVencimento}
                           onChange={(e) =>
-                            handleInputChange("dataVencimento", e.target.value)
+                            handleInputChange(
+                              "dataVencimento",
+                              e.target.value
+                            )
                           }
                         />
                       </div>

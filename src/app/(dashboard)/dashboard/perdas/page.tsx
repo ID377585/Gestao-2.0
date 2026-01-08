@@ -525,27 +525,34 @@ export default function PerdasPage() {
             <div className="space-y-2">
               <Label>Produto *</Label>
 
-              {/* ✅ AJUSTE: modal={false} + remover onClick manual do Trigger */}
+              {/* ✅ AJUSTADO (IGUAL ETIQUETAS): Trigger div + resize ao abrir + PopoverContent mais estável */}
               <Popover
                 modal={false}
                 open={productOpen}
-                onOpenChange={setProductOpen}
+                onOpenChange={(open) => {
+                  setProductOpen(open);
+                  if (open) {
+                    requestAnimationFrame(() => {
+                      window.dispatchEvent(new Event("resize"));
+                    });
+                  }
+                }}
               >
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
+                <PopoverTrigger>
+                  <div
                     role="combobox"
                     aria-expanded={productOpen}
+                    aria-controls="loss-product-combobox"
+                    aria-haspopup="listbox"
                     className={cn(
-                      "w-full justify-between",
-                      !selectedProductId && "text-muted-foreground"
+                      "w-full inline-flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
+                      !selectedProductId && "text-muted-foreground",
+                      loadingProducts && "opacity-60 pointer-events-none"
                     )}
-                    disabled={loadingProducts}
                   >
                     {selectedProduct ? selectedProduct.name : "Selecione..."}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
+                  </div>
                 </PopoverTrigger>
 
                 <PopoverContent
@@ -554,14 +561,29 @@ export default function PerdasPage() {
                   sideOffset={6}
                   avoidCollisions
                   collisionPadding={12}
-                  // ✅ altura + scroll + z alto
-                  className="w-[--radix-popover-trigger-width] p-0 z-[9999] max-h-[320px] overflow-hidden"
+                  updatePositionStrategy="always"
+                  sticky="always"
+                  className={cn(
+                    "p-0 z-[99999] border shadow-md",
+                    "bg-white text-gray-900",
+                    "min-w-[520px] w-auto max-w-[90vw]"
+                  )}
                 >
-                  <Command>
-                    <CommandInput placeholder="Buscar produto..." />
-                    <CommandList className="max-h-[272px] overflow-auto">
-                      <CommandEmpty>Nenhum produto encontrado.</CommandEmpty>
-                      <CommandGroup>
+                  <Command className="bg-white text-gray-900">
+                    <CommandInput
+                      placeholder="Buscar produto..."
+                      className="bg-white text-gray-900"
+                    />
+
+                    <CommandList
+                      id="loss-product-combobox"
+                      className="max-h-[360px] overflow-auto bg-white"
+                    >
+                      <CommandEmpty className="text-gray-600">
+                        Nenhum produto encontrado.
+                      </CommandEmpty>
+
+                      <CommandGroup className="bg-white">
                         {products.map((p) => (
                           <CommandItem
                             key={p.id}
@@ -570,6 +592,10 @@ export default function PerdasPage() {
                               setSelectedProductId(p.id);
                               setProductOpen(false);
                             }}
+                            className={cn(
+                              "bg-white text-gray-900",
+                              "data-[selected=true]:bg-gray-100 data-[selected=true]:text-gray-900"
+                            )}
                           >
                             <Check
                               className={cn(
@@ -580,8 +606,10 @@ export default function PerdasPage() {
                               )}
                             />
                             <div className="flex flex-col">
-                              <span className="text-sm">{p.name}</span>
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-sm whitespace-normal break-words leading-snug">
+                                {p.name}
+                              </span>
+                              <span className="text-xs text-muted-foreground whitespace-normal break-words">
                                 SKU: {p.sku || "-"} • Unidade:{" "}
                                 {p.unit_label || "-"}
                               </span>

@@ -28,7 +28,11 @@ import {
 // ✅ Combo (shadcn)
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -819,13 +823,13 @@ export default function EtiquetasPage() {
       {showNovaEtiqueta && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
           {/*
-           * Use overflow-visible on the modal container instead of overflow-y-auto.
-           * The Radix popover positioning can be clipped when the parent has overflow-y-auto.
-           * Keeping max-h ensures the modal doesn’t exceed the viewport height, while overflow-visible
-           * allows the popover to render outside the scrollable area.
+           * ✅ AJUSTE (DESKTOP): permitir scroll interno do formulário SEM cortar popovers.
+           * - Container do modal fica overflow-visible (para o Popover do Radix não ser clipado).
+           * - Conteúdo do formulário rola dentro de uma área scrollável (max-h + overflow-y-auto).
            */}
-          <div className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-4xl max-h-[90vh] overflow-visible">
-            <div className="flex justify-between items-center mb-6 gap-3">
+          <div className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-4xl max-h-[90dvh] overflow-visible flex flex-col">
+            {/* Header fixo do modal */}
+            <div className="flex justify-between items-center mb-6 gap-3 shrink-0">
               <h3 className="text-lg sm:text-xl font-semibold">
                 Nova Etiqueta - {TIPO_LABEL_LONG[tipoSelecionado]}
               </h3>
@@ -834,517 +838,524 @@ export default function EtiquetasPage() {
               </Button>
             </div>
 
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="min-w-0">
-                  <Label>Tipo de Etiqueta</Label>
-                  <select
-                    value={tipoSelecionado}
-                    onChange={(e) =>
-                      setTipoSelecionado(e.target.value as TipoSel)
-                    }
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="MANIPULACAO">MANIPULAÇÃO</option>
-                    <option value="REVALIDAR">FABRICANTE</option>
-                  </select>
-                </div>
-
-                <div className="min-w-0">
-                  <Label>Tamanho da Etiqueta</Label>
-                  <select
-                    value={tamanhoSelecionado}
-                    onChange={(e) => setTamanhoSelecionado(e.target.value)}
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    {tamanhosEtiqueta.map((tamanho) => (
-                      <option key={tamanho.id} value={tamanho.nome}>
-                        {tamanho.nome} ({tamanho.largura}×{tamanho.altura}cm)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Insumo/Produto */}
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
-                  <div className="min-w-0 md:col-span-6">
-                    <Label>Insumo/Produto *</Label>
-
-                    {/* ✅ AJUSTE: modal={false} no Popover */}
-                    <Popover
-                      modal={false}
-                      open={productOpen}
-                      onOpenChange={(open) => {
-                        setProductOpen(open);
-                        if (open) {
-                          // force Radix to recalculate popover position when opening
-                          requestAnimationFrame(() => {
-                            window.dispatchEvent(new Event("resize"));
-                          });
-                        }
-                      }}
-                    >
-                      {/*
-                       * Use PopoverTrigger without asChild. The trigger expects a single child element
-                       * that forwards its ref correctly. A plain div is used here to avoid ref/forwardRef issues.
-                       */}
-                      <PopoverTrigger>
-                        {/*
-                         * Trigger "visual" element: role combobox + ARIA attributes.
-                         * ✅ FIX ESLint a11y: add aria-controls and keep aria-expanded.
-                         */}
-                        <div
-                          role="combobox"
-                          aria-expanded={productOpen}
-                          aria-controls="product-combobox-list"
-                          aria-haspopup="listbox"
-                          className={cn(
-                            "w-full inline-flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
-                            !selectedProductId && "text-muted-foreground"
-                          )}
-                        >
-                          {displayInsumoLabel}
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </div>
-                      </PopoverTrigger>
-
-                      {/* ✅ MELHORIAS VISUAIS DO POPOVER (FUNDO/LEITURA/LARGURA) */}
-                      <PopoverContent
-                        className={cn(
-                          // base
-                          "p-0 z-[99999] border shadow-md",
-                          // ✅ fundo branco + texto escuro (legível)
-                          "bg-white text-gray-900",
-                          // ✅ largura: mais largo que o trigger, mas responsivo
-                          // mantém mínimo do trigger, abre até 90% da tela
-                          "min-w-[520px] w-auto max-w-[90vw]"
-                        )}
-                        align="start"
-                        side="bottom"
-                        sideOffset={6}
-                        avoidCollisions
-                        collisionPadding={12}
-                        updatePositionStrategy="always"
-                        sticky="always"
-                      >
-                        <Command className="bg-white text-gray-900">
-                          <CommandInput
-                            placeholder="Buscar produto..."
-                            className="bg-white text-gray-900"
-                          />
-
-                          {/* ✅ DEBUG VISUAL */}
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b bg-white">
-                            {productsLoading ? (
-                              <>Carregando produtos...</>
-                            ) : productsError ? (
-                              <span className="text-red-600">
-                                {productsError}
-                              </span>
-                            ) : (
-                              <>
-                                Produtos carregados:{" "}
-                                <strong>{products.length}</strong>
-                              </>
-                            )}
-                          </div>
-
-                          <CommandList
-                            id="product-combobox-list"
-                            className="max-h-[360px] overflow-auto bg-white"
-                          >
-                            <CommandEmpty className="text-gray-600">
-                              {productsLoading
-                                ? "Carregando..."
-                                : "Nenhum produto encontrado."}
-                            </CommandEmpty>
-
-                            <CommandGroup className="bg-white">
-                              {products.map((p) => (
-                                <CommandItem
-                                  key={p.id}
-                                  value={`${p.name} ${p.category ?? ""}`}
-                                  onSelect={() => {
-                                    setSelectedProductId(p.id);
-                                    handleInputChange("insumo", p.name);
-
-                                    if (
-                                      p.unit &&
-                                      !String(formData.umd || "").trim()
-                                    ) {
-                                      handleInputChange("umd", p.unit);
-                                    }
-
-                                    setProductOpen(false);
-                                  }}
-                                  className={cn(
-                                    // ✅ garante legibilidade e hover claro
-                                    "bg-white text-gray-900",
-                                    "data-[selected=true]:bg-gray-100 data-[selected=true]:text-gray-900"
-                                  )}
-                                >
-                                  <Check
-                                    className={cn(
-                                      "mr-2 h-4 w-4",
-                                      selectedProductId === p.id
-                                        ? "opacity-100"
-                                        : "opacity-0"
-                                    )}
-                                  />
-
-                                  {/* ✅ não truncar: quebra linha e não corta no meio */}
-                                  <div className="flex flex-col">
-                                    <span className="whitespace-normal break-words leading-snug">
-                                      {p.name}
-                                    </span>
-                                    {p.category ? (
-                                      <span className="text-xs text-gray-500 whitespace-normal break-words">
-                                        {p.category}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-
-                    {selectedProduct ? (
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        Selecionado: <strong>{selectedProduct.name}</strong>
-                        {selectedProduct.unit
-                          ? ` • Unidade: ${selectedProduct.unit}`
-                          : ""}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="min-w-0 md:col-span-3">
-                    <Label htmlFor="qtd">Quantidade *</Label>
-                    <Input
-                      id="qtd"
-                      type="number"
-                      value={formData.qtd}
-                      onChange={(e) => {
-                        handleInputChange("qtd", e.target.value);
-                        setErros((prev) => ({ ...prev, baseQtd: false }));
-                      }}
-                      placeholder="0"
-                      className={
-                        erros.baseQtd
-                          ? "border-red-500 focus-visible:ring-red-500 w-full min-w-0"
-                          : "w-full min-w-0"
+            {/* ✅ Área scrollável do formulário */}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+              <div className="space-y-6 pb-8">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="min-w-0">
+                    <Label>Tipo de Etiqueta</Label>
+                    <select
+                      value={tipoSelecionado}
+                      onChange={(e) =>
+                        setTipoSelecionado(e.target.value as TipoSel)
                       }
-                    />
-                    {erros.baseQtd && (
-                      <p className="text-xs text-red-600 mt-1">
-                        Preencha a quantidade desta linha.
-                      </p>
-                    )}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="MANIPULACAO">MANIPULAÇÃO</option>
+                      <option value="REVALIDAR">FABRICANTE</option>
+                    </select>
                   </div>
 
-                  <div className="min-w-0 md:col-span-2">
-                    <Label>Unidade *</Label>
+                  <div className="min-w-0">
+                    <Label>Tamanho da Etiqueta</Label>
+                    <select
+                      value={tamanhoSelecionado}
+                      onChange={(e) => setTamanhoSelecionado(e.target.value)}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      {tamanhosEtiqueta.map((tamanho) => (
+                        <option key={tamanho.id} value={tamanho.nome}>
+                          {tamanho.nome} ({tamanho.largura}×{tamanho.altura}cm)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Insumo/Produto */}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
+                    <div className="min-w-0 md:col-span-6">
+                      <Label>Insumo/Produto *</Label>
+
+                      {/* ✅ AJUSTE: modal={false} no Popover */}
+                      <Popover
+                        modal={false}
+                        open={productOpen}
+                        onOpenChange={(open) => {
+                          setProductOpen(open);
+                          if (open) {
+                            // force Radix to recalculate popover position when opening
+                            requestAnimationFrame(() => {
+                              window.dispatchEvent(new Event("resize"));
+                            });
+                          }
+                        }}
+                      >
+                        {/*
+                         * Use PopoverTrigger without asChild. The trigger expects a single child element
+                         * that forwards its ref correctly. A plain div is used here to avoid ref/forwardRef issues.
+                         */}
+                        <PopoverTrigger>
+                          {/*
+                           * Trigger "visual" element: role combobox + ARIA attributes.
+                           * ✅ FIX ESLint a11y: add aria-controls and keep aria-expanded.
+                           */}
+                          <div
+                            role="combobox"
+                            aria-expanded={productOpen}
+                            aria-controls="product-combobox-list"
+                            aria-haspopup="listbox"
+                            className={cn(
+                              "w-full inline-flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
+                              !selectedProductId && "text-muted-foreground"
+                            )}
+                          >
+                            {displayInsumoLabel}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </div>
+                        </PopoverTrigger>
+
+                        {/* ✅ MELHORIAS VISUAIS DO POPOVER (FUNDO/LEITURA/LARGURA) */}
+                        <PopoverContent
+                          className={cn(
+                            // base
+                            "p-0 z-[99999] border shadow-md",
+                            // ✅ fundo branco + texto escuro (legível)
+                            "bg-white text-gray-900",
+                            // ✅ largura: mais largo que o trigger, mas responsivo
+                            // mantém mínimo do trigger, abre até 90% da tela
+                            "min-w-[520px] w-auto max-w-[90vw]"
+                          )}
+                          align="start"
+                          side="bottom"
+                          sideOffset={6}
+                          avoidCollisions
+                          collisionPadding={12}
+                          updatePositionStrategy="always"
+                          sticky="always"
+                        >
+                          <Command className="bg-white text-gray-900">
+                            <CommandInput
+                              placeholder="Buscar produto..."
+                              className="bg-white text-gray-900"
+                            />
+
+                            {/* ✅ DEBUG VISUAL */}
+                            <div className="px-3 py-2 text-xs text-muted-foreground border-b bg-white">
+                              {productsLoading ? (
+                                <>Carregando produtos...</>
+                              ) : productsError ? (
+                                <span className="text-red-600">
+                                  {productsError}
+                                </span>
+                              ) : (
+                                <>
+                                  Produtos carregados:{" "}
+                                  <strong>{products.length}</strong>
+                                </>
+                              )}
+                            </div>
+
+                            <CommandList
+                              id="product-combobox-list"
+                              className="max-h-[360px] overflow-auto bg-white"
+                            >
+                              <CommandEmpty className="text-gray-600">
+                                {productsLoading
+                                  ? "Carregando..."
+                                  : "Nenhum produto encontrado."}
+                              </CommandEmpty>
+
+                              <CommandGroup className="bg-white">
+                                {products.map((p) => (
+                                  <CommandItem
+                                    key={p.id}
+                                    value={`${p.name} ${p.category ?? ""}`}
+                                    onSelect={() => {
+                                      setSelectedProductId(p.id);
+                                      handleInputChange("insumo", p.name);
+
+                                      if (
+                                        p.unit &&
+                                        !String(formData.umd || "").trim()
+                                      ) {
+                                        handleInputChange("umd", p.unit);
+                                      }
+
+                                      setProductOpen(false);
+                                    }}
+                                    className={cn(
+                                      // ✅ garante legibilidade e hover claro
+                                      "bg-white text-gray-900",
+                                      "data-[selected=true]:bg-gray-100 data-[selected=true]:text-gray-900"
+                                    )}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        selectedProductId === p.id
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
+
+                                    {/* ✅ não truncar: quebra linha e não corta no meio */}
+                                    <div className="flex flex-col">
+                                      <span className="whitespace-normal break-words leading-snug">
+                                        {p.name}
+                                      </span>
+                                      {p.category ? (
+                                        <span className="text-xs text-gray-500 whitespace-normal break-words">
+                                          {p.category}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+
+                      {selectedProduct ? (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Selecionado: <strong>{selectedProduct.name}</strong>
+                          {selectedProduct.unit
+                            ? ` • Unidade: ${selectedProduct.unit}`
+                            : ""}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="min-w-0 md:col-span-3">
+                      <Label htmlFor="qtd">Quantidade *</Label>
+                      <Input
+                        id="qtd"
+                        type="number"
+                        value={formData.qtd}
+                        onChange={(e) => {
+                          handleInputChange("qtd", e.target.value);
+                          setErros((prev) => ({ ...prev, baseQtd: false }));
+                        }}
+                        placeholder="0"
+                        className={
+                          erros.baseQtd
+                            ? "border-red-500 focus-visible:ring-red-500 w-full min-w-0"
+                            : "w-full min-w-0"
+                        }
+                      />
+                      {erros.baseQtd && (
+                        <p className="text-xs text-red-600 mt-1">
+                          Preencha a quantidade desta linha.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 md:col-span-2">
+                      <Label>Unidade *</Label>
+                      <Input
+                        className="w-full min-w-0"
+                        value={formData.umd}
+                        onChange={(e) => handleInputChange("umd", e.target.value)}
+                        placeholder="Ex: kg, g, un"
+                        autoComplete="off"
+                      />
+                    </div>
+
+                    <div className="min-w-0 md:col-span-1 md:flex md:items-end">
+                      <Button
+                        type="button"
+                        onClick={handleAddLinha}
+                        disabled={
+                          !String(formData.insumo || "").trim() ||
+                          !String(formData.umd || "").trim()
+                        }
+                        className="w-full md:w-auto"
+                      >
+                        Add +
+                      </Button>
+                    </div>
+                  </div>
+
+                  {linhasPorcao.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-sm text-muted-foreground">
+                        Porcionamento: mesmo produto/unidade (travados). Só a
+                        quantidade muda.
+                      </div>
+
+                      {linhasPorcao.map((linha) => {
+                        const hasErr = !!erros.porcoes[linha.id];
+                        return (
+                          <div
+                            key={linha.id}
+                            className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end"
+                          >
+                            <div className="min-w-0 md:col-span-6">
+                              <Label>Insumo/Produto</Label>
+                              <Input
+                                className="w-full min-w-0"
+                                value={formData.insumo}
+                                disabled
+                                readOnly
+                              />
+                            </div>
+
+                            <div className="min-w-0 md:col-span-3">
+                              <Label>Quantidade *</Label>
+                              <Input
+                                type="number"
+                                value={linha.qtd}
+                                onChange={(e) =>
+                                  handleChangeLinhaQtd(linha.id, e.target.value)
+                                }
+                                placeholder="0"
+                                className={
+                                  hasErr
+                                    ? "border-red-500 focus-visible:ring-red-500 w-full min-w-0"
+                                    : "w-full min-w-0"
+                                }
+                              />
+                              {hasErr && (
+                                <p className="text-xs text-red-600 mt-1">
+                                  Preencha a quantidade desta linha.
+                                </p>
+                              )}
+                            </div>
+
+                            {/* ✅ AJUSTE: dar menos coluna pra Unidade e mais pro botão Remover (evita estourar pra fora) */}
+                            <div className="min-w-0 md:col-span-1">
+                              <Label>Unidade</Label>
+                              <Input
+                                className="w-full min-w-0"
+                                value={formData.umd}
+                                disabled
+                                readOnly
+                              />
+                            </div>
+
+                            <div className="min-w-0 md:col-span-2 md:flex md:items-end">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => handleRemoveLinha(linha.id)}
+                                className="w-full"
+                              >
+                                Remover
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Datas */}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="min-w-0">
+                    <Label>Data de Manipulação *</Label>
                     <Input
                       className="w-full min-w-0"
-                      value={formData.umd}
+                      value={formData.dataManip}
+                      type="date"
                       onChange={(e) =>
-                        handleInputChange("umd", e.target.value)
+                        handleInputChange("dataManip", e.target.value)
                       }
-                      placeholder="Ex: kg, g, un"
-                      autoComplete="off"
                     />
                   </div>
 
-                  <div className="min-w-0 md:col-span-1 md:flex md:items-end">
-                    <Button
-                      type="button"
-                      onClick={handleAddLinha}
-                      disabled={
-                        !String(formData.insumo || "").trim() ||
-                        !String(formData.umd || "").trim()
+                  <div className="min-w-0">
+                    <Label>Data de Vencimento *</Label>
+                    <Input
+                      className="w-full min-w-0"
+                      type="date"
+                      value={formData.dataVenc}
+                      onChange={(e) =>
+                        handleInputChange("dataVenc", e.target.value)
                       }
-                      className="w-full md:w-auto"
-                    >
-                      Add +
-                    </Button>
+                    />
                   </div>
                 </div>
 
-                {linhasPorcao.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-sm text-muted-foreground">
-                      Porcionamento: mesmo produto/unidade (travados). Só a
-                      quantidade muda.
+                {/* Lote Preview */}
+                {String(formData.insumo || "").trim() && formData.dataManip && (
+                  <div className="p-3 bg-gray-50 rounded border">
+                    <div className="text-sm">
+                      <strong>Lote (automático):</strong>{" "}
+                      <span className="font-mono">{gerarLoteVigilancia()}</span>
                     </div>
-
-                    {linhasPorcao.map((linha) => {
-                      const hasErr = !!erros.porcoes[linha.id];
-                      return (
-                        <div
-                          key={linha.id}
-                          className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end"
-                        >
-                          <div className="min-w-0 md:col-span-6">
-                            <Label>Insumo/Produto</Label>
-                            <Input
-                              className="w-full min-w-0"
-                              value={formData.insumo}
-                              disabled
-                              readOnly
-                            />
-                          </div>
-
-                          <div className="min-w-0 md:col-span-3">
-                            <Label>Quantidade *</Label>
-                            <Input
-                              type="number"
-                              value={linha.qtd}
-                              onChange={(e) =>
-                                handleChangeLinhaQtd(linha.id, e.target.value)
-                              }
-                              placeholder="0"
-                              className={
-                                hasErr
-                                  ? "border-red-500 focus-visible:ring-red-500 w-full min-w-0"
-                                  : "w-full min-w-0"
-                              }
-                            />
-                            {hasErr && (
-                              <p className="text-xs text-red-600 mt-1">
-                                Preencha a quantidade desta linha.
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="min-w-0 md:col-span-2">
-                            <Label>Unidade</Label>
-                            <Input
-                              className="w-full min-w-0"
-                              value={formData.umd}
-                              disabled
-                              readOnly
-                            />
-                          </div>
-
-                          <div className="min-w-0 md:col-span-1 md:flex md:items-end">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() => handleRemoveLinha(linha.id)}
-                              className="w-full md:w-auto"
-                            >
-                              Remover
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Formato: IE-XX-DDMMAA-0D-XXX
+                    </p>
                   </div>
                 )}
-              </div>
 
-              {/* Datas */}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="min-w-0">
-                  <Label>Data de Manipulação *</Label>
-                  <Input
-                    className="w-full min-w-0"
-                    value={formData.dataManip}
-                    type="date"
-                    onChange={(e) =>
-                      handleInputChange("dataManip", e.target.value)
-                    }
-                  />
-                </div>
+                {/* Campos REVALIDAR */}
+                {tipoSelecionado === "REVALIDAR" && (
+                  <div className="p-4 bg-green-50 rounded-lg space-y-4">
+                    <h4 className="font-semibold text-green-800">
+                      Dados do Fabricante
+                    </h4>
 
-                <div className="min-w-0">
-                  <Label>Data de Vencimento *</Label>
-                  <Input
-                    className="w-full min-w-0"
-                    type="date"
-                    value={formData.dataVenc}
-                    onChange={(e) =>
-                      handleInputChange("dataVenc", e.target.value)
-                    }
-                  />
-                </div>
-              </div>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div className="min-w-0">
+                        <Label>Data de Fabricação</Label>
+                        <Input
+                          className="w-full min-w-0"
+                          type="date"
+                          value={formData.dataFabricante}
+                          onChange={(e) =>
+                            handleInputChange("dataFabricante", e.target.value)
+                          }
+                        />
+                      </div>
 
-              {/* Lote Preview */}
-              {String(formData.insumo || "").trim() && formData.dataManip && (
-                <div className="p-3 bg-gray-50 rounded border">
-                  <div className="text-sm">
-                    <strong>Lote (automático):</strong>{" "}
-                    <span className="font-mono">{gerarLoteVigilancia()}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Formato: IE-XX-DDMMAA-0D-XXX
-                  </p>
-                </div>
-              )}
+                      <div className="min-w-0">
+                        <Label>Validade Original (Fabricante)</Label>
+                        <Input
+                          className="w-full min-w-0"
+                          type="date"
+                          value={formData.dataVencimento}
+                          onChange={(e) =>
+                            handleInputChange("dataVencimento", e.target.value)
+                          }
+                        />
+                      </div>
 
-              {/* Campos REVALIDAR */}
-              {tipoSelecionado === "REVALIDAR" && (
-                <div className="p-4 bg-green-50 rounded-lg space-y-4">
-                  <h4 className="font-semibold text-green-800">
-                    Dados do Fabricante
-                  </h4>
+                      <div className="min-w-0">
+                        <Label>SIF</Label>
+                        <Input
+                          className="w-full min-w-0"
+                          value={formData.sif}
+                          onChange={(e) =>
+                            handleInputChange("sif", e.target.value)
+                          }
+                          placeholder="Ex: SIF 123"
+                        />
+                      </div>
 
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="min-w-0">
-                      <Label>Data de Fabricação</Label>
-                      <Input
-                        className="w-full min-w-0"
-                        type="date"
-                        value={formData.dataFabricante}
-                        onChange={(e) =>
-                          handleInputChange("dataFabricante", e.target.value)
-                        }
-                      />
-                    </div>
-
-                    <div className="min-w-0">
-                      <Label>Validade Original (Fabricante)</Label>
-                      <Input
-                        className="w-full min-w-0"
-                        type="date"
-                        value={formData.dataVencimento}
-                        onChange={(e) =>
-                          handleInputChange("dataVencimento", e.target.value)
-                        }
-                      />
-                    </div>
-
-                    <div className="min-w-0">
-                      <Label>SIF</Label>
-                      <Input
-                        className="w-full min-w-0"
-                        value={formData.sif}
-                        onChange={(e) => handleInputChange("sif", e.target.value)}
-                        placeholder="Ex: SIF 123"
-                      />
-                    </div>
-
-                    <div className="min-w-0">
-                      <Label>Lote do Fabricante</Label>
-                      <Input
-                        className="w-full min-w-0"
-                        value={formData.loteFab}
-                        onChange={(e) =>
-                          handleInputChange("loteFab", e.target.value)
-                        }
-                        placeholder="Lote original"
-                      />
+                      <div className="min-w-0">
+                        <Label>Lote do Fabricante</Label>
+                        <Input
+                          className="w-full min-w-0"
+                          value={formData.loteFab}
+                          onChange={(e) =>
+                            handleInputChange("loteFab", e.target.value)
+                          }
+                          placeholder="Lote original"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Infos adicionais */}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {/* Infos adicionais */}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="min-w-0">
+                    <Label>Responsável *</Label>
+                    <Input
+                      className="w-full min-w-0"
+                      value={formData.responsavel}
+                      disabled
+                      readOnly
+                    />
+                  </div>
+
+                  <div className="min-w-0">
+                    <Label>Alergênico</Label>
+                    <Input
+                      className="w-full min-w-0"
+                      value={formData.alergenico}
+                      onChange={(e) =>
+                        handleInputChange("alergenico", e.target.value)
+                      }
+                      placeholder="Ex: Contém leite"
+                    />
+                  </div>
+                </div>
+
                 <div className="min-w-0">
-                  <Label>Responsável *</Label>
+                  <Label>Condições de Armazenamento</Label>
                   <Input
                     className="w-full min-w-0"
-                    value={formData.responsavel}
-                    disabled
-                    readOnly
-                  />
-                </div>
-
-                <div className="min-w-0">
-                  <Label>Alergênico</Label>
-                  <Input
-                    className="w-full min-w-0"
-                    value={formData.alergenico}
+                    value={formData.armazenamento}
                     onChange={(e) =>
-                      handleInputChange("alergenico", e.target.value)
+                      handleInputChange("armazenamento", e.target.value)
                     }
-                    placeholder="Ex: Contém leite"
+                    placeholder="Ex: Refrigerado 0-4°C"
                   />
                 </div>
-              </div>
 
-              <div className="min-w-0">
-                <Label>Condições de Armazenamento</Label>
-                <Input
-                  className="w-full min-w-0"
-                  value={formData.armazenamento}
-                  onChange={(e) =>
-                    handleInputChange("armazenamento", e.target.value)
-                  }
-                  placeholder="Ex: Refrigerado 0-4°C"
-                />
-              </div>
-
-              <div className="min-w-0">
-                <Label>Ingredientes</Label>
-                <Textarea
-                  className="w-full min-w-0"
-                  value={formData.ingredientes}
-                  onChange={(e) =>
-                    handleInputChange("ingredientes", e.target.value)
-                  }
-                  placeholder="Lista de ingredientes..."
-                  rows={3}
-                />
-              </div>
-
-              {/* Localização */}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="min-w-0">
-                  <Label>Local de Envio</Label>
-                  <Input
+                  <Label>Ingredientes</Label>
+                  <Textarea
                     className="w-full min-w-0"
-                    value={formData.localEnvio}
+                    value={formData.ingredientes}
                     onChange={(e) =>
-                      handleInputChange("localEnvio", e.target.value)
+                      handleInputChange("ingredientes", e.target.value)
                     }
-                    placeholder="Para onde será enviado"
+                    placeholder="Lista de ingredientes..."
+                    rows={3}
                   />
                 </div>
-                <div className="min-w-0">
-                  <Label>Local de Armazenamento</Label>
-                  <Input
-                    className="w-full min-w-0"
-                    value={formData.localArmazenado}
-                    onChange={(e) =>
-                      handleInputChange("localArmazenado", e.target.value)
-                    }
-                    placeholder="Onde está armazenado"
-                  />
+
+                {/* Localização */}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="min-w-0">
+                    <Label>Local de Envio</Label>
+                    <Input
+                      className="w-full min-w-0"
+                      value={formData.localEnvio}
+                      onChange={(e) =>
+                        handleInputChange("localEnvio", e.target.value)
+                      }
+                      placeholder="Para onde será enviado"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <Label>Local de Armazenamento</Label>
+                    <Input
+                      className="w-full min-w-0"
+                      value={formData.localArmazenado}
+                      onChange={(e) =>
+                        handleInputChange("localArmazenado", e.target.value)
+                      }
+                      placeholder="Onde está armazenado"
+                    />
+                  </div>
                 </div>
+
+                {/* Ações */}
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 sm:gap-0">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowNovaEtiqueta(false)}
+                  >
+                    Cancelar
+                  </Button>
+
+                  <Button
+                    onClick={handleGerarEImprimir}
+                    disabled={
+                      !tipoSelecionado ||
+                      !tamanhoSelecionado ||
+                      !String(formData.insumo || "").trim() ||
+                      !String(formData.qtd || "").trim() ||
+                      !String(formData.umd || "").trim() ||
+                      !String(formData.dataManip || "").trim() ||
+                      !String(formData.dataVenc || "").trim()
+                    }
+                  >
+                    <span className="mr-2">🖨️</span>
+                    Gerar e Imprimir Etiqueta(s)
+                  </Button>
+                </div>
+
+                <div className="text-xs text-muted-foreground" />
               </div>
-
-              {/* Ações */}
-              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 sm:gap-0">
-                <Button variant="outline" onClick={() => setShowNovaEtiqueta(false)}>
-                  Cancelar
-                </Button>
-
-                <Button
-                  onClick={handleGerarEImprimir}
-                  disabled={
-                    !tipoSelecionado ||
-                    !tamanhoSelecionado ||
-                    !String(formData.insumo || "").trim() ||
-                    !String(formData.qtd || "").trim() ||
-                    !String(formData.umd || "").trim() ||
-                    !String(formData.dataManip || "").trim() ||
-                    !String(formData.dataVenc || "").trim()
-                  }
-                >
-                  <span className="mr-2">🖨️</span>
-                  Gerar e Imprimir Etiqueta(s)
-                </Button>
-              </div>
-
-              <div className="text-xs text-muted-foreground" />
             </div>
           </div>
         </div>

@@ -28,11 +28,7 @@ import {
 // ✅ Combo (shadcn)
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -173,7 +169,9 @@ async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
   return Array.isArray(data) ? data : [];
 }
 
+// ✅ AJUSTE: incluir productId (product_id) no payload para o POST
 async function apiCreateInventoryLabel(payload: {
+  productId: string; // ✅ obrigatório para o backend (product_id)
   productName: string;
   qty: number;
   unitLabel: string;
@@ -181,7 +179,8 @@ async function apiCreateInventoryLabel(payload: {
   extraPayload?: unknown;
 }): Promise<void> {
   const bodyToSend: any = {
-    product_name: payload.productName,
+    product_id: payload.productId, // ✅ enviado para o backend
+    product_name: payload.productName, // mantém compatibilidade/legado
     qty: payload.qty,
     unit_label: payload.unitLabel,
     label_code: payload.labelCode,
@@ -457,6 +456,13 @@ export default function EtiquetasPage() {
       alert("Preencha o campo Insumo/Produto.");
       return;
     }
+
+    // ✅ AJUSTE: exige seleção real no combo (para enviar product_id no POST)
+    if (!selectedProductId) {
+      alert("Selecione um produto na lista (não digite manualmente).");
+      return;
+    }
+
     if (!String(formData.umd || "").trim()) {
       alert("Preencha a Unidade para imprimir (ex: kg, g, un).");
       return;
@@ -512,6 +518,7 @@ export default function EtiquetasPage() {
       await Promise.all(
         novas.map((et) =>
           apiCreateInventoryLabel({
+            productId: selectedProductId, // ✅ envia product_id para o backend
             productName: et.insumo,
             qty: et.qtd,
             unitLabel: et.umd,
@@ -538,6 +545,7 @@ export default function EtiquetasPage() {
     tamanhoSelecionado,
     tipoSelecionado,
     validarQuantidades,
+    selectedProductId, // ✅ dependência necessária
   ]);
 
   const tiposVisiveis = useMemo(
@@ -635,7 +643,9 @@ export default function EtiquetasPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{etiquetasHoje}</div>
-            <p className="text-xs text-muted-foreground">Etiquetas geradas hoje</p>
+            <p className="text-xs text-muted-foreground">
+              Etiquetas geradas hoje
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -778,10 +788,20 @@ export default function EtiquetasPage() {
                           >
                             🖨️
                           </Button>
-                          <Button size="sm" variant="outline" title="Visualizar" disabled>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Visualizar"
+                            disabled
+                          >
                             👁️
                           </Button>
-                          <Button size="sm" variant="outline" title="Copiar" disabled>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Copiar"
+                            disabled
+                          >
                             📋
                           </Button>
                         </div>
@@ -820,7 +840,9 @@ export default function EtiquetasPage() {
                   <Label>Tipo de Etiqueta</Label>
                   <select
                     value={tipoSelecionado}
-                    onChange={(e) => setTipoSelecionado(e.target.value as TipoSel)}
+                    onChange={(e) =>
+                      setTipoSelecionado(e.target.value as TipoSel)
+                    }
                     className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
                     <option value="MANIPULACAO">MANIPULAÇÃO</option>
@@ -918,7 +940,9 @@ export default function EtiquetasPage() {
                             {productsLoading ? (
                               <>Carregando produtos...</>
                             ) : productsError ? (
-                              <span className="text-red-600">{productsError}</span>
+                              <span className="text-red-600">
+                                {productsError}
+                              </span>
                             ) : (
                               <>
                                 Produtos carregados:{" "}
@@ -946,7 +970,10 @@ export default function EtiquetasPage() {
                                     setSelectedProductId(p.id);
                                     handleInputChange("insumo", p.name);
 
-                                    if (p.unit && !String(formData.umd || "").trim()) {
+                                    if (
+                                      p.unit &&
+                                      !String(formData.umd || "").trim()
+                                    ) {
                                       handleInputChange("umd", p.unit);
                                     }
 
@@ -1025,7 +1052,9 @@ export default function EtiquetasPage() {
                     <Input
                       className="w-full min-w-0"
                       value={formData.umd}
-                      onChange={(e) => handleInputChange("umd", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("umd", e.target.value)
+                      }
                       placeholder="Ex: kg, g, un"
                       autoComplete="off"
                     />
@@ -1127,7 +1156,9 @@ export default function EtiquetasPage() {
                     className="w-full min-w-0"
                     value={formData.dataManip}
                     type="date"
-                    onChange={(e) => handleInputChange("dataManip", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("dataManip", e.target.value)
+                    }
                   />
                 </div>
 
@@ -1137,7 +1168,9 @@ export default function EtiquetasPage() {
                     className="w-full min-w-0"
                     type="date"
                     value={formData.dataVenc}
-                    onChange={(e) => handleInputChange("dataVenc", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("dataVenc", e.target.value)
+                    }
                   />
                 </div>
               </div>
@@ -1269,7 +1302,9 @@ export default function EtiquetasPage() {
                   <Input
                     className="w-full min-w-0"
                     value={formData.localEnvio}
-                    onChange={(e) => handleInputChange("localEnvio", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("localEnvio", e.target.value)
+                    }
                     placeholder="Para onde será enviado"
                   />
                 </div>
@@ -1288,10 +1323,7 @@ export default function EtiquetasPage() {
 
               {/* Ações */}
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 sm:gap-0">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowNovaEtiqueta(false)}
-                >
+                <Button variant="outline" onClick={() => setShowNovaEtiqueta(false)}>
                   Cancelar
                 </Button>
 

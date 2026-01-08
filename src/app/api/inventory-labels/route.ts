@@ -180,10 +180,9 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    // ✅ NOVO: product_id é obrigatório (trigger de inventory_movements exige NOT NULL)
-    const product_id = String(
-      body?.productId ?? body?.product_id ?? ""
-    ).trim();
+    // ✅ product_id obrigatório
+    const product_id =
+      normalizeId(body?.productId ?? body?.product_id ?? "") ?? "";
 
     // Compat: aceita camelCase e snake_case
     const productName = String(
@@ -243,12 +242,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ INSERT agora inclui product_id (isso evita o erro do trigger em inventory_movements)
     const { data, error } = await supabase
       .from("inventory_labels")
       .insert({
         establishment_id: establishmentId,
-        product_id, // ✅ ESSENCIAL
+        product_id,
         qty,
         unit_label,
         label_code,
@@ -265,13 +263,25 @@ export async function POST(req: Request) {
           code: (error as any)?.code ?? null,
           details: (error as any)?.details ?? null,
           hint: (error as any)?.hint ?? null,
-          debug_payload: { product_id, productName, qty, unit_label, label_code },
+          debug,
+          debug_payload: {
+            establishment_id: establishmentId,
+            product_id,
+            productName,
+            qty,
+            unit_label,
+            label_code,
+            received_keys: Object.keys(body ?? {}),
+          },
         },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, id: data?.id ?? null }, { status: 200 });
+    return NextResponse.json(
+      { ok: true, id: data?.id ?? null },
+      { status: 200 }
+    );
   } catch (err: any) {
     console.error("POST /api/inventory-labels erro inesperado:", err);
     return NextResponse.json(

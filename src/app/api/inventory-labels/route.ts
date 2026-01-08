@@ -180,9 +180,14 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    // ✅ Compat: aceita camelCase e snake_case (sem quebrar nada)
+    // ✅ NOVO: product_id é obrigatório (trigger de inventory_movements exige NOT NULL)
+    const product_id = String(
+      body?.productId ?? body?.product_id ?? ""
+    ).trim();
+
+    // Compat: aceita camelCase e snake_case
     const productName = String(
-      body?.productName ?? body?.product_name ?? body?.product_name ?? ""
+      body?.productName ?? body?.product_name ?? ""
     ).trim();
 
     const qty = Number(body?.qty);
@@ -195,7 +200,6 @@ export async function POST(req: Request) {
       body?.labelCode ?? body?.label_code ?? body?.code ?? ""
     ).trim();
 
-    // ✅ notes: preferimos extraPayload (camelCase) e, se não vier, aceitamos notes direto
     const notes =
       body?.extraPayload !== undefined && body?.extraPayload !== null
         ? JSON.stringify(body.extraPayload)
@@ -203,13 +207,14 @@ export async function POST(req: Request) {
         ? String(body.notes)
         : null;
 
-    // ✅ validação mínima (mantendo seu comportamento)
-    if (!unit_label || !label_code || !Number.isFinite(qty)) {
+    // ✅ validação mínima
+    if (!product_id) {
       return NextResponse.json(
         {
-          error: "Payload inválido para criar etiqueta.",
-          // ✅ debug útil para você enxergar o que chegou
+          error:
+            "Payload inválido para criar etiqueta: productId/product_id é obrigatório.",
           debug_payload: {
+            product_id,
             productName,
             qty,
             unit_label,
@@ -221,10 +226,29 @@ export async function POST(req: Request) {
       );
     }
 
+    if (!unit_label || !label_code || !Number.isFinite(qty)) {
+      return NextResponse.json(
+        {
+          error: "Payload inválido para criar etiqueta.",
+          debug_payload: {
+            product_id,
+            productName,
+            qty,
+            unit_label,
+            label_code,
+            received_keys: Object.keys(body ?? {}),
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    // ✅ INSERT agora inclui product_id (isso evita o erro do trigger em inventory_movements)
     const { data, error } = await supabase
       .from("inventory_labels")
       .insert({
         establishment_id: establishmentId,
+        product_id, // ✅ ESSENCIAL
         qty,
         unit_label,
         label_code,
@@ -241,7 +265,7 @@ export async function POST(req: Request) {
           code: (error as any)?.code ?? null,
           details: (error as any)?.details ?? null,
           hint: (error as any)?.hint ?? null,
-          debug_payload: { productName, qty, unit_label, label_code },
+          debug_payload: { product_id, productName, qty, unit_label, label_code },
         },
         { status: 500 }
       );

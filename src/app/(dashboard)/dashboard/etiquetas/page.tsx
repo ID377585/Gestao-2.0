@@ -183,7 +183,10 @@ async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
   return Array.isArray(data) ? data : [];
 }
 
-// ✅ FIX: alinhar payload com o backend (route.ts) + log cirúrgico
+/**
+ * ✅ MELHORIA: envia camelCase + snake_case (compat total)
+ * ✅ MELHORIA: log cirúrgico com payload final
+ */
 async function apiCreateInventoryLabel(payload: {
   productId: string;
   productName: string;
@@ -192,15 +195,21 @@ async function apiCreateInventoryLabel(payload: {
   labelCode: string;
   extraPayload?: unknown;
 }): Promise<void> {
-  // ✅ O route.ts atual lê: productName, unitLabel, labelCode, extraPayload, qty
-  // Vamos enviar exatamente isso (sem snake_case) para não cair em "Payload inválido".
-  const bodyToSend = {
-    productId: payload.productId, // (o backend pode ignorar hoje, mas mantemos para futura evolução)
+  const bodyToSend: any = {
+    // camelCase (principal)
+    productId: payload.productId,
     productName: payload.productName,
     qty: payload.qty,
     unitLabel: payload.unitLabel,
     labelCode: payload.labelCode,
     extraPayload: payload.extraPayload ?? null,
+
+    // snake_case (compat)
+    product_id: payload.productId,
+    product_name: payload.productName,
+    unit_label: payload.unitLabel,
+    label_code: payload.labelCode,
+    notes: payload.extraPayload != null ? JSON.stringify(payload.extraPayload) : null,
   };
 
   // ✅ console.log estratégico (vai aparecer no DevTools)
@@ -550,6 +559,19 @@ export default function EtiquetasPage() {
       };
     });
 
+    // ✅ log adicional para correlacionar o erro do banco com o produto selecionado
+    console.log("[Etiquetas] selectedProductId:", selectedProductId);
+    console.log("[Etiquetas] formData:", {
+      insumo: formData.insumo,
+      umd: formData.umd,
+      qtd: formData.qtd,
+      dataManip: formData.dataManip,
+      dataVenc: formData.dataVenc,
+      tipoSelecionado,
+      tamanhoSelecionado,
+      porcoes: linhasPorcao,
+    });
+
     try {
       await Promise.all(
         novas.map((et) =>
@@ -798,7 +820,9 @@ export default function EtiquetasPage() {
 
                       <TableCell>{etiqueta.responsavel}</TableCell>
 
-                      <TableCell>{formatDateTime(etiqueta.createdAt)}</TableCell>
+                      <TableCell>
+                        {formatDateTime(etiqueta.createdAt)}
+                      </TableCell>
 
                       <TableCell>{formatDate(etiqueta.dataVenc)}</TableCell>
 
@@ -990,14 +1014,11 @@ export default function EtiquetasPage() {
                                       const hojeISO = getTodayISO();
 
                                       setSelectedProductId(p.id);
-
                                       handleInputChange("insumo", p.name);
-
                                       handleInputChange(
                                         "umd",
                                         p.unit ? String(p.unit) : ""
                                       );
-
                                       handleInputChange("dataManip", hojeISO);
 
                                       const shelf = Number(

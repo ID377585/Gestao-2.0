@@ -268,6 +268,27 @@ export default function EtiquetasPage() {
     return products.find((p) => p.id === selectedProductId) ?? null;
   }, [products, selectedProductId]);
 
+  // ✅ novo useEffect: atualiza automaticamente insumo, unidade, data de manipulação e data de vencimento ao selecionar o produto
+  useEffect(() => {
+    if (selectedProduct) {
+      const hojeISO = getTodayISO();
+      const shelf = Number(selectedProduct.shelf_life_days ?? 0);
+
+      // Define a data de vencimento com base no shelf-life (dias)
+      const dataVencISO =
+        !isNaN(shelf) && shelf > 0 ? addDaysISO(hojeISO, shelf) : hojeISO;
+
+      // Atualiza o estado do formulário de uma vez para evitar múltiplos renders
+      setFormData((prev) => ({
+        ...prev,
+        insumo: selectedProduct.name ?? "",
+        umd: selectedProduct.unit ? String(selectedProduct.unit) : "",
+        dataManip: hojeISO,
+        dataVenc: dataVencISO,
+      }));
+    }
+  }, [selectedProduct]);
+
   const displayInsumoLabel = useMemo(() => {
     const manual = String(formData.insumo || "").trim();
     if (manual) return manual;
@@ -986,7 +1007,9 @@ export default function EtiquetasPage() {
                                       // ✅ Data vencimento = hoje + shelf life
                                       const shelf = Number(p.shelf_life_days ?? 0);
                                       const vencISO =
-                                        shelf > 0 ? addDaysISO(hojeISO, shelf) : hojeISO;
+                                        shelf > 0
+                                          ? addDaysISO(hojeISO, shelf)
+                                          : hojeISO;
                                       handleInputChange("dataVenc", vencISO);
 
                                       setProductOpen(false);

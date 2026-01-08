@@ -28,7 +28,11 @@ import {
 // ✅ Combo (shadcn)
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -832,7 +836,12 @@ export default function EtiquetasPage() {
                           >
                             👁️
                           </Button>
-                          <Button size="sm" variant="outline" title="Copiar" disabled>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Copiar"
+                            disabled
+                          >
                             📋
                           </Button>
                         </div>
@@ -919,8 +928,10 @@ export default function EtiquetasPage() {
                           }
                         }}
                       >
-                        <PopoverTrigger>
-                          <div
+                        {/* ✅ AJUSTE: Trigger consistente (asChild + button type="button") */}
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
                             role="combobox"
                             aria-expanded={productOpen}
                             aria-controls="product-combobox-list"
@@ -932,7 +943,7 @@ export default function EtiquetasPage() {
                           >
                             {displayInsumoLabel}
                             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </div>
+                          </button>
                         </PopoverTrigger>
 
                         {/* ✅ MELHORIAS VISUAIS DO POPOVER (FUNDO/LEITURA/LARGURA) */}
@@ -1005,7 +1016,9 @@ export default function EtiquetasPage() {
                                       handleInputChange("dataManip", hojeISO);
 
                                       // ✅ Data vencimento = hoje + shelf life
-                                      const shelf = Number(p.shelf_life_days ?? 0);
+                                      const shelf = Number(
+                                        p.shelf_life_days ?? 0
+                                      );
                                       const vencISO =
                                         shelf > 0
                                           ? addDaysISO(hojeISO, shelf)
@@ -1142,7 +1155,10 @@ export default function EtiquetasPage() {
                                 type="number"
                                 value={linha.qtd}
                                 onChange={(e) =>
-                                  handleChangeLinhaQtd(linha.id, e.target.value)
+                                  handleChangeLinhaQtd(
+                                    linha.id,
+                                    e.target.value
+                                  )
                                 }
                                 placeholder="0"
                                 className={

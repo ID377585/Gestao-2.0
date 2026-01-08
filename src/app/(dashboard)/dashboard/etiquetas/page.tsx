@@ -183,26 +183,28 @@ async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
   return Array.isArray(data) ? data : [];
 }
 
-// ✅ AJUSTE: incluir productId (product_id) no payload para o POST
+// ✅ FIX: alinhar payload com o backend (route.ts) + log cirúrgico
 async function apiCreateInventoryLabel(payload: {
-  productId: string; // ✅ obrigatório para o backend (product_id)
+  productId: string;
   productName: string;
   qty: number;
   unitLabel: string;
   labelCode: string;
   extraPayload?: unknown;
 }): Promise<void> {
-  const bodyToSend: any = {
-    product_id: payload.productId, // ✅ enviado para o backend
-    product_name: payload.productName, // mantém compatibilidade/legado
+  // ✅ O route.ts atual lê: productName, unitLabel, labelCode, extraPayload, qty
+  // Vamos enviar exatamente isso (sem snake_case) para não cair em "Payload inválido".
+  const bodyToSend = {
+    productId: payload.productId, // (o backend pode ignorar hoje, mas mantemos para futura evolução)
+    productName: payload.productName,
     qty: payload.qty,
-    unit_label: payload.unitLabel,
-    label_code: payload.labelCode,
-    notes:
-      payload.extraPayload !== undefined
-        ? JSON.stringify(payload.extraPayload)
-        : null,
+    unitLabel: payload.unitLabel,
+    labelCode: payload.labelCode,
+    extraPayload: payload.extraPayload ?? null,
   };
+
+  // ✅ console.log estratégico (vai aparecer no DevTools)
+  console.log("[POST /api/inventory-labels] payload:", bodyToSend);
 
   const res = await fetch("/api/inventory-labels", {
     method: "POST",
@@ -239,7 +241,7 @@ export default function EtiquetasPage() {
   // ✅ produtos pro combo
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
-  const [productsError, setProductsError] = useState<string>(""); // ✅ DEBUG (mostra erro real)
+  const [productsError, setProductsError] = useState<string>("");
   const [productOpen, setProductOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(
     null
@@ -272,17 +274,14 @@ export default function EtiquetasPage() {
     return products.find((p) => p.id === selectedProductId) ?? null;
   }, [products, selectedProductId]);
 
-  // ✅ novo useEffect: atualiza automaticamente insumo, unidade, data de manipulação e data de vencimento ao selecionar o produto
+  // ✅ atualiza automaticamente insumo, unidade, dataManip e dataVenc ao selecionar o produto
   useEffect(() => {
     if (selectedProduct) {
       const hojeISO = getTodayISO();
       const shelf = Number(selectedProduct.shelf_life_days ?? 0);
-
-      // Define a data de vencimento com base no shelf-life (dias)
       const dataVencISO =
         !isNaN(shelf) && shelf > 0 ? addDaysISO(hojeISO, shelf) : hojeISO;
 
-      // Atualiza o estado do formulário de uma vez para evitar múltiplos renders
       setFormData((prev) => ({
         ...prev,
         insumo: selectedProduct.name ?? "",
@@ -300,7 +299,7 @@ export default function EtiquetasPage() {
     return "Selecionar produto...";
   }, [formData.insumo, productsLoading]);
 
-  // ✅ carregar produtos (com debug real de erro)
+  // ✅ carregar produtos
   useEffect(() => {
     let mounted = true;
 
@@ -495,7 +494,6 @@ export default function EtiquetasPage() {
       return;
     }
 
-    // ✅ AJUSTE: exige seleção real no combo (para enviar product_id no POST)
     if (!selectedProductId) {
       alert("Selecione um produto na lista (não digite manualmente).");
       return;
@@ -556,7 +554,7 @@ export default function EtiquetasPage() {
       await Promise.all(
         novas.map((et) =>
           apiCreateInventoryLabel({
-            productId: selectedProductId, // ✅ envia product_id para o backend
+            productId: selectedProductId,
             productName: et.insumo,
             qty: et.qtd,
             unitLabel: et.umd,
@@ -583,7 +581,7 @@ export default function EtiquetasPage() {
     tamanhoSelecionado,
     tipoSelecionado,
     validarQuantidades,
-    selectedProductId, // ✅ dependência necessária
+    selectedProductId,
   ]);
 
   const tiposVisiveis = useMemo(
@@ -858,11 +856,6 @@ export default function EtiquetasPage() {
       {/* Modal */}
       {showNovaEtiqueta && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
-          {/*
-           * ✅ AJUSTE (DESKTOP): permitir scroll interno do formulário SEM cortar popovers.
-           * - Container do modal fica overflow-visible (para o Popover do Radix não ser clipado).
-           * - Conteúdo do formulário rola dentro de uma área scrollável (max-h + overflow-y-auto).
-           */}
           <div className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-4xl max-h-[90dvh] overflow-visible flex flex-col">
             {/* Header fixo do modal */}
             <div className="flex justify-between items-center mb-6 gap-3 shrink-0">
@@ -914,21 +907,18 @@ export default function EtiquetasPage() {
                     <div className="min-w-0 md:col-span-6">
                       <Label>Insumo/Produto *</Label>
 
-                      {/* ✅ AJUSTE: modal={false} no Popover */}
                       <Popover
                         modal={false}
                         open={productOpen}
                         onOpenChange={(open) => {
                           setProductOpen(open);
                           if (open) {
-                            // force Radix to recalculate popover position when opening
                             requestAnimationFrame(() => {
                               window.dispatchEvent(new Event("resize"));
                             });
                           }
                         }}
                       >
-                        {/* ✅ AJUSTE: Trigger consistente (asChild + button type="button") */}
                         <PopoverTrigger asChild>
                           <button
                             type="button"
@@ -946,7 +936,6 @@ export default function EtiquetasPage() {
                           </button>
                         </PopoverTrigger>
 
-                        {/* ✅ MELHORIAS VISUAIS DO POPOVER (FUNDO/LEITURA/LARGURA) */}
                         <PopoverContent
                           className={cn(
                             "p-0 z-[99999] border shadow-md",
@@ -967,7 +956,6 @@ export default function EtiquetasPage() {
                               className="bg-white text-gray-900"
                             />
 
-                            {/* ✅ DEBUG VISUAL */}
                             <div className="px-3 py-2 text-xs text-muted-foreground border-b bg-white">
                               {productsLoading ? (
                                 <>Carregando produtos...</>
@@ -1003,19 +991,15 @@ export default function EtiquetasPage() {
 
                                       setSelectedProductId(p.id);
 
-                                      // ✅ sempre usa o produto selecionado
                                       handleInputChange("insumo", p.name);
 
-                                      // ✅ Unidade do cadastro (sempre)
                                       handleInputChange(
                                         "umd",
                                         p.unit ? String(p.unit) : ""
                                       );
 
-                                      // ✅ Data manipulação = hoje (travada no input)
                                       handleInputChange("dataManip", hojeISO);
 
-                                      // ✅ Data vencimento = hoje + shelf life
                                       const shelf = Number(
                                         p.shelf_life_days ?? 0
                                       );
@@ -1174,7 +1158,6 @@ export default function EtiquetasPage() {
                               )}
                             </div>
 
-                            {/* ✅ AJUSTE: dar menos coluna pra Unidade e mais pro botão Remover (evita estourar pra fora) */}
                             <div className="min-w-0 md:col-span-1">
                               <Label>Unidade</Label>
                               <Input

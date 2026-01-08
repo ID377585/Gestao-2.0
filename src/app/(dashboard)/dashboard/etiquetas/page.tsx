@@ -864,30 +864,29 @@ export default function EtiquetasPage() {
                         }
                       }}
                     >
+                      {/*
+                       * Use PopoverTrigger without asChild. The trigger expects a single child element
+                       * that forwards its ref correctly. A plain div is used here to avoid ref/forwardRef issues.
+                       */}
+                      <PopoverTrigger>
                         {/*
-                         * Use PopoverTrigger without asChild. The trigger expects a single child element
-                         * that forwards its ref correctly. A plain div is used here to avoid the React 18
-                         * forwardRef issue that causes the popover content to translate off-screen.
+                         * Trigger "visual" element: role combobox + ARIA attributes.
+                         * ✅ FIX ESLint a11y: add aria-controls and keep aria-expanded.
                          */}
-                        <PopoverTrigger>
-                          {/*
-                           * Use a plain div as the trigger element instead of the Button.
-                           * This avoids a React 18 bug with asChild and forwardRef on functional components
-                           * where the popover content can be translated off-screen【901494297578327†L235-L323】.
-                           * The div is styled to look like an outline button and uses role/aria attributes for accessibility.
-                           */}
-                          <div
-                            role="combobox"
-                            aria-expanded={productOpen}
-                            className={cn(
-                              "w-full inline-flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
-                              !selectedProductId && "text-muted-foreground"
-                            )}
-                          >
-                            {displayInsumoLabel}
-                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </div>
-                        </PopoverTrigger>
+                        <div
+                          role="combobox"
+                          aria-expanded={productOpen}
+                          aria-controls="product-combobox-list" // ✅ melhoria a11y
+                          aria-haspopup="listbox" // ✅ melhoria a11y
+                          className={cn(
+                            "w-full inline-flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
+                            !selectedProductId && "text-muted-foreground"
+                          )}
+                        >
+                          {displayInsumoLabel}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </div>
+                      </PopoverTrigger>
 
                       <PopoverContent
                         className="w-[--radix-popover-trigger-width] p-0 z-[99999]"
@@ -916,7 +915,11 @@ export default function EtiquetasPage() {
                             )}
                           </div>
 
-                          <CommandList className="max-h-[320px] overflow-auto">
+                          {/* ✅ FIX a11y: id para casar com aria-controls */}
+                          <CommandList
+                            id="product-combobox-list"
+                            className="max-h-[320px] overflow-auto"
+                          >
                             <CommandEmpty>
                               {productsLoading
                                 ? "Carregando..."
@@ -1265,7 +1268,10 @@ export default function EtiquetasPage() {
 
               {/* Ações */}
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 sm:gap-0">
-                <Button variant="outline" onClick={() => setShowNovaEtiqueta(false)}>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowNovaEtiqueta(false)}
+                >
                   Cancelar
                 </Button>
 

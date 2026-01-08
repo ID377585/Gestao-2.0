@@ -59,6 +59,23 @@ export function SidebarMobile() {
     setOpen(false);
   }, [pathname]);
 
+  // ✅ Melhoria 1: trava scroll do body quando menu estiver aberto (iOS/Android)
+  useEffect(() => {
+    if (!open) return;
+
+    const prevOverflow = document.body.style.overflow;
+    const prevPaddingRight = document.body.style.paddingRight;
+
+    // evita "pulo" por scrollbar no desktop, mas aqui é mobile — ainda assim é seguro
+    document.body.style.overflow = "hidden";
+    document.body.style.paddingRight = prevPaddingRight;
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPaddingRight;
+    };
+  }, [open]);
+
   // Fecha no ESC
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -93,8 +110,8 @@ export function SidebarMobile() {
             onClick={() => setOpen(false)}
           />
 
-          {/* Painel */}
-          <div className="absolute left-0 top-0 h-full w-72 bg-white shadow-xl flex flex-col">
+          {/* ✅ Melhoria 2: painel como FIXED pra não influenciar layout/overflow */}
+          <div className="fixed left-0 top-0 h-full w-72 bg-white shadow-xl flex flex-col overflow-hidden">
             {/* Header */}
             <div className="flex h-16 items-center justify-between border-b px-4 shrink-0">
               <div className="font-semibold">Gestão 2.0</div>

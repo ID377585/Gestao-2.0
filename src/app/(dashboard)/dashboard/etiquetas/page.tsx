@@ -876,8 +876,8 @@ export default function EtiquetasPage() {
                         <div
                           role="combobox"
                           aria-expanded={productOpen}
-                          aria-controls="product-combobox-list" // ✅ melhoria a11y
-                          aria-haspopup="listbox" // ✅ melhoria a11y
+                          aria-controls="product-combobox-list"
+                          aria-haspopup="listbox"
                           className={cn(
                             "w-full inline-flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
                             !selectedProductId && "text-muted-foreground"
@@ -888,8 +888,17 @@ export default function EtiquetasPage() {
                         </div>
                       </PopoverTrigger>
 
+                      {/* ✅ MELHORIAS VISUAIS DO POPOVER (FUNDO/LEITURA/LARGURA) */}
                       <PopoverContent
-                        className="w-[--radix-popover-trigger-width] p-0 z-[99999]"
+                        className={cn(
+                          // base
+                          "p-0 z-[99999] border shadow-md",
+                          // ✅ fundo branco + texto escuro (legível)
+                          "bg-white text-gray-900",
+                          // ✅ largura: mais largo que o trigger, mas responsivo
+                          // mantém mínimo do trigger, abre até 90% da tela
+                          "min-w-[520px] w-auto max-w-[90vw]"
+                        )}
                         align="start"
                         side="bottom"
                         sideOffset={6}
@@ -898,11 +907,14 @@ export default function EtiquetasPage() {
                         updatePositionStrategy="always"
                         sticky="always"
                       >
-                        <Command>
-                          <CommandInput placeholder="Buscar produto..." />
+                        <Command className="bg-white text-gray-900">
+                          <CommandInput
+                            placeholder="Buscar produto..."
+                            className="bg-white text-gray-900"
+                          />
 
                           {/* ✅ DEBUG VISUAL */}
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b">
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-b bg-white">
                             {productsLoading ? (
                               <>Carregando produtos...</>
                             ) : productsError ? (
@@ -915,18 +927,17 @@ export default function EtiquetasPage() {
                             )}
                           </div>
 
-                          {/* ✅ FIX a11y: id para casar com aria-controls */}
                           <CommandList
                             id="product-combobox-list"
-                            className="max-h-[320px] overflow-auto"
+                            className="max-h-[360px] overflow-auto bg-white"
                           >
-                            <CommandEmpty>
+                            <CommandEmpty className="text-gray-600">
                               {productsLoading
                                 ? "Carregando..."
                                 : "Nenhum produto encontrado."}
                             </CommandEmpty>
 
-                            <CommandGroup>
+                            <CommandGroup className="bg-white">
                               {products.map((p) => (
                                 <CommandItem
                                   key={p.id}
@@ -941,6 +952,11 @@ export default function EtiquetasPage() {
 
                                     setProductOpen(false);
                                   }}
+                                  className={cn(
+                                    // ✅ garante legibilidade e hover claro
+                                    "bg-white text-gray-900",
+                                    "data-[selected=true]:bg-gray-100 data-[selected=true]:text-gray-900"
+                                  )}
                                 >
                                   <Check
                                     className={cn(
@@ -950,10 +966,14 @@ export default function EtiquetasPage() {
                                         : "opacity-0"
                                     )}
                                   />
-                                  <div className="flex flex-col min-w-0">
-                                    <span className="truncate">{p.name}</span>
+
+                                  {/* ✅ não truncar: quebra linha e não corta no meio */}
+                                  <div className="flex flex-col">
+                                    <span className="whitespace-normal break-words leading-snug">
+                                      {p.name}
+                                    </span>
                                     {p.category ? (
-                                      <span className="text-xs text-muted-foreground truncate">
+                                      <span className="text-xs text-gray-500 whitespace-normal break-words">
                                         {p.category}
                                       </span>
                                     ) : null}

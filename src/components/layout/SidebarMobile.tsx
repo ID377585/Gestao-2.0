@@ -34,18 +34,21 @@ const menuItems = [
   // ✅ INVENTÁRIO
   { title: "Inventário", href: "/dashboard/inventario", icon: Boxes },
 
-  // ✅ NOVO ITEM: PRODUTOS
+  // ✅ PRODUTOS
   { title: "Produtos", href: "/dashboard/produtos", icon: Package },
 
   { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },
   { title: "Etiquetas", href: "/dashboard/etiquetas", icon: Tag },
   { title: "Histórico", href: "/dashboard/historico-pedidos", icon: History },
   { title: "Compras", href: "/dashboard/compras", icon: ShoppingCart },
+
+  // ✅ AGORA SOBEM PARA O MENU PRINCIPAL
+  { title: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },
+  { title: "Transferências", href: "/dashboard/transferencias", icon: ArrowLeftRight },
 ];
 
 const adminItems = [
-  { title: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },
-  { title: "Transferências", href: "/dashboard/transferencias", icon: ArrowLeftRight },
+  // ✅ permanecem aqui como você pediu
   { title: "Controladoria", href: "/dashboard/controladoria", icon: BadgeDollarSign },
   { title: "Usuários", href: "/dashboard/admin/usuarios", icon: Users },
 ];
@@ -66,7 +69,6 @@ export function SidebarMobile() {
     const prevOverflow = document.body.style.overflow;
     const prevPaddingRight = document.body.style.paddingRight;
 
-    // evita "pulo" por scrollbar no desktop, mas aqui é mobile — ainda assim é seguro
     document.body.style.overflow = "hidden";
     document.body.style.paddingRight = prevPaddingRight;
 

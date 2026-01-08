@@ -1,14 +1,36 @@
+// src/app/api/products/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-type ProductRow = {
+/**
+ * Payload unificado para atender:
+ * - Etiquetas: id, name, category, unit, shelf_life_days
+ * - Perdas:    id, name, sku, unit_label
+ *
+ * Mantemos também "unit" por compatibilidade.
+ */
+type ProductApiRow = {
   id: string;
   name: string;
-  unit: string | null;
   category: string | null;
+
+  // Compatibilidade e uso no front
+  unit: string | null;
+  unit_label: string | null;
+
+  sku: string;
+  shelf_life_days: number | null;
 };
+
+function pickFirstNonEmptyString(value: any): string | null {
+  if (typeof value === "string") {
+    const t = value.trim();
+    return t.length > 0 ? t : null;
+  }
+  return null;
+}
 
 function pickUnitFromAnyColumn(p: any): string | null {
   const candidates = [
@@ -34,83 +56,188 @@ function pickUnitFromAnyColumn(p: any): string | null {
   ];
 
   for (const c of candidates) {
-    if (typeof c === "string" && c.trim().length > 0) return c.trim();
+    const v = pickFirstNonEmptyString(c);
+    if (v) return v;
   }
   return null;
 }
 
-async function fetchProductsWithUnitFallbacks(supabase: any) {
-  const unitColumnCandidates = [
-    "unit",
-    "umd",
-    "uom",
-    "unit_label",
-    "unit_measure",
-    "unit_measurement",
-    "unidade",
-    "unidade_medida",
-    "unidade_de_medida",
-    "um",
-    "und",
+function pickSkuFromAnyColumn(p: any): string {
+  const candidates = [
+    p.sku,
+    p.SKU,
+    p.code,
+    p.codigo,
+    p.product_code,
+    p.internal_code,
+    p.ref,
+    p.reference,
+    p.barcode,
+    p.ean,
+    p.upc,
   ];
 
-  for (const col of unitColumnCandidates) {
+  for (const c of candidates) {
+    const v = pickFirstNonEmptyString(c);
+    if (v) return v;
+  }
+  return "";
+}
+
+function pickCategoryFromAnyColumn(p: any): string | null {
+  const candidates = [
+    p.category,
+    p.categoria,
+    p.setor,
+    p.sector,
+    p.department,
+    p.departamento,
+    p.group,
+    p.grupo,
+  ];
+
+  for (const c of candidates) {
+    const v = pickFirstNonEmptyString(c);
+    if (v) return v;
+  }
+  return null;
+}
+
+function pickShelfLifeDaysFromAnyColumn(p: any): number | null {
+  const candidates = [
+    p.shelf_life_days,
+    p.shelfLifeDays,
+    p.shelf_life,
+    p.shelf_life_day,
+    p.validade_dias,
+    p.validade_em_dias,
+    p.dias_validade,
+    p.expiration_days,
+    p.expiry_days,
+  ];
+
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return null;
+}
+
+/**
+ * Executa select com uma lista de colunas e, se alguma coluna não existir,
+ * remove a coluna faltante e tenta novamente.
+ *
+ * Isso evita manter uma lista enorme de tentativas e mantém robusto mesmo
+ * com schemas diferentes.
+ */
+async function safeSelectWithMissingColumnRetry(
+  supabase: any,
+  columns: string[],
+  opts: { limit?: number } = {}
+) {
+  let cols = [...columns];
+  const limit = typeof opts.limit === "number" ? opts.limit : 2000;
+
+  // no máximo algumas tentativas (caso faltem várias colunas)
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const selectClause = cols.join(", ");
+
     const { data, error } = await supabase
       .from("products")
-      .select(`id, name, category, ${col}`)
+      .select(selectClause)
       .order("name", { ascending: true })
-      .limit(1000);
+      .limit(limit);
 
-    if (error?.code === "42703") continue;
-    if (error) return { data: null, error };
+    if (!error) return { data, error: null };
 
-    const rows: ProductRow[] = (data ?? []).map((p: any) => ({
-      id: p.id,
-      name: p.name,
-      category: p.category ?? null,
-      unit: typeof p?.[col] === "string" ? String(p[col]).trim() : p?.[col] ?? null,
-    }));
+    // coluna inexistente
+    if (error?.code === "42703") {
+      const msg = String(error.message || "");
+      // tenta extrair o nome da coluna do erro: column "xxx" does not exist
+      const m = msg.match(/column\s+"([^"]+)"\s+does not exist/i);
+      const missing = m?.[1];
 
-    const anyUnit = rows.some((r) => typeof r.unit === "string" && r.unit.trim().length > 0);
-    if (!anyUnit) continue;
+      if (missing && cols.includes(missing)) {
+        cols = cols.filter((c) => c !== missing);
+        // se removemos algo essencial, ainda assim seguimos; no fim normalizamos
+        continue;
+      }
 
-    return { data: rows, error: null };
+      // se não conseguimos identificar, cai fora
+      return { data: null, error };
+    }
+
+    // qualquer outro erro (RLS, permissão, etc)
+    return { data: null, error };
   }
 
-  // fallback "*"
-  const { data: allData, error: allErr } = await supabase
-    .from("products")
-    .select("*")
-    .order("name", { ascending: true })
-    .limit(1000);
+  return {
+    data: null,
+    error: { code: "500", message: "Falha ao selecionar colunas de products." },
+  };
+}
 
-  if (!allErr) {
-    const rows: ProductRow[] = (allData ?? []).map((p: any) => ({
-      id: p.id,
-      name: p.name,
-      category: p.category ?? null,
-      unit: pickUnitFromAnyColumn(p),
-    }));
+async function fetchProductsUnified(supabase: any): Promise<{
+  data: ProductApiRow[] | null;
+  error: any;
+}> {
+  /**
+   * Tentamos buscar um conjunto “rico” de colunas.
+   * Se algumas não existirem, o safeSelect remove e reconsulta.
+   */
+  const desiredColumns = [
+    "id",
+    "name",
+    "category",
+    "sku",
+    "unit",
+    "unit_label",
+    "shelf_life_days",
+    // alguns schemas podem ter alternativa de unidade/shelf life; se não existir, o safeSelect remove
+    "umd",
+    "uom",
+    "unidade",
+    "validade_dias",
+    "dias_validade",
+  ];
 
-    const anyUnit = rows.some((r) => typeof r.unit === "string" && r.unit.trim().length > 0);
-    if (anyUnit) return { data: rows, error: null };
-  }
-
-  // fallback final: sem unidade
-  const { data, error } = await supabase
-    .from("products")
-    .select("id, name, category")
-    .order("name", { ascending: true })
-    .limit(1000);
+  const { data, error } = await safeSelectWithMissingColumnRetry(
+    supabase,
+    desiredColumns,
+    { limit: 2000 }
+  );
 
   if (error) return { data: null, error };
 
-  const rows: ProductRow[] = (data ?? []).map((p: any) => ({
-    id: p.id,
-    name: p.name,
-    category: p.category ?? null,
-    unit: null,
-  }));
+  const list = Array.isArray(data) ? data : [];
+
+  const rows: ProductApiRow[] = list
+    .map((p: any) => {
+      const id = String(p?.id ?? "").trim();
+      const name = String(p?.name ?? "").trim();
+
+      if (!id || !name) return null;
+
+      const category = pickCategoryFromAnyColumn(p);
+
+      const unitPicked = pickUnitFromAnyColumn(p);
+      const shelf = pickShelfLifeDaysFromAnyColumn(p);
+      const sku = pickSkuFromAnyColumn(p);
+
+      return {
+        id,
+        name,
+        category,
+
+        // compatibilidade
+        unit: unitPicked,
+        unit_label: unitPicked,
+
+        sku,
+        shelf_life_days: shelf,
+      } as ProductApiRow;
+    })
+    .filter(Boolean) as ProductApiRow[];
 
   return { data: rows, error: null };
 }
@@ -132,7 +259,7 @@ export async function GET() {
       return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
     }
 
-    const { data: rows, error } = await fetchProductsWithUnitFallbacks(supabase);
+    const { data: rows, error } = await fetchProductsUnified(supabase);
 
     if (error) {
       // ✅ melhora: RLS geralmente dá 42501 (insufficient_privilege) ou mensagem "permission denied"
@@ -146,10 +273,7 @@ export async function GET() {
         /permission denied/i.test(msg) ||
         /row level security/i.test(msg);
 
-      return NextResponse.json(
-        { error: msg },
-        { status: isRls ? 403 : 500 }
-      );
+      return NextResponse.json({ error: msg }, { status: isRls ? 403 : 500 });
     }
 
     return NextResponse.json(rows ?? [], { status: 200 });

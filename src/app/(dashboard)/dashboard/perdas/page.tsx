@@ -162,6 +162,9 @@ export default function PerdasPage() {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [loadingLosses, setLoadingLosses] = useState(false);
 
+  // ✅ NOVO: erro real do carregamento de produtos (não misturar com submitError)
+  const [productsError, setProductsError] = useState<string>("");
+
   /* =========================
      STATE: FORM
   ========================= */
@@ -203,9 +206,15 @@ export default function PerdasPage() {
   ========================= */
   async function loadProducts() {
     setLoadingProducts(true);
+    setProductsError("");
     try {
       const res = await fetch("/api/products", { cache: "no-store" });
-      if (!res.ok) throw new Error("Falha ao carregar produtos.");
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error ?? "Falha ao carregar produtos.");
+      }
+
       const data = await res.json();
 
       const list: ProductOption[] = Array.isArray(data)
@@ -219,14 +228,15 @@ export default function PerdasPage() {
           id: String(p.id),
           name: String(p.name ?? p.product_name ?? ""),
           sku: String(p.sku ?? ""),
-          unit_label: String(p.unit_label ?? ""),
+          unit_label: String(p.unit_label ?? p.unit ?? ""),
         }))
         .filter((p) => p.id && p.name);
 
       setProducts(normalized);
     } catch (err: any) {
       console.error(err);
-      setSubmitError(err?.message ?? "Erro ao carregar produtos.");
+      setProducts([]);
+      setProductsError(err?.message ?? "Erro ao carregar produtos.");
     } finally {
       setLoadingProducts(false);
     }
@@ -525,7 +535,7 @@ export default function PerdasPage() {
             <div className="space-y-2">
               <Label>Produto *</Label>
 
-              {/* ✅ AJUSTADO (IGUAL ETIQUETAS): Trigger div + resize ao abrir + PopoverContent mais estável */}
+              {/* ✅ AJUSTADO: Trigger consistente (asChild + button) + debug dentro */}
               <Popover
                 modal={false}
                 open={productOpen}
@@ -538,8 +548,9 @@ export default function PerdasPage() {
                   }
                 }}
               >
-                <PopoverTrigger>
-                  <div
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
                     role="combobox"
                     aria-expanded={productOpen}
                     aria-controls="loss-product-combobox"
@@ -552,7 +563,7 @@ export default function PerdasPage() {
                   >
                     {selectedProduct ? selectedProduct.name : "Selecione..."}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </div>
+                  </button>
                 </PopoverTrigger>
 
                 <PopoverContent
@@ -575,12 +586,27 @@ export default function PerdasPage() {
                       className="bg-white text-gray-900"
                     />
 
+                    {/* ✅ DEBUG VISUAL (igual Etiquetas) */}
+                    <div className="px-3 py-2 text-xs text-muted-foreground border-b bg-white">
+                      {loadingProducts ? (
+                        <>Carregando produtos...</>
+                      ) : productsError ? (
+                        <span className="text-red-600">{productsError}</span>
+                      ) : (
+                        <>
+                          Produtos carregados: <strong>{products.length}</strong>
+                        </>
+                      )}
+                    </div>
+
                     <CommandList
                       id="loss-product-combobox"
                       className="max-h-[360px] overflow-auto bg-white"
                     >
                       <CommandEmpty className="text-gray-600">
-                        Nenhum produto encontrado.
+                        {loadingProducts
+                          ? "Carregando..."
+                          : "Nenhum produto encontrado."}
                       </CommandEmpty>
 
                       <CommandGroup className="bg-white">
@@ -745,7 +771,9 @@ export default function PerdasPage() {
               {labelPreview ? (
                 <Card className="mt-2 border-dashed">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Etiqueta encontrada</CardTitle>
+                    <CardTitle className="text-sm">
+                      Etiqueta encontrada
+                    </CardTitle>
                     <CardDescription>
                       Confirme saldo e lote antes de registrar.
                     </CardDescription>

@@ -25,6 +25,14 @@ function normalizeId(value: any): string | null {
   return v;
 }
 
+/**
+ * ✅ MELHORIA: normaliza várias formas vindas do front
+ * Aceita:
+ * - MANIPULACAO / MANIPULAÇÃO (com/sem acento)
+ * - FABRICANTE
+ * - REVALIDAR (compat com TipoSel do front)
+ * - MANIPULACAO_PADRAO, etc.
+ */
 function normalizeLabelType(value: any): "MANIPULACAO" | "FABRICANTE" | null {
   if (value === undefined || value === null) return null;
   const raw = String(value).trim();
@@ -34,13 +42,17 @@ function normalizeLabelType(value: any): "MANIPULACAO" | "FABRICANTE" | null {
   const cleaned = raw
     .toUpperCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
 
-  if (cleaned === "MANIPULACAO" || cleaned === "MANIPULACAO ") return "MANIPULACAO";
-  if (cleaned === "FABRICANTE") return "FABRICANTE";
+  if (cleaned === "MANIPULACAO" || cleaned === "MANIPULACAO_PADRAO") {
+    return "MANIPULACAO";
+  }
 
-  // Compat com possíveis variações de frontend
-  if (cleaned === "MANIPULACAO" || cleaned === "MANIPULACAO_PADRAO") return "MANIPULACAO";
+  if (cleaned === "FABRICANTE" || cleaned === "REVALIDAR") {
+    return "FABRICANTE";
+  }
+
   return null;
 }
 
@@ -219,7 +231,8 @@ export async function POST(req: Request) {
       body?.labelCode ?? body?.label_code ?? body?.code ?? ""
     ).trim();
 
-    // ✅ NOVO: tipo da etiqueta (MANIPULACAO ou FABRICANTE)
+    // ✅ tipo da etiqueta (MANIPULACAO ou FABRICANTE)
+    // - lê labelType/label_type/type/tipo
     const label_type = normalizeLabelType(
       body?.labelType ?? body?.label_type ?? body?.type ?? body?.tipo
     );
@@ -269,13 +282,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ NOVO: como agora é regra de negócio obrigatória (MANIPULACAO e FABRICANTE),
-    // exigimos o tipo para garantir a automação corretamente.
+    // ✅ regra: tipo obrigatório (MANIPULACAO ou FABRICANTE)
     if (!label_type) {
       return NextResponse.json(
         {
           error:
-            "Payload inválido para criar etiqueta: labelType/type/tipo é obrigatório e deve ser MANIPULACAO ou FABRICANTE.",
+            "Payload inválido para criar etiqueta: labelType/label_type/type/tipo é obrigatório e deve ser MANIPULACAO ou FABRICANTE.",
           debug_payload: {
             product_id,
             productName,
@@ -290,22 +302,59 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1) cria a etiqueta
-    const { data: insertedLabel, error: labelErr } = await supabase
-      .from("inventory_labels")
-      .insert({
-        establishment_id: establishmentId,
-        product_id,
-        qty,
-        unit_label,
-        label_code,
-        notes,
-        // ✅ NOVO: grava o tipo se sua tabela inventory_labels tiver essa coluna.
-        // Se sua tabela AINDA não tem a coluna "type", comente as 2 linhas abaixo.
-        type: label_type,
-      })
-      .select("id, type, establishment_id, product_id, qty, unit_label")
-      .maybeSingle();
+    /**
+     * ✅ MELHORIA: insere com coluna "type" se existir, e faz fallback automático
+     * caso a coluna ainda não exista (erro 42703).
+     * Isso evita quebrar seu deploy caso o schema ainda não tenha o campo.
+     */
+    const insertBase = {
+      establishment_id: establishmentId,
+      product_id,
+      qty,
+      unit_label,
+      label_code,
+      notes,
+    } as any;
+
+    // 1) tenta inserir com "type"
+    let insertedLabel:
+      | {
+          id: string;
+          type?: string | null;
+          establishment_id?: string;
+          product_id?: string;
+          qty?: number;
+          unit_label?: string;
+        }
+      | null = null;
+
+    let labelErr: any = null;
+
+    {
+      const { data, error } = await supabase
+        .from("inventory_labels")
+        .insert({
+          ...insertBase,
+          type: label_type,
+        })
+        .select("id, type, establishment_id, product_id, qty, unit_label")
+        .maybeSingle();
+
+      insertedLabel = data as any;
+      labelErr = error as any;
+    }
+
+    // 2) fallback: se a coluna "type" não existir, tenta novamente sem ela
+    if (labelErr && (labelErr as any)?.code === "42703") {
+      const { data, error } = await supabase
+        .from("inventory_labels")
+        .insert(insertBase)
+        .select("id, establishment_id, product_id, qty, unit_label")
+        .maybeSingle();
+
+      insertedLabel = data as any;
+      labelErr = error as any;
+    }
 
     if (labelErr) {
       console.error("POST /api/inventory-labels erro:", labelErr);
@@ -341,7 +390,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2) ✅ NOVO: cria movimento de ENTRADA no estoque para MANIPULACAO e FABRICANTE
+    // 2) ✅ cria movimento de ENTRADA no estoque para MANIPULACAO e FABRICANTE
     const reason =
       label_type === "MANIPULACAO"
         ? "entrada_por_etiqueta_manipulacao"
@@ -400,10 +449,7 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json(
-      { ok: true, id: labelId },
-      { status: 200 }
-    );
+    return NextResponse.json({ ok: true, id: labelId }, { status: 200 });
   } catch (err: any) {
     console.error("POST /api/inventory-labels erro inesperado:", err);
     return NextResponse.json(

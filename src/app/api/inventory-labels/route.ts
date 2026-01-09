@@ -25,6 +25,25 @@ function normalizeId(value: any): string | null {
   return v;
 }
 
+function normalizeLabelType(value: any): "MANIPULACAO" | "FABRICANTE" | null {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  // Remove acentos e normaliza para comparação
+  const cleaned = raw
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (cleaned === "MANIPULACAO" || cleaned === "MANIPULACAO ") return "MANIPULACAO";
+  if (cleaned === "FABRICANTE") return "FABRICANTE";
+
+  // Compat com possíveis variações de frontend
+  if (cleaned === "MANIPULACAO" || cleaned === "MANIPULACAO_PADRAO") return "MANIPULACAO";
+  return null;
+}
+
 async function resolveEstablishmentId(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
 ): Promise<{ establishmentId: string | null; debug: string[] }> {
@@ -158,6 +177,7 @@ export async function GET() {
 /**
  * POST /api/inventory-labels
  * Cria uma etiqueta no banco
+ * ✅ e (NOVO) gera entrada automática no estoque para MANIPULACAO e FABRICANTE
  */
 export async function POST(req: Request) {
   try {
@@ -199,6 +219,11 @@ export async function POST(req: Request) {
       body?.labelCode ?? body?.label_code ?? body?.code ?? ""
     ).trim();
 
+    // ✅ NOVO: tipo da etiqueta (MANIPULACAO ou FABRICANTE)
+    const label_type = normalizeLabelType(
+      body?.labelType ?? body?.label_type ?? body?.type ?? body?.tipo
+    );
+
     const notes =
       body?.extraPayload !== undefined && body?.extraPayload !== null
         ? JSON.stringify(body.extraPayload)
@@ -206,7 +231,7 @@ export async function POST(req: Request) {
         ? String(body.notes)
         : null;
 
-    // ✅ validação mínima
+    // ✅ validação mínima (mantida)
     if (!product_id) {
       return NextResponse.json(
         {
@@ -218,6 +243,7 @@ export async function POST(req: Request) {
             qty,
             unit_label,
             label_code,
+            label_type,
             received_keys: Object.keys(body ?? {}),
           },
         },
@@ -235,6 +261,7 @@ export async function POST(req: Request) {
             qty,
             unit_label,
             label_code,
+            label_type,
             received_keys: Object.keys(body ?? {}),
           },
         },
@@ -242,7 +269,29 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data, error } = await supabase
+    // ✅ NOVO: como agora é regra de negócio obrigatória (MANIPULACAO e FABRICANTE),
+    // exigimos o tipo para garantir a automação corretamente.
+    if (!label_type) {
+      return NextResponse.json(
+        {
+          error:
+            "Payload inválido para criar etiqueta: labelType/type/tipo é obrigatório e deve ser MANIPULACAO ou FABRICANTE.",
+          debug_payload: {
+            product_id,
+            productName,
+            qty,
+            unit_label,
+            label_code,
+            label_type,
+            received_keys: Object.keys(body ?? {}),
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    // 1) cria a etiqueta
+    const { data: insertedLabel, error: labelErr } = await supabase
       .from("inventory_labels")
       .insert({
         establishment_id: establishmentId,
@@ -251,18 +300,21 @@ export async function POST(req: Request) {
         unit_label,
         label_code,
         notes,
+        // ✅ NOVO: grava o tipo se sua tabela inventory_labels tiver essa coluna.
+        // Se sua tabela AINDA não tem a coluna "type", comente as 2 linhas abaixo.
+        type: label_type,
       })
-      .select("id")
+      .select("id, type, establishment_id, product_id, qty, unit_label")
       .maybeSingle();
 
-    if (error) {
-      console.error("POST /api/inventory-labels erro:", error);
+    if (labelErr) {
+      console.error("POST /api/inventory-labels erro:", labelErr);
       return NextResponse.json(
         {
-          error: `Erro ao salvar etiqueta no banco: ${error.message}`,
-          code: (error as any)?.code ?? null,
-          details: (error as any)?.details ?? null,
-          hint: (error as any)?.hint ?? null,
+          error: `Erro ao salvar etiqueta no banco: ${labelErr.message}`,
+          code: (labelErr as any)?.code ?? null,
+          details: (labelErr as any)?.details ?? null,
+          hint: (labelErr as any)?.hint ?? null,
           debug,
           debug_payload: {
             establishment_id: establishmentId,
@@ -271,6 +323,76 @@ export async function POST(req: Request) {
             qty,
             unit_label,
             label_code,
+            label_type,
+            received_keys: Object.keys(body ?? {}),
+          },
+        },
+        { status: 500 }
+      );
+    }
+
+    const labelId = insertedLabel?.id ?? null;
+
+    // Segurança: se por algum motivo não retornou id
+    if (!labelId) {
+      return NextResponse.json(
+        { error: "Etiqueta criada, mas não foi possível obter o ID." },
+        { status: 500 }
+      );
+    }
+
+    // 2) ✅ NOVO: cria movimento de ENTRADA no estoque para MANIPULACAO e FABRICANTE
+    const reason =
+      label_type === "MANIPULACAO"
+        ? "entrada_por_etiqueta_manipulacao"
+        : "entrada_por_etiqueta_fabricante";
+
+    const { error: mvErr } = await supabase.from("inventory_movements").insert({
+      establishment_id: establishmentId,
+      product_id,
+      unit_label,
+      qty_delta: qty, // ENTRADA
+      reason,
+      source: "inventory_label",
+      label_id: labelId,
+    });
+
+    if (mvErr) {
+      // ✅ rollback: apaga a etiqueta para não ficar "etiqueta sem estoque"
+      console.error(
+        "POST /api/inventory-labels: falha ao criar movimento de estoque. Fazendo rollback da etiqueta.",
+        mvErr
+      );
+
+      const { error: rbErr } = await supabase
+        .from("inventory_labels")
+        .delete()
+        .eq("id", labelId);
+
+      if (rbErr) {
+        console.error(
+          "POST /api/inventory-labels: rollback falhou (etiqueta pode ter ficado gravada sem movimento).",
+          rbErr
+        );
+      }
+
+      return NextResponse.json(
+        {
+          error:
+            "Falha ao gerar entrada automática no estoque (etiqueta revertida).",
+          details: mvErr.message,
+          code: (mvErr as any)?.code ?? null,
+          hint: (mvErr as any)?.hint ?? null,
+          debug,
+          debug_payload: {
+            establishment_id: establishmentId,
+            product_id,
+            productName,
+            qty,
+            unit_label,
+            label_code,
+            label_type,
+            label_id: labelId,
             received_keys: Object.keys(body ?? {}),
           },
         },
@@ -279,7 +401,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(
-      { ok: true, id: data?.id ?? null },
+      { ok: true, id: labelId },
       { status: 200 }
     );
   } catch (err: any) {

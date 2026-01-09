@@ -62,6 +62,19 @@ export type AddInventoryItemInput = {
   unit_label: string;
 };
 
+// ✅ NOVO: bulk update de metadados do estoque (thresholds/local/unidade)
+export type BulkStockMetaUpdateItem = {
+  // um deles deve existir
+  balance_id?: string;
+  product_id?: string;
+
+  unit_label?: string | null;
+  location?: string | null;
+  min_qty?: number | null;
+  med_qty?: number | null;
+  max_qty?: number | null;
+};
+
 // =======================================================
 // HELPER: supabase + establishment do usuário logado
 // =======================================================
@@ -602,7 +615,9 @@ export async function getLastClosedInventorySession(): Promise<
 // =======================================================
 
 export async function createStockMovementAction(
-  input: Omit<StockMovementInput, "establishment_id"> & { establishment_id?: string }
+  input: Omit<StockMovementInput, "establishment_id"> & {
+    establishment_id?: string;
+  }
 ) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
@@ -617,4 +632,57 @@ export async function createStockMovementAction(
   };
 
   return moveStock(supabase as any, payload);
+}
+
+// =======================================================
+// 10) ✅ NOVO: BULK UPDATE (CSV Upload) - metadados do estoque
+//     Atualiza: unit_label, location, min_qty, med_qty, max_qty em stock_balances
+// =======================================================
+
+export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
+  const { supabase, establishmentId } = await getSupabaseAndEstablishment();
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return { ok: true, updated: 0 };
+  }
+
+  let updated = 0;
+
+  for (const it of items) {
+    const balanceId = (it as any).balance_id as string | undefined;
+    const productId = (it as any).product_id as string | undefined;
+
+    if (!balanceId && !productId) continue;
+
+    const payload: any = {};
+    if ("unit_label" in it) payload.unit_label = it.unit_label ?? null;
+    if ("location" in it) payload.location = it.location ?? null;
+    if ("min_qty" in it) payload.min_qty = it.min_qty ?? 0;
+    if ("med_qty" in it) payload.med_qty = it.med_qty ?? 0;
+    if ("max_qty" in it) payload.max_qty = it.max_qty ?? 0;
+
+    // não atualiza se payload veio vazio
+    if (Object.keys(payload).length === 0) continue;
+
+    let q = supabase.from("stock_balances").update(payload).eq(
+      "establishment_id",
+      establishmentId
+    );
+
+    if (balanceId) q = q.eq("id", balanceId);
+    else q = q.eq("product_id", productId as string);
+
+    const { error } = await q;
+
+    if (error) {
+      console.error("[bulkUpdateStockMeta] erro ao atualizar item:", it, error);
+      throw new Error(
+        "Falha ao atualizar um ou mais itens via upload. Verifique o CSV e tente novamente."
+      );
+    }
+
+    updated += 1;
+  }
+
+  return { ok: true, updated };
 }

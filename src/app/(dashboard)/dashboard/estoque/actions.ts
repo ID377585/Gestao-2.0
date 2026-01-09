@@ -4,6 +4,9 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
+// ✅ NOVO: action única para movimento de estoque (padronizada)
+import { moveStock, type StockMovementInput } from "@/lib/stock/moveStock";
+
 // ==== Tipagens auxiliares de retorno/entrada ====
 
 type StockBalanceRow = {
@@ -525,4 +528,27 @@ export async function getLastClosedInventorySession(): Promise<
   }
 
   return session;
+}
+
+// =======================================================
+// 9) ✅ NOVO: SERVER ACTION ÚNICA PARA MOVIMENTO DE ESTOQUE
+//    (padroniza com /api/stock-movements)
+// =======================================================
+
+export async function createStockMovementAction(
+  input: Omit<StockMovementInput, "establishment_id"> & { establishment_id?: string }
+) {
+  const { supabase, establishmentId } = await getSupabaseAndEstablishment();
+
+  // Força establishment do usuário logado (evita spoof via client)
+  const payload: StockMovementInput = {
+    establishment_id: establishmentId,
+    product_id: (input as any).product_id,
+    unit_label: (input as any).unit_label,
+    qty_delta: (input as any).qty_delta,
+    reason: (input as any).reason ?? "adjustment",
+    source: (input as any).source ?? "server_action",
+  };
+
+  return moveStock(supabase as any, payload);
 }

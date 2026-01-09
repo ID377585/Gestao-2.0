@@ -56,6 +56,33 @@ function normalizeLabelType(value: any): "MANIPULACAO" | "FABRICANTE" | null {
   return null;
 }
 
+/**
+ * ✅ NOVO: Detecta erro de coluna inexistente "type" no PostgREST (schema cache)
+ * - PGRST204 é comum quando o PostgREST não encontra coluna no schema cache
+ * - 42703 pode ocorrer em alguns contextos
+ * - Também cobre mensagens textuais (schema cache / could not find 'type' column)
+ */
+function isMissingTypeColumnError(err: any): boolean {
+  const code = String(err?.code ?? "").toUpperCase();
+  const msg = String(err?.message ?? "").toLowerCase();
+  const details = String(err?.details ?? "").toLowerCase();
+  const hint = String(err?.hint ?? "").toLowerCase();
+
+  if (code === "PGRST204" || code === "42703") return true;
+
+  const blob = `${msg} ${details} ${hint}`;
+  if (blob.includes("schema cache") && blob.includes("'type'")) return true;
+  if (blob.includes("could not find the 'type' column")) return true;
+  if (
+    blob.includes("column") &&
+    blob.includes("type") &&
+    blob.includes("does not exist")
+  )
+    return true;
+
+  return false;
+}
+
 async function resolveEstablishmentId(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
 ): Promise<{ establishmentId: string | null; debug: string[] }> {
@@ -304,7 +331,7 @@ export async function POST(req: Request) {
 
     /**
      * ✅ MELHORIA: insere com coluna "type" se existir, e faz fallback automático
-     * caso a coluna ainda não exista (erro 42703).
+     * caso a coluna ainda não exista (erro 42703 / PGRST204 / schema cache).
      * Isso evita quebrar seu deploy caso o schema ainda não tenha o campo.
      */
     const insertBase = {
@@ -345,7 +372,7 @@ export async function POST(req: Request) {
     }
 
     // 2) fallback: se a coluna "type" não existir, tenta novamente sem ela
-    if (labelErr && (labelErr as any)?.code === "42703") {
+    if (labelErr && isMissingTypeColumnError(labelErr)) {
       const { data, error } = await supabase
         .from("inventory_labels")
         .insert(insertBase)

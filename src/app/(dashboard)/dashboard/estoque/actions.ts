@@ -27,6 +27,14 @@ type StockBalanceRow = {
   } | null;
 };
 
+// ✅ NOVO: tipagem da VIEW public.current_stock (saldo por movimentos)
+type CurrentStockRow = {
+  establishment_id: string;
+  product_id: string;
+  unit_label: string | null;
+  qty_balance: number;
+};
+
 type InventorySessionRow = {
   id: string;
   establishment_id: string;
@@ -78,12 +86,15 @@ async function getSupabaseAndEstablishment() {
 }
 
 // =======================================================
-// 1) LISTAR ESTOQUE ATUAL (tabela stock_balances + products)
+// 1) LISTAR ESTOQUE ATUAL
+//    ✅ Mantém stock_balances para thresholds/local/id,
+//    ✅ mas agora retorna quantity = current_stock.qty_balance (movimentos)
 // =======================================================
 
 export async function listCurrentStock(): Promise<StockBalanceRow[]> {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
+  // 1) Base: stock_balances + products (metadados do item)
   const { data, error } = await supabase
     .from("stock_balances")
     .select(
@@ -132,7 +143,62 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     };
   }) as StockBalanceRow[];
 
-  return normalized;
+  // 2) Saldo real: view current_stock (derivada de inventory_movements)
+  const { data: cs, error: csErr } = await supabase
+    .from("current_stock")
+    .select("establishment_id, product_id, unit_label, qty_balance")
+    .eq("establishment_id", establishmentId);
+
+  if (csErr) {
+    console.error("Erro ao listar current_stock:", csErr);
+    throw new Error("Erro ao carregar saldo do estoque (current_stock).");
+  }
+
+  const currentRows = (cs ?? []) as CurrentStockRow[];
+
+  // 3) Monta mapa: por product_id, com total e por unidade
+  const byProduct = new Map<
+    string,
+    { total: number; byUnit: Map<string, number> }
+  >();
+
+  for (const r of currentRows) {
+    const pid = String(r.product_id);
+    const unit = String(r.unit_label ?? "");
+    const qty = Number(r.qty_balance ?? 0);
+
+    if (!byProduct.has(pid)) {
+      byProduct.set(pid, { total: 0, byUnit: new Map() });
+    }
+
+    const entry = byProduct.get(pid)!;
+    entry.total += qty;
+    entry.byUnit.set(unit, (entry.byUnit.get(unit) ?? 0) + qty);
+  }
+
+  // 4) Retorna o mesmo shape que o front já espera:
+  //    row.quantity agora reflete qty_balance (movimentos)
+  const merged = normalized.map((row) => {
+    const pid = String(row.product_id);
+    const unit = String(row.unit_label ?? "");
+
+    const entry = byProduct.get(pid);
+    if (!entry) {
+      // sem movimentos -> saldo 0
+      return { ...row, quantity: 0 };
+    }
+
+    // tenta casar por unidade
+    const qtyByUnit = entry.byUnit.get(unit);
+    if (qtyByUnit !== undefined) {
+      return { ...row, quantity: qtyByUnit };
+    }
+
+    // fallback: total do produto (somando todas as unidades)
+    return { ...row, quantity: entry.total };
+  });
+
+  return merged;
 }
 
 // =======================================================

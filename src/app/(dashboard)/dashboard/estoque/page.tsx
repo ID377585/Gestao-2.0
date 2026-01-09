@@ -661,7 +661,9 @@ export default function EstoquePage() {
   };
 
   const handleExportComprar = () => {
-    const criticos = sortedStock.filter((r) => getStatusFromRow(r) === "critico");
+    const criticos = sortedStock.filter(
+      (r) => getStatusFromRow(r) === "critico"
+    );
     downloadCsv("estoque_comprar_criticos.csv", criticos);
   };
 
@@ -674,7 +676,9 @@ export default function EstoquePage() {
     fileInputRef.current?.click();
   };
 
-  const parseUploadCsvToUpdates = (csvText: string): BulkStockMetaUpdateItem[] => {
+  const parseUploadCsvToUpdates = (
+    csvText: string
+  ): BulkStockMetaUpdateItem[] => {
     const linesRaw = csvText
       .replace(/\r\n/g, "\n")
       .replace(/\r/g, "\n")
@@ -727,10 +731,13 @@ export default function EstoquePage() {
     for (let i = 1; i < linesRaw.length; i++) {
       const cells = splitCsvLine(linesRaw[i], delimiter);
 
-      const rawBalanceId = idxBalanceId >= 0 ? String(cells[idxBalanceId] ?? "").trim() : "";
-      const rawProductId = idxProductId >= 0 ? String(cells[idxProductId] ?? "").trim() : "";
+      const rawBalanceId =
+        idxBalanceId >= 0 ? String(cells[idxBalanceId] ?? "").trim() : "";
+      const rawProductId =
+        idxProductId >= 0 ? String(cells[idxProductId] ?? "").trim() : "";
       const rawSku = idxSku >= 0 ? String(cells[idxSku] ?? "").trim() : "";
-      const rawNome = idxProduto >= 0 ? String(cells[idxProduto] ?? "").trim() : "";
+      const rawNome =
+        idxProduto >= 0 ? String(cells[idxProduto] ?? "").trim() : "";
 
       // tenta casar com estoque atual
       let matched: StockRow | undefined;
@@ -739,9 +746,7 @@ export default function EstoquePage() {
       if (!matched && rawSku) matched = bySku.get(rawSku.toLowerCase());
       if (!matched && rawNome) matched = byName.get(rawNome.toLowerCase());
 
-      const balance_id =
-        rawBalanceId ||
-        (matched?.id ? String(matched.id) : "");
+      const balance_id = rawBalanceId || (matched?.id ? String(matched.id) : "");
 
       const product_id =
         rawProductId ||
@@ -831,20 +836,8 @@ export default function EstoquePage() {
           <p className="text-gray-600">Controle de estoque atual e inventário</p>
         </div>
 
-        <div className="flex space-x-2">
-          <Button variant="outline" disabled>
-            <span className="mr-2">📥</span>
-            Entrada
-          </Button>
-          <Button variant="outline" disabled>
-            <span className="mr-2">📤</span>
-            Saída
-          </Button>
-          <Button onClick={openInventoryModal} disabled={loadingInventory}>
-            <span className="mr-2">📋</span>
-            Iniciar Inventário
-          </Button>
-        </div>
+        {/* ✅ Botões do topo removidos conforme solicitado */}
+        <div />
       </div>
 
       {/* KPIs */}
@@ -855,7 +848,9 @@ export default function EstoquePage() {
             <span className="text-2xl">📦</span>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{loadingStock ? "…" : totalItens}</div>
+            <div className="text-2xl font-bold">
+              {loadingStock ? "…" : totalItens}
+            </div>
             <p className="text-xs text-muted-foreground">Produtos cadastrados</p>
           </CardContent>
         </Card>
@@ -882,7 +877,9 @@ export default function EstoquePage() {
             <div className="text-2xl font-bold text-red-600">
               {loadingStock ? "…" : totalCriticos}
             </div>
-            <p className="text-xs text-muted-foreground">Itens abaixo do mínimo</p>
+            <p className="text-xs text-muted-foreground">
+              Itens abaixo do mínimo
+            </p>
           </CardContent>
         </Card>
 
@@ -918,8 +915,14 @@ export default function EstoquePage() {
             </div>
           </div>
 
-          {/* ✅ Ações: Export + Upload */}
+          {/* ✅ Ações: Inventário + Export + Upload */}
           <div className="flex flex-wrap gap-2 pt-3">
+            {/* ✅ Movido do topo para cá (topo limpo, inventário continua acessível) */}
+            <Button onClick={openInventoryModal} disabled={loadingInventory}>
+              <span className="mr-2">📋</span>
+              Iniciar Inventário
+            </Button>
+
             <Button
               variant="outline"
               onClick={handleExportComprar}
@@ -1121,7 +1124,9 @@ export default function EstoquePage() {
                 <div className="flex justify-between text-xs text-gray-600">
                   <span>
                     Data do inventário:{" "}
-                    <span className="font-medium">{formatDateTime(inventoryDateDisplay)}</span>
+                    <span className="font-medium">
+                      {formatDateTime(inventoryDateDisplay)}
+                    </span>
                   </span>
                 </div>
 
@@ -1179,7 +1184,9 @@ export default function EstoquePage() {
 
                 {/* Lista de itens contados */}
                 <div className="border-t pt-4">
-                  <h4 className="font-medium mb-2">Itens Contados ({inventoryItems.length})</h4>
+                  <h4 className="font-medium mb-2">
+                    Itens Contados ({inventoryItems.length})
+                  </h4>
 
                   {inventoryItems.length === 0 ? (
                     <p className="text-sm text-muted-foreground">

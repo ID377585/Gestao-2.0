@@ -322,3 +322,4 @@ Para testar o sistema:
 ---
 
 **Desenvolvido com ❤️ para revolucionar a gestão de restaurantes e estabelecimentos de produção alimentícia.**
+# APP-Gestao-2.0-ALIFE

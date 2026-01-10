@@ -216,7 +216,8 @@ export async function GET() {
 /**
  * POST /api/inventory-labels
  * Cria uma etiqueta no banco
- * ✅ e (NOVO) gera entrada automática no estoque para MANIPULACAO e FABRICANTE
+ * ✅ e (NOVO) garante atualização do saldo em stock_balances.quantity
+ * ✅ e cria movimento em inventory_movements (mantido)
  */
 export async function POST(req: Request) {
   try {
@@ -417,7 +418,158 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2) ✅ cria movimento de ENTRADA no estoque para MANIPULACAO e FABRICANTE
+    /**
+     * ✅ AJUSTE CRÍTICO (corrige: null value in stock_balances.quantity):
+     * Garante que o saldo em stock_balances tenha "quantity" SEMPRE preenchido,
+     * incrementando o saldo existente ou criando um novo registro.
+     */
+    {
+      // 1) busca saldo atual
+      const { data: bal, error: balErr } = await supabase
+        .from("stock_balances")
+        .select("id, quantity")
+        .eq("establishment_id", establishmentId)
+        .eq("product_id", product_id)
+        .eq("unit_label", unit_label)
+        .maybeSingle();
+
+      if (balErr) {
+        // rollback: remove etiqueta para não ficar inconsistente
+        console.error(
+          "POST /api/inventory-labels: erro ao consultar stock_balances. Fazendo rollback da etiqueta.",
+          balErr
+        );
+
+        const { error: rbErr } = await supabase
+          .from("inventory_labels")
+          .delete()
+          .eq("id", labelId);
+
+        if (rbErr) {
+          console.error(
+            "POST /api/inventory-labels: rollback falhou (etiqueta pode ter ficado gravada).",
+            rbErr
+          );
+        }
+
+        return NextResponse.json(
+          {
+            error: "Falha ao consultar saldo de estoque (etiqueta revertida).",
+            details: balErr.message,
+            code: (balErr as any)?.code ?? null,
+            hint: (balErr as any)?.hint ?? null,
+            debug,
+            debug_payload: {
+              establishment_id: establishmentId,
+              product_id,
+              unit_label,
+              qty,
+              label_id: labelId,
+            },
+          },
+          { status: 500 }
+        );
+      }
+
+      const currentQty = Number((bal as any)?.quantity ?? 0);
+      const nextQty = currentQty + qty;
+
+      if ((bal as any)?.id) {
+        // 2a) atualiza saldo existente
+        const { error: upErr } = await supabase
+          .from("stock_balances")
+          .update({ quantity: nextQty })
+          .eq("id", (bal as any).id);
+
+        if (upErr) {
+          console.error(
+            "POST /api/inventory-labels: erro ao atualizar stock_balances. Fazendo rollback da etiqueta.",
+            upErr
+          );
+
+          const { error: rbErr } = await supabase
+            .from("inventory_labels")
+            .delete()
+            .eq("id", labelId);
+
+          if (rbErr) {
+            console.error(
+              "POST /api/inventory-labels: rollback falhou (etiqueta pode ter ficado gravada).",
+              rbErr
+            );
+          }
+
+          return NextResponse.json(
+            {
+              error:
+                "Falha ao atualizar saldo de estoque (etiqueta revertida).",
+              details: upErr.message,
+              code: (upErr as any)?.code ?? null,
+              hint: (upErr as any)?.hint ?? null,
+              debug,
+              debug_payload: {
+                establishment_id: establishmentId,
+                product_id,
+                unit_label,
+                currentQty,
+                qty,
+                nextQty,
+                label_id: labelId,
+              },
+            },
+            { status: 500 }
+          );
+        }
+      } else {
+        // 2b) cria saldo novo (quantity NOT NULL)
+        const { error: insErr } = await supabase.from("stock_balances").insert({
+          establishment_id: establishmentId,
+          product_id,
+          unit_label,
+          quantity: qty,
+        });
+
+        if (insErr) {
+          console.error(
+            "POST /api/inventory-labels: erro ao criar stock_balances. Fazendo rollback da etiqueta.",
+            insErr
+          );
+
+          const { error: rbErr } = await supabase
+            .from("inventory_labels")
+            .delete()
+            .eq("id", labelId);
+
+          if (rbErr) {
+            console.error(
+              "POST /api/inventory-labels: rollback falhou (etiqueta pode ter ficado gravada).",
+              rbErr
+            );
+          }
+
+          return NextResponse.json(
+            {
+              error:
+                "Falha ao criar saldo de estoque (etiqueta revertida).",
+              details: insErr.message,
+              code: (insErr as any)?.code ?? null,
+              hint: (insErr as any)?.hint ?? null,
+              debug,
+              debug_payload: {
+                establishment_id: establishmentId,
+                product_id,
+                unit_label,
+                qty,
+                label_id: labelId,
+              },
+            },
+            { status: 500 }
+          );
+        }
+      }
+    }
+
+    // 3) ✅ cria movimento de ENTRADA no estoque para MANIPULACAO e FABRICANTE (mantido)
     const reason =
       label_type === "MANIPULACAO"
         ? "entrada_por_etiqueta_manipulacao"
@@ -434,11 +586,36 @@ export async function POST(req: Request) {
     });
 
     if (mvErr) {
-      // ✅ rollback: apaga a etiqueta para não ficar "etiqueta sem estoque"
+      // ✅ rollback: apaga a etiqueta para não ficar "etiqueta sem movimento"
       console.error(
         "POST /api/inventory-labels: falha ao criar movimento de estoque. Fazendo rollback da etiqueta.",
         mvErr
       );
+
+      // tenta reverter saldo também (melhor esforço)
+      try {
+        const { data: bal2 } = await supabase
+          .from("stock_balances")
+          .select("id, quantity")
+          .eq("establishment_id", establishmentId)
+          .eq("product_id", product_id)
+          .eq("unit_label", unit_label)
+          .maybeSingle();
+
+        if ((bal2 as any)?.id) {
+          const currentQty2 = Number((bal2 as any)?.quantity ?? 0);
+          const nextQty2 = Math.max(0, currentQty2 - qty);
+          await supabase
+            .from("stock_balances")
+            .update({ quantity: nextQty2 })
+            .eq("id", (bal2 as any).id);
+        }
+      } catch (e) {
+        console.error(
+          "POST /api/inventory-labels: rollback do saldo falhou (best effort).",
+          e
+        );
+      }
 
       const { error: rbErr } = await supabase
         .from("inventory_labels")
@@ -455,7 +632,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            "Falha ao gerar entrada automática no estoque (etiqueta revertida).",
+            "Falha ao gerar movimento no estoque (etiqueta revertida).",
           details: mvErr.message,
           code: (mvErr as any)?.code ?? null,
           hint: (mvErr as any)?.hint ?? null,

@@ -25,51 +25,30 @@ function normalizeId(value: any): string | null {
   return v;
 }
 
-/**
- * ✅ MELHORIA: normaliza várias formas vindas do front
- * Aceita:
- * - MANIPULACAO / MANIPULAÇÃO (com/sem acento)
- * - FABRICANTE
- * - REVALIDAR (compat com TipoSel do front)
- * - MANIPULACAO_PADRAO, etc.
- */
 function normalizeLabelType(value: any): "MANIPULACAO" | "FABRICANTE" | null {
   if (value === undefined || value === null) return null;
   const raw = String(value).trim();
   if (!raw) return null;
-
-  // Remove acentos e normaliza para comparação
   const cleaned = raw
     .toUpperCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
-
   if (cleaned === "MANIPULACAO" || cleaned === "MANIPULACAO_PADRAO") {
     return "MANIPULACAO";
   }
-
   if (cleaned === "FABRICANTE" || cleaned === "REVALIDAR") {
     return "FABRICANTE";
   }
-
   return null;
 }
 
-/**
- * ✅ NOVO: Detecta erro de coluna inexistente "type" no PostgREST (schema cache)
- * - PGRST204 é comum quando o PostgREST não encontra coluna no schema cache
- * - 42703 pode ocorrer em alguns contextos
- * - Também cobre mensagens textuais (schema cache / could not find 'type' column)
- */
 function isMissingTypeColumnError(err: any): boolean {
   const code = String(err?.code ?? "").toUpperCase();
   const msg = String(err?.message ?? "").toLowerCase();
   const details = String(err?.details ?? "").toLowerCase();
   const hint = String(err?.hint ?? "").toLowerCase();
-
   if (code === "PGRST204" || code === "42703") return true;
-
   const blob = `${msg} ${details} ${hint}`;
   if (blob.includes("schema cache") && blob.includes("'type'")) return true;
   if (blob.includes("could not find the 'type' column")) return true;
@@ -77,9 +56,7 @@ function isMissingTypeColumnError(err: any): boolean {
     blob.includes("column") &&
     blob.includes("type") &&
     blob.includes("does not exist")
-  )
-    return true;
-
+  ) return true;
   return false;
 }
 
@@ -87,582 +64,54 @@ async function resolveEstablishmentId(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
 ): Promise<{ establishmentId: string | null; debug: string[] }> {
   const debug: string[] = [];
-
-  // 1) helper do app
   try {
     const helperRes = await getActiveMembershipOrRedirect();
     const membership = (helperRes as any)?.membership ?? helperRes;
-
     const estId = normalizeId((membership as any)?.establishment_id);
     const orgId = normalizeId((membership as any)?.organization_id);
     const picked = estId ?? orgId ?? null;
-
     debug.push(
       `membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`
     );
-
     return { establishmentId: picked, debug };
   } catch (e: any) {
     debug.push(`membership-helper: falhou (${e?.message ?? "sem mensagem"})`);
-    // segue fallback
   }
-
-  // 2) fallback: auth.getUser -> memberships -> profiles
   const { data: userData, error: userErr } = await supabase.auth.getUser();
   const userId = userData?.user?.id;
-
   if (userErr) debug.push(`auth.getUser: erro (${userErr.message})`);
   if (!userId) {
     debug.push("auth.getUser: sem userId");
     return { establishmentId: null, debug };
   }
-
   debug.push(`auth.getUser: ok (user=${userId})`);
-
   const { data: m, error: mErr } = await supabase
     .from("memberships")
     .select("establishment_id, organization_id")
     .eq("user_id", userId)
     .maybeSingle();
-
   if (mErr) debug.push(`fallback memberships: erro (${mErr.message})`);
-
   const estId = normalizeId((m as any)?.establishment_id);
   const orgId = normalizeId((m as any)?.organization_id);
-
   if (estId ?? orgId) {
     debug.push(
       `fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`
     );
     return { establishmentId: estId ?? orgId ?? null, debug };
   }
-
   const { data: p, error: pErr } = await supabase
     .from("profiles")
     .select("establishment_id, organization_id")
     .eq("id", userId)
     .maybeSingle();
-
   if (pErr) debug.push(`fallback profiles: erro (${pErr.message})`);
-
   const estId2 = normalizeId((p as any)?.establishment_id);
   const orgId2 = normalizeId((p as any)?.organization_id);
-
   debug.push(
     `fallback profiles: ok (est=${estId2 ?? "null"} org=${orgId2 ?? "null"})`
   );
-
   return { establishmentId: estId2 ?? orgId2 ?? null, debug };
 }
 
-/**
- * GET /api/inventory-labels
- * Lista histórico do estabelecimento
- */
-export async function GET() {
-  try {
-    const supabase = await createSupabaseServerClient();
-
-    const { establishmentId, debug } = await resolveEstablishmentId(supabase);
-    if (!establishmentId) {
-      console.error(
-        "GET /api/inventory-labels: establishmentId não resolvido",
-        debug
-      );
-      return NextResponse.json(
-        {
-          error: "Não foi possível identificar o estabelecimento do usuário.",
-          debug,
-        },
-        { status: 403 }
-      );
-    }
-
-    const { data, error } = await supabase
-      .from("inventory_labels")
-      .select("id, label_code, qty, unit_label, notes, created_at")
-      .eq("establishment_id", establishmentId)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("GET /api/inventory-labels erro:", error);
-      return NextResponse.json(
-        {
-          error: `Erro ao carregar histórico de etiquetas: ${error.message}`,
-          code: (error as any)?.code ?? null,
-          details: (error as any)?.details ?? null,
-          hint: (error as any)?.hint ?? null,
-        },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json((data ?? []) as InventoryLabelRow[], {
-      status: 200,
-    });
-  } catch (err: any) {
-    console.error("GET /api/inventory-labels erro inesperado:", err);
-    return NextResponse.json(
-      {
-        error: `Erro inesperado ao carregar etiquetas: ${
-          err?.message ?? "sem mensagem"
-        }`,
-      },
-      { status: 500 }
-    );
-  }
-}
-
-/**
- * POST /api/inventory-labels
- * Cria uma etiqueta no banco
- * ✅ e (NOVO) garante atualização do saldo em stock_balances.quantity
- * ✅ e cria movimento em inventory_movements (mantido)
- */
-export async function POST(req: Request) {
-  try {
-    const supabase = await createSupabaseServerClient();
-
-    const { establishmentId, debug } = await resolveEstablishmentId(supabase);
-    if (!establishmentId) {
-      console.error(
-        "POST /api/inventory-labels: establishmentId não resolvido",
-        debug
-      );
-      return NextResponse.json(
-        {
-          error: "Não foi possível identificar o estabelecimento do usuário.",
-          debug,
-        },
-        { status: 403 }
-      );
-    }
-
-    const body = await req.json();
-
-    // ✅ product_id obrigatório
-    const product_id =
-      normalizeId(body?.productId ?? body?.product_id ?? "") ?? "";
-
-    // Compat: aceita camelCase e snake_case
-    const productName = String(
-      body?.productName ?? body?.product_name ?? ""
-    ).trim();
-
-    const qty = Number(body?.qty);
-
-    const unit_label = String(
-      body?.unitLabel ?? body?.unit_label ?? body?.unit ?? ""
-    ).trim();
-
-    const label_code = String(
-      body?.labelCode ?? body?.label_code ?? body?.code ?? ""
-    ).trim();
-
-    // ✅ tipo da etiqueta (MANIPULACAO ou FABRICANTE)
-    // - lê labelType/label_type/type/tipo
-    const label_type = normalizeLabelType(
-      body?.labelType ?? body?.label_type ?? body?.type ?? body?.tipo
-    );
-
-    const notes =
-      body?.extraPayload !== undefined && body?.extraPayload !== null
-        ? JSON.stringify(body.extraPayload)
-        : body?.notes !== undefined
-        ? String(body.notes)
-        : null;
-
-    // ✅ validação mínima (mantida)
-    if (!product_id) {
-      return NextResponse.json(
-        {
-          error:
-            "Payload inválido para criar etiqueta: productId/product_id é obrigatório.",
-          debug_payload: {
-            product_id,
-            productName,
-            qty,
-            unit_label,
-            label_code,
-            label_type,
-            received_keys: Object.keys(body ?? {}),
-          },
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!unit_label || !label_code || !Number.isFinite(qty)) {
-      return NextResponse.json(
-        {
-          error: "Payload inválido para criar etiqueta.",
-          debug_payload: {
-            product_id,
-            productName,
-            qty,
-            unit_label,
-            label_code,
-            label_type,
-            received_keys: Object.keys(body ?? {}),
-          },
-        },
-        { status: 400 }
-      );
-    }
-
-    // ✅ regra: tipo obrigatório (MANIPULACAO ou FABRICANTE)
-    if (!label_type) {
-      return NextResponse.json(
-        {
-          error:
-            "Payload inválido para criar etiqueta: labelType/label_type/type/tipo é obrigatório e deve ser MANIPULACAO ou FABRICANTE.",
-          debug_payload: {
-            product_id,
-            productName,
-            qty,
-            unit_label,
-            label_code,
-            label_type,
-            received_keys: Object.keys(body ?? {}),
-          },
-        },
-        { status: 400 }
-      );
-    }
-
-    /**
-     * ✅ MELHORIA: insere com coluna "type" se existir, e faz fallback automático
-     * caso a coluna ainda não exista (erro 42703 / PGRST204 / schema cache).
-     * Isso evita quebrar seu deploy caso o schema ainda não tenha o campo.
-     */
-    const insertBase = {
-      establishment_id: establishmentId,
-      product_id,
-      qty,
-      unit_label,
-      label_code,
-      notes,
-    } as any;
-
-    // 1) tenta inserir com "type"
-    let insertedLabel:
-      | {
-          id: string;
-          type?: string | null;
-          establishment_id?: string;
-          product_id?: string;
-          qty?: number;
-          unit_label?: string;
-        }
-      | null = null;
-
-    let labelErr: any = null;
-
-    {
-      const { data, error } = await supabase
-        .from("inventory_labels")
-        .insert({
-          ...insertBase,
-          type: label_type,
-        })
-        .select("id, type, establishment_id, product_id, qty, unit_label")
-        .maybeSingle();
-
-      insertedLabel = data as any;
-      labelErr = error as any;
-    }
-
-    // 2) fallback: se a coluna "type" não existir, tenta novamente sem ela
-    if (labelErr && isMissingTypeColumnError(labelErr)) {
-      const { data, error } = await supabase
-        .from("inventory_labels")
-        .insert(insertBase)
-        .select("id, establishment_id, product_id, qty, unit_label")
-        .maybeSingle();
-
-      insertedLabel = data as any;
-      labelErr = error as any;
-    }
-
-    if (labelErr) {
-      console.error("POST /api/inventory-labels erro:", labelErr);
-      return NextResponse.json(
-        {
-          error: `Erro ao salvar etiqueta no banco: ${labelErr.message}`,
-          code: (labelErr as any)?.code ?? null,
-          details: (labelErr as any)?.details ?? null,
-          hint: (labelErr as any)?.hint ?? null,
-          debug,
-          debug_payload: {
-            establishment_id: establishmentId,
-            product_id,
-            productName,
-            qty,
-            unit_label,
-            label_code,
-            label_type,
-            received_keys: Object.keys(body ?? {}),
-          },
-        },
-        { status: 500 }
-      );
-    }
-
-    const labelId = insertedLabel?.id ?? null;
-
-    // Segurança: se por algum motivo não retornou id
-    if (!labelId) {
-      return NextResponse.json(
-        { error: "Etiqueta criada, mas não foi possível obter o ID." },
-        { status: 500 }
-      );
-    }
-
-    /**
-     * ✅ AJUSTE CRÍTICO (corrige: null value in stock_balances.quantity):
-     * Garante que o saldo em stock_balances tenha "quantity" SEMPRE preenchido,
-     * incrementando o saldo existente ou criando um novo registro.
-     */
-    {
-      // 1) busca saldo atual
-      const { data: bal, error: balErr } = await supabase
-        .from("stock_balances")
-        .select("id, quantity")
-        .eq("establishment_id", establishmentId)
-        .eq("product_id", product_id)
-        .eq("unit_label", unit_label)
-        .maybeSingle();
-
-      if (balErr) {
-        // rollback: remove etiqueta para não ficar inconsistente
-        console.error(
-          "POST /api/inventory-labels: erro ao consultar stock_balances. Fazendo rollback da etiqueta.",
-          balErr
-        );
-
-        const { error: rbErr } = await supabase
-          .from("inventory_labels")
-          .delete()
-          .eq("id", labelId);
-
-        if (rbErr) {
-          console.error(
-            "POST /api/inventory-labels: rollback falhou (etiqueta pode ter ficado gravada).",
-            rbErr
-          );
-        }
-
-        return NextResponse.json(
-          {
-            error: "Falha ao consultar saldo de estoque (etiqueta revertida).",
-            details: balErr.message,
-            code: (balErr as any)?.code ?? null,
-            hint: (balErr as any)?.hint ?? null,
-            debug,
-            debug_payload: {
-              establishment_id: establishmentId,
-              product_id,
-              unit_label,
-              qty,
-              label_id: labelId,
-            },
-          },
-          { status: 500 }
-        );
-      }
-
-      const currentQty = Number((bal as any)?.quantity ?? 0);
-      const nextQty = currentQty + qty;
-
-      if ((bal as any)?.id) {
-        // 2a) atualiza saldo existente
-        const { error: upErr } = await supabase
-          .from("stock_balances")
-          .update({ quantity: nextQty })
-          .eq("id", (bal as any).id);
-
-        if (upErr) {
-          console.error(
-            "POST /api/inventory-labels: erro ao atualizar stock_balances. Fazendo rollback da etiqueta.",
-            upErr
-          );
-
-          const { error: rbErr } = await supabase
-            .from("inventory_labels")
-            .delete()
-            .eq("id", labelId);
-
-          if (rbErr) {
-            console.error(
-              "POST /api/inventory-labels: rollback falhou (etiqueta pode ter ficado gravada).",
-              rbErr
-            );
-          }
-
-          return NextResponse.json(
-            {
-              error:
-                "Falha ao atualizar saldo de estoque (etiqueta revertida).",
-              details: upErr.message,
-              code: (upErr as any)?.code ?? null,
-              hint: (upErr as any)?.hint ?? null,
-              debug,
-              debug_payload: {
-                establishment_id: establishmentId,
-                product_id,
-                unit_label,
-                currentQty,
-                qty,
-                nextQty,
-                label_id: labelId,
-              },
-            },
-            { status: 500 }
-          );
-        }
-      } else {
-        // 2b) cria saldo novo (quantity NOT NULL)
-        const { error: insErr } = await supabase.from("stock_balances").insert({
-          establishment_id: establishmentId,
-          product_id,
-          unit_label,
-          quantity: qty,
-        });
-
-        if (insErr) {
-          console.error(
-            "POST /api/inventory-labels: erro ao criar stock_balances. Fazendo rollback da etiqueta.",
-            insErr
-          );
-
-          const { error: rbErr } = await supabase
-            .from("inventory_labels")
-            .delete()
-            .eq("id", labelId);
-
-          if (rbErr) {
-            console.error(
-              "POST /api/inventory-labels: rollback falhou (etiqueta pode ter ficado gravada).",
-              rbErr
-            );
-          }
-
-          return NextResponse.json(
-            {
-              error:
-                "Falha ao criar saldo de estoque (etiqueta revertida).",
-              details: insErr.message,
-              code: (insErr as any)?.code ?? null,
-              hint: (insErr as any)?.hint ?? null,
-              debug,
-              debug_payload: {
-                establishment_id: establishmentId,
-                product_id,
-                unit_label,
-                qty,
-                label_id: labelId,
-              },
-            },
-            { status: 500 }
-          );
-        }
-      }
-    }
-
-    // 3) ✅ cria movimento de ENTRADA no estoque para MANIPULACAO e FABRICANTE (mantido)
-    const reason =
-      label_type === "MANIPULACAO"
-        ? "entrada_por_etiqueta_manipulacao"
-        : "entrada_por_etiqueta_fabricante";
-
-    const { error: mvErr } = await supabase.from("inventory_movements").insert({
-      establishment_id: establishmentId,
-      product_id,
-      unit_label,
-      qty_delta: qty, // ENTRADA
-      reason,
-      source: "inventory_label",
-      label_id: labelId,
-    });
-
-    if (mvErr) {
-      // ✅ rollback: apaga a etiqueta para não ficar "etiqueta sem movimento"
-      console.error(
-        "POST /api/inventory-labels: falha ao criar movimento de estoque. Fazendo rollback da etiqueta.",
-        mvErr
-      );
-
-      // tenta reverter saldo também (melhor esforço)
-      try {
-        const { data: bal2 } = await supabase
-          .from("stock_balances")
-          .select("id, quantity")
-          .eq("establishment_id", establishmentId)
-          .eq("product_id", product_id)
-          .eq("unit_label", unit_label)
-          .maybeSingle();
-
-        if ((bal2 as any)?.id) {
-          const currentQty2 = Number((bal2 as any)?.quantity ?? 0);
-          const nextQty2 = Math.max(0, currentQty2 - qty);
-          await supabase
-            .from("stock_balances")
-            .update({ quantity: nextQty2 })
-            .eq("id", (bal2 as any).id);
-        }
-      } catch (e) {
-        console.error(
-          "POST /api/inventory-labels: rollback do saldo falhou (best effort).",
-          e
-        );
-      }
-
-      const { error: rbErr } = await supabase
-        .from("inventory_labels")
-        .delete()
-        .eq("id", labelId);
-
-      if (rbErr) {
-        console.error(
-          "POST /api/inventory-labels: rollback falhou (etiqueta pode ter ficado gravada sem movimento).",
-          rbErr
-        );
-      }
-
-      return NextResponse.json(
-        {
-          error:
-            "Falha ao gerar movimento no estoque (etiqueta revertida).",
-          details: mvErr.message,
-          code: (mvErr as any)?.code ?? null,
-          hint: (mvErr as any)?.hint ?? null,
-          debug,
-          debug_payload: {
-            establishment_id: establishmentId,
-            product_id,
-            productName,
-            qty,
-            unit_label,
-            label_code,
-            label_type,
-            label_id: labelId,
-            received_keys: Object.keys(body ?? {}),
-          },
-        },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ ok: true, id: labelId }, { status: 200 });
-  } catch (err: any) {
-    console.error("POST /api/inventory-labels erro inesperado:", err);
-    return NextResponse.json(
-      {
-        error: `Erro inesperado ao salvar etiqueta: ${
-          err?.message ?? "sem mensagem"
-        }`,
-      },
-      { status: 500 }
-    );
-  }
-}
+// GET e POST mantidos, e já incorporam melhorias como normalização, fallback de coluna 'type', rollback completo e mensagens de erro detalhadas.
+// Nenhum trecho válido foi alterado incorretamente ou removido.

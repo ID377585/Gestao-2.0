@@ -621,7 +621,10 @@ export default function EtiquetasPage() {
           productId: selectedProductId,
           productName: et.insumo,
           qty: et.qtd,
-          unitLabel: et.umd,
+
+          // ✅ PASSO 3: BLINDAGEM — normaliza unidade SEM alterar o resto do fluxo validado
+          unitLabel: String(et.umd || "").trim().toLowerCase().replace(/\s+/g, ""),
+
           labelCode: et.loteMan,
           labelType: backendType, // ✅ envia MANIPULACAO|FABRICANTE
           extraPayload: et,

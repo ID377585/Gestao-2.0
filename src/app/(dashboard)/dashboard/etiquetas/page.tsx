@@ -126,6 +126,14 @@ const tamanhosEtiqueta: TamanhoEtiqueta[] = [
 ];
 
 /* =========================
+   ✅ EXTENSÃO: adiciona "marca" (exigência vigilância sanitária)
+   - Mantém compatível com EtiquetaGerada existente
+========================= */
+type EtiquetaGeradaWithMarca = EtiquetaGerada & {
+  marca?: string;
+};
+
+/* =========================
    Form default
 ========================= */
 const createDefaultForm = () => ({
@@ -140,10 +148,12 @@ const createDefaultForm = () => ({
   armazenamento: "",
   ingredientes: "",
 
+  // ✅ Fabricante (REVALIDAR)
   dataFabricante: "",
   dataVencimento: "",
   sif: "",
   loteFab: "",
+  marca: "", // ✅ NOVO: Marca do produto (exigência vigilância)
 
   localEnvio: ESTABELECIMENTO_NOME,
   localArmazenado: "",
@@ -253,7 +263,9 @@ async function apiCreateInventoryLabel(payload: {
 }
 
 export default function EtiquetasPage() {
-  const [etiquetasGeradas, setEtiquetasGeradas] = useState<EtiquetaGerada[]>([]);
+  const [etiquetasGeradas, setEtiquetasGeradas] = useState<
+    EtiquetaGeradaWithMarca[]
+  >([]);
   const [carregandoHistorico, setCarregandoHistorico] = useState(true);
 
   const [showNovaEtiqueta, setShowNovaEtiqueta] = useState(false);
@@ -388,9 +400,9 @@ export default function EtiquetasPage() {
           return;
         }
 
-        const mapped: EtiquetaGerada[] = rows.map((row) => {
+        const mapped: EtiquetaGeradaWithMarca[] = rows.map((row) => {
           const extra = row.notes
-            ? safeJsonParse<Partial<EtiquetaGerada>>(row.notes)
+            ? safeJsonParse<Partial<EtiquetaGeradaWithMarca>>(row.notes)
             : null;
 
           const createdAt = row.created_at;
@@ -415,11 +427,15 @@ export default function EtiquetasPage() {
             dataVencimento: extra?.dataVencimento,
             sif: extra?.sif,
             loteFab: extra?.loteFab,
+
+            // ✅ NOVO: marca (fabricante)
+            marca: extra?.marca,
+
             localEnvio: extra?.localEnvio,
             localArmazenado: extra?.localArmazenado,
 
             createdAt: extra?.createdAt ?? createdAt,
-          };
+          } as EtiquetaGeradaWithMarca;
         });
 
         setEtiquetasGeradas(mapped);
@@ -544,7 +560,7 @@ export default function EtiquetasPage() {
       .map((x) => String(x.qtd ?? "").trim())
       .filter((v) => v.length > 0);
 
-    const novas: EtiquetaGerada[] = qtds.map((qtdStr, idx) => {
+    const novas: EtiquetaGeradaWithMarca[] = qtds.map((qtdStr, idx) => {
       const loteUnico = gerarLoteVigilancia();
       return {
         id: `${nowISO}-${idx}-${Math.random().toString(16).slice(2)}`,
@@ -567,10 +583,13 @@ export default function EtiquetasPage() {
         sif: formData.sif || undefined,
         loteFab: formData.loteFab || undefined,
 
+        // ✅ NOVO: marca do produto (fabricante)
+        marca: formData.marca || undefined,
+
         localEnvio: formData.localEnvio || undefined,
         localArmazenado: formData.localArmazenado || undefined,
         createdAt: nowISO,
-      };
+      } as EtiquetaGeradaWithMarca;
     });
 
     // ✅ log adicional para correlacionar o erro do banco com o produto selecionado
@@ -584,6 +603,8 @@ export default function EtiquetasPage() {
       tipoSelecionado,
       tamanhoSelecionado,
       porcoes: linhasPorcao,
+      // ✅ NOVO
+      marca: formData.marca,
     });
 
     // ✅ tipo obrigatório para o backend
@@ -614,7 +635,7 @@ export default function EtiquetasPage() {
 
     setEtiquetasGeradas((prev) => [...novas, ...prev]);
 
-    await imprimirBatchNoBrowser(novas);
+    await imprimirBatchNoBrowser(novas as unknown as EtiquetaGerada[]);
 
     setShowNovaEtiqueta(false);
   }, [
@@ -763,9 +784,9 @@ export default function EtiquetasPage() {
               </Button>
 
               <div className="mt-3 text-xs text-muted-foreground">
-                Precisa de dados do fabricante (SIF/Lote original)? Abra “Nova
-                Etiqueta” e selecione <strong>{TIPO_LABEL.REVALIDAR}</strong>{" "}
-                no formulário.
+                Precisa de dados do fabricante (Marca/SIF/Lote original)? Abra
+                “Nova Etiqueta” e selecione{" "}
+                <strong>{TIPO_LABEL.REVALIDAR}</strong> no formulário.
               </div>
             </CardContent>
           </Card>
@@ -862,7 +883,11 @@ export default function EtiquetasPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => void imprimirBatchNoBrowser([etiqueta])}
+                            onClick={() =>
+                              void imprimirBatchNoBrowser([
+                                etiqueta as unknown as EtiquetaGerada,
+                              ])
+                            }
                             title="Reimprimir"
                           >
                             🖨️
@@ -875,7 +900,12 @@ export default function EtiquetasPage() {
                           >
                             👁️
                           </Button>
-                          <Button size="sm" variant="outline" title="Copiar" disabled>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Copiar"
+                            disabled
+                          >
                             📋
                           </Button>
                         </div>
@@ -1264,6 +1294,18 @@ export default function EtiquetasPage() {
                     </h4>
 
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div className="min-w-0">
+                        <Label>Marca</Label>
+                        <Input
+                          className="w-full min-w-0"
+                          value={formData.marca}
+                          onChange={(e) =>
+                            handleInputChange("marca", e.target.value)
+                          }
+                          placeholder="Ex: Sadia, Perdigão, Aurora..."
+                        />
+                      </div>
+
                       <div className="min-w-0">
                         <Label>Data de Fabricação</Label>
                         <Input

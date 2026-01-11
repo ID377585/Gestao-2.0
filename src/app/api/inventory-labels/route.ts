@@ -21,7 +21,8 @@ type InventoryLabelRow = {
 function normalizeId(value: any): string | null {
   if (!value) return null;
   const v = String(value).trim();
-  if (!v || v.toLowerCase() === "undefined" || v.toLowerCase() === "null") return null;
+  if (!v || v.toLowerCase() === "undefined" || v.toLowerCase() === "null")
+    return null;
   return v;
 }
 
@@ -36,7 +37,8 @@ function normalizeLabelType(value: any): "MANIPULACAO" | "FABRICANTE" | null {
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
-  if (cleaned === "MANIPULACAO" || cleaned === "MANIPULACAO_PADRAO") return "MANIPULACAO";
+  if (cleaned === "MANIPULACAO" || cleaned === "MANIPULACAO_PADRAO")
+    return "MANIPULACAO";
   if (cleaned === "FABRICANTE" || cleaned === "REVALIDAR") return "FABRICANTE";
   return null;
 }
@@ -52,7 +54,8 @@ function isMissingTypeColumnError(err: any): boolean {
   const blob = `${msg} ${details} ${hint}`;
   if (blob.includes("schema cache") && blob.includes("'type'")) return true;
   if (blob.includes("could not find the 'type' column")) return true;
-  if (blob.includes("column") && blob.includes("type") && blob.includes("does not exist")) return true;
+  if (blob.includes("column") && blob.includes("type") && blob.includes("does not exist"))
+    return true;
 
   return false;
 }
@@ -71,7 +74,9 @@ async function resolveEstablishmentId(
     const userId = normalizeId((membership as any)?.user_id);
 
     const picked = estId ?? orgId ?? null;
-    debug.push(`membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"} user=${userId ?? "null"})`);
+    debug.push(
+      `membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"} user=${userId ?? "null"})`
+    );
 
     return { establishmentId: picked, userId, debug };
   } catch (e: any) {
@@ -124,7 +129,10 @@ export async function GET() {
   const { establishmentId } = await resolveEstablishmentId(supabase);
 
   if (!establishmentId) {
-    return NextResponse.json({ error: "Estabelecimento não encontrado no membership." }, { status: 401 });
+    return NextResponse.json(
+      { error: "Estabelecimento não encontrado no membership." },
+      { status: 401 }
+    );
   }
 
   const { data, error } = await supabase
@@ -145,7 +153,10 @@ export async function POST(req: Request) {
   const { establishmentId, userId, debug } = await resolveEstablishmentId(supabase);
 
   if (!establishmentId) {
-    return NextResponse.json({ error: "Estabelecimento não encontrado no membership.", debug }, { status: 401 });
+    return NextResponse.json(
+      { error: "Estabelecimento não encontrado no membership.", debug },
+      { status: 401 }
+    );
   }
 
   let body: any = null;
@@ -157,7 +168,13 @@ export async function POST(req: Request) {
 
   const productId = normalizeId(body?.productId ?? body?.product_id);
   const labelCode = String(body?.labelCode ?? body?.label_code ?? "").trim();
-  const unitLabel = String(body?.unitLabel ?? body?.unit_label ?? "").trim();
+
+  // ✅ PASSO 3: BLINDAGEM — normaliza unidade também no backend (garante consistência)
+  const unitLabel = String(body?.unitLabel ?? body?.unit_label ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+
   const qty = Number(body?.qty);
 
   const labelType = normalizeLabelType(body?.labelType ?? body?.label_type ?? body?.type);
@@ -166,8 +183,8 @@ export async function POST(req: Request) {
     body?.notes != null
       ? String(body.notes)
       : body?.extraPayload != null
-        ? JSON.stringify(body.extraPayload)
-        : null;
+      ? JSON.stringify(body.extraPayload)
+      : null;
 
   if (!productId) return NextResponse.json({ error: "productId obrigatório." }, { status: 400 });
   if (!labelCode) return NextResponse.json({ error: "labelCode obrigatório." }, { status: 400 });

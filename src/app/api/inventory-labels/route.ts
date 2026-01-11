@@ -32,7 +32,7 @@ function normalizeLabelType(value: any): "MANIPULACAO" | "FABRICANTE" | null {
   const cleaned = raw
     .toUpperCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .trim();
   if (cleaned === "MANIPULACAO" || cleaned === "MANIPULACAO_PADRAO") {
     return "MANIPULACAO";
@@ -113,5 +113,6 @@ async function resolveEstablishmentId(
   return { establishmentId: estId2 ?? orgId2 ?? null, debug };
 }
 
-// GET e POST mantidos, e já incorporam melhorias como normalização, fallback de coluna 'type', rollback completo e mensagens de erro detalhadas.
-// Nenhum trecho válido foi alterado incorretamente ou removido.
+export async function POST(req: Request) {
+  return NextResponse.json({ status: "ok", message: "POST ativo na rota" });
+}

@@ -77,10 +77,9 @@ function normalizeUnitCsv(
 }
 
 /**
- * ✅ Setor (Categoria) — deve bater com o CHECK do banco
- * Use exatamente o mesmo conjunto do dropdown em ProductsPage.
+ * ✅ Setor (Categoria) — fallback local (se não conseguirmos inferir do banco)
  */
-const SECTOR_CATEGORIES = [
+const SECTOR_CATEGORIES_FALLBACK = [
   "Confeitaria",
   "Padaria",
   "Açougue",
@@ -95,46 +94,23 @@ const SECTOR_CATEGORIES = [
   "Bebidas",
 ] as const;
 
-function normalizeSectorCategoryCsv(
-  value: string | null | undefined,
-): string | null {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-
-  // remove NBSP (muito comum vindo do Excel)
-  const cleaned = raw.replace(/\u00A0/g, " ").trim();
-
-  const hit = (SECTOR_CATEGORIES as readonly string[]).find(
-    (c) => c.toLowerCase() === cleaned.toLowerCase(),
-  );
-
-  return hit ?? null;
+function cleanTextFromExcel(value: string) {
+  // remove NBSP (muito comum vindo do Excel) + trims
+  return value.replace(/\u00A0/g, " ").trim();
 }
 
 /**
- * Determina o delimitador do CSV/TSV (TAB, ; ou ,)
- * - Excel/Sheets às vezes exporta como TSV (tab)
- * - escolhe o delimitador com maior contagem no header
+ * ✅ Determina o delimitador do CSV/TSV ( ; , ou TAB )
+ * (Excel às vezes exporta TSV com \t)
  */
 function detectDelimiter(headerLine: string): "\t" | ";" | "," {
-  const counts = {
-    tab: (headerLine.match(/\t/g) || []).length,
-    semicolon: (headerLine.match(/;/g) || []).length,
-    comma: (headerLine.match(/,/g) || []).length,
-  };
-
-  if (
-    counts.tab >= counts.semicolon &&
-    counts.tab >= counts.comma &&
-    counts.tab > 0
-  )
-    return "\t";
-  if (counts.semicolon >= counts.comma && counts.semicolon > 0) return ";";
+  if (headerLine.includes("\t")) return "\t";
+  if (headerLine.includes(";")) return ";";
   return ",";
 }
 
 /**
- * Parser de CSV/TSV linha-a-linha com suporte básico a aspas
+ * Parser de CSV linha-a-linha com suporte básico a aspas
  */
 function parseCsvLine(line: string, delimiter: string): string[] {
   const out: string[] = [];
@@ -203,6 +179,63 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+}
+
+function normalizeHeader(h: string) {
+  const cleaned = cleanTextFromExcel(String(h ?? ""));
+  // remove BOM de header
+  return cleaned.replace(/^\uFEFF/, "").trim().toLowerCase();
+}
+
+/**
+ * ✅ Busca os valores "permitidos" de sector_category direto do banco (distintos)
+ * Isso evita violar o CHECK caso o banco esteja com lista diferente do frontend.
+ *
+ * Se não retornar nada (tabela vazia), cai no fallback local.
+ */
+async function loadAllowedSectorCategoriesFromDb(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  establishmentId: string,
+): Promise<string[]> {
+  // pega um lote e deduz os distintos (suficiente para descobrir os valores já aceitos)
+  const { data, error } = await supabase
+    .from("products")
+    .select("sector_category")
+    .eq("establishment_id", establishmentId)
+    .limit(2000);
+
+  if (error) {
+    console.error("[import.products] load sector_category from db error:", error);
+    return [...SECTOR_CATEGORIES_FALLBACK];
+  }
+
+  const set = new Set<string>();
+  for (const row of data ?? []) {
+    const v = cleanTextFromExcel(String((row as any)?.sector_category ?? "")).trim();
+    if (v) set.add(v);
+  }
+
+  // se ainda não tem nada no banco, usa fallback
+  if (set.size === 0) return [...SECTOR_CATEGORIES_FALLBACK];
+
+  return Array.from(set.values());
+}
+
+function normalizeSectorCategoryWithAllowed(
+  value: string | null | undefined,
+  allowed: string[],
+): string | null {
+  const raw = cleanTextFromExcel(String(value ?? ""));
+  if (!raw) return null;
+
+  // mapa lower -> canonical
+  const map = new Map<string, string>();
+  for (const a of allowed) {
+    map.set(cleanTextFromExcel(a).toLowerCase(), cleanTextFromExcel(a));
+  }
+
+  const hit = map.get(raw.toLowerCase());
+  return hit ?? null; // se não bater, devolve null (não viola CHECK se NULL for permitido)
 }
 
 /**
@@ -368,8 +401,8 @@ export async function POST(request: Request) {
     const headerLine = lines[0];
     const delimiter = detectDelimiter(headerLine);
 
-    const headersRaw = parseCsvLine(headerLine, delimiter).map((h) => h.trim());
-    const headers = headersRaw.map((h) => h.toLowerCase());
+    const headersRaw = parseCsvLine(headerLine, delimiter).map((h) => String(h ?? "").trim());
+    const headers = headersRaw.map((h) => normalizeHeader(h));
 
     const required = ["name", "product_type", "default_unit_label"];
     const missing = required.filter((k) => !headers.includes(k));
@@ -377,7 +410,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(", ")}`,
-          debug: { headers: headersRaw, delimiter_used: delimiter },
+          debug: { headers: headersRaw, delimiter_detected: delimiter },
         },
         { status: 400 },
       );
@@ -389,7 +422,7 @@ export async function POST(request: Request) {
       const cols = parseCsvLine(line, delimiter);
       const rec: Record<string, string> = {};
       headers.forEach((h, idx) => {
-        rec[h] = (cols[idx] ?? "").trim();
+        rec[h] = cleanTextFromExcel(String(cols[idx] ?? ""));
       });
       records.push(rec);
     }
@@ -454,6 +487,12 @@ export async function POST(request: Request) {
       );
     }
 
+    // ✅ carrega lista aceita do banco (pra não violar CHECK)
+    const allowedSectorCategories = await loadAllowedSectorCategoriesFromDb(
+      supabase,
+      effectiveEstablishmentId,
+    );
+
     // ==========================================================
     // Payloads + dedupe
     // ==========================================================
@@ -465,8 +504,8 @@ export async function POST(request: Request) {
     const nowIso = new Date().toISOString();
     const userId = authUserId; // usa auth real
 
-    // ✅ coleta linhas inválidas para não quebrar constraint no banco
-    const invalids: any[] = [];
+    // ✅ warnings (não aborta; só zera sector_category quando inválido)
+    const warnings: any[] = [];
 
     for (const rec of records) {
       const id = normalizeId(rec["id"]?.trim() || null);
@@ -474,9 +513,9 @@ export async function POST(request: Request) {
       const skuRaw = rec["sku"]?.trim() || "";
       const sku = skuRaw.length > 0 ? skuRaw : null;
 
-      const name = (rec["name"] ?? "").trim();
+      const name = cleanTextFromExcel(String(rec["name"] ?? ""));
       const product_type = (
-        (rec["product_type"] ?? "INSU").trim() || "INSU"
+        cleanTextFromExcel(String(rec["product_type"] ?? "INSU")) || "INSU"
       ).toUpperCase();
 
       // ✅ normaliza UNID/LITRO/etc → UN/L
@@ -486,7 +525,7 @@ export async function POST(request: Request) {
 
       const qty_per_package =
         rec["qty_per_package"] && rec["qty_per_package"].trim().length > 0
-          ? rec["qty_per_package"].trim()
+          ? cleanTextFromExcel(String(rec["qty_per_package"]))
           : null;
 
       const priceParsed = parseNumberStr(rec["price"], 2);
@@ -496,31 +535,37 @@ export async function POST(request: Request) {
 
       const category =
         rec["category"] && rec["category"].trim().length > 0
-          ? rec["category"].trim()
+          ? cleanTextFromExcel(String(rec["category"]))
           : null;
 
-      // ✅ normaliza e garante que bate com o CHECK do banco
       const sector_category_raw = rec["sector_category"];
-      const sector_category = normalizeSectorCategoryCsv(sector_category_raw);
+      const sector_category = normalizeSectorCategoryWithAllowed(
+        sector_category_raw,
+        allowedSectorCategories,
+      );
 
-      // se veio preenchido mas não bate com a lista, ignora linha e devolve debug
+      // ✅ se veio preenchido e não bate com o que o banco já aceita:
+      // -> não aborta; grava warning e seta null pra não violar CHECK
       if (String(sector_category_raw ?? "").trim().length > 0 && !sector_category) {
-        invalids.push({
+        warnings.push({
           id,
           sku,
           name,
           field: "sector_category",
           value: sector_category_raw,
+          action: "set_null_to_avoid_check_constraint",
+          allowed_examples: allowedSectorCategories.slice(0, 20),
         });
-        continue;
       }
 
-      // ✅ NOVO: importa shelf_life_days (se vier no CSV)
+      // ✅ importa shelf_life_days (se vier no CSV)
       const shelf_life_days = parseIntSafeCsv(rec["shelf_life_days"]);
 
       const is_active_raw = (rec["is_active"] ?? "1").trim().toLowerCase();
       const is_active =
-        is_active_raw === "1" || is_active_raw === "true" || is_active_raw === "sim";
+        is_active_raw === "1" ||
+        is_active_raw === "true" ||
+        is_active_raw === "sim";
 
       if (!name) {
         skipped++;
@@ -535,8 +580,8 @@ export async function POST(request: Request) {
         package_qty,
         qty_per_package,
         category,
-        sector_category,
-        shelf_life_days, // ✅ adiciona no payload
+        sector_category: sector_category ?? null, // ✅ garante null quando inválido
+        shelf_life_days,
         price,
         conversion_factor,
         is_active,
@@ -560,21 +605,6 @@ export async function POST(request: Request) {
 
       if (sku) bySku.set(sku, createPayload);
       else insertNoSku.push(createPayload);
-    }
-
-    // ✅ se houver valores inválidos, aborta antes de bater no banco
-    if (invalids.length > 0) {
-      return NextResponse.json(
-        {
-          error:
-            "Importação cancelada: existem valores inválidos em sector_category que não passam no CHECK do banco.",
-          debug: {
-            invalid_count: invalids.length,
-            invalids: invalids.slice(0, 30),
-          },
-        },
-        { status: 400 },
-      );
     }
 
     const dedupedBySku = Array.from(bySku.values());
@@ -608,7 +638,7 @@ export async function POST(request: Request) {
         }
 
         for (const row of existing ?? []) {
-          if (row?.sku) existingBySku.set(String(row.sku), String(row.id));
+          if ((row as any)?.sku) existingBySku.set(String((row as any).sku), String((row as any).id));
         }
       }
 
@@ -717,6 +747,7 @@ export async function POST(request: Request) {
 
         for (const rec of upsertById) {
           const { id, ...rest } = rec;
+
           const { error: updateErr } = await supabase
             .from("products")
             .update(rest)
@@ -726,10 +757,7 @@ export async function POST(request: Request) {
           if (updateErr) {
             console.error(`Erro fallback update produto id=${id} (import):`, updateErr);
             return NextResponse.json(
-              {
-                error: `Erro ao atualizar produto id=${id}.`,
-                details: { update: errDetails(updateErr) },
-              },
+              { error: `Erro ao atualizar produto id=${id}.`, details: { update: errDetails(updateErr) } },
               { status: 500 },
             );
           }
@@ -741,7 +769,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const summary = {
+    const summary: any = {
       ok: true,
       insertedOrUpserted: upsertSkuInsertedOrUpdated + insertedNoSku,
       updated: updatedById,
@@ -755,6 +783,16 @@ export async function POST(request: Request) {
         deduped_with_sku: dedupedBySku.length,
       },
     };
+
+    // ✅ devolve warnings (quando o setor veio inválido e foi setado como null)
+    if (warnings.length > 0) {
+      summary.warnings = {
+        count: warnings.length,
+        examples: warnings.slice(0, 30),
+        note:
+          "Algumas linhas tinham sector_category que o banco não reconheceu. Para não violar o CHECK, o valor foi definido como NULL nessas linhas.",
+      };
+    }
 
     if (wantsJson(request)) {
       return NextResponse.json(summary, { status: 200 });

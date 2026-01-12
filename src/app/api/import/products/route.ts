@@ -34,6 +34,82 @@ function parseNumberStr(
 }
 
 /**
+ * ✅ parse inteiro (dias) seguro
+ */
+function parseIntSafeCsv(value: string | null | undefined): number | null {
+  const s = String(value ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (Number.isNaN(n)) return null;
+  const i = Math.trunc(n);
+  return i < 0 ? null : i;
+}
+
+/**
+ * ✅ Normaliza unidade (CSV → valores aceitos no banco/app)
+ * Suporta aliases comuns do Excel: UNID, LITRO, etc.
+ */
+const UNIT_ALIASES: Record<string, "UN" | "KG" | "G" | "L" | "ML"> = {
+  UN: "UN",
+  UNID: "UN",
+  UNIDADE: "UN",
+
+  KG: "KG",
+  KILO: "KG",
+  QUILO: "KG",
+
+  G: "G",
+  GR: "G",
+  GRAMA: "G",
+
+  L: "L",
+  LT: "L",
+  LITRO: "L",
+
+  ML: "ML",
+};
+
+function normalizeUnitCsv(
+  value: string | null | undefined,
+): "UN" | "KG" | "G" | "L" | "ML" {
+  const raw = String(value ?? "").trim().toUpperCase();
+  return UNIT_ALIASES[raw] ?? "UN";
+}
+
+/**
+ * ✅ Setor (Categoria) — deve bater com o CHECK do banco
+ * Use exatamente o mesmo conjunto do dropdown em ProductsPage.
+ */
+const SECTOR_CATEGORIES = [
+  "Confeitaria",
+  "Padaria",
+  "Açougue",
+  "Produção",
+  "Massaria",
+  "Burrataria",
+  "Secos",
+  "Embalagens",
+  "Hortifruti",
+  "Produto de Limpeza",
+  "Descartáveis",
+  "Bebidas",
+] as const;
+
+function normalizeSectorCategoryCsv(value: string | null | undefined): string | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  // remove NBSP (muito comum vindo do Excel)
+  const cleaned = raw.replace(/\u00A0/g, " ").trim();
+
+  const hit = (SECTOR_CATEGORIES as readonly string[]).find(
+    (c) => c.toLowerCase() === cleaned.toLowerCase(),
+  );
+
+  return hit ?? null;
+}
+
+/**
  * Determina o delimitador do CSV ( ; ou , )
  */
 function detectDelimiter(headerLine: string): ";" | "," {
@@ -379,6 +455,9 @@ export async function POST(request: Request) {
     const nowIso = new Date().toISOString();
     const userId = authUserId; // usa auth real
 
+    // ✅ coleta linhas inválidas para não quebrar constraint no banco
+    const invalids: any[] = [];
+
     for (const rec of records) {
       const id = normalizeId(rec["id"]?.trim() || null);
 
@@ -389,7 +468,9 @@ export async function POST(request: Request) {
       const product_type = (
         (rec["product_type"] ?? "INSU").trim() || "INSU"
       ).toUpperCase();
-      const default_unit_label = (rec["default_unit_label"] ?? "un").trim() || "un";
+
+      // ✅ normaliza UNID/LITRO/etc → UN/L
+      const default_unit_label = normalizeUnitCsv(rec["default_unit_label"]);
 
       const package_qty = parseNumberStr(rec["package_qty"], 3);
 
@@ -401,18 +482,31 @@ export async function POST(request: Request) {
       const priceParsed = parseNumberStr(rec["price"], 2);
       const price = priceParsed ?? 0;
 
-      const conversion_factor =
-        parseNumberStr(rec["conversion_factor"], 4) ?? 1;
+      const conversion_factor = parseNumberStr(rec["conversion_factor"], 4) ?? 1;
 
       const category =
         rec["category"] && rec["category"].trim().length > 0
           ? rec["category"].trim()
           : null;
 
-      const sector_category =
-        rec["sector_category"] && rec["sector_category"].trim().length > 0
-          ? rec["sector_category"].trim()
-          : null;
+      // ✅ normaliza e garante que bate com o CHECK do banco
+      const sector_category_raw = rec["sector_category"];
+      const sector_category = normalizeSectorCategoryCsv(sector_category_raw);
+
+      // se veio preenchido mas não bate com a lista, ignora linha e devolve debug
+      if (String(sector_category_raw ?? "").trim().length > 0 && !sector_category) {
+        invalids.push({
+          id,
+          sku,
+          name,
+          field: "sector_category",
+          value: sector_category_raw,
+        });
+        continue;
+      }
+
+      // ✅ NOVO: importa shelf_life_days (se vier no CSV)
+      const shelf_life_days = parseIntSafeCsv(rec["shelf_life_days"]);
 
       const is_active_raw = (rec["is_active"] ?? "1").trim().toLowerCase();
       const is_active =
@@ -434,6 +528,7 @@ export async function POST(request: Request) {
         qty_per_package,
         category,
         sector_category,
+        shelf_life_days, // ✅ adiciona no payload
         price,
         conversion_factor,
         is_active,
@@ -444,9 +539,7 @@ export async function POST(request: Request) {
           id,
           establishment_id: effectiveEstablishmentId,
           ...basePayload,
-          ...(userId
-            ? { updated_by: userId, updated_at: nowIso }
-            : {}),
+          ...(userId ? { updated_by: userId, updated_at: nowIso } : {}),
         });
         continue;
       }
@@ -459,6 +552,21 @@ export async function POST(request: Request) {
 
       if (sku) bySku.set(sku, createPayload);
       else insertNoSku.push(createPayload);
+    }
+
+    // ✅ se houver valores inválidos, aborta antes de bater no banco
+    if (invalids.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Importação cancelada: existem valores inválidos em sector_category que não passam no CHECK do banco.",
+          debug: {
+            invalid_count: invalids.length,
+            invalids: invalids.slice(0, 30),
+          },
+        },
+        { status: 400 },
+      );
     }
 
     const dedupedBySku = Array.from(bySku.values());
@@ -481,7 +589,10 @@ export async function POST(request: Request) {
           .in("sku", chunk);
 
         if (existingErr) {
-          console.error("Erro ao buscar produtos existentes por SKU (import):", existingErr);
+          console.error(
+            "Erro ao buscar produtos existentes por SKU (import):",
+            existingErr,
+          );
           return NextResponse.json(
             {
               error: "Erro ao preparar importação (busca por SKU).",
@@ -523,9 +634,15 @@ export async function POST(request: Request) {
           .select("id");
 
         if (upErr) {
-          console.error("Erro ao atualizar produtos por SKU (via id) (import):", upErr);
+          console.error(
+            "Erro ao atualizar produtos por SKU (via id) (import):",
+            upErr,
+          );
           return NextResponse.json(
-            { error: "Erro ao atualizar produtos existentes (por SKU).", details: { upsertById: errDetails(upErr) } },
+            {
+              error: "Erro ao atualizar produtos existentes (por SKU).",
+              details: { upsertById: errDetails(upErr) },
+            },
             { status: 500 },
           );
         }
@@ -539,9 +656,15 @@ export async function POST(request: Request) {
           .select("id");
 
         if (insErr) {
-          console.error("Erro ao inserir novos produtos (por SKU) (import):", insErr);
+          console.error(
+            "Erro ao inserir novos produtos (por SKU) (import):",
+            insErr,
+          );
           return NextResponse.json(
-            { error: "Erro ao inserir novos produtos (por SKU).", details: { insert: errDetails(insErr) } },
+            {
+              error: "Erro ao inserir novos produtos (por SKU).",
+              details: { insert: errDetails(insErr) },
+            },
             { status: 500 },
           );
         }
@@ -602,9 +725,15 @@ export async function POST(request: Request) {
             .eq("establishment_id", effectiveEstablishmentId);
 
           if (updateErr) {
-            console.error(`Erro fallback update produto id=${id} (import):`, updateErr);
+            console.error(
+              `Erro fallback update produto id=${id} (import):`,
+              updateErr,
+            );
             return NextResponse.json(
-              { error: `Erro ao atualizar produto id=${id}.`, details: { update: errDetails(updateErr) } },
+              {
+                error: `Erro ao atualizar produto id=${id}.`,
+                details: { update: errDetails(updateErr) },
+              },
               { status: 500 },
             );
           }

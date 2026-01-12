@@ -115,18 +115,20 @@ export async function imprimirBatchNoBrowser(
       align-items: stretch;
     }
 
+    /* Reduzimos a largura do QRBox e ajustamos o tamanho da imagem */
     .qrBox {
-      width: 24mm;
-      min-width: 24mm;
+      width: 20mm;
+      min-width: 20mm;
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
     }
 
+    /* Ajustamos a imagem do QR para ocupar 20mm em vez de 24mm */
     .qrImg {
-      width: 24mm;
-      height: 24mm;
+      width: 20mm;
+      height: 20mm;
       object-fit: contain;
     }
 
@@ -148,11 +150,12 @@ export async function imprimirBatchNoBrowser(
       overflow: hidden;
     }
 
+    /* Diminuição geral da fonte das linhas para caberem mais dados */
     .row {
       display: flex;
       align-items: baseline;
       gap: 1.2mm;
-      font-size: 3.5mm;
+      font-size: 3.0mm;      /* era 3.5mm */
       line-height: 1.12;
       white-space: nowrap;
       overflow: hidden;
@@ -172,11 +175,13 @@ export async function imprimirBatchNoBrowser(
       text-overflow: ellipsis;
     }
 
-    .row.produto { font-size: 4.0mm; }
-    .row.qtd     { font-size: 4.0mm; }
+    /* Redução leve do tamanho do Produto e Quantidade */
+    .row.produto { font-size: 3.5mm; } /* era 4.0mm */
+    .row.qtd     { font-size: 3.5mm; } /* era 4.0mm */
 
+    /* Redução leve do rodapé */
     .footer {
-      font-size: 3.0mm;
+      font-size: 2.8mm;      /* era 3.0mm */
       line-height: 1.1;
       margin-top: 1mm;
       display: flex;

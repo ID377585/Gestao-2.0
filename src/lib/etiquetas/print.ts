@@ -21,8 +21,25 @@ const makeQrDataUrl = async (text: string) => {
   });
 };
 
-const buildExtraFabHtml = (e: EtiquetaGerada) => {
+/**
+ * ✅ Extensão local de tipagem (não mexe no helpers)
+ * - Mantém 100% compatível com o fluxo já validado
+ * - Apenas permite ler o campo opcional "marca" na impressão
+ */
+type EtiquetaGeradaComMarca = EtiquetaGerada & {
+  marca?: string;
+};
+
+const buildExtraFabHtml = (e: EtiquetaGeradaComMarca) => {
   let html = "";
+
+  // ✅ NOVO: Marca (dados do fabricante)
+  if (e.marca) {
+    html +=
+      `<div class="row"><span class="k">Marca:</span><span class="v">` +
+      e.marca +
+      `</span></div>`;
+  }
 
   if (e.dataFabricante) {
     html +=
@@ -227,7 +244,7 @@ export async function imprimirBatchNoBrowser(
 
   etqs.forEach((e, i) => {
     const isFab = e.tipo === "REVALIDAR";
-    const extraFab = isFab ? buildExtraFabHtml(e) : "";
+    const extraFab = isFab ? buildExtraFabHtml(e as EtiquetaGeradaComMarca) : "";
     const qrSrc = qrDataUrls[i];
 
     const pageHtml = `

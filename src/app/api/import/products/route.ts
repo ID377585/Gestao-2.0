@@ -95,7 +95,9 @@ const SECTOR_CATEGORIES = [
   "Bebidas",
 ] as const;
 
-function normalizeSectorCategoryCsv(value: string | null | undefined): string | null {
+function normalizeSectorCategoryCsv(
+  value: string | null | undefined,
+): string | null {
   const raw = String(value ?? "").trim();
   if (!raw) return null;
 
@@ -110,15 +112,29 @@ function normalizeSectorCategoryCsv(value: string | null | undefined): string | 
 }
 
 /**
- * Determina o delimitador do CSV ( ; ou , )
+ * Determina o delimitador do CSV/TSV (TAB, ; ou ,)
+ * - Excel/Sheets às vezes exporta como TSV (tab)
+ * - escolhe o delimitador com maior contagem no header
  */
-function detectDelimiter(headerLine: string): ";" | "," {
-  if (headerLine.includes(";")) return ";";
+function detectDelimiter(headerLine: string): "\t" | ";" | "," {
+  const counts = {
+    tab: (headerLine.match(/\t/g) || []).length,
+    semicolon: (headerLine.match(/;/g) || []).length,
+    comma: (headerLine.match(/,/g) || []).length,
+  };
+
+  if (
+    counts.tab >= counts.semicolon &&
+    counts.tab >= counts.comma &&
+    counts.tab > 0
+  )
+    return "\t";
+  if (counts.semicolon >= counts.comma && counts.semicolon > 0) return ";";
   return ",";
 }
 
 /**
- * Parser de CSV linha-a-linha com suporte básico a aspas
+ * Parser de CSV/TSV linha-a-linha com suporte básico a aspas
  */
 function parseCsvLine(line: string, delimiter: string): string[] {
   const out: string[] = [];
@@ -308,18 +324,12 @@ export async function POST(request: Request) {
     const file = formData.get("file") as File | null;
 
     if (!file) {
-      return NextResponse.json(
-        { error: "Arquivo não enviado." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Arquivo não enviado." }, { status: 400 });
     }
 
     const fileName = (file as any)?.name ? String((file as any).name) : "";
     const lowerName = fileName.toLowerCase();
-    if (
-      lowerName.endsWith(".xlsx") ||
-      String(file.type).includes("spreadsheetml")
-    ) {
+    if (lowerName.endsWith(".xlsx") || String(file.type).includes("spreadsheetml")) {
       return NextResponse.json(
         {
           error:
@@ -367,7 +377,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(", ")}`,
-          debug: { headers: headersRaw },
+          debug: { headers: headersRaw, delimiter_used: delimiter },
         },
         { status: 400 },
       );
@@ -510,9 +520,7 @@ export async function POST(request: Request) {
 
       const is_active_raw = (rec["is_active"] ?? "1").trim().toLowerCase();
       const is_active =
-        is_active_raw === "1" ||
-        is_active_raw === "true" ||
-        is_active_raw === "sim";
+        is_active_raw === "1" || is_active_raw === "true" || is_active_raw === "sim";
 
       if (!name) {
         skipped++;
@@ -589,10 +597,7 @@ export async function POST(request: Request) {
           .in("sku", chunk);
 
         if (existingErr) {
-          console.error(
-            "Erro ao buscar produtos existentes por SKU (import):",
-            existingErr,
-          );
+          console.error("Erro ao buscar produtos existentes por SKU (import):", existingErr);
           return NextResponse.json(
             {
               error: "Erro ao preparar importação (busca por SKU).",
@@ -634,10 +639,7 @@ export async function POST(request: Request) {
           .select("id");
 
         if (upErr) {
-          console.error(
-            "Erro ao atualizar produtos por SKU (via id) (import):",
-            upErr,
-          );
+          console.error("Erro ao atualizar produtos por SKU (via id) (import):", upErr);
           return NextResponse.json(
             {
               error: "Erro ao atualizar produtos existentes (por SKU).",
@@ -656,10 +658,7 @@ export async function POST(request: Request) {
           .select("id");
 
         if (insErr) {
-          console.error(
-            "Erro ao inserir novos produtos (por SKU) (import):",
-            insErr,
-          );
+          console.error("Erro ao inserir novos produtos (por SKU) (import):", insErr);
           return NextResponse.json(
             {
               error: "Erro ao inserir novos produtos (por SKU).",
@@ -725,10 +724,7 @@ export async function POST(request: Request) {
             .eq("establishment_id", effectiveEstablishmentId);
 
           if (updateErr) {
-            console.error(
-              `Erro fallback update produto id=${id} (import):`,
-              updateErr,
-            );
+            console.error(`Erro fallback update produto id=${id} (import):`, updateErr);
             return NextResponse.json(
               {
                 error: `Erro ao atualizar produto id=${id}.`,

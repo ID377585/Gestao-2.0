@@ -33,10 +33,10 @@ import {
 
 /**
  * ✅ Melhorias de formulário (sem mexer em lógica já validada):
- * - Unidade padrão: select (un, kg, g, L, mL)
+ * - Unidade padrão: select (UN, KG, G, L, ML)  ✅ (forçado em maiúsculo)
  * - Categoria (armazenamento): select (Resfriado, Congelado, Temp. Ambiente)
  */
-const UNIT_OPTIONS = ["un", "kg", "g", "L", "mL"] as const;
+const UNIT_OPTIONS = ["UN", "KG", "G", "L", "ML"] as const;
 const STORAGE_CATEGORIES = ["Resfriado", "Congelado", "Temp. Ambiente"] as const;
 
 const SECTOR_CATEGORIES = [
@@ -297,7 +297,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     <select
                       id="default_unit_label"
                       name="default_unit_label"
-                      defaultValue="un"
+                      defaultValue="UN"
                       required
                       className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -541,9 +541,13 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                           {formatQty(product.package_qty)}
                         </TableCell>
 
-                        {/* Unidade */}
+                        {/* Unidade ✅ (força exibição em maiúsculo) */}
                         <TableCell>
-                          {product.default_unit_label ?? <span>-</span>}
+                          {product.default_unit_label ? (
+                            product.default_unit_label.toUpperCase()
+                          ) : (
+                            <span>-</span>
+                          )}
                         </TableCell>
 
                         {/* Qtd. por embalagem (TEXTO) */}
@@ -681,7 +685,10 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                     <select
                                       id={`default_unit_label-${product.id}`}
                                       name="default_unit_label"
-                                      defaultValue={product.default_unit_label ?? "un"}
+                                      defaultValue={
+                                        (product.default_unit_label?.toUpperCase() as any) ??
+                                        "UN"
+                                      }
                                       required
                                       className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                                     >

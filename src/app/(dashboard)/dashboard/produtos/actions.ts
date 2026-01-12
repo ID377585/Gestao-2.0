@@ -32,6 +32,18 @@ function normalizeText(value: FormDataEntryValue | null): string | null {
 }
 
 /**
+ * ✅ NOVO: Normaliza unidade para evitar inconsistência (kg/Kg/ML/mL etc)
+ * - força maiúsculo
+ * - garante apenas valores permitidos
+ */
+function normalizeUnit(value: FormDataEntryValue | null): string | null {
+  if (!value) return null;
+  const v = String(value).trim().toUpperCase();
+  const ALLOWED = ["UN", "KG", "G", "L", "ML"] as const;
+  return (ALLOWED as readonly string[]).includes(v) ? v : null;
+}
+
+/**
  * Log seguro (não explode circular) para Vercel Logs
  */
 function safeJson(obj: any) {
@@ -199,9 +211,10 @@ export async function createProduct(formData: FormData) {
 
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
-  const default_unit_label = String(
-    formData.get("default_unit_label") ?? "un",
-  ).trim();
+
+  // ✅ Unidade normalizada e forçada em maiúsculo
+  const default_unit_label =
+    normalizeUnit(formData.get("default_unit_label")) ?? "UN";
 
   const skuRaw = formData.get("sku");
   const categoryRaw = formData.get("category");
@@ -319,9 +332,10 @@ export async function updateProduct(formData: FormData) {
 
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
-  const default_unit_label = String(
-    formData.get("default_unit_label") ?? "un",
-  ).trim();
+
+  // ✅ Unidade normalizada e forçada em maiúsculo
+  const default_unit_label =
+    normalizeUnit(formData.get("default_unit_label")) ?? "UN";
 
   const skuRaw = formData.get("sku");
   const categoryRaw = formData.get("category");

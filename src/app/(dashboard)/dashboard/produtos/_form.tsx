@@ -17,7 +17,7 @@ type ProductFormProps = {
     // Qtd (peso/volume da embalagem) -> número
     package_qty: number | null;
 
-    // Unidade padrão -> texto (kg, g, L, mL, un)
+    // Unidade padrão -> texto (KG, G, L, ML, UN)
     default_unit_label: string;
 
     qty_per_package: string | null;
@@ -37,7 +37,7 @@ type ProductFormProps = {
   };
 };
 
-const UNIT_OPTIONS = ["un", "kg", "g", "L", "mL"] as const;
+const UNIT_OPTIONS = ["UN", "KG", "G", "L", "ML"] as const;
 
 const STORAGE_CATEGORIES: StorageCategory[] = [
   "Resfriado",
@@ -136,7 +136,7 @@ export function ProductForm({ product }: ProductFormProps) {
           <label className="block text-sm font-medium">Unidade padrão</label>
           <select
             name="default_unit_label"
-            defaultValue={product?.default_unit_label ?? "un"}
+            defaultValue={(product?.default_unit_label?.toUpperCase() as any) ?? "UN"}
             className="w-full rounded border px-3 py-2"
           >
             {UNIT_OPTIONS.map((u) => (

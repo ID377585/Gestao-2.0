@@ -286,7 +286,8 @@ export async function seedInitialStockFromProducts() {
       establishment_id: establishmentId,
       product_id: p.id,
       quantity: 0,
-      unit_label: (p as any).default_unit_label ?? "un",
+      // Normalize default unit labels to uppercase, fallback to "UN"
+      unit_label: ((p as any).default_unit_label ?? "UN").toUpperCase(),
       min_qty: 0,
       med_qty: 0,
       max_qty: 0,
@@ -444,7 +445,8 @@ export async function addInventoryItem(input: AddInventoryItemInput) {
     session_id: input.session_id,
     product_id: input.product_id,
     counted_quantity: input.counted_quantity,
-    unit_label: input.unit_label,
+    // Normalize unit label to uppercase before storing
+    unit_label: input.unit_label.toUpperCase(),
   });
 
   if (insertError) {
@@ -506,7 +508,10 @@ export async function finalizeInventory(sessionId: string) {
       .from("stock_balances")
       .update({
         quantity: (item as any).counted_quantity,
-        unit_label: (item as any).unit_label ?? null,
+        // Normalize unit labels to uppercase; if unit_label is falsy, set null
+        unit_label: (item as any).unit_label
+          ? String((item as any).unit_label).toUpperCase()
+          : null,
       })
       .eq("establishment_id", establishmentId)
       .eq("product_id", (item as any).product_id);
@@ -625,7 +630,8 @@ export async function createStockMovementAction(
   const payload: StockMovementInput = {
     establishment_id: establishmentId,
     product_id: (input as any).product_id,
-    unit_label: (input as any).unit_label,
+    // Normalize unit label to uppercase when creating movements
+    unit_label: String((input as any).unit_label ?? "").toUpperCase(),
     qty_delta: (input as any).qty_delta,
     reason: (input as any).reason ?? "adjustment",
     source: (input as any).source ?? "server_action",
@@ -655,7 +661,12 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
     if (!balanceId && !productId) continue;
 
     const payload: any = {};
-    if ("unit_label" in it) payload.unit_label = it.unit_label ?? null;
+    if ("unit_label" in it) {
+      // Convert supplied unit labels to uppercase. When empty, interpret as null.
+      payload.unit_label = it.unit_label
+        ? String(it.unit_label).toUpperCase()
+        : null;
+    }
     if ("location" in it) payload.location = it.location ?? null;
     if ("min_qty" in it) payload.min_qty = it.min_qty ?? 0;
     if ("med_qty" in it) payload.med_qty = it.med_qty ?? 0;

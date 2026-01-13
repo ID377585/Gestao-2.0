@@ -44,7 +44,7 @@ const menuItems = [
   { title: "Histórico", href: "/dashboard/historico-pedidos", icon: History },
   { title: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },
   { title: "Transferências", href: "/dashboard/transferencias", icon: ArrowLeftRight },
-  { title: "Compras", href: "/dashboard/compras", icon: ShoppingCart },
+  { title: "Hub de Dados", href: "/dashboard/compras", icon: ShoppingCart },
   { title: "Controladoria", href: "/dashboard/controladoria", icon: BadgeDollarSign },
 ];
 

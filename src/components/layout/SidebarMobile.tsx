@@ -1,3 +1,4 @@
+// src/components/layout/sidebarmobile.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -40,7 +41,9 @@ const menuItems = [
   { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },
   { title: "Etiquetas", href: "/dashboard/etiquetas", icon: Tag },
   { title: "Histórico", href: "/dashboard/historico-pedidos", icon: History },
-  { title: "Compras", href: "/dashboard/compras", icon: ShoppingCart },
+
+  // ✅ RENOMEADO: "Compras" -> "Hub de Dados" (mantém a rota)
+  { title: "Hub de Dados", href: "/dashboard/compras", icon: ShoppingCart },
 
   // ✅ AGORA SOBEM PARA O MENU PRINCIPAL
   { title: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },

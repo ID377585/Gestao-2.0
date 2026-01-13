@@ -34,6 +34,10 @@ export function SidebarNav({ role, onNavigate }: Props) {
                   pathname === item.href || pathname?.startsWith(item.href + "/");
                 const Icon = item.icon;
 
+                // ✅ Renomeia só o rótulo exibido (mantém href intacto)
+                const label =
+                  item.label === "Compras" ? "Hub de Dados" : item.label;
+
                 return (
                   <Link
                     key={item.href}
@@ -47,7 +51,7 @@ export function SidebarNav({ role, onNavigate }: Props) {
                     )}
                   >
                     <Icon className="h-4 w-4" />
-                    <span>{item.label}</span>
+                    <span>{label}</span>
                   </Link>
                 );
               })}

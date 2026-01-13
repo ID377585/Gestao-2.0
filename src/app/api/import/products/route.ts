@@ -156,6 +156,28 @@ function wantsJson(request: Request) {
 }
 
 /**
+ * ✅ Resposta de erro compatível com:
+ * - Navegação via form (HTML): redireciona para /dashboard/produtos?error=...
+ * - XHR/API: retorna JSON
+ */
+function respondError(
+  request: Request,
+  message: string,
+  status = 400,
+  extra?: any,
+) {
+  if (wantsJson(request)) {
+    return NextResponse.json({ error: message, ...(extra ?? {}) }, { status });
+  }
+
+  const url = new URL("/dashboard/produtos", request.url);
+  url.searchParams.set("error", encodeURIComponent(message));
+
+  // opcional: pode anexar "success" vazio etc., mas não é necessário.
+  return NextResponse.redirect(url, 303);
+}
+
+/**
  * Split robusto para Windows/Mac/Linux
  */
 function splitLinesRobusto(text: string): string[] {
@@ -211,7 +233,9 @@ async function loadAllowedSectorCategoriesFromDb(
 
   const set = new Set<string>();
   for (const row of data ?? []) {
-    const v = cleanTextFromExcel(String((row as any)?.sector_category ?? "")).trim();
+    const v = cleanTextFromExcel(
+      String((row as any)?.sector_category ?? ""),
+    ).trim();
     if (v) set.add(v);
   }
 
@@ -357,18 +381,19 @@ export async function POST(request: Request) {
     const file = formData.get("file") as File | null;
 
     if (!file) {
-      return NextResponse.json({ error: "Arquivo não enviado." }, { status: 400 });
+      return respondError(request, "Arquivo não enviado.", 400);
     }
 
     const fileName = (file as any)?.name ? String((file as any).name) : "";
     const lowerName = fileName.toLowerCase();
-    if (lowerName.endsWith(".xlsx") || String(file.type).includes("spreadsheetml")) {
-      return NextResponse.json(
-        {
-          error:
-            "Formato .xlsx não suportado nesta importação. Exporte como CSV (de preferência 'CSV UTF-8') e tente novamente.",
-        },
-        { status: 400 },
+    if (
+      lowerName.endsWith(".xlsx") ||
+      String(file.type).includes("spreadsheetml")
+    ) {
+      return respondError(
+        request,
+        "Formato .xlsx não suportado nesta importação. Exporte como CSV (de preferência 'CSV UTF-8') e tente novamente.",
+        400,
       );
     }
 
@@ -383,36 +408,33 @@ export async function POST(request: Request) {
 
     if (lines.length <= 1) {
       const preview = text.slice(0, 300);
-      return NextResponse.json(
-        {
-          error: "Arquivo sem dados para importar.",
-          debug: {
-            fileName,
-            fileType: file.type,
-            size: (file as any)?.size ?? null,
-            first300chars: preview,
-            detectedLines: lines.length,
-          },
+      return respondError(request, "Arquivo sem dados para importar.", 400, {
+        debug: {
+          fileName,
+          fileType: file.type,
+          size: (file as any)?.size ?? null,
+          first300chars: preview,
+          detectedLines: lines.length,
         },
-        { status: 400 },
-      );
+      });
     }
 
     const headerLine = lines[0];
     const delimiter = detectDelimiter(headerLine);
 
-    const headersRaw = parseCsvLine(headerLine, delimiter).map((h) => String(h ?? "").trim());
+    const headersRaw = parseCsvLine(headerLine, delimiter).map((h) =>
+      String(h ?? "").trim(),
+    );
     const headers = headersRaw.map((h) => normalizeHeader(h));
 
     const required = ["name", "product_type", "default_unit_label"];
     const missing = required.filter((k) => !headers.includes(k));
     if (missing.length > 0) {
-      return NextResponse.json(
-        {
-          error: `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(", ")}`,
-          debug: { headers: headersRaw, delimiter_detected: delimiter },
-        },
-        { status: 400 },
+      return respondError(
+        request,
+        `CSV inválido. Cabeçalhos obrigatórios ausentes: ${missing.join(", ")}`,
+        400,
+        { debug: { headers: headersRaw, delimiter_detected: delimiter } },
       );
     }
 
@@ -444,17 +466,17 @@ export async function POST(request: Request) {
       if (csvEstabSet.size > 0) {
         for (const v of csvEstabSet.values()) {
           if (v !== effectiveEstablishmentId) {
-            return NextResponse.json(
+            return respondError(
+              request,
+              "CSV contém establishment_id diferente do establishment do usuário logado. Verifique o UUID.",
+              400,
               {
-                error:
-                  "CSV contém establishment_id diferente do establishment do usuário logado. Verifique o UUID.",
                 debug: {
                   resolvedEstablishmentId: effectiveEstablishmentId,
                   csvEstablishmentIds: Array.from(csvEstabSet),
                   resolveDebug: debug,
                 },
               },
-              { status: 400 },
             );
           }
         }
@@ -462,28 +484,27 @@ export async function POST(request: Request) {
     } else {
       // não conseguiu resolver pelo login → exige CSV preenchido
       if (csvEstabSet.size !== 1) {
-        return NextResponse.json(
+        return respondError(
+          request,
+          "Estabelecimento não encontrado no membership/login. Preencha a coluna establishment_id no CSV com o MESMO UUID em todas as linhas.",
+          400,
           {
-            error:
-              "Estabelecimento não encontrado no membership/login. Preencha a coluna establishment_id no CSV com o MESMO UUID em todas as linhas.",
             debug: {
               csvEstablishmentIds: Array.from(csvEstabSet),
               resolveDebug: debug,
             },
           },
-          { status: 400 },
         );
       }
       effectiveEstablishmentId = Array.from(csvEstabSet)[0];
     }
 
     if (!effectiveEstablishmentId) {
-      return NextResponse.json(
-        {
-          error: "Não foi possível determinar o establishment_id para importar.",
-          debug: { resolveDebug: debug },
-        },
-        { status: 400 },
+      return respondError(
+        request,
+        "Não foi possível determinar o establishment_id para importar.",
+        400,
+        { debug: { resolveDebug: debug } },
       );
     }
 
@@ -628,17 +649,18 @@ export async function POST(request: Request) {
 
         if (existingErr) {
           console.error("Erro ao buscar produtos existentes por SKU (import):", existingErr);
-          return NextResponse.json(
-            {
-              error: "Erro ao preparar importação (busca por SKU).",
-              details: { select: errDetails(existingErr) },
-            },
-            { status: 500 },
+          return respondError(
+            request,
+            "Erro ao preparar importação (busca por SKU).",
+            500,
+            { details: { select: errDetails(existingErr) } },
           );
         }
 
         for (const row of existing ?? []) {
-          if ((row as any)?.sku) existingBySku.set(String((row as any).sku), String((row as any).id));
+          if ((row as any)?.sku) {
+            existingBySku.set(String((row as any).sku), String((row as any).id));
+          }
         }
       }
 
@@ -670,12 +692,11 @@ export async function POST(request: Request) {
 
         if (upErr) {
           console.error("Erro ao atualizar produtos por SKU (via id) (import):", upErr);
-          return NextResponse.json(
-            {
-              error: "Erro ao atualizar produtos existentes (por SKU).",
-              details: { upsertById: errDetails(upErr) },
-            },
-            { status: 500 },
+          return respondError(
+            request,
+            "Erro ao atualizar produtos existentes (por SKU).",
+            500,
+            { details: { upsertById: errDetails(upErr) } },
           );
         }
         upsertSkuInsertedOrUpdated += (upData ?? []).length;
@@ -689,12 +710,11 @@ export async function POST(request: Request) {
 
         if (insErr) {
           console.error("Erro ao inserir novos produtos (por SKU) (import):", insErr);
-          return NextResponse.json(
-            {
-              error: "Erro ao inserir novos produtos (por SKU).",
-              details: { insert: errDetails(insErr) },
-            },
-            { status: 500 },
+          return respondError(
+            request,
+            "Erro ao inserir novos produtos (por SKU).",
+            500,
+            { details: { insert: errDetails(insErr) } },
           );
         }
         upsertSkuInsertedOrUpdated += (insData ?? []).length;
@@ -713,9 +733,11 @@ export async function POST(request: Request) {
 
       if (insertErr) {
         console.error("Erro ao inserir produtos sem SKU (import):", insertErr);
-        return NextResponse.json(
+        return respondError(
+          request,
+          "Erro ao inserir produtos (sem SKU).",
+          500,
           {
-            error: "Erro ao inserir produtos (sem SKU).",
             details: {
               insert: errDetails(insertErr),
               info: {
@@ -725,7 +747,6 @@ export async function POST(request: Request) {
               },
             },
           },
-          { status: 500 },
         );
       }
 
@@ -756,9 +777,11 @@ export async function POST(request: Request) {
 
           if (updateErr) {
             console.error(`Erro fallback update produto id=${id} (import):`, updateErr);
-            return NextResponse.json(
-              { error: `Erro ao atualizar produto id=${id}.`, details: { update: errDetails(updateErr) } },
-              { status: 500 },
+            return respondError(
+              request,
+              `Erro ao atualizar produto id=${id}.`,
+              500,
+              { details: { update: errDetails(updateErr) } },
             );
           }
         }
@@ -802,11 +825,15 @@ export async function POST(request: Request) {
       new URL("/dashboard/produtos?success=import", request.url),
       303,
     );
-  } catch (err) {
+  } catch (err: any) {
     console.error("Erro inesperado em /api/import/products:", err);
-    return NextResponse.json(
-      { error: "Erro inesperado ao importar produtos." },
-      { status: 500 },
+
+    // ✅ mantém UX boa no navegador (redirect com mensagem)
+    return respondError(
+      request,
+      "Erro inesperado ao importar produtos.",
+      500,
+      { details: errDetails(err) },
     );
   }
 }

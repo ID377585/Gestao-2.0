@@ -288,7 +288,6 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
 
     if (!canSubmit || saving) return;
 
-    // Validação de saldo garantida antes de mandar (refresca saldo quando necessário)
     try {
       setSaving(true);
 
@@ -301,7 +300,6 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
         if (!it.unit_label?.trim()) continue;
         if (!Number.isFinite(qtyNum) || qtyNum <= 0) continue;
 
-        // se ainda não tem available, consulta
         if (it.available == null) {
           await refreshStock(it.id);
         }
@@ -348,15 +346,17 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
         return;
       }
 
-      const res = await createTransfer({
+      // ✅ Amarra o tipo do payload ao tipo REAL aceito pelo server action
+      const payload: Parameters<typeof createTransfer>[0] = {
         to_establishment_id: toEstablishmentId,
         notes: notes.trim() || null,
         items: payloadItems,
-      });
+      };
+
+      const res = await createTransfer(payload);
 
       if (res?.ok) {
         setSuccessMsg(`Transferência criada com sucesso: ${res.transfer_id}`);
-        // Fecha e reseta
         close();
         resetForm();
       } else {
@@ -369,7 +369,6 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
     }
   }
 
-  // Helpers UI
   const fromName =
     establishments.find((e) => e.id === fromEstablishmentId)?.name ?? "Origem";
 
@@ -406,11 +405,7 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-900">Origem</label>
-                <Input
-                  className="bg-white text-gray-900"
-                  value={fromName}
-                  readOnly
-                />
+                <Input className="bg-white text-gray-900" value={fromName} readOnly />
                 <p className="text-xs text-gray-500">
                   A origem é automaticamente seu estabelecimento atual.
                 </p>
@@ -445,7 +440,7 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
 
             <Separator />
 
-            {/* FILTRO DE PRODUTOS (ajuda a popular o select dos itens) */}
+            {/* FILTRO DE PRODUTOS */}
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-900">Buscar produtos</label>
               <Input
@@ -491,7 +486,6 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
                     const qtyNum = parseQty(it.qty);
                     const qtyInvalid =
                       it.qty.trim().length > 0 && (!Number.isFinite(qtyNum) || qtyNum <= 0);
-
                     const overStock =
                       it.available != null && Number.isFinite(qtyNum) && qtyNum > it.available;
 
@@ -520,7 +514,6 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
                                   error: null,
                                 });
 
-                                // refresh imediato após escolher
                                 setTimeout(() => refreshStock(it.id), 0);
                               }}
                             >
@@ -547,11 +540,7 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
                               value={it.unit_label}
                               onChange={(e) => {
                                 const unit_label = e.target.value.toUpperCase();
-                                updateItem(it.id, {
-                                  unit_label,
-                                  available: null,
-                                  error: null,
-                                });
+                                updateItem(it.id, { unit_label, available: null, error: null });
                               }}
                               onBlur={() => refreshStock(it.id)}
                             />
@@ -601,6 +590,7 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
                                 </span>
                               )}
                             </div>
+
                             <Button
                               type="button"
                               variant="ghost"

@@ -23,6 +23,11 @@ function safeNum(v: any): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function uuid() {
+  // Node 18+ tem crypto.randomUUID()
+  return crypto.randomUUID();
+}
+
 /**
  * Retorna:
  * - establishmentId (origem padrão do usuário logado)
@@ -215,8 +220,7 @@ export async function listTransfers(params?: {
 
   if (dir !== "ALL") query = query.eq("direction", dir);
 
-  if (params?.from)
-    query = query.gte("created_at", `${params.from}T00:00:00.000Z`);
+  if (params?.from) query = query.gte("created_at", `${params.from}T00:00:00.000Z`);
   if (params?.to) query = query.lte("created_at", `${params.to}T23:59:59.999Z`);
 
   const { data, error } = await query;
@@ -246,7 +250,8 @@ export async function listTransfers(params?: {
 
     const counterparty = r.direction === "OUT" ? toId ?? null : fromId ?? null;
 
-    const productName = r?.products?.name ?? safeStr((r as any)?.details?.product_name) ?? null;
+    const productName =
+      r?.products?.name ?? safeStr((r as any)?.details?.product_name) ?? null;
 
     // filtro textual simples (pós-query)
     if (q) {
@@ -355,7 +360,8 @@ export async function getTransferDetails(
       id: r.id,
       created_at: r.created_at,
       product_id: String(r.product_id),
-      product_name: r?.products?.name ?? safeStr((r as any)?.details?.product_name) ?? null,
+      product_name:
+        r?.products?.name ?? safeStr((r as any)?.details?.product_name) ?? null,
       unit_label: String(r.unit_label),
       qty: safeNum(r.qty),
       direction: r.direction,
@@ -371,55 +377,120 @@ export async function getTransferDetails(
 
 /* =====================================================================================
    PASSO 5 — CRIAR TRANSFERÊNCIA (OUT na origem + IN no destino)
-   - grava em inventory_movements
-   - valida estoque na view inventory_current_stock (se existir)
+   ✅ Melhorias:
+   - Tipagem exportada (CreateTransferInput) compatível com o Modal (items[])
+   - Validação de permissão no destino (membership ativo)
+   - Mantém validação de saldo (getAvailableStock)
+   - Cria OUT/IN com o MESMO transfer_id
 ===================================================================================== */
 
 export type CreateTransferInput = {
   to_establishment_id: string;
-  product_id: string; // produto da ORIGEM
-  qty: number;
-  unit_label: string;
-  reason?: string | null;
   notes?: string | null;
+  items: Array<{
+    product_id: string;
+    unit_label: string;
+    qty: number;
+  }>;
 };
 
+async function getAvailableStock(params: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  establishmentId: string;
+  product_id: string;
+  unit_label: string;
+}) {
+  const { supabase, establishmentId, product_id, unit_label } = params;
+
+  // tenta view principal
+  const { data, error } = await supabase
+    .from("inventory_current_stock")
+    .select("qty")
+    .eq("establishment_id", establishmentId)
+    .eq("product_id", product_id)
+    .eq("unit_label", unit_label)
+    .maybeSingle();
+
+  if (!error) {
+    const qty = Number((data as any)?.qty ?? 0);
+    return Number.isFinite(qty) ? qty : 0;
+  }
+
+  // fallback
+  const { data: data2, error: error2 } = await supabase
+    .from("current_stock")
+    .select("qty")
+    .eq("establishment_id", establishmentId)
+    .eq("product_id", product_id)
+    .eq("unit_label", unit_label)
+    .maybeSingle();
+
+  if (error2) {
+    console.error("Erro ao consultar saldo:", { error, error2 });
+    throw new Error("Erro ao consultar saldo do estoque.");
+  }
+
+  const qty = Number((data2 as any)?.qty ?? 0);
+  return Number.isFinite(qty) ? qty : 0;
+}
+
 export async function createTransfer(
-  input: CreateTransferInput,
-): Promise<{ ok: boolean; transfer_id: string }> {
+  params: CreateTransferInput,
+): Promise<{ ok: true; transfer_id: string }> {
   const supabase = await createSupabaseServerClient();
 
   const { membership } = await getActiveMembershipOrRedirect();
-  const fromEstablishmentId = normalizeId((membership as any)?.establishment_id);
+  const from_establishment_id = normalizeId((membership as any)?.establishment_id);
 
-  if (!fromEstablishmentId) {
+  if (!from_establishment_id) {
     throw new Error("Estabelecimento de origem não encontrado para o usuário atual.");
   }
 
-  // userId
-  const { data: authData, error: authErr } = await supabase.auth.getUser();
-  const userId = normalizeId(authData?.user?.id);
-  if (authErr || !userId) throw new Error("Usuário não autenticado.");
-
-  const toEstablishmentId = normalizeId(input?.to_establishment_id);
-  const productIdFrom = normalizeId(input?.product_id);
-  const unitLabel = safeStr(input?.unit_label);
-  const qty = safeNum(input?.qty);
-
-  if (!toEstablishmentId) throw new Error("Selecione o estabelecimento de destino.");
-  if (toEstablishmentId === fromEstablishmentId) {
-    throw new Error("O destino não pode ser o mesmo que a origem.");
+  const to_establishment_id = normalizeId(params?.to_establishment_id);
+  if (!to_establishment_id) {
+    throw new Error("Destino inválido.");
   }
-  if (!productIdFrom) throw new Error("Selecione um produto válido.");
-  if (!unitLabel) throw new Error("Informe a unidade (unit_label).");
-  if (!(qty > 0)) throw new Error("Informe uma quantidade maior que zero.");
 
-  // 1) Verifica se o usuário tem membership ativo no destino
+  if (to_establishment_id === from_establishment_id) {
+    throw new Error("Origem e destino não podem ser iguais.");
+  }
+
+  const items = (params?.items ?? [])
+    .map((it) => ({
+      product_id: normalizeId(it.product_id),
+      unit_label: String(it.unit_label ?? "").trim().toUpperCase(),
+      qty: safeNum(it.qty),
+    }))
+    .filter((it) => it.product_id && it.unit_label && it.qty > 0) as Array<{
+    product_id: string;
+    unit_label: string;
+    qty: number;
+  }>;
+
+  if (!items.length) {
+    throw new Error("Informe ao menos 1 item válido.");
+  }
+
+  // valida destino: precisa estar na lista acessível pelo usuário (mantém o que já estava)
+  const opts = await getTransferOptions();
+  const allowed = (opts.establishments ?? []).some((e) => e.id === to_establishment_id);
+  if (!allowed) {
+    throw new Error("Você não tem acesso ao estabelecimento de destino selecionado.");
+  }
+
+  // ✅ melhoria: garante também que existe membership ativo no destino
+  const { data: authData, error: authErr } = await supabase.auth.getUser();
+  const created_by = normalizeId(authData?.user?.id);
+
+  if (authErr || !created_by) {
+    throw new Error("Usuário não autenticado.");
+  }
+
   const { data: memTo, error: memToErr } = await supabase
     .from("memberships")
     .select("id")
-    .eq("user_id", userId)
-    .eq("establishment_id", toEstablishmentId)
+    .eq("user_id", created_by)
+    .eq("establishment_id", to_establishment_id)
     .eq("is_active", true)
     .maybeSingle();
 
@@ -427,182 +498,92 @@ export async function createTransfer(
     console.error("Erro ao validar membership destino:", memToErr);
     throw new Error("Não foi possível validar permissão no destino.");
   }
+
   if (!memTo?.id) {
-    throw new Error("Você não tem acesso ao estabelecimento de destino.");
+    throw new Error("Você não tem acesso ao estabelecimento de destino selecionado.");
   }
 
-  // 2) Produto na ORIGEM (precisamos do nome para mapear no destino)
-  const { data: prodFrom, error: prodFromErr } = await supabase
-    .from("products")
-    .select("id, name, default_unit_label")
-    .eq("establishment_id", fromEstablishmentId)
-    .eq("id", productIdFrom)
-    .maybeSingle();
+  const transfer_id = uuid();
+  const notes = safeStr(params?.notes) ?? null;
 
-  if (prodFromErr) {
-    console.error("Erro ao buscar produto origem:", prodFromErr);
-    throw new Error("Não foi possível carregar o produto da origem.");
-  }
-  if (!prodFrom?.id) throw new Error("Produto não encontrado na origem.");
+  // 1) valida estoque na ORIGEM para todos os itens
+  for (const it of items) {
+    const available = await getAvailableStock({
+      supabase,
+      establishmentId: from_establishment_id,
+      product_id: it.product_id,
+      unit_label: it.unit_label,
+    });
 
-  const productName = safeStr((prodFrom as any)?.name) ?? "Produto";
-  const reason = safeStr(input?.reason) ?? "transferencia";
-  const notes = safeStr(input?.notes);
-
-  // 3) Confere estoque atual na ORIGEM (VIEW inventory_current_stock)
-  // Se a view não existir / der erro, apenas não bloqueia (best-effort).
-  try {
-    const { data: stockRow, error: stockErr } = await supabase
-      .from("inventory_current_stock")
-      .select("current_stock")
-      .eq("establishment_id", fromEstablishmentId)
-      .eq("product_id", productIdFrom)
-      .eq("unit_label", unitLabel)
-      .maybeSingle();
-
-    if (!stockErr) {
-      const currentStock = Number((stockRow as any)?.current_stock ?? 0);
-      if (qty > currentStock) {
-        throw new Error(
-          `Estoque insuficiente na origem. Disponível: ${currentStock} ${unitLabel}.`,
-        );
-      }
-    }
-  } catch (e: any) {
-    // se a view não existir ou falhar, não trava a transferência aqui
-    // (o ideal é ter RLS/trigger no banco, mas mantemos robusto)
-    if (
-      typeof e?.message === "string" &&
-      e.message.includes("Estoque insuficiente")
-    ) {
-      throw e;
+    if (it.qty > available) {
+      throw new Error(
+        `Saldo insuficiente para o produto (${it.product_id}) na unidade ${it.unit_label}. Disponível: ${available}, solicitado: ${it.qty}.`,
+      );
     }
   }
 
-  // 4) Mapeia produto no DESTINO (por nome)
-  const { data: prodTo, error: prodToErr } = await supabase
-    .from("products")
-    .select("id, name")
-    .eq("establishment_id", toEstablishmentId)
-    .eq("name", productName)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (prodToErr) {
-    console.error("Erro ao buscar produto destino:", prodToErr);
-    throw new Error("Não foi possível carregar o produto no destino.");
-  }
-
-  if (!prodTo?.id) {
-    throw new Error(
-      `O produto "${productName}" não existe no destino. Crie/importe o produto no estabelecimento de destino antes de transferir.`,
-    );
-  }
-
-  const productIdTo = String((prodTo as any).id);
-
-  // 5) ID único da transferência
-  // (Node: crypto.randomUUID pode existir; fallback para import("crypto"))
-  let transfer_id = "";
-  try {
-    transfer_id = (globalThis as any)?.crypto?.randomUUID?.() ?? "";
-  } catch {}
-  if (!transfer_id) {
-    const cryptoMod = await import("crypto");
-    transfer_id = cryptoMod.randomUUID();
-  }
-
-  const nowISO = new Date().toISOString();
-
-  // 6) 2 movimentos: OUT (origem) e IN (destino)
-  const outPayload: any = {
-    establishment_id: fromEstablishmentId,
-    product_id: productIdFrom,
-    label_id: null,
-    order_id: null,
-    unit_label: unitLabel,
-    qty,
-    direction: "OUT",
+  // 2) cria lançamentos OUT (origem) e IN (destino)
+  const outRows = items.map((it) => ({
+    establishment_id: from_establishment_id,
+    product_id: it.product_id,
+    unit_label: it.unit_label,
+    qty: it.qty,
+    direction: "OUT" as const,
     movement_type: "transferencia",
-    reason,
-    notes: null,
-    created_by: userId,
-    created_at: nowISO,
+    reason: "transferencia",
+    notes,
+    created_by,
     details: {
       transfer_id,
-      from_establishment_id: fromEstablishmentId,
-      to_establishment_id: toEstablishmentId,
-      product_name: productName,
-      unit_label: unitLabel,
-      qty,
-      notes: notes ?? null,
-      origin_product_id: productIdFrom,
-      destination_product_id: productIdTo,
+      from_establishment_id,
+      to_establishment_id,
     },
-  };
+  }));
 
-  const inPayload: any = {
-    establishment_id: toEstablishmentId,
-    product_id: productIdTo,
-    label_id: null,
-    order_id: null,
-    unit_label: unitLabel,
-    qty,
-    direction: "IN",
+  const inRows = items.map((it) => ({
+    establishment_id: to_establishment_id,
+    product_id: it.product_id,
+    unit_label: it.unit_label,
+    qty: it.qty,
+    direction: "IN" as const,
     movement_type: "transferencia",
-    reason,
-    notes: null,
-    created_by: userId,
-    created_at: nowISO,
+    reason: "transferencia",
+    notes,
+    created_by,
     details: {
       transfer_id,
-      from_establishment_id: fromEstablishmentId,
-      to_establishment_id: toEstablishmentId,
-      product_name: productName,
-      unit_label: unitLabel,
-      qty,
-      notes: notes ?? null,
-      origin_product_id: productIdFrom,
-      destination_product_id: productIdTo,
+      from_establishment_id,
+      to_establishment_id,
     },
-  };
+  }));
 
-  // OUT
-  const { error: outErr } = await supabase
-    .from("inventory_movements")
-    .insert(outPayload);
-
+  // transação “manual”: se falhar IN após OUT, tentamos reverter OUT
+  const { error: outErr } = await supabase.from("inventory_movements").insert(outRows);
   if (outErr) {
-    console.error("Erro ao criar movimento OUT:", outErr);
-    throw new Error("Falha ao registrar saída da origem.");
+    console.error("Erro ao inserir OUT:", outErr);
+    throw new Error("Não foi possível registrar a saída (origem).");
   }
 
-  // IN
-  const { error: inErr } = await supabase.from("inventory_movements").insert(inPayload);
-
+  const { error: inErr } = await supabase.from("inventory_movements").insert(inRows);
   if (inErr) {
-    console.error("Erro ao criar movimento IN:", inErr);
+    console.error("Erro ao inserir IN:", inErr);
 
-    // best-effort compensação: remove OUT recém criado (evita "sumir estoque" no app)
+    // rollback best-effort: remove tudo da origem com esse transfer_id
     try {
       await supabase
         .from("inventory_movements")
         .delete()
-        .eq("establishment_id", fromEstablishmentId)
+        .eq("establishment_id", from_establishment_id)
         .eq("movement_type", "transferencia")
-        .eq("direction", "OUT")
-        .eq("created_by", userId)
-        .eq("created_at", nowISO);
-    } catch {}
+        .contains("details", { transfer_id });
+    } catch (e) {
+      console.error("Rollback OUT falhou:", e);
+    }
 
-    throw new Error("Falha ao registrar entrada no destino.");
+    throw new Error("Não foi possível registrar a entrada (destino).");
   }
 
-  // Revalidar telas
-  try {
-    revalidatePath("/dashboard/transferencias");
-    revalidatePath("/dashboard/estoque");
-  } catch {}
+  revalidatePath("/dashboard/transferencias");
 
   return { ok: true, transfer_id };
 }

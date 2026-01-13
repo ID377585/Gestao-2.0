@@ -71,7 +71,10 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
   }
 
   function addItem() {
-    setItems((prev) => [...prev, { id: uid(), sku: "", name: "", qty: "", unit: "UN" }]);
+    setItems((prev) => [
+      ...prev,
+      { id: uid(), sku: "", name: "", qty: "", unit: "UN" },
+    ]);
   }
 
   function removeItem(id: string) {
@@ -119,31 +122,35 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
         if (!v) resetForm();
       }}
     >
-      <DialogContent className="sm:max-w-[900px]">
+      {/* ✅ Força fundo branco e texto escuro para melhor leitura */}
+      <DialogContent className="sm:max-w-[900px] bg-white text-gray-900 border border-gray-200 shadow-xl">
         <DialogHeader>
           <DialogTitle>Nova Transferência</DialogTitle>
-          <DialogDescription>
-            Defina origem e destino e informe os itens. (Nesta etapa ainda é mock — em seguida vamos ligar no estoque.)
+          <DialogDescription className="text-gray-600">
+            Defina origem e destino e informe os itens. (Nesta etapa ainda é mock — em
+            seguida vamos ligar no estoque.)
           </DialogDescription>
         </DialogHeader>
 
         {/* ORIGEM / DESTINO */}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Origem</label>
+            <label className="text-sm font-medium text-gray-900">Origem</label>
             <Input
+              className="bg-white text-gray-900"
               placeholder="Ex: Estoque Matriz / Unidade A"
               value={origin}
               onChange={(e) => setOrigin(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-gray-500">
               Depois vamos trocar por um Select com as unidades/estoques do estabelecimento.
             </p>
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">Destino</label>
+            <label className="text-sm font-medium text-gray-900">Destino</label>
             <Input
+              className="bg-white text-gray-900"
               placeholder="Ex: Estoque Loja / Unidade B"
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
@@ -151,9 +158,7 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
             {origin.trim() &&
               destination.trim() &&
               origin.trim().toLowerCase() === destination.trim().toLowerCase() && (
-                <p className="text-xs text-red-600">
-                  Origem e destino não podem ser iguais.
-                </p>
+                <p className="text-xs text-red-600">Origem e destino não podem ser iguais.</p>
               )}
           </div>
         </div>
@@ -164,8 +169,8 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-medium">Itens da transferência</div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-sm font-medium text-gray-900">Itens da transferência</div>
+              <div className="text-xs text-gray-500">
                 Informe produto e quantidade. Você pode adicionar várias linhas.
               </div>
             </div>
@@ -176,8 +181,8 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
             </Button>
           </div>
 
-          <div className="rounded-lg border">
-            <div className="grid grid-cols-12 gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium">
+          <div className="rounded-lg border border-gray-200 bg-white">
+            <div className="grid grid-cols-12 gap-2 border-b bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700">
               <div className="col-span-3">SKU (opcional)</div>
               <div className="col-span-5">Produto</div>
               <div className="col-span-2">Quantidade</div>
@@ -185,11 +190,12 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
               <div className="col-span-1 text-right"> </div>
             </div>
 
-            <div className="divide-y">
+            <div className="divide-y divide-gray-200">
               {items.map((it) => (
                 <div key={it.id} className="grid grid-cols-12 gap-2 px-3 py-3">
                   <div className="col-span-12 md:col-span-3">
                     <Input
+                      className="bg-white text-gray-900"
                       placeholder="SKU"
                       value={it.sku ?? ""}
                       onChange={(e) => updateItem(it.id, { sku: e.target.value })}
@@ -198,6 +204,7 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
 
                   <div className="col-span-12 md:col-span-5">
                     <Input
+                      className="bg-white text-gray-900"
                       placeholder="Nome do produto"
                       value={it.name}
                       onChange={(e) => updateItem(it.id, { name: e.target.value })}
@@ -206,21 +213,25 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
 
                   <div className="col-span-6 md:col-span-2">
                     <Input
+                      className="bg-white text-gray-900"
                       inputMode="decimal"
                       placeholder="0"
                       value={it.qty}
                       onChange={(e) => updateItem(it.id, { qty: e.target.value })}
                     />
-                    <div className="mt-1 text-[11px] text-muted-foreground">
+                    <div className="mt-1 text-[11px] text-gray-500">
                       Aceita vírgula/ponto.
                     </div>
                   </div>
 
                   <div className="col-span-4 md:col-span-1">
                     <Input
+                      className="bg-white text-gray-900"
                       placeholder="UN"
                       value={it.unit}
-                      onChange={(e) => updateItem(it.id, { unit: e.target.value.toUpperCase() })}
+                      onChange={(e) =>
+                        updateItem(it.id, { unit: e.target.value.toUpperCase() })
+                      }
                     />
                   </div>
 
@@ -243,9 +254,9 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
           </div>
 
           {!canSubmit && (
-            <p className="text-xs text-muted-foreground">
-              Para salvar: preencha <strong>Origem</strong>, <strong>Destino</strong> e pelo menos{" "}
-              <strong>1 item</strong> com produto e quantidade &gt; 0.
+            <p className="text-xs text-gray-600">
+              Para salvar: preencha <strong>Origem</strong>, <strong>Destino</strong> e pelo
+              menos <strong>1 item</strong> com produto e quantidade &gt; 0.
             </p>
           )}
         </div>
@@ -254,8 +265,9 @@ export function NovaTransferenciaModal({ open, onOpenChange }: Props) {
 
         {/* OBS */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">Observações (opcional)</label>
+          <label className="text-sm font-medium text-gray-900">Observações (opcional)</label>
           <Textarea
+            className="bg-white text-gray-900"
             placeholder="Ex: transferência para reposição da vitrine..."
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

@@ -518,8 +518,10 @@ export async function POST(request: Request) {
     // Payloads + dedupe
     // ==========================================================
     const bySku = new Map<string, any>();
-    const upsertById: any[] = [];
     const insertNoSku: any[] = [];
+
+    // ✅ NOVO: itens com ID vindo do CSV (vamos separar insert vs update depois)
+    const withIdPayloads: any[] = [];
 
     let skipped = 0;
     const nowIso = new Date().toISOString();
@@ -567,7 +569,10 @@ export async function POST(request: Request) {
 
       // ✅ se veio preenchido e não bate com o que o banco já aceita:
       // -> não aborta; grava warning e seta null pra não violar CHECK
-      if (String(sector_category_raw ?? "").trim().length > 0 && !sector_category) {
+      if (
+        String(sector_category_raw ?? "").trim().length > 0 &&
+        !sector_category
+      ) {
         warnings.push({
           id,
           sku,
@@ -608,12 +613,13 @@ export async function POST(request: Request) {
         is_active,
       };
 
+      // ✅ MELHORIA: quando vier ID no CSV, não fazemos upsert cego.
+      // Vamos separar depois: se o ID já existe -> update; se não existe -> insert COM created_by/created_at
       if (id) {
-        upsertById.push({
+        withIdPayloads.push({
           id,
           establishment_id: effectiveEstablishmentId,
           ...basePayload,
-          ...(userId ? { updated_by: userId, updated_at: nowIso } : {}),
         });
         continue;
       }
@@ -648,7 +654,10 @@ export async function POST(request: Request) {
           .in("sku", chunk);
 
         if (existingErr) {
-          console.error("Erro ao buscar produtos existentes por SKU (import):", existingErr);
+          console.error(
+            "Erro ao buscar produtos existentes por SKU (import):",
+            existingErr,
+          );
           return respondError(
             request,
             "Erro ao preparar importação (busca por SKU).",
@@ -659,7 +668,10 @@ export async function POST(request: Request) {
 
         for (const row of existing ?? []) {
           if ((row as any)?.sku) {
-            existingBySku.set(String((row as any).sku), String((row as any).id));
+            existingBySku.set(
+              String((row as any).sku),
+              String((row as any).id),
+            );
           }
         }
       }
@@ -691,7 +703,10 @@ export async function POST(request: Request) {
           .select("id");
 
         if (upErr) {
-          console.error("Erro ao atualizar produtos por SKU (via id) (import):", upErr);
+          console.error(
+            "Erro ao atualizar produtos por SKU (via id) (import):",
+            upErr,
+          );
           return respondError(
             request,
             "Erro ao atualizar produtos existentes (por SKU).",
@@ -709,7 +724,10 @@ export async function POST(request: Request) {
           .select("id");
 
         if (insErr) {
-          console.error("Erro ao inserir novos produtos (por SKU) (import):", insErr);
+          console.error(
+            "Erro ao inserir novos produtos (por SKU) (import):",
+            insErr,
+          );
           return respondError(
             request,
             "Erro ao inserir novos produtos (por SKU).",
@@ -754,47 +772,124 @@ export async function POST(request: Request) {
     }
 
     // ==========================================================
-    // 3) UPSERT por ID (quando vier id no CSV)
+    // 3) ID vindo do CSV (separar INSERT vs UPDATE para não quebrar RLS/created_by)
     // ==========================================================
+    let insertedWithId = 0;
     let updatedById = 0;
-    if (upsertById.length > 0) {
-      const { error: upsertIdErr, data } = await supabase
-        .from("products")
-        .upsert(upsertById, { onConflict: "id", ignoreDuplicates: false })
-        .select("id");
 
-      if (upsertIdErr) {
-        console.error("Erro upsert por ID (import):", upsertIdErr);
+    if (withIdPayloads.length > 0) {
+      const ids = Array.from(
+        new Set(withIdPayloads.map((p) => String(p.id)).filter(Boolean)),
+      );
 
-        for (const rec of upsertById) {
-          const { id, ...rest } = rec;
+      // Descobre quais IDs já existem
+      const existingIdSet = new Set<string>();
+      const idChunks = chunkArray(ids, 250);
 
-          const { error: updateErr } = await supabase
-            .from("products")
-            .update(rest)
-            .eq("id", id)
-            .eq("establishment_id", effectiveEstablishmentId);
+      for (const chunk of idChunks) {
+        const { data: existing, error: existingErr } = await supabase
+          .from("products")
+          .select("id")
+          .eq("establishment_id", effectiveEstablishmentId)
+          .in("id", chunk);
 
-          if (updateErr) {
-            console.error(`Erro fallback update produto id=${id} (import):`, updateErr);
-            return respondError(
-              request,
-              `Erro ao atualizar produto id=${id}.`,
-              500,
-              { details: { update: errDetails(updateErr) } },
-            );
-          }
+        if (existingErr) {
+          console.error("Erro ao buscar produtos existentes por ID (import):", existingErr);
+          return respondError(
+            request,
+            "Erro ao preparar importação (busca por ID).",
+            500,
+            { details: { select: errDetails(existingErr) } },
+          );
         }
 
-        updatedById = upsertById.length;
-      } else {
-        updatedById = (data ?? []).length;
+        for (const row of existing ?? []) {
+          if ((row as any)?.id) existingIdSet.add(String((row as any).id));
+        }
+      }
+
+      const toInsertWithId: any[] = [];
+      const toUpdateById: any[] = [];
+
+      for (const payload of withIdPayloads) {
+        const id = String(payload.id);
+        if (existingIdSet.has(id)) {
+          toUpdateById.push({
+            ...payload,
+            ...(userId ? { updated_by: userId, updated_at: nowIso } : {}),
+          });
+        } else {
+          // ✅ IMPORTANTE: inserir com created_by/created_at (evita sumir por RLS no app)
+          toInsertWithId.push({
+            ...payload,
+            ...(userId ? { created_by: userId, created_at: nowIso } : {}),
+          });
+        }
+      }
+
+      if (toInsertWithId.length > 0) {
+        const { error: insErr, data: insData } = await supabase
+          .from("products")
+          .insert(toInsertWithId)
+          .select("id");
+
+        if (insErr) {
+          console.error("Erro ao inserir produtos com ID (import):", insErr);
+          return respondError(
+            request,
+            "Erro ao inserir produtos (com ID do CSV).",
+            500,
+            { details: { insert: errDetails(insErr) } },
+          );
+        }
+
+        insertedWithId = (insData ?? []).length;
+      }
+
+      if (toUpdateById.length > 0) {
+        const { error: upsertIdErr, data } = await supabase
+          .from("products")
+          .upsert(toUpdateById, { onConflict: "id", ignoreDuplicates: false })
+          .select("id");
+
+        if (upsertIdErr) {
+          console.error("Erro upsert por ID (import):", upsertIdErr);
+
+          // fallback update 1 a 1 (mantém sua lógica validada)
+          for (const rec of toUpdateById) {
+            const { id, ...rest } = rec;
+
+            const { error: updateErr } = await supabase
+              .from("products")
+              .update(rest)
+              .eq("id", id)
+              .eq("establishment_id", effectiveEstablishmentId);
+
+            if (updateErr) {
+              console.error(
+                `Erro fallback update produto id=${id} (import):`,
+                updateErr,
+              );
+              return respondError(
+                request,
+                `Erro ao atualizar produto id=${id}.`,
+                500,
+                { details: { update: errDetails(updateErr) } },
+              );
+            }
+          }
+
+          updatedById = toUpdateById.length;
+        } else {
+          updatedById = (data ?? []).length;
+        }
       }
     }
 
     const summary: any = {
       ok: true,
-      insertedOrUpserted: upsertSkuInsertedOrUpdated + insertedNoSku,
+      insertedOrUpserted:
+        upsertSkuInsertedOrUpdated + insertedNoSku + insertedWithId,
       updated: updatedById,
       skipped,
       totalLines: records.length,
@@ -804,6 +899,11 @@ export async function POST(request: Request) {
       sku_stats: {
         received_with_sku: bySku.size,
         deduped_with_sku: dedupedBySku.length,
+      },
+      id_stats: {
+        received_with_id: withIdPayloads.length,
+        inserted_with_id: insertedWithId,
+        updated_by_id: updatedById,
       },
     };
 
@@ -815,6 +915,19 @@ export async function POST(request: Request) {
         note:
           "Algumas linhas tinham sector_category que o banco não reconheceu. Para não violar o CHECK, o valor foi definido como NULL nessas linhas.",
       };
+    }
+
+    // ✅ MELHORIA: não dar "sucesso" se nada foi inserido/atualizado
+    const affected =
+      (summary.insertedOrUpserted ?? 0) + (summary.updated ?? 0);
+
+    if (affected === 0) {
+      return respondError(
+        request,
+        "Importação concluída, mas nenhuma linha foi inserida/atualizada. Verifique se o CSV possui 'name' preenchido, se o establishment_id está correto e se você está consultando a tabela 'products' (não 'produtos') no Supabase.",
+        400,
+        { summary },
+      );
     }
 
     if (wantsJson(request)) {

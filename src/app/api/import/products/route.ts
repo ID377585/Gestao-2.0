@@ -213,7 +213,8 @@ function normalizeHeader(h: string) {
  * ✅ Busca os valores "permitidos" de sector_category direto do banco (distintos)
  * Isso evita violar o CHECK caso o banco esteja com lista diferente do frontend.
  *
- * Se não retornar nada (tabela vazia), cai no fallback local.
+ * Se não retornar nada (tabela vazia), NÃO chuta valores: retorna lista vazia
+ * para que qualquer valor do CSV seja gravado como NULL (evita 23514).
  */
 async function loadAllowedSectorCategoriesFromDb(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
@@ -228,6 +229,7 @@ async function loadAllowedSectorCategoriesFromDb(
 
   if (error) {
     console.error("[import.products] load sector_category from db error:", error);
+    // mantém fallback apenas quando houve erro de consulta
     return [...SECTOR_CATEGORIES_FALLBACK];
   }
 
@@ -239,8 +241,8 @@ async function loadAllowedSectorCategoriesFromDb(
     if (v) set.add(v);
   }
 
-  // se ainda não tem nada no banco, usa fallback
-  if (set.size === 0) return [...SECTOR_CATEGORIES_FALLBACK];
+  // ✅ IMPORTANTE: tabela vazia -> retorna [] (não inventa allowed e não viola CHECK)
+  if (set.size === 0) return [];
 
   return Array.from(set.values());
 }
@@ -580,7 +582,13 @@ export async function POST(request: Request) {
           field: "sector_category",
           value: sector_category_raw,
           action: "set_null_to_avoid_check_constraint",
-          allowed_examples: allowedSectorCategories.slice(0, 20),
+          // ✅ quando allowed vier vazio (tabela vazia), deixa aviso mais claro
+          allowed_examples:
+            allowedSectorCategories.length > 0
+              ? allowedSectorCategories.slice(0, 20)
+              : [
+                  "(tabela vazia) — valores do CSV serão gravados como NULL para não violar o CHECK",
+                ],
         });
       }
 
@@ -794,7 +802,10 @@ export async function POST(request: Request) {
           .in("id", chunk);
 
         if (existingErr) {
-          console.error("Erro ao buscar produtos existentes por ID (import):", existingErr);
+          console.error(
+            "Erro ao buscar produtos existentes por ID (import):",
+            existingErr,
+          );
           return respondError(
             request,
             "Erro ao preparar importação (busca por ID).",
@@ -918,8 +929,7 @@ export async function POST(request: Request) {
     }
 
     // ✅ MELHORIA: não dar "sucesso" se nada foi inserido/atualizado
-    const affected =
-      (summary.insertedOrUpserted ?? 0) + (summary.updated ?? 0);
+    const affected = (summary.insertedOrUpserted ?? 0) + (summary.updated ?? 0);
 
     if (affected === 0) {
       return respondError(

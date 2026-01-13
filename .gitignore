@@ -60,3 +60,4 @@ Thumbs.db
 # =========================
 *.bak
 next.config.ts.bak
+.vercel

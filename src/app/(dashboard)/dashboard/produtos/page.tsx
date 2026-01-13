@@ -216,6 +216,13 @@ export default async function ProductsPage({ searchParams }: PageProps) {
         </div>
       )}
 
+      {/* ✅ NOVO: sucesso de importação */}
+      {success === "import" && (
+        <div className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
+          Produtos importados com sucesso!
+        </div>
+      )}
+
       {/* Cabeçalho + ações */}
       <div className="flex items-center justify-between gap-4">
         <div>

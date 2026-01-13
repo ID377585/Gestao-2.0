@@ -33,9 +33,9 @@ import {
   seedInitialStockFromProducts,
   listProductsForInventory,
   updateStockThresholds,
-  getLastClosedInventorySession, // ✅ NOVO IMPORT
-  bulkUpdateStockMeta, // ✅ NOVO IMPORT (upload CSV)
-  type BulkStockMetaUpdateItem, // ✅ NOVO IMPORT (tipo)
+  getLastClosedInventorySession,
+  bulkUpdateStockMeta,
+  type BulkStockMetaUpdateItem,
 } from "./actions";
 
 // ===== Tipagens auxiliares =====
@@ -62,7 +62,7 @@ type InventorySession = {
   id: string;
   status: string;
   started_at: string | null;
-  finished_at: string | null; // ✅ alinhado com o backend
+  finished_at: string | null;
 };
 
 type InventoryItem = {
@@ -445,8 +445,12 @@ export default function EstoquePage() {
     const stockRow = stock.find((s) => s.product?.id === selectedProductId);
     const unitLabelFromStock = stockRow?.unit_label ?? null;
     const productMeta = products.find((p) => p.id === selectedProductId);
-    const unitLabel =
-      unitLabelFromStock ?? productMeta?.default_unit_label ?? "un";
+    // Normalize and default to "UN" if undefined, always uppercase
+    const unitLabel = String(
+      unitLabelFromStock ??
+        productMeta?.default_unit_label ??
+        "UN"
+    ).toUpperCase();
 
     try {
       setSavingItem(true);
@@ -530,11 +534,15 @@ export default function EstoquePage() {
     (s) => s.product?.id === selectedProductId
   );
   const productMeta = products.find((p) => p.id === selectedProductId);
-  const selectedUnit =
+  const rawSelectedUnit =
     selectedProductRow?.unit_label ??
     selectedProductRow?.product?.default_unit_label ??
     productMeta?.default_unit_label ??
     "";
+  // Normalize selected unit to uppercase for display
+  const selectedUnit = rawSelectedUnit
+    ? rawSelectedUnit.toString().toUpperCase()
+    : "";
 
   // data que será exibida no modal (sempre somente leitura)
   const inventoryDateDisplay =
@@ -599,7 +607,10 @@ export default function EstoquePage() {
   const buildCsvRows = (rows: StockRow[]) => {
     return rows.map((row) => {
       const status = getStatusFromRow(row);
-      const unit = row.unit_label ?? row.product?.default_unit_label ?? "un";
+      // Normalize unit to uppercase with fallback "UN"
+      const unit = String(
+        row.unit_label ?? row.product?.default_unit_label ?? "UN"
+      ).toUpperCase();
       const price = row.product?.price ?? 0;
       const total = price * (row.quantity ?? 0);
 
@@ -757,8 +768,11 @@ export default function EstoquePage() {
         continue;
       }
 
-      const unit_label =
-        idxUnidade >= 0 ? String(cells[idxUnidade] ?? "").trim() : "";
+      let unit_label = "";
+      if (idxUnidade >= 0) {
+        // uppercase unit label from CSV
+        unit_label = String(cells[idxUnidade] ?? "").trim().toUpperCase();
+      }
       const location =
         idxLocal >= 0 ? String(cells[idxLocal] ?? "").trim() : "";
 
@@ -884,15 +898,17 @@ export default function EstoquePage() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Baixos</CardTitle>
+          <CardHeader className="flex flex-row items-center justify_between space-y-0 pb-2">
+            <CardTitle className="text-sm font_medium">Baixos</CardTitle>
             <span className="text-2xl">⚠️</span>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-yellow-600">
               {loadingStock ? "…" : totalBaixos}
             </div>
-            <p className="text-xs text-muted-foreground">Itens próximos ao mínimo</p>
+            <p className="text-xs text-muted-foreground">
+              Itens próximos ao mínimo
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -917,7 +933,6 @@ export default function EstoquePage() {
 
           {/* ✅ Ações: Inventário + Export + Upload */}
           <div className="flex flex-wrap gap-2 pt-3">
-            {/* ✅ Movido do topo para cá (topo limpo, inventário continua acessível) */}
             <Button onClick={openInventoryModal} disabled={loadingInventory}>
               <span className="mr-2">📋</span>
               Iniciar Inventário
@@ -988,8 +1003,10 @@ export default function EstoquePage() {
                   const status = getStatusFromRow(row);
                   const badgeCfg = statusConfig[status];
 
-                  const unit =
-                    row.unit_label ?? row.product?.default_unit_label ?? "un";
+                  // Normalize unit for display with fallback "UN"
+                  const unit = String(
+                    row.unit_label ?? row.product?.default_unit_label ?? "UN"
+                  ).toUpperCase();
                   const price = row.product?.price ?? 0;
 
                   const draft = thresholdDrafts[row.id] ?? {
@@ -1206,7 +1223,9 @@ export default function EstoquePage() {
                           <TableRow key={item.id}>
                             <TableCell>{item.product?.name ?? "—"}</TableCell>
                             <TableCell>{item.counted_quantity}</TableCell>
-                            <TableCell>{item.unit_label ?? "un"}</TableCell>
+                            <TableCell>
+                              {String(item.unit_label ?? "UN").toUpperCase()}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>

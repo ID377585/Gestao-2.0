@@ -454,7 +454,13 @@ export default async function ProductsPage({ searchParams }: PageProps) {
               >
                 <div className="space-y-2">
                   <Label htmlFor="file">Arquivo (.csv) com os produtos</Label>
-                  <Input id="file" name="file" type="file" accept=".csv" required />
+                  <Input
+                    id="file"
+                    name="file"
+                    type="file"
+                    accept=".csv"
+                    required
+                  />
                 </div>
 
                 <p className="text-xs text-muted-foreground">
@@ -480,7 +486,8 @@ export default async function ProductsPage({ searchParams }: PageProps) {
         <CardHeader>
           <CardTitle>Lista de produtos</CardTitle>
           <CardDescription>
-            Produtos disponíveis para uso em etiquetas, estoque, produção e fichas técnicas.
+            Produtos disponíveis para uso em etiquetas, estoque, produção e
+            fichas técnicas.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -1,3 +1,4 @@
+// pedidos/actions.ts
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -275,7 +276,8 @@ export async function createOrderWithItems(
       establishment_id: establishmentId,
       product_name: it.product_name.trim(),
       quantity: it.quantity,
-      unit_label: it.unit_label.trim(),
+      // ✅ NORMALIZA unidade
+      unit_label: it.unit_label.trim().toUpperCase(),
     }));
 
     const { error: itemsErr } = await supabase
@@ -450,7 +452,8 @@ export async function addOrderItem(data: {
     establishment_id: establishmentId,
     product_name: data.product_name,
     quantity: data.quantity,
-    unit_label: data.unit_label,
+    // ✅ NORMALIZA unidade
+    unit_label: String(data.unit_label ?? "").trim().toUpperCase(),
   });
 
   if (error) {
@@ -508,27 +511,48 @@ export async function acceptOrder(orderId: string): Promise<void> {
 
   const safeLineItems = lineItems ?? [];
 
-    // 2) Estoque atual (VIEW correta: current_stock)
-  // Precisamos do NOME do produto para bater com order_line_items.product_name
+  // 2) ✅ Estoque atual (VIEW correta: current_stock) — sem depender de join na VIEW
+  //    - Busca products (id,name) do estabelecimento
+  //    - Busca current_stock (product_id, qty_balance) do estabelecimento
+  //    - Monta mapa por NOME do produto (normalizado)
+  const { data: products, error: prodErr } = await supabase
+    .from("products")
+    .select("id, name")
+    .eq("establishment_id", establishmentId)
+    .eq("is_active", true);
+
+  if (prodErr) {
+    throw new Error(prodErr.message);
+  }
+
+  const productIdToName = new Map<string, string>(
+    (products ?? []).map((p: any) => [String(p.id), String(p.name ?? "")])
+  );
+
   const { data: stockRows, error: stockErr } = await supabase
-  .from("current_stock")
-  .select("product_id, qty_balance")
-  .eq("establishment_id", establishmentId);
+    .from("current_stock")
+    .select("product_id, qty_balance")
+    .eq("establishment_id", establishmentId);
 
   if (stockErr) {
     throw new Error(stockErr.message);
   }
 
-  // Mapa por NOME do produto (normalizado)
-  const stockMap = new Map<string, number>(
-    (stockRows ?? []).map((row: any) => {
-      const name = String(row?.products?.name ?? "")
-        .trim()
-        .toLowerCase();
-      const qty = Number(row?.qty_balance ?? 0);
-      return [name, Number.isFinite(qty) ? qty : 0];
-    })
-  );
+  const stockMap = new Map<string, number>();
+
+  for (const row of stockRows ?? []) {
+    const pid = String((row as any)?.product_id ?? "");
+    const pname = String(productIdToName.get(pid) ?? "")
+      .trim()
+      .toLowerCase();
+
+    if (!pname) continue;
+
+    const qty = Number((row as any)?.qty_balance ?? 0);
+    const safeQty = Number.isFinite(qty) ? qty : 0;
+
+    stockMap.set(pname, (stockMap.get(pname) ?? 0) + safeQty);
+  }
 
   // 3) Limpa itens antigos em order_items (para evitar duplicar se aceitar de novo)
   const { error: delErr } = await supabase
@@ -547,9 +571,10 @@ export async function acceptOrder(orderId: string): Promise<void> {
       ? []
       : safeLineItems.map((item: any) => {
           const orderQty = Number(item.quantity);
-          const currentStock =
-          stockMap.get(String(item.product_name ?? "").trim().toLowerCase()) ?? 0;
 
+          const currentStock =
+            stockMap.get(String(item.product_name ?? "").trim().toLowerCase()) ??
+            0;
 
           let production_status: string;
           let missing = 0;
@@ -827,15 +852,10 @@ export async function getOrderCollectedSummary(
     const prod = inv?.products as any | undefined;
 
     const productName =
-      prod?.name ??
-      inv?.product_name ??
-      "(Produto não identificado)";
+      prod?.name ?? inv?.product_name ?? "(Produto não identificado)";
 
     const labelUnit =
-      row.unit_label ??
-      inv?.unit_label ??
-      inv?.default_unit_label ??
-      "";
+      row.unit_label ?? inv?.unit_label ?? inv?.default_unit_label ?? "";
 
     const qty = Number(row.qty_used ?? 0);
 
@@ -859,8 +879,7 @@ export async function getOrderCollectedSummary(
       // Por enquanto assumimos que a unidade da etiqueta = unidade de custo padrão.
       // Se depois precisarmos converter (KG ↔ G, etc.), a gente liga no conversion_factor.
       const unitCost = standardCost;
-      const totalCost =
-        unitCost !== null ? unitCost * qty : null;
+      const totalCost = unitCost !== null ? unitCost * qty : null;
 
       groups.set(key, {
         product_name: productName,
@@ -998,10 +1017,17 @@ export async function linkLabelToOrder(
   }
 
   // 1) Buscar etiqueta pelo label_code
-  //    Já trazemos o nome do produto via relação products
+  // ✅ Melhoria: traz também products(name) para o match por nome funcionar sempre
   const { data: label, error: labelError } = await supabase
     .from("inventory_labels")
-    .select("*, products_id")
+    .select(
+      `
+      *,
+      products (
+        name
+      )
+    `
+    )
     .eq("label_code", finalLabelCode)
     .eq("establishment_id", establishmentId)
     .single();
@@ -1065,7 +1091,8 @@ export async function linkLabelToOrder(
       movement_type: "OUT_ORDER",
       direction: "OUT",
       qty,
-      unit_label: (label as any).unit_label,
+      // ✅ NORMALIZA unidade na gravação do movimento
+      unit_label: String((label as any).unit_label ?? "").trim().toUpperCase(),
       details: {
         label_code: (label as any).label_code,
         from: "ORDER_SEPARATION",
@@ -1088,7 +1115,8 @@ export async function linkLabelToOrder(
       order_item_id: matchingItem?.id ?? null,
       label_id: (label as any).id,
       qty_used: qty,
-      unit_label: (label as any).unit_label,
+      // ✅ NORMALIZA unidade no vínculo
+      unit_label: String((label as any).unit_label ?? "").trim().toUpperCase(),
     });
 
   if (linkError) {
@@ -1199,11 +1227,11 @@ export async function getOrderBillingDraft(
  */
 export async function saveOrderBillingDraft(input: {
   orderId: string;
-  subtotal: number;        // custo base (ex.: collectedSummary.total_cost)
-  markupPercent: number;   // markup digitado pelo usuário
+  subtotal: number; // custo base (ex.: collectedSummary.total_cost)
+  markupPercent: number; // markup digitado pelo usuário
   totalWithMarkup: number; // valor final sugerido (sem frete ou com frete, conforme sua regra)
   freightValue?: number | null; // valor do frete (opcional)
-  carrierId?: string | null;    // id da transportadora (opcional)
+  carrierId?: string | null; // id da transportadora (opcional)
 }) {
   const supabase = await createSupabaseServerClient();
   const ctx = await getActiveMembershipOrRedirect();

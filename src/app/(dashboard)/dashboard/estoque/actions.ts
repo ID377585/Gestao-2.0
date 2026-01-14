@@ -102,6 +102,7 @@ async function getSupabaseAndEstablishment() {
 // 1) LISTAR ESTOQUE ATUAL
 //    ✅ Mantém stock_balances para thresholds/local/id,
 //    ✅ mas agora retorna quantity = current_stock.qty_balance (movimentos)
+//    ✅ MELHORIA: normaliza unit_label em UPPERCASE para casar corretamente
 // =======================================================
 
 export async function listCurrentStock(): Promise<StockBalanceRow[]> {
@@ -150,8 +151,15 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
       product = null;
     }
 
+    // ✅ MELHORIA: normaliza unit_label da base para uppercase (evita mismatch KG vs kg)
+    const normalizedUnit =
+      row?.unit_label != null && String(row.unit_label).trim().length > 0
+        ? String(row.unit_label).toUpperCase()
+        : null;
+
     return {
       ...row,
+      unit_label: normalizedUnit,
       product,
     };
   }) as StockBalanceRow[];
@@ -167,7 +175,16 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     throw new Error("Erro ao carregar saldo do estoque (current_stock).");
   }
 
-  const currentRows = (cs ?? []) as CurrentStockRow[];
+  // ✅ MELHORIA: normaliza unit_label do current_stock e garante qty_balance numérico
+  const currentRows = (cs ?? []).map((r: any) => ({
+    establishment_id: String(r.establishment_id),
+    product_id: String(r.product_id),
+    unit_label:
+      r.unit_label != null && String(r.unit_label).trim().length > 0
+        ? String(r.unit_label).toUpperCase()
+        : null,
+    qty_balance: Number(r.qty_balance ?? 0),
+  })) as CurrentStockRow[];
 
   // 3) Monta mapa: por product_id, com total e por unidade
   const byProduct = new Map<
@@ -177,8 +194,12 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
 
   for (const r of currentRows) {
     const pid = String(r.product_id);
-    const unit = String(r.unit_label ?? "");
-    const qty = Number(r.qty_balance ?? 0);
+
+    // ✅ MELHORIA: unidade normalizada (null vira "")
+    const unit = String(r.unit_label ?? "").toUpperCase();
+
+    const qtyRaw = Number(r.qty_balance ?? 0);
+    const qty = Number.isFinite(qtyRaw) ? qtyRaw : 0;
 
     if (!byProduct.has(pid)) {
       byProduct.set(pid, { total: 0, byUnit: new Map() });
@@ -193,7 +214,9 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
   //    row.quantity agora reflete qty_balance (movimentos)
   const merged = normalized.map((row) => {
     const pid = String(row.product_id);
-    const unit = String(row.unit_label ?? "");
+
+    // ✅ MELHORIA: unidade normalizada para casar com o mapa
+    const unit = String(row.unit_label ?? "").toUpperCase();
 
     const entry = byProduct.get(pid);
     if (!entry) {

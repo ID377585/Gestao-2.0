@@ -113,11 +113,12 @@ export async function imprimirBatchNoBrowser(
 
       /*
         ✅ Margens internas (padding)
-        - Top/Bottom: 2.0mm (seguro)
-        - Right: 0.0mm (lado do QR, como você pediu)
-        - Left: 0.0mm (zerado, como você pediu agora)
+        - Top: 0.01mm (quase zero, para subir o conteúdo)
+        - Right: 0.0mm (lado do QR)
+        - Bottom: 2.0mm (mantém respiro embaixo)
+        - Left: 0.0mm (zerado)
       */
-      padding: 2.0mm 0.0mm 2.0mm 0.0mm;
+      padding: 0.01mm 0.0mm 2.0mm 0.0mm;
 
       display: flex;
       align-items: stretch;

@@ -137,11 +137,10 @@ export async function aplicarInventario(
       console.error("Erro ao buscar current_stock:", stockError);
     }
 
-    const currentStock = Number(stockRow?.current_stock ?? 0);
+    const currentStock = Number(stockRow?.qty_balance ?? 0);
     const diff = counted - currentStock;
 
-    // 2.3 – Item no histórico do inventário
-    // ATENÇÃO: tabela inventory_count_items NÃO tem product_name / status / error_message
+    // 2.3 – Registro do item no inventário
     const { error: itemError } = await supabase
       .from("inventory_count_items")
       .insert({
@@ -163,7 +162,7 @@ export async function aplicarInventario(
         diff,
         productId,
         status: "warning",
-        errorMessage: "Item salvo, mas falhou ao registrar no histórico.",
+        errorMessage: "Erro ao registrar item no inventário.",
       });
       continue;
     }
@@ -182,7 +181,7 @@ export async function aplicarInventario(
       continue;
     }
 
-    // 2.4 – Movimento de ajuste (tabela inventory_movements)
+    // 2.4 – Movimento de ajuste
     const direction = diff > 0 ? "IN" : "OUT";
     const absQty = Math.abs(diff);
 
@@ -191,8 +190,6 @@ export async function aplicarInventario(
       .insert({
         establishment_id: establishmentId,
         product_id: productId,
-        label_id: null,
-        order_id: null, // coluna correta no schema
         unit_label: unidade,
         qty: absQty,
         direction,
@@ -234,14 +231,14 @@ export async function aplicarInventario(
     });
   }
 
-  // 2.5 – atualiza resumo no cabeçalho
+  // 2.5 – Atualiza resumo no cabeçalho
   const finishedAt = new Date().toISOString();
   const totalItems = resultItems.length;
   const produtosDistintos = new Set(
     resultItems.map((it) => `${it.produto}__${it.unidade}`)
   ).size;
 
-  const { error: headerUpdateError } = await supabase
+  await supabase
     .from("inventory_counts")
     .update({
       finished_at: finishedAt,
@@ -250,22 +247,11 @@ export async function aplicarInventario(
     })
     .eq("id", inventoryCountId);
 
-  if (headerUpdateError) {
-    console.error(
-      "Erro ao atualizar totais em inventory_counts:",
-      headerUpdateError
-    );
-  }
-
   // 3) Revalidar rotas
-  try {
-    revalidatePath("/dashboard/estoque");
-    revalidatePath("/dashboard/producao");
-    revalidatePath("/dashboard/inventario");
-    revalidatePath("/dashboard/inventario/historico");
-  } catch {
-    console.warn("⚠️ Não foi possível revalidar todas as rotas.");
-  }
+  revalidatePath("/dashboard/estoque");
+  revalidatePath("/dashboard/producao");
+  revalidatePath("/dashboard/inventario");
+  revalidatePath("/dashboard/inventario/historico");
 
   return {
     ok: true,
@@ -275,7 +261,7 @@ export async function aplicarInventario(
 }
 
 /* =============================================================================
- * 📊 RELATÓRIO DE CONCILIAÇÃO / DASHBOARD + EXPORTAÇÃO XLSX
+ * 📊 RELATÓRIO DE CONCILIAÇÃO / EXPORTAÇÃO XLSX
  * =============================================================================
  */
 
@@ -291,7 +277,6 @@ export type InventoryReportRow = {
 
 export async function getInventoryReport(): Promise<InventoryReportRow[]> {
   const supabase = await createSupabaseServerClient();
-
   const { data, error } = await supabase.rpc("run_inventory_report");
 
   if (error) {
@@ -304,7 +289,6 @@ export async function getInventoryReport(): Promise<InventoryReportRow[]> {
 
 export async function exportInventarioXLSX(): Promise<string> {
   const supabase = await createSupabaseServerClient();
-
   const { data, error } = await supabase.rpc("run_inventory_report");
 
   if (error) {
@@ -331,6 +315,5 @@ export async function exportInventarioXLSX(): Promise<string> {
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
-  const base64 = Buffer.from(buffer).toString("base64");
-  return base64;
+  return Buffer.from(buffer).toString("base64");
 }

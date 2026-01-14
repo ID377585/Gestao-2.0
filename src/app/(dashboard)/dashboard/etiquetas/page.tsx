@@ -169,6 +169,38 @@ function addDaysISO(baseISO: string, days: number) {
 }
 
 /* =========================
+   ✅ NOVO: Helpers (dias restantes até vencer)
+   - Dias restantes = (Validade - Data Criação), em dias inteiros
+   - Quando faltar 1 dia: negrito + vermelho
+   - Se já venceu: mostra 0 (evita números negativos)
+========================= */
+function startOfDayLocal(dateLike: string | Date) {
+  const d = typeof dateLike === "string" ? new Date(dateLike) : dateLike;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function diffDays(from: string | Date, to: string | Date) {
+  const a = startOfDayLocal(from).getTime();
+  const b = startOfDayLocal(to).getTime();
+  const ms = b - a;
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+function getDiasParaVencer(createdAtISO: string, validadeISO: string) {
+  if (!createdAtISO || !validadeISO) return null;
+
+  const created = new Date(createdAtISO);
+  // validade vem como "YYYY-MM-DD" (sem horário)
+  const validade = new Date(`${validadeISO}T00:00:00`);
+
+  if (Number.isNaN(created.getTime()) || Number.isNaN(validade.getTime()))
+    return null;
+
+  const days = diffDays(created, validade);
+  return days < 0 ? 0 : days;
+}
+
+/* =========================
    API helpers (CLIENT -> Route Handler)
 ========================= */
 async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
@@ -600,10 +632,9 @@ export default function EtiquetasPage() {
 
           // ✅ PASSO 3: BLINDAGEM — normaliza unidade SEM alterar o resto do fluxo validado
           unitLabel: String(et.umd || "")
-  .trim()
-  .toUpperCase()
-  .replace(/\s+/g, ""),
-
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, ""),
 
           labelCode: et.loteMan,
           extraPayload: et,
@@ -796,6 +827,7 @@ export default function EtiquetasPage() {
                   <TableHead>Insumo</TableHead>
                   <TableHead>Quantidade</TableHead>
                   <TableHead>Lote</TableHead>
+                  <TableHead>Vence em</TableHead>
                   <TableHead>Responsável</TableHead>
                   <TableHead>Data Criação</TableHead>
                   <TableHead>Validade</TableHead>
@@ -808,7 +840,7 @@ export default function EtiquetasPage() {
                 {etiquetasGeradas.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={9}
+                      colSpan={10}
                       className="text-sm text-muted-foreground text-center"
                     >
                       Nenhuma etiqueta gerada ainda.
@@ -842,9 +874,34 @@ export default function EtiquetasPage() {
                         {etiqueta.loteMan}
                       </TableCell>
 
+                      {(() => {
+                        const dias = getDiasParaVencer(
+                          etiqueta.createdAt,
+                          etiqueta.dataVenc
+                        );
+                        const isOneDayLeft = dias === 1;
+
+                        return (
+                          <TableCell
+                            className={
+                              isOneDayLeft ? "font-bold text-red-600" : ""
+                            }
+                            title={
+                              dias === null
+                                ? "Sem dados suficientes para calcular"
+                                : `${dias} dia(s) para vencer`
+                            }
+                          >
+                            {dias === null ? "—" : `${dias} dia(s)`}
+                          </TableCell>
+                        );
+                      })()}
+
                       <TableCell>{etiqueta.responsavel}</TableCell>
 
-                      <TableCell>{formatDateTime(etiqueta.createdAt)}</TableCell>
+                      <TableCell>
+                        {formatDateTime(etiqueta.createdAt)}
+                      </TableCell>
 
                       <TableCell>{formatDate(etiqueta.dataVenc)}</TableCell>
 

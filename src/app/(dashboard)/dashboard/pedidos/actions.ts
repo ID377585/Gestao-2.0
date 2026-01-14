@@ -261,23 +261,49 @@ export async function createOrderWithItems(
   }
 
   // 2) cria itens, se houver (a tabela antiga continua sendo usada aqui)
-  const validItems =
+  const rawValidItems =
     params.items?.filter(
       (it) =>
         it.product_name?.trim() &&
         it.unit_label?.trim() &&
         typeof it.quantity === "number" &&
+        Number.isFinite(it.quantity) &&
         it.quantity > 0
     ) ?? [];
+
+  /**
+   * ✅ Melhoria: consolida itens repetidos (produto + unidade) somando as quantidades
+   * evita duplicidade por clique duplo/uso de UI etc.
+   */
+  const consolidated = new Map<string, { product_name: string; unit_label: string; quantity: number }>();
+
+  for (const it of rawValidItems) {
+    const product_name = it.product_name.trim();
+    const unit_label = it.unit_label.trim().toUpperCase(); // ✅ NORMALIZA unidade
+    const quantity = Number(it.quantity);
+
+    const key = `${product_name.toLowerCase().trim()}__${unit_label}`;
+    const existing = consolidated.get(key);
+
+    if (!existing) {
+      consolidated.set(key, { product_name, unit_label, quantity });
+    } else {
+      consolidated.set(key, {
+        ...existing,
+        quantity: Number(existing.quantity ?? 0) + quantity,
+      });
+    }
+  }
+
+  const validItems = Array.from(consolidated.values());
 
   if (validItems.length > 0) {
     const payload = validItems.map((it) => ({
       order_id: order.id,
       establishment_id: establishmentId,
-      product_name: it.product_name.trim(),
+      product_name: it.product_name,
       quantity: it.quantity,
-      // ✅ NORMALIZA unidade
-      unit_label: it.unit_label.trim().toUpperCase(),
+      unit_label: it.unit_label,
     }));
 
     const { error: itemsErr } = await supabase
@@ -509,7 +535,35 @@ export async function acceptOrder(orderId: string): Promise<void> {
 
   if (itemsErr) throw new Error(itemsErr.message);
 
-  const safeLineItems = lineItems ?? [];
+  /**
+   * ✅ Melhoria: consolida itens repetidos por product_name (somando qty)
+   * evita duplicidade se o mesmo insumo foi adicionado mais de uma vez.
+   */
+  const consolidatedLineItemsMap = new Map<
+    string,
+    { product_name: string; quantity: number }
+  >();
+
+  for (const it of lineItems ?? []) {
+    const pname = String((it as any).product_name ?? "").trim();
+    const qty = Number((it as any).quantity ?? 0);
+
+    if (!pname || !Number.isFinite(qty) || qty <= 0) continue;
+
+    const key = pname.toLowerCase().trim();
+    const existing = consolidatedLineItemsMap.get(key);
+
+    if (!existing) {
+      consolidatedLineItemsMap.set(key, { product_name: pname, quantity: qty });
+    } else {
+      consolidatedLineItemsMap.set(key, {
+        product_name: existing.product_name,
+        quantity: Number(existing.quantity ?? 0) + qty,
+      });
+    }
+  }
+
+  const safeLineItems = Array.from(consolidatedLineItemsMap.values());
 
   // 2) ✅ Estoque atual (VIEW correta: current_stock) — sem depender de join na VIEW
   //    - Busca products (id,name) do estabelecimento
@@ -569,7 +623,7 @@ export async function acceptOrder(orderId: string): Promise<void> {
   const orderItemsPayload =
     safeLineItems.length === 0
       ? []
-      : safeLineItems.map((item: any) => {
+      : safeLineItems.map((item) => {
           const orderQty = Number(item.quantity);
 
           const currentStock =
@@ -857,7 +911,8 @@ export async function getOrderCollectedSummary(
     const labelUnit =
       row.unit_label ?? inv?.unit_label ?? inv?.default_unit_label ?? "";
 
-    const qty = Number(row.qty_used ?? 0);
+    const qtyRaw = Number(row.qty_used ?? 0);
+    const qty = Number.isFinite(qtyRaw) ? qtyRaw : 0;
 
     // custo padrão vindo de products (por unidade da unidade padrão)
     const standardCostRaw = prod?.standard_cost;
@@ -868,10 +923,10 @@ export async function getOrderCollectedSummary(
         ? Number(standardCostRaw)
         : null;
 
+    const safeUnit = String(labelUnit ?? "").trim().toUpperCase(); // ✅ NORMALIZA unidade no agrupamento
+
     const key =
-      productName.toLowerCase().trim() +
-      "|" +
-      String(labelUnit).toLowerCase().trim();
+      productName.toLowerCase().trim() + "|" + safeUnit.toLowerCase().trim();
 
     const existing = groups.get(key);
 
@@ -883,7 +938,7 @@ export async function getOrderCollectedSummary(
 
       groups.set(key, {
         product_name: productName,
-        unit_label: labelUnit,
+        unit_label: safeUnit,
         total_qty: qty,
         unit_cost: unitCost,
         total_cost: totalCost,

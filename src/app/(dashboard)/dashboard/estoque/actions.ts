@@ -76,6 +76,21 @@ export type BulkStockMetaUpdateItem = {
 };
 
 // =======================================================
+// HELPERS: normalização (mantém comportamento e evita mismatch)
+// =======================================================
+
+function normalizeUnitLabel(input: any): string | null {
+  const s = String(input ?? "").trim();
+  if (!s) return null;
+  return s.toUpperCase();
+}
+
+function normalizeNumber(input: any, fallback = 0): number {
+  const n = Number(input);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+// =======================================================
 // HELPER: supabase + establishment do usuário logado
 // =======================================================
 async function getSupabaseAndEstablishment() {
@@ -152,10 +167,7 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     }
 
     // ✅ MELHORIA: normaliza unit_label da base para uppercase (evita mismatch KG vs kg)
-    const normalizedUnit =
-      row?.unit_label != null && String(row.unit_label).trim().length > 0
-        ? String(row.unit_label).toUpperCase()
-        : null;
+    const normalizedUnit = normalizeUnitLabel(row?.unit_label);
 
     return {
       ...row,
@@ -179,11 +191,8 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
   const currentRows = (cs ?? []).map((r: any) => ({
     establishment_id: String(r.establishment_id),
     product_id: String(r.product_id),
-    unit_label:
-      r.unit_label != null && String(r.unit_label).trim().length > 0
-        ? String(r.unit_label).toUpperCase()
-        : null,
-    qty_balance: Number(r.qty_balance ?? 0),
+    unit_label: normalizeUnitLabel(r.unit_label),
+    qty_balance: normalizeNumber(r.qty_balance, 0),
   })) as CurrentStockRow[];
 
   // 3) Monta mapa: por product_id, com total e por unidade
@@ -198,8 +207,7 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     // ✅ MELHORIA: unidade normalizada (null vira "")
     const unit = String(r.unit_label ?? "").toUpperCase();
 
-    const qtyRaw = Number(r.qty_balance ?? 0);
-    const qty = Number.isFinite(qtyRaw) ? qtyRaw : 0;
+    const qty = normalizeNumber(r.qty_balance, 0);
 
     if (!byProduct.has(pid)) {
       byProduct.set(pid, { total: 0, byUnit: new Map() });
@@ -310,7 +318,7 @@ export async function seedInitialStockFromProducts() {
       product_id: p.id,
       quantity: 0,
       // Normalize default unit labels to uppercase, fallback to "UN"
-      unit_label: ((p as any).default_unit_label ?? "UN").toUpperCase(),
+      unit_label: normalizeUnitLabel((p as any).default_unit_label) ?? "UN",
       min_qty: 0,
       med_qty: 0,
       max_qty: 0,
@@ -394,6 +402,8 @@ export async function getInventorySessionWithItems(): Promise<{
 
     return {
       ...row,
+      // ✅ MELHORIA: normaliza unit_label também nos itens
+      unit_label: normalizeUnitLabel(row?.unit_label),
       product,
     };
   }) as InventoryItemRow[];
@@ -439,6 +449,14 @@ export async function startInventorySession(): Promise<InventorySessionRow> {
 export async function addInventoryItem(input: AddInventoryItemInput) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
+  // ✅ Melhoria: validação mínima (não quebra fluxo, mas evita lixo)
+  const counted = normalizeNumber(input.counted_quantity, 0);
+  const unit = normalizeUnitLabel(input.unit_label);
+
+  if (!input.session_id || !input.product_id || unit === null || counted < 0) {
+    throw new Error("Dados inválidos para registrar a contagem do item.");
+  }
+
   // Segurança extra: valida se a sessão pertence ao mesmo estabelecimento
   const { data: session, error: sessionError } = await supabase
     .from("inventory_sessions")
@@ -464,16 +482,52 @@ export async function addInventoryItem(input: AddInventoryItemInput) {
     );
   }
 
-  const { error: insertError } = await supabase.from("inventory_items").insert({
-    session_id: input.session_id,
-    product_id: input.product_id,
-    counted_quantity: input.counted_quantity,
-    // Normalize unit label to uppercase before storing
-    unit_label: input.unit_label.toUpperCase(),
-  });
+  /**
+   * ✅ Melhoria: UPSERT por (session_id, product_id, unit_label)
+   * - se o usuário adicionar o mesmo produto/unidade novamente, atualiza ao invés de duplicar.
+   * - depende de constraint/unique no banco. Se não existir, não quebra (você pode criar depois).
+   */
+  const { error: upsertError } = await supabase.from("inventory_items").upsert(
+    {
+      session_id: input.session_id,
+      product_id: input.product_id,
+      counted_quantity: counted,
+      unit_label: unit,
+    },
+    {
+      onConflict: "session_id,product_id,unit_label",
+    } as any
+  );
 
-  if (insertError) {
-    console.error("Erro ao adicionar item de inventário:", insertError);
+  if (upsertError) {
+    // fallback: se onConflict/constraint não existir no banco, tenta insert simples (mantém compatibilidade)
+    const msg = String((upsertError as any)?.message ?? "");
+    const code = String((upsertError as any)?.code ?? "");
+
+    if (
+      msg.toLowerCase().includes("on conflict") ||
+      msg.toLowerCase().includes("does not exist") ||
+      code === "42703" ||
+      code === "42P10"
+    ) {
+      const { error: insertError } = await supabase
+        .from("inventory_items")
+        .insert({
+          session_id: input.session_id,
+          product_id: input.product_id,
+          counted_quantity: counted,
+          unit_label: unit,
+        });
+
+      if (insertError) {
+        console.error("Erro ao adicionar item de inventário:", insertError);
+        throw new Error("Não foi possível registrar a contagem do item.");
+      }
+
+      return;
+    }
+
+    console.error("Erro ao adicionar item de inventário (upsert):", upsertError);
     throw new Error("Não foi possível registrar a contagem do item.");
   }
 }
@@ -525,24 +579,51 @@ export async function finalizeInventory(sessionId: string) {
     throw new Error("Não foi possível carregar os itens do inventário.");
   }
 
+  /**
+   * ✅ Melhoria: consolida itens repetidos (product_id + unit_label)
+   * - Se por qualquer motivo houver duplicados, soma counted_quantity.
+   */
+  const consolidated = new Map<
+    string,
+    { product_id: string; unit_label: string | null; counted_quantity: number }
+  >();
+
+  for (const it of items ?? []) {
+    const product_id = String((it as any).product_id ?? "").trim();
+    const unit_label = normalizeUnitLabel((it as any).unit_label);
+    const counted_quantity = normalizeNumber((it as any).counted_quantity, 0);
+
+    if (!product_id) continue;
+
+    const key = `${product_id}__${String(unit_label ?? "").toUpperCase()}`;
+    const existing = consolidated.get(key);
+
+    if (!existing) {
+      consolidated.set(key, { product_id, unit_label, counted_quantity });
+    } else {
+      consolidated.set(key, {
+        product_id,
+        unit_label,
+        counted_quantity: normalizeNumber(existing.counted_quantity, 0) + counted_quantity,
+      });
+    }
+  }
+
   // Atualiza estoque para cada item contado
-  for (const item of items ?? []) {
+  for (const item of consolidated.values()) {
     const { error: updateError } = await supabase
       .from("stock_balances")
       .update({
-        quantity: (item as any).counted_quantity,
-        // Normalize unit labels to uppercase; if unit_label is falsy, set null
-        unit_label: (item as any).unit_label
-          ? String((item as any).unit_label).toUpperCase()
-          : null,
+        quantity: item.counted_quantity,
+        unit_label: item.unit_label,
       })
       .eq("establishment_id", establishmentId)
-      .eq("product_id", (item as any).product_id);
+      .eq("product_id", item.product_id);
 
     if (updateError) {
       console.error(
         "Erro ao atualizar saldo de estoque para o produto:",
-        (item as any).product_id,
+        item.product_id,
         updateError
       );
       throw new Error(
@@ -653,8 +734,8 @@ export async function createStockMovementAction(
   const payload: StockMovementInput = {
     establishment_id: establishmentId,
     product_id: (input as any).product_id,
-    // Normalize unit label to uppercase when creating movements
-    unit_label: String((input as any).unit_label ?? "").toUpperCase(),
+    // Normalize unit label to uppercase when creating movements (null-safe)
+    unit_label: normalizeUnitLabel((input as any).unit_label) ?? "UN",
     qty_delta: (input as any).qty_delta,
     reason: (input as any).reason ?? "adjustment",
     source: (input as any).source ?? "server_action",
@@ -675,9 +756,25 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
     return { ok: true, updated: 0 };
   }
 
-  let updated = 0;
+  /**
+   * ✅ Melhoria: consolida updates repetidos (balance_id ou product_id),
+   * último update "vence" — evita múltiplas queries desnecessárias.
+   */
+  const consolidated = new Map<string, BulkStockMetaUpdateItem>();
 
   for (const it of items) {
+    const balanceId = (it as any).balance_id as string | undefined;
+    const productId = (it as any).product_id as string | undefined;
+
+    if (!balanceId && !productId) continue;
+
+    const key = balanceId ? `b:${balanceId}` : `p:${productId}`;
+    consolidated.set(key, it);
+  }
+
+  let updated = 0;
+
+  for (const it of consolidated.values()) {
     const balanceId = (it as any).balance_id as string | undefined;
     const productId = (it as any).product_id as string | undefined;
 
@@ -686,14 +783,14 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
     const payload: any = {};
     if ("unit_label" in it) {
       // Convert supplied unit labels to uppercase. When empty, interpret as null.
-      payload.unit_label = it.unit_label
-        ? String(it.unit_label).toUpperCase()
-        : null;
+      payload.unit_label = normalizeUnitLabel(it.unit_label);
     }
     if ("location" in it) payload.location = it.location ?? null;
-    if ("min_qty" in it) payload.min_qty = it.min_qty ?? 0;
-    if ("med_qty" in it) payload.med_qty = it.med_qty ?? 0;
-    if ("max_qty" in it) payload.max_qty = it.max_qty ?? 0;
+
+    // ✅ Melhoria: mantém o comportamento atual (fallback 0), mas normaliza numérico
+    if ("min_qty" in it) payload.min_qty = normalizeNumber(it.min_qty, 0);
+    if ("med_qty" in it) payload.med_qty = normalizeNumber(it.med_qty, 0);
+    if ("max_qty" in it) payload.max_qty = normalizeNumber(it.max_qty, 0);
 
     // não atualiza se payload veio vazio
     if (Object.keys(payload).length === 0) continue;

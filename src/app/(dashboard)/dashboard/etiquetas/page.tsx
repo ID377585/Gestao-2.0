@@ -169,15 +169,6 @@ function addDaysISO(baseISO: string, days: number) {
 }
 
 /* =========================
-   ✅ Normalização do tipo para o backend
-   - backend exige: MANIPULACAO | FABRICANTE
-   - front usa: MANIPULACAO | REVALIDAR
-========================= */
-function toBackendLabelType(tipo: TipoSel): "MANIPULACAO" | "FABRICANTE" {
-  return tipo === "MANIPULACAO" ? "MANIPULACAO" : "FABRICANTE";
-}
-
-/* =========================
    API helpers (CLIENT -> Route Handler)
 ========================= */
 async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
@@ -203,9 +194,10 @@ async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
 }
 
 /**
- * ✅ MELHORIA: envia camelCase + snake_case (compat total)
- * ✅ MELHORIA: agora envia labelType obrigatório (backend exige)
- * ✅ MELHORIA: log cirúrgico com payload final
+ * ✅ PAYLOAD CORRETO E DEFINITIVO
+ * - Envia apenas camelCase (sem duplicar snake_case)
+ * - Sem labelType (backend já deduz via extraPayload / notes)
+ * - Log cirúrgico + tratamento de erro mantidos
  */
 async function apiCreateInventoryLabel(payload: {
   productId: string;
@@ -213,30 +205,17 @@ async function apiCreateInventoryLabel(payload: {
   qty: number;
   unitLabel: string;
   labelCode: string;
-  labelType: "MANIPULACAO" | "FABRICANTE";
   extraPayload?: unknown;
 }): Promise<void> {
-  const bodyToSend: any = {
-    // camelCase (principal)
+  const bodyToSend = {
     productId: payload.productId,
     productName: payload.productName,
     qty: payload.qty,
     unitLabel: payload.unitLabel,
     labelCode: payload.labelCode,
-    labelType: payload.labelType, // ✅ obrigatório no backend
     extraPayload: payload.extraPayload ?? null,
-
-    // snake_case (compat)
-    product_id: payload.productId,
-    product_name: payload.productName,
-    unit_label: payload.unitLabel,
-    label_code: payload.labelCode,
-    label_type: payload.labelType, // ✅ obrigatório no backend
-    notes:
-      payload.extraPayload != null ? JSON.stringify(payload.extraPayload) : null,
   };
 
-  // ✅ console.log estratégico (vai aparecer no DevTools)
   console.log("[POST /api/inventory-labels] payload:", bodyToSend);
 
   const res = await fetch("/api/inventory-labels", {
@@ -607,9 +586,6 @@ export default function EtiquetasPage() {
       marca: formData.marca,
     });
 
-    // ✅ tipo obrigatório para o backend
-    const backendType = toBackendLabelType(tipoSelecionado);
-
     try {
       /**
        * ✅ CORREÇÃO DO ERRO uq_stock_balances_*:
@@ -623,10 +599,12 @@ export default function EtiquetasPage() {
           qty: et.qtd,
 
           // ✅ PASSO 3: BLINDAGEM — normaliza unidade SEM alterar o resto do fluxo validado
-          unitLabel: String(et.umd || "").trim().toLowerCase().replace(/\s+/g, ""),
+          unitLabel: String(et.umd || "")
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, ""),
 
           labelCode: et.loteMan,
-          labelType: backendType, // ✅ envia MANIPULACAO|FABRICANTE
           extraPayload: et,
         });
       }

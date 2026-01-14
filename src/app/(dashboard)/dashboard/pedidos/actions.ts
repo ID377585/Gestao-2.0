@@ -508,19 +508,26 @@ export async function acceptOrder(orderId: string): Promise<void> {
 
   const safeLineItems = lineItems ?? [];
 
-  // 2) Estoque atual (VIEW correta: current_stock)
+    // 2) Estoque atual (VIEW correta: current_stock)
+  // Precisamos do NOME do produto para bater com order_line_items.product_name
   const { data: stockRows, error: stockErr } = await supabase
     .from("current_stock")
-    .select(""product_id, qty_balance, products(name)")
+    .select("product_id, qty_balance, products(name)")
     .eq("establishment_id", establishmentId);
 
-  if (stockErr) throw new Error(stockErr.message);
+  if (stockErr) {
+    throw new Error(stockErr.message);
+  }
 
+  // Mapa por NOME do produto (normalizado)
   const stockMap = new Map<string, number>(
-    (stockRows ?? []).map((row: any) => [
-      row.product_name,
-      Number(row.current_stock),
-    ])
+    (stockRows ?? []).map((row: any) => {
+      const name = String(row?.products?.name ?? "")
+        .trim()
+        .toLowerCase();
+      const qty = Number(row?.qty_balance ?? 0);
+      return [name, Number.isFinite(qty) ? qty : 0];
+    })
   );
 
   // 3) Limpa itens antigos em order_items (para evitar duplicar se aceitar de novo)
@@ -540,7 +547,9 @@ export async function acceptOrder(orderId: string): Promise<void> {
       ? []
       : safeLineItems.map((item: any) => {
           const orderQty = Number(item.quantity);
-          const currentStock = stockMap.get(item.product_name) ?? 0;
+          const currentStock =
+          stockMap.get(String(item.product_name ?? "").trim().toLowerCase()) ?? 0;
+
 
           let production_status: string;
           let missing = 0;
@@ -992,7 +1001,7 @@ export async function linkLabelToOrder(
   //    Já trazemos o nome do produto via relação products
   const { data: label, error: labelError } = await supabase
     .from("inventory_labels")
-    .select("*, products(name)")
+    .select("*, products_id")
     .eq("label_code", finalLabelCode)
     .eq("establishment_id", establishmentId)
     .single();

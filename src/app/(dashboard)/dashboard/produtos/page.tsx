@@ -138,6 +138,20 @@ export default async function ProductsPage({ searchParams }: PageProps) {
     console.error("Erro ao carregar produtos:", error);
   }
 
+  // ✅ NOVO: resumo por setor (sempre mostra todos os setores, mesmo com 0)
+  const sectorCounts = SECTOR_CATEGORIES.map((sector) => {
+    const count = products.filter(
+      (p) => (p.sector_category ?? "").trim() === sector,
+    ).length;
+    return { sector, count };
+  });
+
+  const totalWithSector = products.filter((p) =>
+    Boolean((p.sector_category ?? "").trim()),
+  ).length;
+
+  const totalWithoutSector = products.length - totalWithSector;
+
   // ==== MAPA DE USUÁRIOS (para saber quem fez o upload/cadastro) ====
   let userMap: Record<string, ProfileRow> = {};
   if (products.length > 0) {
@@ -480,6 +494,31 @@ export default async function ProductsPage({ searchParams }: PageProps) {
           </Dialog>
         </div>
       </div>
+
+      {/* ✅ NOVO: Resumo por Setor (antes da Lista) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Resumo por setor</CardTitle>
+          <CardDescription>
+            Quantidade de itens cadastrados por setor (categoria).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            {sectorCounts.map(({ sector, count }) => (
+              <Badge key={sector} variant="secondary" className="px-3 py-1">
+                {sector}: <strong className="ml-1">{count}</strong>
+              </Badge>
+            ))}
+          </div>
+
+          <div className="mt-3 text-xs text-muted-foreground">
+            Total de itens: <strong>{products.length}</strong> • Com setor:{" "}
+            <strong>{totalWithSector}</strong> • Sem setor:{" "}
+            <strong>{totalWithoutSector}</strong>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Lista de produtos */}
       <Card>

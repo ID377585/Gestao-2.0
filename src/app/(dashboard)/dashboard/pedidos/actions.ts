@@ -511,9 +511,9 @@ export async function acceptOrder(orderId: string): Promise<void> {
     // 2) Estoque atual (VIEW correta: current_stock)
   // Precisamos do NOME do produto para bater com order_line_items.product_name
   const { data: stockRows, error: stockErr } = await supabase
-    .from("current_stock")
-    .select("product_id, qty_balance, products(name)")
-    .eq("establishment_id", establishmentId);
+  .from("current_stock")
+  .select("product_id, qty_balance")
+  .eq("establishment_id", establishmentId);
 
   if (stockErr) {
     throw new Error(stockErr.message);

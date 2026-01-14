@@ -601,7 +601,7 @@ export default function EtiquetasPage() {
           // ✅ PASSO 3: BLINDAGEM — normaliza unidade SEM alterar o resto do fluxo validado
           unitLabel: String(et.umd || "")
             .trim()
-            .toLowerCase()
+            .toUpperCase
             .replace(/\s+/g, ""),
 
           labelCode: et.loteMan,

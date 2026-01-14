@@ -470,7 +470,7 @@ export async function addOrderItem(data: {
  *
  * Agora:
  *  - Copia itens de order_line_items -> order_items
- *  - Consulta Estoque Atual (inventory_current_stock) para decidir:
+ *  - Consulta Estoque Atual (current_stock) para decidir:
  *      * se quantity > estoque -> production_status = 'pending' (vai para Pendentes)
  *      * se quantity <= estoque -> production_status = 'done'   (vai para Pós-preparo)
  *  - Avança status do pedido para "aceitou_pedido" via RPC
@@ -508,10 +508,10 @@ export async function acceptOrder(orderId: string): Promise<void> {
 
   const safeLineItems = lineItems ?? [];
 
-  // 2) Estoque atual (VIEW correta: inventory_current_stock)
+  // 2) Estoque atual (VIEW correta: current_stock)
   const { data: stockRows, error: stockErr } = await supabase
-    .from("inventory_current_stock")
-    .select("product_name, current_stock")
+    .from("current_stock")
+    .select(""product_id, qty_balance, products(name)")
     .eq("establishment_id", establishmentId);
 
   if (stockErr) throw new Error(stockErr.message);

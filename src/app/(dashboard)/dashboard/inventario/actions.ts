@@ -21,9 +21,9 @@ export type InventoryResumoInput = {
 export type InventoryApplyResultItem = {
   produto: string;
   unidade: string;
-  counted: number; // quantidade contada
-  current: number; // quantidade no sistema (antes)
-  diff: number; // diferença (counted - current)
+  counted: number;
+  current: number;
+  diff: number;
   productId?: string | null;
   status: "ok" | "warning" | "not_found";
   errorMessage?: string;
@@ -80,7 +80,7 @@ export async function aplicarInventario(
   // 2) Processa cada item do resumo
   for (const item of resumo) {
     const produto = item.produto?.trim();
-    const unidade = item.unidade?.trim();
+    const unidade = item.unidade?.trim().toUpperCase(); // ✅ NORMALIZA
     const counted = Number(item.totalQtd ?? 0);
 
     if (!produto || !unidade || counted < 0) {

@@ -504,7 +504,10 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     <TableRow>
                       <TableHead className="w-[90px]">Tipo</TableHead>
                       <TableHead className="w-[110px]">SKU</TableHead>
-                      <TableHead>Nome</TableHead>
+
+                      {/* ✅ AJUSTE: Nome com largura mínima para quebrar linha */}
+                      <TableHead className="min-w-[260px]">Nome</TableHead>
+
                       <TableHead className="w-[110px] text-center">Qtd</TableHead>
                       <TableHead className="w-[80px]">Unidade</TableHead>
                       <TableHead className="w-[160px] text-center">
@@ -547,8 +550,12 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                           )}
                         </TableCell>
 
-                        {/* Nome */}
-                        <TableCell className="font-medium">{product.name}</TableCell>
+                        {/* ✅ AJUSTE: Nome menor + quebra de linha (sem cortar) */}
+                        <TableCell className="min-w-[260px] align-top">
+                          <div className="text-xs font-medium leading-snug whitespace-normal break-words">
+                            {product.name}
+                          </div>
+                        </TableCell>
 
                         {/* Qtd total da embalagem (NUMÉRICO) */}
                         <TableCell className="text-center">

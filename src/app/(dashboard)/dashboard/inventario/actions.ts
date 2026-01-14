@@ -124,10 +124,10 @@ export async function aplicarInventario(
 
     const productId = productRow.id as string;
 
-    // 2.2 – Estoque atual (VIEW inventory_current_stock)
+    // 2.2 – Estoque atual (VIEW current_stock)
     const { data: stockRow, error: stockError } = await supabase
-      .from("inventory_current_stock")
-      .select("current_stock")
+      .from("current_stock")
+      .select("qty_balance")
       .eq("establishment_id", establishmentId)
       .eq("product_id", productId)
       .eq("unit_label", unidade)

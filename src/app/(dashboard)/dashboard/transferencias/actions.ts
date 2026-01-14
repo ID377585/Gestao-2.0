@@ -402,37 +402,22 @@ async function getAvailableStock(params: {
 }) {
   const { supabase, establishmentId, product_id, unit_label } = params;
 
-  // tenta view principal
   const { data, error } = await supabase
-    .from("inventory_current_stock")
-    .select("qty")
-    .eq("establishment_id", establishmentId)
-    .eq("product_id", product_id)
-    .eq("unit_label", unit_label)
-    .maybeSingle();
-
-  if (!error) {
-    const qty = Number((data as any)?.qty ?? 0);
-    return Number.isFinite(qty) ? qty : 0;
-  }
-
-  // fallback
-  const { data: data2, error: error2 } = await supabase
     .from("current_stock")
-    .select("qty")
+    .select("qty_balance")
     .eq("establishment_id", establishmentId)
     .eq("product_id", product_id)
     .eq("unit_label", unit_label)
     .maybeSingle();
 
-  if (error2) {
-    console.error("Erro ao consultar saldo:", { error, error2 });
+  if (error) {
+    console.error("Erro ao consultar saldo:", error);
     throw new Error("Erro ao consultar saldo do estoque.");
   }
 
-  const qty = Number((data2 as any)?.qty ?? 0);
-  return Number.isFinite(qty) ? qty : 0;
+  return Number(data?.qty_balance ?? 0);
 }
+
 
 export async function createTransfer(
   params: CreateTransferInput,

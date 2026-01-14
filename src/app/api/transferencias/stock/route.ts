@@ -72,7 +72,7 @@ export async function POST(request: Request) {
     // View principal usada no app para saldo de estoque por unidade
     // (se não existir no seu banco, troque para `current_stock`)
     const { data, error } = await supabase
-      .from("inventory_current_stock")
+      .from("current_stock")
       .select("qty")
       .eq("establishment_id", establishmentId)
       .eq("product_id", product_id)

@@ -24,6 +24,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 
+import { formatQty3 } from "@/lib/format/qty";
+
 import {
   listCurrentStock,
   startInventorySession,
@@ -447,9 +449,7 @@ export default function EstoquePage() {
     const productMeta = products.find((p) => p.id === selectedProductId);
     // Normalize and default to "UN" if undefined, always uppercase
     const unitLabel = String(
-      unitLabelFromStock ??
-        productMeta?.default_unit_label ??
-        "UN"
+      unitLabelFromStock ?? productMeta?.default_unit_label ?? "UN"
     ).toUpperCase();
 
     try {
@@ -505,8 +505,7 @@ export default function EstoquePage() {
       await finalizeInventory(inventorySession.id);
 
       // guarda a data da contagem (se tiver started_at, usa; senão, agora)
-      const sessionDate =
-        inventorySession.started_at ?? new Date().toISOString();
+      const sessionDate = inventorySession.started_at ?? new Date().toISOString();
       setLastInventoryDate(sessionDate);
 
       toast({
@@ -988,13 +987,19 @@ export default function EstoquePage() {
             <TableBody>
               {loadingStock ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-sm text-muted-foreground">
+                  <TableCell
+                    colSpan={7}
+                    className="text-sm text-muted-foreground"
+                  >
                     Carregando...
                   </TableCell>
                 </TableRow>
               ) : sortedStock.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-sm text-muted-foreground">
+                  <TableCell
+                    colSpan={7}
+                    className="text-sm text-muted-foreground"
+                  >
                     Nenhum item de estoque cadastrado ainda.
                   </TableCell>
                 </TableRow>
@@ -1008,6 +1013,11 @@ export default function EstoquePage() {
                     row.unit_label ?? row.product?.default_unit_label ?? "UN"
                   ).toUpperCase();
                   const price = row.product?.price ?? 0;
+
+                  // ✅ arredonda a quantidade para uso no total e na exibição
+                  const qtyRounded =
+                    Math.round(((row.quantity ?? 0) + Number.EPSILON) * 1000) /
+                    1000;
 
                   const draft = thresholdDrafts[row.id] ?? {
                     min:
@@ -1040,7 +1050,7 @@ export default function EstoquePage() {
                       </TableCell>
 
                       <TableCell>
-                        {row.quantity} {unit}
+                        {formatQty3(qtyRounded)} {unit}
                       </TableCell>
 
                       <TableCell className="text-xs text-muted-foreground">
@@ -1051,7 +1061,11 @@ export default function EstoquePage() {
                             value={draft.min}
                             disabled={disabled}
                             onChange={(e) =>
-                              handleThresholdChange(row.id, "min", e.target.value)
+                              handleThresholdChange(
+                                row.id,
+                                "min",
+                                e.target.value
+                              )
                             }
                             onBlur={() => handleThresholdBlur(row.id)}
                             onKeyDown={(e) => {
@@ -1067,7 +1081,11 @@ export default function EstoquePage() {
                             value={draft.med}
                             disabled={disabled}
                             onChange={(e) =>
-                              handleThresholdChange(row.id, "med", e.target.value)
+                              handleThresholdChange(
+                                row.id,
+                                "med",
+                                e.target.value
+                              )
                             }
                             onBlur={() => handleThresholdBlur(row.id)}
                             onKeyDown={(e) => {
@@ -1083,7 +1101,11 @@ export default function EstoquePage() {
                             value={draft.max}
                             disabled={disabled}
                             onChange={(e) =>
-                              handleThresholdChange(row.id, "max", e.target.value)
+                              handleThresholdChange(
+                                row.id,
+                                "max",
+                                e.target.value
+                              )
                             }
                             onBlur={() => handleThresholdBlur(row.id)}
                             onKeyDown={(e) => {
@@ -1098,13 +1120,15 @@ export default function EstoquePage() {
                       <TableCell>{formatCurrency(price)}</TableCell>
 
                       <TableCell>
-                        {formatCurrency(price * (row.quantity ?? 0))}
+                        {formatCurrency(price * qtyRounded)}
                       </TableCell>
 
                       <TableCell>{row.location ?? "—"}</TableCell>
 
                       <TableCell>
-                        <Badge className={badgeCfg.badgeClass}>{badgeCfg.label}</Badge>
+                        <Badge className={badgeCfg.badgeClass}>
+                          {badgeCfg.label}
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   );
@@ -1133,8 +1157,9 @@ export default function EstoquePage() {
             ) : (
               <div className="space-y-4">
                 <div className="bg-blue-50 border border-blue-100 p-3 rounded-md text-sm text-blue-800">
-                  Inventário iniciado! Adicione os itens contados abaixo. Ao encerrar o
-                  inventário, os saldos de estoque serão atualizados com estas quantidades.
+                  Inventário iniciado! Adicione os itens contados abaixo. Ao
+                  encerrar o inventário, os saldos de estoque serão atualizados
+                  com estas quantidades.
                 </div>
 
                 {/* Data do inventário (somente leitura) */}
@@ -1244,7 +1269,9 @@ export default function EstoquePage() {
                     onClick={handleFinalizeInventory}
                     disabled={finalizingInventory}
                   >
-                    {finalizingInventory ? "Encerrando..." : "Encerrar Inventário"}
+                    {finalizingInventory
+                      ? "Encerrando..."
+                      : "Encerrar Inventário"}
                   </Button>
                 </div>
               </div>

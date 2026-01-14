@@ -64,6 +64,30 @@ function isMissingTypeColumnError(err: any): boolean {
   return false;
 }
 
+/**
+ * ✅ CRÍTICO: normaliza unidade em MAIÚSCULO para não violar
+ * check constraint: stock_balances_unit_uppercase
+ *
+ * - trim
+ * - remove espaços internos
+ * - uppercase
+ * - opcional: restringe para unidades comuns (mantém compatibilidade)
+ */
+function normalizeUnitLabel(input: any): string {
+  const cleaned = String(input ?? "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toUpperCase();
+
+  // Se você quiser permitir qualquer texto, basta retornar cleaned.
+  // Mantive lista curta para evitar lixo tipo "kg," ou "kgg".
+  const ALLOWED = new Set(["UN", "KG", "G", "L", "ML"]);
+  if (ALLOWED.has(cleaned)) return cleaned;
+
+  // fallback seguro: ainda retorna uppercase sem espaços
+  return cleaned;
+}
+
 async function resolveEstablishmentId(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
 ): Promise<{
@@ -151,7 +175,9 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("inventory_labels")
-    .select("id, label_code, qty, unit_label, notes, created_at, status, product_id")
+    .select(
+      "id, label_code, qty, unit_label, notes, created_at, status, product_id"
+    )
     .eq("establishment_id", establishmentId)
     .order("created_at", { ascending: false });
 
@@ -164,7 +190,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const supabase = await createSupabaseServerClient();
-  const { establishmentId, userId, debug } = await resolveEstablishmentId(supabase);
+  const { establishmentId, userId, debug } = await resolveEstablishmentId(
+    supabase
+  );
 
   if (!establishmentId) {
     return NextResponse.json(
@@ -183,12 +211,9 @@ export async function POST(req: Request) {
   const productId = normalizeId(body?.productId ?? body?.product_id);
   const labelCode = String(body?.labelCode ?? body?.label_code ?? "").trim();
 
-  // ✅ PASSO 3: BLINDAGEM — normaliza unidade também no backend (garante consistência)
-  // ⚠️ FIX: stock_balances_unit_uppercase exige UPPERCASE (não lower)
-  const unitLabel = String(body?.unitLabel ?? body?.unit_label ?? "")
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, "");
+  // ✅ FIX: unidade em UPPERCASE (evita violar stock_balances_unit_uppercase)
+  const unitLabelRaw = body?.unitLabel ?? body?.unit_label ?? "";
+  const unitLabel = normalizeUnitLabel(unitLabelRaw);
 
   const qty = Number(body?.qty);
 
@@ -220,16 +245,20 @@ export async function POST(req: Request) {
     qty,
     unit_label: unitLabel,
     status: "available",
-    created_by: userId,
+    ...(userId ? { created_by: userId } : {}),
     notes,
   };
 
-  const insertWithType: any = labelType ? { ...insertBase, type: labelType } : insertBase;
+  const insertWithType: any = labelType
+    ? { ...insertBase, type: labelType }
+    : insertBase;
 
   const { data: created1, error: err1 } = await supabase
     .from("inventory_labels")
     .insert(insertWithType)
-    .select("id, label_code, qty, unit_label, notes, created_at, status, product_id")
+    .select(
+      "id, label_code, qty, unit_label, notes, created_at, status, product_id"
+    )
     .single();
 
   if (!err1 && created1) {
@@ -241,13 +270,24 @@ export async function POST(req: Request) {
     const { data: created2, error: err2 } = await supabase
       .from("inventory_labels")
       .insert(insertBase)
-      .select("id, label_code, qty, unit_label, notes, created_at, status, product_id")
+      .select(
+        "id, label_code, qty, unit_label, notes, created_at, status, product_id"
+      )
       .single();
 
     if (err2 || !created2) {
       const msg =
-        (err2 as any)?.message ?? "Falha ao salvar etiqueta no banco (insert).";
-      return NextResponse.json({ error: msg }, { status: 500 });
+        (err2 as any)?.message ??
+        "Falha ao salvar etiqueta no banco (insert).";
+      return NextResponse.json(
+        {
+          error: msg,
+          code: (err2 as any)?.code ?? null,
+          details: (err2 as any)?.details ?? null,
+          hint: (err2 as any)?.hint ?? null,
+        },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json(created2 as InventoryLabelRow, { status: 201 });
@@ -265,7 +305,14 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json(
-    { error: (err1 as any)?.message ?? "Falha ao salvar etiqueta no banco (insert)." },
+    {
+      error:
+        (err1 as any)?.message ??
+        "Falha ao salvar etiqueta no banco (insert).",
+      code: (err1 as any)?.code ?? null,
+      details: (err1 as any)?.details ?? null,
+      hint: (err1 as any)?.hint ?? null,
+    },
     { status: 500 }
   );
 }

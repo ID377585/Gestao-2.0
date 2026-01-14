@@ -40,6 +40,71 @@ export type CreateInventoryLabelParams = {
 };
 
 /**
+ * ✅ NOVO: garante que existe um movimento de entrada (LABEL_IN) para a etiqueta
+ * - Idempotente: se já existir, não duplica
+ * - Fonte de verdade: inventory_movements (p/ view current_stock)
+ */
+async function ensureLabelInMovement(params: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  establishmentId: string;
+  userId: string | null;
+  label: {
+    id: string;
+    product_id: string | null;
+    unit_label: string | null;
+    qty: any;
+    label_code?: string | null;
+  };
+}) {
+  const { supabase, establishmentId, userId, label } = params;
+
+  const qty = Number(label.qty ?? 0);
+  const unit_label = String(label.unit_label ?? "").trim().toUpperCase();
+
+  if (!label?.id) throw new Error("Etiqueta sem ID.");
+  if (!label?.product_id) throw new Error("Etiqueta sem product_id.");
+  if (!unit_label) throw new Error("Etiqueta sem unit_label.");
+  if (!Number.isFinite(qty) || qty <= 0) return;
+
+  // ✅ Idempotência: se já existe LABEL_IN para essa etiqueta, não duplica
+  const { data: existing, error: exErr } = await supabase
+    .from("inventory_movements")
+    .select("id")
+    .eq("establishment_id", establishmentId)
+    .eq("label_id", label.id)
+    .eq("movement_type", "LABEL_IN")
+    .maybeSingle();
+
+  if (exErr) {
+    console.error("Erro ao checar LABEL_IN existente:", exErr);
+    throw new Error("Falha ao validar movimento de entrada da etiqueta.");
+  }
+
+  if (existing?.id) return;
+
+  const { error: insErr } = await supabase.from("inventory_movements").insert({
+    establishment_id: establishmentId,
+    product_id: label.product_id,
+    label_id: label.id,
+    qty,
+    unit_label,
+    direction: "IN",
+    movement_type: "LABEL_IN",
+    reason: "LABEL_CREATED",
+    created_by: userId,
+    details: {
+      label_code: label.label_code ?? null,
+      from: "LABEL_CREATION",
+    },
+  });
+
+  if (insErr) {
+    console.error("Erro ao inserir LABEL_IN:", insErr);
+    throw new Error("Falha ao registrar entrada da etiqueta no estoque.");
+  }
+}
+
+/**
  * Salva UMA etiqueta na tabela inventory_labels
  * ✅ mantém histórico
  * ✅ mantém separação por QR
@@ -48,14 +113,8 @@ export type CreateInventoryLabelParams = {
 export async function createInventoryLabel(
   params: CreateInventoryLabelParams
 ): Promise<InventoryLabelRow> {
-  const {
-    productId,
-    productName,
-    qty,
-    unitLabel,
-    labelCode,
-    extraPayload,
-  } = params;
+  const { productId, productName, qty, unitLabel, labelCode, extraPayload } =
+    params;
 
   if (!productId?.trim()) throw new Error("Produto (ID) não informado.");
   if (!productName?.trim()) throw new Error("Produto não informado.");
@@ -67,7 +126,12 @@ export async function createInventoryLabel(
   const { membership } = await getActiveMembershipOrRedirect();
 
   const establishmentId = (membership as any).establishment_id;
-  const userId = (membership as any).user_id ?? null;
+
+  // ✅ Preferir usuário autenticado (mais confiável que membership.user_id)
+  const { data: authData, error: authErr } = await supabase.auth.getUser();
+  const userId =
+    (!authErr && authData?.user?.id ? authData.user.id : null) ??
+    ((membership as any).user_id ?? null);
 
   if (!establishmentId) {
     throw new Error("Estabelecimento não encontrado no membership.");
@@ -87,7 +151,7 @@ export async function createInventoryLabel(
     throw new Error("Produto não encontrado.");
   }
 
-  if (product.establishment_id !== establishmentId) {
+  if ((product as any).establishment_id !== establishmentId) {
     throw new Error("Produto não pertence ao estabelecimento atual.");
   }
   // =========================================================
@@ -100,6 +164,9 @@ export async function createInventoryLabel(
         })
       : null;
 
+  // ✅ NORMALIZA unidade (mantém padrão do resto do sistema)
+  const normalizedUnit = String(unitLabel).trim().toUpperCase();
+
   /**
    * 1️⃣ CRIA A ETIQUETA
    */
@@ -110,7 +177,7 @@ export async function createInventoryLabel(
       product_id: productId, // 🔥 AGORA VINCULADO
       label_code: labelCode,
       qty,
-      unit_label: unitLabel,
+      unit_label: normalizedUnit, // ✅ NORMALIZA
       status: "available",
       order_id: null,
       separated_at: null,
@@ -135,13 +202,38 @@ export async function createInventoryLabel(
   }
 
   /**
-   * 2️⃣ MOVIMENTA ESTOQUE (ENTRADA)
-   * Fonte única de verdade do saldo
+   * 2️⃣ MOVIMENTO DE ENTRADA DA ETIQUETA (LABEL_IN)
+   * ✅ Garante que current_stock consiga refletir a entrada conforme convenção final
+   * ✅ Idempotente
+   */
+  await ensureLabelInMovement({
+    supabase,
+    establishmentId,
+    userId,
+    label: {
+      id: (label as any).id,
+      product_id: (label as any).product_id ?? productId,
+      unit_label: (label as any).unit_label ?? normalizedUnit,
+      qty: (label as any).qty ?? qty,
+      label_code: (label as any).label_code ?? labelCode,
+    },
+  });
+
+  /**
+   * 3️⃣ (MANTIDO) moveStock
+   * ⚠️ IMPORTANTE:
+   * - Se o seu moveStock também insere em inventory_movements, ele pode duplicar a entrada.
+   * - Se você CONFIRMAR que moveStock não duplica (ex.: escreve em outra tabela),
+   *   mantenha como está. Caso contrário, comente/remova este bloco.
+   *
+   * Como você reportou que não existia LABEL_IN, este bloco provavelmente não está
+   * gerando movement_type='LABEL_IN'. Por isso deixamos o ensureLabelInMovement como
+   * fonte de verdade.
    */
   await moveStock(supabase, {
     establishment_id: establishmentId,
     product_id: productId,
-    unit_label: unitLabel,
+    unit_label: normalizedUnit,
     qty_delta: qty, // ➕ ENTRADA
     reason: "etiqueta_manipulacao",
     source: "inventory_labels",
@@ -197,13 +289,10 @@ function parseLabelFromQr(raw: string): ParsedLabelFromQr {
     const obj = JSON.parse(cleaned) as any;
 
     const rawId = obj.label_id || obj.labelId || obj.id || obj.lid;
-    const rawCode =
-      obj.lt || obj.labelCode || obj.label_code || obj.code || obj.lc;
+    const rawCode = obj.lt || obj.labelCode || obj.label_code || obj.code || obj.lc;
 
     const labelId =
-      typeof rawId === "string" && rawId.trim().length > 0
-        ? rawId.trim()
-        : null;
+      typeof rawId === "string" && rawId.trim().length > 0 ? rawId.trim() : null;
 
     let labelCode: string | null = null;
     if (typeof rawCode === "string" && rawCode.trim().length > 0) {

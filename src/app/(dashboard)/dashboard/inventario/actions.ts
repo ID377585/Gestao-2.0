@@ -51,6 +51,43 @@ export async function aplicarInventario(
     return { ok: false, items: [] };
   }
 
+  /**
+   * ✅ Melhoria: normaliza e consolida itens repetidos (produto+unidade),
+   * evitando duplicidade de inserts e divergências por repetição.
+   */
+  const consolidatedMap = new Map<string, InventoryResumoInput>();
+
+  for (const raw of resumo) {
+    const produto = (raw?.produto ?? "").trim();
+    const unidade = (raw?.unidade ?? "").trim().toUpperCase();
+    const totalQtd = Number(raw?.totalQtd ?? 0);
+
+    // Mantém a mesma regra de validação (não quebra comportamento),
+    // só prepara uma base "limpa" para processar.
+    const key = `${produto}__${unidade}`;
+
+    if (!produto || !unidade || Number.isNaN(totalQtd)) {
+      // Itens inválidos serão tratados na etapa principal (mantém o fluxo original)
+      // Apenas não consolida aqui.
+      continue;
+    }
+
+    const existing = consolidatedMap.get(key);
+    if (!existing) {
+      consolidatedMap.set(key, { produto, unidade, totalQtd });
+    } else {
+      consolidatedMap.set(key, {
+        produto,
+        unidade,
+        totalQtd: Number(existing.totalQtd ?? 0) + totalQtd,
+      });
+    }
+  }
+
+  // Se tudo era inválido (ou resumo veio "estranho"), cai pro fluxo antigo (sem quebrar).
+  const normalizedResumo =
+    consolidatedMap.size > 0 ? Array.from(consolidatedMap.values()) : resumo;
+
   const { membership, user } = await getActiveMembershipOrRedirect();
   const establishmentId = membership.establishment_id;
   const userId = user.id;
@@ -79,31 +116,36 @@ export async function aplicarInventario(
   const resultItems: InventoryApplyResultItem[] = [];
 
   // 2) Processa cada item do resumo
-  for (const item of resumo) {
+  for (const item of normalizedResumo) {
     const produto = item.produto?.trim();
     const unidade = item.unidade?.trim().toUpperCase(); // ✅ NORMALIZA
     const counted = Number(item.totalQtd ?? 0);
 
-    if (!produto || !unidade || counted < 0) {
+    if (!produto || !unidade || counted < 0 || Number.isNaN(counted)) {
       resultItems.push({
         produto: produto || "",
         unidade: unidade || "",
-        counted,
+        counted: Number.isNaN(counted) ? 0 : counted,
         current: 0,
         diff: 0,
         status: "not_found",
         errorMessage:
-          "Entrada inválida: produto/unidade ausente ou quantidade negativa.",
+          "Entrada inválida: produto/unidade ausente, quantidade negativa ou inválida.",
       });
       continue;
     }
 
     // 2.1 – Produto
+    /**
+     * ✅ Melhoria: busca case-insensitive com ILIKE (sem wildcard),
+     * ajudando quando o nome vem com diferença de maiúsculas/minúsculas.
+     * Mantém a intenção de match exato.
+     */
     const { data: productRow, error: productError } = await supabase
       .from("products")
       .select("id")
       .eq("establishment_id", establishmentId)
-      .eq("name", produto)
+      .ilike("name", produto)
       .maybeSingle();
 
     if (productError) {
@@ -239,7 +281,7 @@ export async function aplicarInventario(
     resultItems.map((it) => `${it.produto}__${it.unidade}`)
   ).size;
 
-  await supabase
+  const { error: updateHeaderError } = await supabase
     .from("inventory_counts")
     .update({
       finished_at: finishedAt,
@@ -247,6 +289,16 @@ export async function aplicarInventario(
       total_products: produtosDistintos,
     })
     .eq("id", inventoryCountId);
+
+  /**
+   * ✅ Melhoria: loga erro se falhar ao atualizar cabeçalho (não altera retorno nem quebra fluxo).
+   */
+  if (updateHeaderError) {
+    console.error(
+      "Erro ao atualizar inventory_counts (finished_at/total_items/total_products):",
+      updateHeaderError
+    );
+  }
 
   // 3) Revalidar rotas
   revalidatePath("/dashboard/estoque");
@@ -320,6 +372,11 @@ export async function exportInventarioXLSX(): Promise<string> {
   sheet.getColumn("counted_quantity").numFmt = "0.00";
   sheet.getColumn("system_stock").numFmt = "0.00";
   sheet.getColumn("difference").numFmt = "0.00";
+
+  /**
+   * ✅ Melhoria: congela o cabeçalho (facilita leitura) sem afetar dados.
+   */
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer).toString("base64");

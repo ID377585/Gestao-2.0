@@ -1,3 +1,4 @@
+// src/app/(dashboard)/dashboard/inventario/actions.ts
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -313,6 +314,12 @@ export async function exportInventarioXLSX(): Promise<string> {
   rows.forEach((row) => {
     sheet.addRow(row);
   });
+
+  // ✅ Melhoria: formatação básica do cabeçalho e números
+  sheet.getRow(1).font = { bold: true };
+  sheet.getColumn("counted_quantity").numFmt = "0.00";
+  sheet.getColumn("system_stock").numFmt = "0.00";
+  sheet.getColumn("difference").numFmt = "0.00";
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer).toString("base64");

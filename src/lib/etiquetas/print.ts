@@ -17,7 +17,8 @@ const makeQrDataUrl = async (text: string) => {
   return await QRCode.toDataURL(text, {
     errorCorrectionLevel: "M",
     margin: 0,
-    width: 200, // ✅ leve redução (antes 220) para ganhar espaço
+    // ✅ QR maior e mais nítido (a dimensão final é dada pelo CSS em mm)
+    width: 260,
   });
 };
 
@@ -110,8 +111,13 @@ export async function imprimirBatchNoBrowser(
       break-after: page;
       box-sizing: border-box;
 
-      /* ✅ aqui estava a “margem” que empurrava tudo pra direita */
-      padding: 2.2mm 1.6mm; /* era 2.6mm 3.2mm (reduzimos bastante o lado) */
+      /*
+        ✅ Margens internas (padding)
+        - Top/Bottom: 2.0mm (seguro)
+        - Right: 0.0mm (lado do QR, como você pediu)
+        - Left: 1.6mm (mantém respiro do outro lado)
+      */
+      padding: 2.0mm 0.0mm 2.0mm 1.6mm;
 
       display: flex;
       align-items: stretch;
@@ -132,36 +138,39 @@ export async function imprimirBatchNoBrowser(
       display: flex;
       flex: 1;
 
-      /* ✅ reduzimos o “vão” entre QR e texto */
-      gap: 1.6mm; /* era 2.5mm */
+      /* ✅ reduz o vão entre QR e texto */
+      gap: 1.2mm;
       align-items: stretch;
     }
 
-    /* ✅ QR ocupa exatamente o espaço necessário */
+    /* ✅ QR maior */
     .qrBox {
-      width: 18mm;      /* era 20mm */
-      min-width: 18mm;
+      width: 22mm;
+      min-width: 22mm;
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
+
+      /* ✅ encosta o QR no lado direito sem “folga” */
+      margin-right: 0 !important;
+      padding-right: 0 !important;
     }
 
-    /* ✅ QR não pode ser maior que o box (evita “sobrar margem” e empurrar texto) */
     .qrImg {
-      width: 18mm;      /* era 20mm */
-      height: 18mm;     /* era 20mm */
+      width: 22mm;
+      height: 22mm;
       object-fit: contain;
       display: block;
     }
 
     .qrHint {
-      margin-top: 0.6mm; /* era 1mm */
-      font-size: 2.3mm;  /* era 2.6mm */
-      line-height: 1.1;
+      margin-top: 0.4mm;
+      font-size: 2.1mm;
+      line-height: 1.05;
       text-align: center;
-      font-weight: 700;
-      letter-spacing: 0.1mm;
+      font-weight: 800;
+      letter-spacing: 0.08mm;
     }
 
     .info {
@@ -169,24 +178,26 @@ export async function imprimirBatchNoBrowser(
       display: flex;
       flex-direction: column;
       justify-content: center;
-      gap: 0.6mm; /* era 0.8mm */
+
+      /* ✅ compacta um pouco */
+      gap: 0.45mm;
       overflow: hidden;
-      min-width: 0; /* ✅ importante para ellipsis/quebra funcionar corretamente */
+      min-width: 0;
     }
 
-    /* ✅ fonte base */
+    /* ✅ fonte base um pouco menor */
     .row {
       display: flex;
       align-items: baseline;
-      gap: 1.0mm;     /* era 1.2mm */
-      font-size: 2.9mm; /* era 3.0mm */
-      line-height: 1.12;
+      gap: 0.9mm;
+      font-size: 2.7mm;
+      line-height: 1.10;
       min-width: 0;
     }
 
     .k {
-      font-weight: 800;
-      min-width: 20mm; /* era 22mm (ganhamos área pro valor) */
+      font-weight: 900;
+      min-width: 19mm;
       flex: 0 0 auto;
       white-space: nowrap;
     }
@@ -195,35 +206,33 @@ export async function imprimirBatchNoBrowser(
       font-weight: 650;
       flex: 1 1 auto;
       min-width: 0;
-
-      /* padrão continua sem quebrar */
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    /* ✅ PRODUTO: permitir quebrar linha e caber mais (sem cortar o final) */
-    .row.produto { font-size: 3.2mm; } /* era 3.5mm */
+    /* ✅ PRODUTO: quebra em até 2 linhas, com fonte um pouco menor */
+    .row.produto { font-size: 3.0mm; }
     .row.produto .v {
-      white-space: normal;              /* ✅ permite quebrar */
+      white-space: normal;
       overflow: hidden;
       text-overflow: ellipsis;
 
-      /* ✅ limita em 2 linhas para não “estourar” a etiqueta */
       display: -webkit-box;
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
-      line-height: 1.15;
-      max-height: calc(2 * 1.15em);
+
+      line-height: 1.12;
+      max-height: calc(2 * 1.12em);
     }
 
-    /* ✅ QTD ainda destaca mas sem exagero */
-    .row.qtd { font-size: 3.2mm; } /* era 3.5mm */
+    /* ✅ QTD destaca mas sem exagero */
+    .row.qtd { font-size: 3.0mm; }
 
     .footer {
-      font-size: 2.7mm; /* era 2.8mm */
-      line-height: 1.1;
-      margin-top: 0.6mm; /* era 1mm */
+      font-size: 2.5mm;
+      line-height: 1.05;
+      margin-top: 0.5mm;
       display: flex;
       justify-content: space-between;
       gap: 2mm;
@@ -264,11 +273,11 @@ export async function imprimirBatchNoBrowser(
               <div class="row"><span class="k">Vencimento:</span><span class="v">${formatDateBR(e.dataVenc)}</span></div>
 
               <div class="row"><span class="k">Lote:</span><span class="v">${e.loteMan}</span></div>
-              <div class="row"><span class="k">Responsável:</span><span class="v">${e.responsavel}</span></div>
+              <div class="row"><span class="k">Resp.:</span><span class="v">${e.responsavel}</span></div>
 
               ${
                 e.alergenico
-                  ? `<div class="row"><span class="k">Alergênico:</span><span class="v">${e.alergenico}</span></div>`
+                  ? `<div class="row"><span class="k">Alerg.:</span><span class="v">${e.alergenico}</span></div>`
                   : ""
               }
 

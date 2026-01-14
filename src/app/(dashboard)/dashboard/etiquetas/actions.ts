@@ -73,6 +73,25 @@ export async function createInventoryLabel(
     throw new Error("Estabelecimento não encontrado no membership.");
   }
 
+  // =========================================================
+  // 🔒 AJUSTE ESTRUTURAL (CRÍTICO)
+  // Garante que o produto pertence ao mesmo establishment
+  // =========================================================
+  const { data: product, error: productErr } = await supabase
+    .from("products")
+    .select("id, establishment_id")
+    .eq("id", productId)
+    .maybeSingle();
+
+  if (productErr || !product) {
+    throw new Error("Produto não encontrado.");
+  }
+
+  if (product.establishment_id !== establishmentId) {
+    throw new Error("Produto não pertence ao estabelecimento atual.");
+  }
+  // =========================================================
+
   const notesJson =
     extraPayload != null
       ? JSON.stringify({

@@ -807,7 +807,7 @@ export default function InventarioPage() {
                   <Input
                     value={manualUmd}
                     onChange={(e) => setManualUmd(e.target.value)}
-                    placeholder="kg, L, un..."
+                    placeholder="KG, L, UN..."
                     disabled={!inventarioAtivo || isApplying}
                   />
                 </div>

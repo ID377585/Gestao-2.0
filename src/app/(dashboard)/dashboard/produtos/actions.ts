@@ -32,7 +32,7 @@ function normalizeText(value: FormDataEntryValue | null): string | null {
 }
 
 /**
- * ✅ NOVO: Normaliza unidade para evitar inconsistência (kg/Kg/ML/mL etc)
+ * ✅ NOVO: Normaliza unidade para evitar inconsistência (KG/KG/ML/mL etc)
  * - força maiúsculo
  * - garante apenas valores permitidos
  */

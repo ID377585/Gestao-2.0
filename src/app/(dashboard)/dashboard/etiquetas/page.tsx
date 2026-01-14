@@ -518,7 +518,7 @@ export default function EtiquetasPage() {
     }
 
     if (!String(formData.umd || "").trim()) {
-      alert("Preencha a Unidade para imprimir (ex: kg, g, un).");
+      alert("Preencha a Unidade para imprimir (ex: KG, G, UN).");
       return;
     }
     if (!String(formData.dataManip || "").trim()) {
@@ -1134,7 +1134,7 @@ export default function EtiquetasPage() {
                         onChange={(e) =>
                           handleInputChange("umd", e.target.value)
                         }
-                        placeholder="Ex: kg, g, un"
+                        placeholder="Ex:KG, G, UN"
                         autoComplete="off"
                       />
                     </div>

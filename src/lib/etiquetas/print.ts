@@ -114,8 +114,8 @@ export async function imprimirBatchNoBrowser(
       /*
         ✅ Margens internas (padding)
         - Top/Bottom: 2.0mm (seguro)
-        - Right: 0.0mm (lado do QR, como você pediu)
-        - Left: 1.6mm (mantém respiro do outro lado)
+        - Right: 1.6mm (mantém respiro do outro lado)
+        - Left: 0.0mm (lado do QR, como você pediu)
       */
       padding: 2.0mm 0.0mm 2.0mm 1.6mm;
 

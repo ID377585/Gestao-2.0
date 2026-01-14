@@ -54,7 +54,11 @@ function isMissingTypeColumnError(err: any): boolean {
   const blob = `${msg} ${details} ${hint}`;
   if (blob.includes("schema cache") && blob.includes("'type'")) return true;
   if (blob.includes("could not find the 'type' column")) return true;
-  if (blob.includes("column") && blob.includes("type") && blob.includes("does not exist"))
+  if (
+    blob.includes("column") &&
+    blob.includes("type") &&
+    blob.includes("does not exist")
+  )
     return true;
 
   return false;
@@ -62,7 +66,11 @@ function isMissingTypeColumnError(err: any): boolean {
 
 async function resolveEstablishmentId(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
-): Promise<{ establishmentId: string | null; userId: string | null; debug: string[] }> {
+): Promise<{
+  establishmentId: string | null;
+  userId: string | null;
+  debug: string[];
+}> {
   const debug: string[] = [];
 
   try {
@@ -75,7 +83,9 @@ async function resolveEstablishmentId(
 
     const picked = estId ?? orgId ?? null;
     debug.push(
-      `membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"} user=${userId ?? "null"})`
+      `membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"} user=${
+        userId ?? "null"
+      })`
     );
 
     return { establishmentId: picked, userId, debug };
@@ -105,7 +115,9 @@ async function resolveEstablishmentId(
   const estId = normalizeId((m as any)?.establishment_id);
   const orgId = normalizeId((m as any)?.organization_id);
   if (estId ?? orgId) {
-    debug.push(`fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`);
+    debug.push(
+      `fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`
+    );
     return { establishmentId: estId ?? orgId ?? null, userId, debug };
   }
 
@@ -119,7 +131,9 @@ async function resolveEstablishmentId(
 
   const estId2 = normalizeId((p as any)?.establishment_id);
   const orgId2 = normalizeId((p as any)?.organization_id);
-  debug.push(`fallback profiles: ok (est=${estId2 ?? "null"} org=${orgId2 ?? "null"})`);
+  debug.push(
+    `fallback profiles: ok (est=${estId2 ?? "null"} org=${orgId2 ?? "null"})`
+  );
 
   return { establishmentId: estId2 ?? orgId2 ?? null, userId, debug };
 }
@@ -170,14 +184,17 @@ export async function POST(req: Request) {
   const labelCode = String(body?.labelCode ?? body?.label_code ?? "").trim();
 
   // ✅ PASSO 3: BLINDAGEM — normaliza unidade também no backend (garante consistência)
+  // ⚠️ FIX: stock_balances_unit_uppercase exige UPPERCASE (não lower)
   const unitLabel = String(body?.unitLabel ?? body?.unit_label ?? "")
     .trim()
-    .toLowerCase()
+    .toUpperCase()
     .replace(/\s+/g, "");
 
   const qty = Number(body?.qty);
 
-  const labelType = normalizeLabelType(body?.labelType ?? body?.label_type ?? body?.type);
+  const labelType = normalizeLabelType(
+    body?.labelType ?? body?.label_type ?? body?.type
+  );
 
   const notes =
     body?.notes != null
@@ -186,10 +203,14 @@ export async function POST(req: Request) {
       ? JSON.stringify(body.extraPayload)
       : null;
 
-  if (!productId) return NextResponse.json({ error: "productId obrigatório." }, { status: 400 });
-  if (!labelCode) return NextResponse.json({ error: "labelCode obrigatório." }, { status: 400 });
-  if (!unitLabel) return NextResponse.json({ error: "unitLabel obrigatório." }, { status: 400 });
-  if (!qty || qty <= 0) return NextResponse.json({ error: "qty inválido." }, { status: 400 });
+  if (!productId)
+    return NextResponse.json({ error: "productId obrigatório." }, { status: 400 });
+  if (!labelCode)
+    return NextResponse.json({ error: "labelCode obrigatório." }, { status: 400 });
+  if (!unitLabel)
+    return NextResponse.json({ error: "unitLabel obrigatório." }, { status: 400 });
+  if (!qty || qty <= 0)
+    return NextResponse.json({ error: "qty inválido." }, { status: 400 });
 
   // tentativa 1: com coluna `type` (se existir no schema)
   const insertBase: any = {
@@ -224,7 +245,8 @@ export async function POST(req: Request) {
       .single();
 
     if (err2 || !created2) {
-      const msg = (err2 as any)?.message ?? "Falha ao salvar etiqueta no banco (insert).";
+      const msg =
+        (err2 as any)?.message ?? "Falha ao salvar etiqueta no banco (insert).";
       return NextResponse.json({ error: msg }, { status: 500 });
     }
 
@@ -234,7 +256,10 @@ export async function POST(req: Request) {
   // erros comuns
   if ((err1 as any)?.code === "23505") {
     return NextResponse.json(
-      { error: "Já existe uma etiqueta com este código/lote. Verifique o lote ou a UNIQUE constraint." },
+      {
+        error:
+          "Já existe uma etiqueta com este código/lote. Verifique o lote ou a UNIQUE constraint.",
+      },
       { status: 409 }
     );
   }

@@ -781,6 +781,7 @@ export async function POST(request: Request) {
 
     // ==========================================================
     // 3) ID vindo do CSV (separar INSERT vs UPDATE para não quebrar RLS/created_by)
+    // ✅ FIX: se o CSV traz ID, mas o SKU já existe no establishment, atualizar pelo ID do SKU
     // ==========================================================
     let insertedWithId = 0;
     let updatedById = 0;
@@ -819,23 +820,85 @@ export async function POST(request: Request) {
         }
       }
 
+      // ✅ NOVO: mapeia SKU -> ID existente para evitar violar "products_establishment_sku_unique"
+      const skuList = Array.from(
+        new Set(
+          withIdPayloads
+            .map((p) => String((p as any)?.sku ?? "").trim())
+            .filter((v) => v.length > 0),
+        ),
+      );
+
+      const existingBySku = new Map<string, string>();
+      if (skuList.length > 0) {
+        const skuChunks = chunkArray(skuList, 250);
+
+        for (const chunk of skuChunks) {
+          const { data: existingSkuRows, error: existingSkuErr } = await supabase
+            .from("products")
+            .select("id,sku")
+            .eq("establishment_id", effectiveEstablishmentId)
+            .in("sku", chunk);
+
+          if (existingSkuErr) {
+            console.error(
+              "Erro ao buscar produtos existentes por SKU (import - withId):",
+              existingSkuErr,
+            );
+            return respondError(
+              request,
+              "Erro ao preparar importação (busca por SKU).",
+              500,
+              { details: { select: errDetails(existingSkuErr) } },
+            );
+          }
+
+          for (const row of existingSkuRows ?? []) {
+            if ((row as any)?.sku && (row as any)?.id) {
+              existingBySku.set(
+                String((row as any).sku),
+                String((row as any).id),
+              );
+            }
+          }
+        }
+      }
+
       const toInsertWithId: any[] = [];
       const toUpdateById: any[] = [];
 
       for (const payload of withIdPayloads) {
-        const id = String(payload.id);
-        if (existingIdSet.has(id)) {
+        const csvId = String(payload.id);
+        const sku = String((payload as any)?.sku ?? "").trim();
+        const existingIdFromSku = sku ? existingBySku.get(sku) : null;
+
+        if (existingIdSet.has(csvId)) {
+          // ID já existe -> update normal por ID
           toUpdateById.push({
             ...payload,
             ...(userId ? { updated_by: userId, updated_at: nowIso } : {}),
           });
-        } else {
-          // ✅ IMPORTANTE: inserir com created_by/created_at (evita sumir por RLS no app)
-          toInsertWithId.push({
-            ...payload,
-            ...(userId ? { created_by: userId, created_at: nowIso } : {}),
-          });
+          continue;
         }
+
+        if (existingIdFromSku) {
+          // ✅ SKU já existe -> atualizar pelo ID real do banco (ignora o ID do CSV)
+          const { id: _ignoreIdFromCsv, ...restPayload } = payload;
+
+          toUpdateById.push({
+            ...restPayload,
+            id: existingIdFromSku,
+            establishment_id: effectiveEstablishmentId,
+            ...(userId ? { updated_by: userId, updated_at: nowIso } : {}),
+          });
+          continue;
+        }
+
+        // Nem ID nem SKU existem -> pode inserir com ID do CSV (mantém created_by/created_at)
+        toInsertWithId.push({
+          ...payload,
+          ...(userId ? { created_by: userId, created_at: nowIso } : {}),
+        });
       }
 
       if (toInsertWithId.length > 0) {

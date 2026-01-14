@@ -857,7 +857,7 @@ export async function getOrderCollectedSummary(
 
     if (!existing) {
       // Por enquanto assumimos que a unidade da etiqueta = unidade de custo padrão.
-      // Se depois precisarmos converter (kg ↔ g, etc.), a gente liga no conversion_factor.
+      // Se depois precisarmos converter (KG ↔ G, etc.), a gente liga no conversion_factor.
       const unitCost = standardCost;
       const totalCost =
         unitCost !== null ? unitCost * qty : null;

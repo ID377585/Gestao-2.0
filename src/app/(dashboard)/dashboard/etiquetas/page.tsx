@@ -712,7 +712,7 @@ export default function EtiquetasPage() {
       return;
     }
 
-    setEtiquetasGeradas((prev) => [...novas, ...prev]);
+    await refreshHistorico();
 
     await imprimirBatchNoBrowser(novas as unknown as EtiquetaGerada[]);
 

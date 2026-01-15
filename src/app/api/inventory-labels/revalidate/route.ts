@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { revalidateInventoryLabel } from "src/app/(dashboard)/dashboard/etiquetas/action";
+import { revalidateInventoryLabel } from "../../../(dashboard)/dashboard/etiquetas/action";
 
 export async function PATCH(req: Request) {
   const body = await req.json();

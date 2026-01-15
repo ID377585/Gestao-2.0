@@ -1,3 +1,4 @@
+// src/app/(dashboard)/dashboard/produtividade/page.tsx
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
@@ -85,7 +86,7 @@ export default async function ProdutividadePage() {
   const { data: events, error: eventsErr } = await supabase
     .from("order_status_events")
     .select(
-      "id, order_id, from_status, to_status, created_at, created_by, action"
+      "id, order_id, from_status, to_status, created_at, created_by, action",
     )
     .eq("establishment_id", establishmentId)
     .gte("created_at", sevenDaysAgo.toISOString())
@@ -103,7 +104,7 @@ export default async function ProdutividadePage() {
   const entregues = safeOrders.filter((o) => o.status === "entregue").length;
   const cancelados = safeOrders.filter((o) => o.status === "cancelado").length;
   const ativos = safeOrders.filter(
-    (o) => !["entregue", "cancelado"].includes(o.status)
+    (o) => !["entregue", "cancelado"].includes(o.status),
   ).length;
 
   // Pedidos por status
@@ -163,11 +164,11 @@ export default async function ProdutividadePage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4">
-        <div>
+      {/* Header (responsivo no mobile) */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="text-center sm:text-left">
           <h1 className="text-3xl font-bold text-gray-900">Produtividade</h1>
-          <p className="text-gray-600">
+          <p className="text-gray-600 max-w-prose mx-auto sm:mx-0">
             Visão de desempenho dos pedidos e operação nos últimos 7 dias.
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -178,15 +179,17 @@ export default async function ProdutividadePage() {
             </strong>
           </p>
         </div>
-        <div className="flex space-x-2">
+
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
           {/* Botão de atualizar usando Server Action + revalidatePath */}
           <form
             action={async () => {
               "use server";
               revalidatePath("/dashboard/produtividade");
             }}
+            className="w-full sm:w-auto"
           >
-            <Button type="submit" variant="outline">
+            <Button type="submit" variant="outline" className="w-full sm:w-auto">
               <span className="mr-2">🔄</span>
               Atualizar
             </Button>
@@ -194,18 +197,18 @@ export default async function ProdutividadePage() {
         </div>
       </div>
 
-      {/* Cards principais */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+      {/* Cards principais (2 por linha no mobile) */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-xs sm:text-sm font-medium">
               Pedidos no período
             </CardTitle>
-            <span className="text-2xl">📊</span>
+            <span className="text-xl sm:text-2xl">📊</span>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalPedidos}</div>
-            <p className="text-xs text-muted-foreground">
+          <CardContent className="pt-0">
+            <div className="text-xl sm:text-2xl font-bold">{totalPedidos}</div>
+            <p className="text-[11px] sm:text-xs text-muted-foreground">
               Somando todos os status
             </p>
           </CardContent>
@@ -213,12 +216,14 @@ export default async function ProdutividadePage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ativos</CardTitle>
-            <span className="text-2xl">⚙️</span>
+            <CardTitle className="text-xs sm:text-sm font-medium">
+              Ativos
+            </CardTitle>
+            <span className="text-xl sm:text-2xl">⚙️</span>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{ativos}</div>
-            <p className="text-xs text-muted-foreground">
+          <CardContent className="pt-0">
+            <div className="text-xl sm:text-2xl font-bold">{ativos}</div>
+            <p className="text-[11px] sm:text-xs text-muted-foreground">
               Em qualquer etapa do fluxo
             </p>
           </CardContent>
@@ -226,12 +231,14 @@ export default async function ProdutividadePage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Entregues</CardTitle>
-            <span className="text-2xl">✅</span>
+            <CardTitle className="text-xs sm:text-sm font-medium">
+              Entregues
+            </CardTitle>
+            <span className="text-xl sm:text-2xl">✅</span>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{entregues}</div>
-            <p className="text-xs text-muted-foreground">
+          <CardContent className="pt-0">
+            <div className="text-xl sm:text-2xl font-bold">{entregues}</div>
+            <p className="text-[11px] sm:text-xs text-muted-foreground">
               Concluídos no período
             </p>
           </CardContent>
@@ -239,12 +246,14 @@ export default async function ProdutividadePage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Cancelados</CardTitle>
-            <span className="text-2xl">🛑</span>
+            <CardTitle className="text-xs sm:text-sm font-medium">
+              Cancelados
+            </CardTitle>
+            <span className="text-xl sm:text-2xl">🛑</span>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{cancelados}</div>
-            <p className="text-xs text-muted-foreground">
+          <CardContent className="pt-0">
+            <div className="text-xl sm:text-2xl font-bold">{cancelados}</div>
+            <p className="text-[11px] sm:text-xs text-muted-foreground">
               Fora do fluxo normal
             </p>
           </CardContent>

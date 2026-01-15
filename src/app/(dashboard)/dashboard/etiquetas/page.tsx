@@ -60,7 +60,7 @@ import {
 } from "@/lib/etiquetas/helpers";
 
 /* =========================
-   TIPOS DO BACK (route handler /api/inventory-labels)
+  TIPOS DO BACK (route handler /api/inventory-labels)
 ========================= */
 type InventoryLabelRow = {
   id: string;
@@ -72,24 +72,24 @@ type InventoryLabelRow = {
 };
 
 /* =========================
-   Produtos (GET /api/products)
+  Produtos (GET /api/products)
 ========================= */
 type ProductOption = {
   id: string;
   name: string;
   category: string | null;
   unit: string | null;
-  shelf_life_days?: number | null; // ✅ NOVO: shelf life (dias)
+  shelf_life_days?: number | null;
 };
 
 /* =========================
-   MOCKS (depois troca por auth real)
+  MOCKS (depois troca por auth real)
 ========================= */
 const USUARIO_LOGADO_NOME = "Admin User";
 const ESTABELECIMENTO_NOME = "Matriz";
 
 /* =========================
-   Labels / Dados fixos
+  Labels / Dados fixos
 ========================= */
 interface TipoEtiqueta {
   id: string;
@@ -126,19 +126,21 @@ const tamanhosEtiqueta: TamanhoEtiqueta[] = [
 ];
 
 /* =========================
-   ✅ EXTENSÃO: adiciona "marca" (exigência vigilância sanitária)
-   - Mantém compatível com EtiquetaGerada existente
+  EXTENSÃO: adiciona "marca"
 ========================= */
 type EtiquetaGeradaWithMarca = EtiquetaGerada & {
   marca?: string;
-
-  // ✅ NOVO: campos opcionais para revalidação (persistidos no notes)
   revalidatedAt?: string;
   revalidationNotes?: string;
+
+  // ✅ blindagem p/ revalidação e recálculo
+  notes?: string | null;
+  productId?: string | null;
+  shelfLifeDays?: number | null;
 };
 
 /* =========================
-   Form default
+  Form default
 ========================= */
 const createDefaultForm = () => ({
   insumo: "",
@@ -152,19 +154,18 @@ const createDefaultForm = () => ({
   armazenamento: "",
   ingredientes: "",
 
-  // ✅ Fabricante (REVALIDAR)
   dataFabricante: "",
   dataVencimento: "",
   sif: "",
   loteFab: "",
-  marca: "", // ✅ NOVO: Marca do produto (exigência vigilância)
+  marca: "",
 
   localEnvio: ESTABELECIMENTO_NOME,
   localArmazenado: "",
 });
 
 /* =========================
-   Helpers (datas)
+  Helpers (datas)
 ========================= */
 function addDaysISO(baseISO: string, days: number) {
   const d = new Date(`${baseISO}T00:00:00`);
@@ -173,10 +174,7 @@ function addDaysISO(baseISO: string, days: number) {
 }
 
 /* =========================
-   ✅ NOVO: Helpers (dias restantes até vencer)
-   - Dias restantes = (Validade - Data Criação), em dias inteiros
-   - Quando faltar 1 dia: negrito + vermelho
-   - Se já venceu: mostra 0 (evita números negativos)
+  ✅ CORREÇÃO DEFINITIVA DO "VENCE EM"
 ========================= */
 function startOfDayLocal(dateLike: string | Date) {
   const d = typeof dateLike === "string" ? new Date(dateLike) : dateLike;
@@ -190,22 +188,30 @@ function diffDays(from: string | Date, to: string | Date) {
   return Math.floor(ms / (1000 * 60 * 60 * 24));
 }
 
-function getDiasParaVencer(createdAtISO: string, validadeISO: string) {
-  if (!createdAtISO || !validadeISO) return null;
+/**
+ * ✅ REGRA FINAL
+ * - Usa Data de Manipulação como base
+ * - Revalidação NÃO consome dias (porque vamos "resetar" dataManip/dataVenc no notes)
+ */
+function getDiasParaVencer(dataManipISO: string, dataVencISO: string) {
+  if (!dataManipISO || !dataVencISO) return null;
 
-  const created = new Date(createdAtISO);
-  // validade vem como "YYYY-MM-DD" (sem horário)
-  const validade = new Date(`${validadeISO}T00:00:00`);
+  const dataManip = new Date(`${dataManipISO}T00:00:00`);
+  const dataVenc = new Date(`${dataVencISO}T00:00:00`);
 
-  if (Number.isNaN(created.getTime()) || Number.isNaN(validade.getTime()))
+  if (
+    Number.isNaN(dataManip.getTime()) ||
+    Number.isNaN(dataVenc.getTime())
+  ) {
     return null;
+  }
 
-  const days = diffDays(created, validade);
-  return days < 0 ? 0 : days;
+  const shelfLife = diffDays(dataManip, dataVenc);
+  return shelfLife < 0 ? 0 : shelfLife;
 }
 
 /* =========================
-   API helpers (CLIENT -> Route Handler)
+  API helpers
 ========================= */
 async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
   const res = await fetch("/api/inventory-labels", { method: "GET" });
@@ -229,41 +235,24 @@ async function apiListInventoryLabels(): Promise<InventoryLabelRow[]> {
   return Array.isArray(data) ? data : [];
 }
 
-/**
- * ✅ PAYLOAD CORRETO E DEFINITIVO
- * - Envia apenas camelCase (sem duplicar snake_case)
- * - Sem labelType (backend já deduz via extraPayload / notes)
- * - Log cirúrgico + tratamento de erro mantidos
- */
 async function apiCreateInventoryLabel(payload: {
   productId: string;
   productName: string;
   qty: number;
   unitLabel: string;
   labelCode: string;
-  extraPayload?: unknown;
-}): Promise<void> {
-  const bodyToSend = {
-    productId: payload.productId,
-    productName: payload.productName,
-    qty: payload.qty,
-    unitLabel: payload.unitLabel,
-    labelCode: payload.labelCode,
-    extraPayload: payload.extraPayload ?? null,
-  };
-
-  console.log("[POST /api/inventory-labels] payload:", bodyToSend);
-
+  extraPayload: any;
+}) {
   const res = await fetch("/api/inventory-labels", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(bodyToSend),
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
   });
 
   const contentType = res.headers.get("content-type") || "";
 
   if (!res.ok) {
-    let message = `Erro ao salvar etiqueta (HTTP ${res.status}).`;
+    let message = `Falha ao salvar etiqueta (HTTP ${res.status}).`;
     try {
       if (contentType.includes("application/json")) {
         const j = await res.json();
@@ -275,35 +264,24 @@ async function apiCreateInventoryLabel(payload: {
     } catch {}
     throw new Error(message);
   }
+
+  return await res.json();
 }
 
-/**
- * ✅ NOVO: Revalidar/atualizar notes da etiqueta
- * - Endpoint correto: PATCH /api/inventory-labels/revalidate
- *   (evita 405 em /api/inventory-labels)
- * - newNotes recebe um OBJETO (que será serializado no server action)
- */
 async function apiRevalidateInventoryLabel(payload: {
   labelId: string;
   newNotes: any;
-}): Promise<void> {
-  const bodyToSend = {
-    labelId: payload.labelId,
-    newNotes: payload.newNotes ?? null,
-  };
-
-  console.log("[PATCH /api/inventory-labels/revalidate] payload:", bodyToSend);
-
+}) {
   const res = await fetch("/api/inventory-labels/revalidate", {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(bodyToSend),
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
   });
 
   const contentType = res.headers.get("content-type") || "";
 
   if (!res.ok) {
-    let message = `Erro ao revalidar etiqueta (HTTP ${res.status}).`;
+    let message = `Falha ao revalidar etiqueta (HTTP ${res.status}).`;
     try {
       if (contentType.includes("application/json")) {
         const j = await res.json();
@@ -315,8 +293,13 @@ async function apiRevalidateInventoryLabel(payload: {
     } catch {}
     throw new Error(message);
   }
+
+  return await res.json();
 }
 
+/* =========================
+  COMPONENTE
+========================= */
 export default function EtiquetasPage() {
   const [etiquetasGeradas, setEtiquetasGeradas] = useState<
     EtiquetaGeradaWithMarca[]
@@ -469,25 +452,38 @@ export default function EtiquetasPage() {
         loteMan: extra?.loteMan ?? row.label_code,
         responsavel: extra?.responsavel ?? USUARIO_LOGADO_NOME,
 
-        alergenico: extra?.alergenico,
-        armazenamento: extra?.armazenamento,
-        ingredientes: extra?.ingredientes,
-        dataFabricante: extra?.dataFabricante,
-        dataVencimento: extra?.dataVencimento,
-        sif: extra?.sif,
-        loteFab: extra?.loteFab,
+        alergenico: (extra as any)?.alergenico,
+        armazenamento: (extra as any)?.armazenamento,
+        ingredientes: (extra as any)?.ingredientes,
+        dataFabricante: (extra as any)?.dataFabricante,
+        dataVencimento: (extra as any)?.dataVencimento,
+        sif: (extra as any)?.sif,
+        loteFab: (extra as any)?.loteFab,
 
-        // ✅ NOVO: marca (fabricante)
-        marca: extra?.marca,
+        // ✅ marca (fabricante)
+        marca: (extra as any)?.marca,
 
-        // ✅ NOVO: revalidação (persistida no notes)
-        revalidatedAt: extra?.revalidatedAt,
-        revalidationNotes: extra?.revalidationNotes,
+        // ✅ revalidação
+        revalidatedAt: (extra as any)?.revalidatedAt,
+        revalidationNotes: (extra as any)?.revalidationNotes,
 
-        localEnvio: extra?.localEnvio,
-        localArmazenado: extra?.localArmazenado,
+        localEnvio: (extra as any)?.localEnvio,
+        localArmazenado: (extra as any)?.localArmazenado,
 
-        createdAt: extra?.createdAt ?? createdAt,
+        createdAt: (extra as any)?.createdAt ?? createdAt,
+
+        // ✅ blindagens p/ revalidação e recálculo
+        notes: row.notes ?? null,
+        productId:
+          ((extra as any)?.productId as string | undefined) ??
+          ((extra as any)?.product_id as string | undefined) ??
+          null,
+        shelfLifeDays:
+          typeof (extra as any)?.shelfLifeDays === "number"
+            ? (extra as any).shelfLifeDays
+            : typeof (extra as any)?.shelf_life_days === "number"
+              ? (extra as any).shelf_life_days
+              : null,
       } as EtiquetaGeradaWithMarca;
     });
 
@@ -637,6 +633,10 @@ export default function EtiquetasPage() {
       .map((x) => String(x.qtd ?? "").trim())
       .filter((v) => v.length > 0);
 
+    const shelfFromSelected = selectedProduct
+      ? Number(selectedProduct.shelf_life_days ?? 0)
+      : 0;
+
     const novas: EtiquetaGeradaWithMarca[] = qtds.map((qtdStr, idx) => {
       const loteUnico = gerarLoteVigilancia();
       return {
@@ -660,12 +660,16 @@ export default function EtiquetasPage() {
         sif: formData.sif || undefined,
         loteFab: formData.loteFab || undefined,
 
-        // ✅ NOVO: marca do produto (fabricante)
+        // ✅ marca do produto (fabricante)
         marca: formData.marca || undefined,
 
         localEnvio: formData.localEnvio || undefined,
         localArmazenado: formData.localArmazenado || undefined,
         createdAt: nowISO,
+
+        // ✅ CRÍTICO p/ recálculo no futuro (sem depender de backend)
+        productId: selectedProductId,
+        shelfLifeDays: Number.isFinite(shelfFromSelected) ? shelfFromSelected : 0,
       } as EtiquetaGeradaWithMarca;
     });
 
@@ -680,7 +684,6 @@ export default function EtiquetasPage() {
       tipoSelecionado,
       tamanhoSelecionado,
       porcoes: linhasPorcao,
-      // ✅ NOVO
       marca: formData.marca,
     });
 
@@ -697,10 +700,7 @@ export default function EtiquetasPage() {
           qty: et.qtd,
 
           // ✅ PASSO 3: BLINDAGEM — normaliza unidade SEM alterar o resto do fluxo validado
-          unitLabel: String(et.umd || "")
-            .trim()
-            .toUpperCase()
-            .replace(/\s+/g, ""),
+          unitLabel: String(et.umd || "").trim().toUpperCase().replace(/\s+/g, ""),
 
           labelCode: et.loteMan,
           extraPayload: et,
@@ -718,13 +718,15 @@ export default function EtiquetasPage() {
 
     setShowNovaEtiqueta(false);
   }, [
-    formData,
-    gerarLoteVigilancia,
-    linhasPorcao,
-    tamanhoSelecionado,
-    tipoSelecionado,
     validarQuantidades,
+    formData,
+    linhasPorcao,
+    gerarLoteVigilancia,
+    tipoSelecionado,
+    tamanhoSelecionado,
     selectedProductId,
+    selectedProduct,
+    refreshHistorico,
   ]);
 
   const tiposVisiveis = useMemo(
@@ -747,22 +749,87 @@ export default function EtiquetasPage() {
     setShowRevalidarModal(true);
   }, []);
 
+  /**
+   * ✅ PASSO 3 (correção do "Vence em" na revalidação)
+   * - Sempre recalcula: dataManip = hoje
+   * - dataVenc = hoje + shelfLifeDays do produto
+   * - Salva isso NO NOTES (JSON) junto com revalidatedAt / revalidationNotes
+   */
   const handleConfirmRevalidar = useCallback(async () => {
-    if (!revalidarTarget?.id) {
-      setShowRevalidarModal(false);
-      setRevalidarTarget(null);
-      setRevalidarNotes("");
-      return;
-    }
+    if (!revalidarTarget) return;
 
     const labelId = revalidarTarget.id;
     const nowISO = new Date().toISOString();
+    const hojeISO = getTodayISO();
 
-    // ✅ Monta newNotes como "objeto completo" da etiqueta, sem quebrar o padrão atual
-    // - Mantém tudo que já estava no notes
+    // ✅ pega notes atual (se existir) sem quebrar
+    const previousNotes =
+      typeof revalidarTarget.notes === "string"
+        ? safeJsonParse<Record<string, any>>(revalidarTarget.notes)
+        : null;
+
+    // ✅ tenta resolver shelf life:
+    // 1) do notes (se já gravado)
+    // 2) do productId (notes/obj)
+    // 3) fallback: bater por nome
+    // 4) fallback final: diff(dataManip, dataVenc) atual
+    const productIdFromNotes =
+      (previousNotes?.productId as string | undefined) ??
+      (previousNotes?.product_id as string | undefined) ??
+      (revalidarTarget.productId ?? null) ??
+      null;
+
+    let shelfLifeDays: number | null =
+      typeof previousNotes?.shelfLifeDays === "number"
+        ? previousNotes.shelfLifeDays
+        : typeof previousNotes?.shelf_life_days === "number"
+          ? previousNotes.shelf_life_days
+          : typeof revalidarTarget.shelfLifeDays === "number"
+            ? revalidarTarget.shelfLifeDays
+            : null;
+
+    if (shelfLifeDays == null && productIdFromNotes) {
+      const p = products.find((x) => x.id === productIdFromNotes) ?? null;
+      if (p && typeof p.shelf_life_days === "number") shelfLifeDays = p.shelf_life_days;
+    }
+
+    if (shelfLifeDays == null) {
+      const nameNorm = String(revalidarTarget.insumo || "")
+        .trim()
+        .toLowerCase();
+      const p =
+        products.find(
+          (x) => String(x.name || "").trim().toLowerCase() === nameNorm
+        ) ?? null;
+      if (p && typeof p.shelf_life_days === "number") shelfLifeDays = p.shelf_life_days;
+    }
+
+    if (shelfLifeDays == null) {
+      const dm =
+        (previousNotes?.dataManip as string | undefined) ??
+        (revalidarTarget.dataManip as string | undefined) ??
+        "";
+      const dv =
+        (previousNotes?.dataVenc as string | undefined) ??
+        (revalidarTarget.dataVenc as string | undefined) ??
+        "";
+      const inferred = getDiasParaVencer(dm, dv);
+      shelfLifeDays = typeof inferred === "number" ? inferred : null;
+    }
+
+    const shelf = Number(shelfLifeDays ?? 0);
+    const vencISO = shelf > 0 ? addDaysISO(hojeISO, shelf) : hojeISO;
+
+    // ✅ Monta newNotes como "objeto completo" da etiqueta
+    // - Mantém tudo que já estava
+    // - Reseta dataManip/dataVenc para hoje + shelfLife (regra solicitada)
     // - Acrescenta revalidatedAt + revalidationNotes
     const newNotesObj = {
-      ...(revalidarTarget as any),
+      ...(previousNotes ?? {}),
+      productId: productIdFromNotes ?? previousNotes?.productId ?? null,
+      shelfLifeDays: Number.isFinite(shelf) ? shelf : null,
+      dataManip: hojeISO,
+      dataVenc: vencISO,
       revalidatedAt: nowISO,
       revalidationNotes: String(revalidarNotes || "").trim() || "",
     };
@@ -773,6 +840,7 @@ export default function EtiquetasPage() {
 
       // ✅ atualiza a lista com fonte de verdade do banco
       await refreshHistorico();
+      alert("Etiqueta revalidada com sucesso.");
 
       setShowRevalidarModal(false);
       setRevalidarTarget(null);
@@ -783,7 +851,7 @@ export default function EtiquetasPage() {
     } finally {
       setRevalidando(false);
     }
-  }, [revalidarNotes, revalidarTarget, refreshHistorico]);
+  }, [products, refreshHistorico, revalidarNotes, revalidarTarget]);
 
   return (
     <div className="space-y-6">
@@ -1004,8 +1072,9 @@ export default function EtiquetasPage() {
                       </TableCell>
 
                       {(() => {
+                        // ✅ AJUSTE: Vence em deve usar dataManip + dataVenc (não createdAt)
                         const dias = getDiasParaVencer(
-                          etiqueta.createdAt,
+                          etiqueta.dataManip,
                           etiqueta.dataVenc
                         );
                         const isOneDayLeft = dias === 1;
@@ -1028,16 +1097,15 @@ export default function EtiquetasPage() {
 
                       <TableCell>{etiqueta.responsavel}</TableCell>
 
-                      <TableCell>
-                        {formatDateTime(etiqueta.createdAt)}
-                      </TableCell>
+                      <TableCell>{formatDateTime(etiqueta.createdAt)}</TableCell>
 
                       <TableCell>{formatDate(etiqueta.dataVenc)}</TableCell>
 
                       <TableCell>
                         <div className="text-sm">
                           <p>
-                            <strong>Envio:</strong> {etiqueta.localEnvio || "-"}
+                            <strong>Envio:</strong>{" "}
+                            {etiqueta.localEnvio || "-"}
                           </p>
                           <p>
                             <strong>Armazenado:</strong>{" "}
@@ -1241,9 +1309,7 @@ export default function EtiquetasPage() {
                                       );
                                       handleInputChange("dataManip", hojeISO);
 
-                                      const shelf = Number(
-                                        p.shelf_life_days ?? 0
-                                      );
+                                      const shelf = Number(p.shelf_life_days ?? 0);
                                       const vencISO =
                                         shelf > 0
                                           ? addDaysISO(hojeISO, shelf)
@@ -1327,9 +1393,7 @@ export default function EtiquetasPage() {
                       <Input
                         className="w-full min-w-0"
                         value={formData.umd}
-                        onChange={(e) =>
-                          handleInputChange("umd", e.target.value)
-                        }
+                        onChange={(e) => handleInputChange("umd", e.target.value)}
                         placeholder="Ex:KG, G, UN"
                         autoComplete="off"
                       />
@@ -1380,10 +1444,7 @@ export default function EtiquetasPage() {
                                 type="number"
                                 value={linha.qtd}
                                 onChange={(e) =>
-                                  handleChangeLinhaQtd(
-                                    linha.id,
-                                    e.target.value
-                                  )
+                                  handleChangeLinhaQtd(linha.id, e.target.value)
                                 }
                                 placeholder="0"
                                 className={
@@ -1513,9 +1574,7 @@ export default function EtiquetasPage() {
                         <Input
                           className="w-full min-w-0"
                           value={formData.sif}
-                          onChange={(e) =>
-                            handleInputChange("sif", e.target.value)
-                          }
+                          onChange={(e) => handleInputChange("sif", e.target.value)}
                           placeholder="Ex: SIF 123"
                         />
                       </div>
@@ -1686,7 +1745,8 @@ export default function EtiquetasPage() {
                 />
                 <div className="text-xs text-muted-foreground mt-1">
                   Isso será salvo no <code>notes</code> da etiqueta (JSON) junto
-                  com data/hora da revalidação.
+                  com data/hora da revalidação. A data de manipulação/validade
+                  será recalculada com base no shelf-life do produto.
                 </div>
               </div>
 

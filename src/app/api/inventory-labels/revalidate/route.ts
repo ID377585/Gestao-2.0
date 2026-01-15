@@ -11,58 +11,70 @@ function jsonError(
   message: string,
   extra?: Record<string, unknown>
 ) {
-  return NextResponse.json({ error: message, ...(extra ?? {}) }, { status });
+  return NextResponse.json(
+    { error: message, ...(extra ?? {}) },
+    { status }
+  );
 }
 
 export async function PATCH(req: Request) {
   try {
     // ✅ Garantia de JSON válido
-    let body: any = null;
+    let body: any;
     try {
       body = await req.json();
     } catch {
       return jsonError(400, "Body inválido (JSON).");
     }
 
+    // ✅ Validação defensiva do labelId
     const labelIdRaw = body?.labelId;
-    const labelId = typeof labelIdRaw === "string" ? labelIdRaw.trim() : "";
+    const labelId =
+      typeof labelIdRaw === "string" ? labelIdRaw.trim() : "";
 
     if (!labelId) {
       return jsonError(400, "labelId não informado.");
     }
 
-    // ✅ Mantém comportamento atual: newNotes pode ser objeto/string/null
+    // ✅ newNotes pode ser objeto | string | null
     const newNotes = body?.newNotes ?? null;
 
-    // ✅ Executa a action
+    // ✅ Chamada da server action (fonte de verdade)
     const updated = await revalidateInventoryLabel({
       labelId,
       newNotes,
     });
 
-    // ✅ Se a action retornar algo falsy, responde 404 (evita 500 genérico)
+    // ⚠️ Segurança extra (normalmente não cai aqui)
     if (!updated) {
       return jsonError(404, "Etiqueta não encontrada para revalidar.");
     }
 
     return NextResponse.json(updated, { status: 200 });
   } catch (e: any) {
-    const msg = String(e?.message ?? "");
+    const msg = String(e?.message ?? "").toLowerCase();
 
-    // ✅ Erros comuns tratados com status adequado
-    if (msg.toLowerCase().includes("não encontrada")) {
-      return jsonError(404, msg);
+    // ✅ Mapeamento correto de erros conhecidos
+    if (msg.includes("não encontrada")) {
+      return jsonError(404, e.message);
     }
 
     if (
-      msg.toLowerCase().includes("não pertence") ||
-      msg.toLowerCase().includes("estabelecimento") ||
-      msg.toLowerCase().includes("permission") ||
-      msg.toLowerCase().includes("rls")
+      msg.includes("não pertence") ||
+      msg.includes("estabelecimento") ||
+      msg.includes("permission") ||
+      msg.includes("rls")
     ) {
-      return jsonError(403, msg || "Sem permissão para revalidar esta etiqueta.");
+      return jsonError(
+        403,
+        e.message || "Sem permissão para revalidar esta etiqueta."
+      );
     }
 
-    return jsonError(500, msg || "Erro ao revalidar etiqueta.");
+    // ❌ fallback seguro
+    return jsonError(
+      500,
+      e?.message ?? "Erro ao revalidar etiqueta."
+    );
   }
 }

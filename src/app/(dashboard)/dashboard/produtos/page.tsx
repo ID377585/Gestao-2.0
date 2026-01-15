@@ -237,11 +237,11 @@ export default async function ProductsPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {/* Cabeçalho + ações */}
-      <div className="flex items-center justify-between gap-4">
-        <div>
+      {/* Cabeçalho + ações (RESPONSIVO NO MOBILE) */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-center sm:text-left">
           <h1 className="text-2xl font-semibold tracking-tight">Produtos</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground max-w-prose mx-auto sm:mx-0">
             Cadastro de <strong>insumos (INSU)</strong>,{" "}
             <strong>pré-preparos (PREP)</strong> e{" "}
             <strong>produtos acabados (PROD)</strong>. Esta tabela é a base para
@@ -249,11 +249,13 @@ export default async function ProductsPage({ searchParams }: PageProps) {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
           {/* NOVO PRODUTO */}
           <Dialog>
             <DialogTrigger asChild>
-              <Button size="sm">+ Novo item</Button>
+              <Button size="sm" className="w-full sm:w-auto">
+                + Novo item
+              </Button>
             </DialogTrigger>
 
             {/* Modal NOVO PRODUTO */}
@@ -433,12 +435,12 @@ export default async function ProductsPage({ searchParams }: PageProps) {
           </Dialog>
 
           {/* EXPORTAR */}
-          <form action="/api/export/products" method="GET">
+          <form action="/api/export/products" method="GET" className="w-full sm:w-auto">
             <Button
               type="submit"
               variant="outline"
               size="sm"
-              className="border-gray-300 hover:bg-gray-100"
+              className="w-full sm:w-auto border-gray-300 hover:bg-gray-100"
             >
               ⬇️ Exportar
             </Button>
@@ -450,7 +452,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
               <Button
                 variant="outline"
                 size="sm"
-                className="border-green-400 text-green-700 bg-green-50 hover:bg-green-100"
+                className="w-full sm:w-auto border-green-400 text-green-700 bg-green-50 hover:bg-green-100"
               >
                 ⬆️ Importar
               </Button>

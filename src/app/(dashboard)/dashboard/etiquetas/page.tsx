@@ -868,32 +868,6 @@ export default function EtiquetasPage() {
 
   {/* ✅ ações: quebram linha + não estouram no mobile */}
   <div className="flex flex-wrap gap-2 sm:justify-end">
-    <Button
-      variant="outline"
-      onClick={() => void refreshHistorico()}
-      disabled={carregandoHistorico}
-      title="Recarregar histórico"
-      className="w-full sm:w-auto"
-    >
-      <span className="mr-2">🔄</span>
-      Recarregar
-    </Button>
-
-    <Button variant="outline" className="w-full sm:w-auto">
-      <span className="mr-2">📊</span>
-      Relatório de Etiquetas
-    </Button>
-
-    <Button
-      className="w-full sm:w-auto"
-      onClick={() => {
-        setTipoSelecionado("MANIPULACAO");
-        setShowNovaEtiqueta(true);
-      }}
-    >
-      <span className="mr-2">🏷️</span>
-      Nova Etiqueta
-    </Button>
   </div>
 </div>
 

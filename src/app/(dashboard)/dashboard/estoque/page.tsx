@@ -843,74 +843,70 @@ export default function EstoquePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Estoque</h1>
-          <p className="text-gray-600">Controle de estoque atual e inventário</p>
-        </div>
+<div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+  <div className="min-w-0">
+    <h1 className="text-3xl font-bold text-gray-900 leading-tight">Estoque</h1>
+    <p className="text-gray-600">Controle de estoque atual e inventário</p>
+  </div>
 
-        {/* ✅ Botões do topo removidos conforme solicitado */}
-        <div />
-      </div>
+  {/* ✅ Botões do topo removidos conforme solicitado */}
+  <div />
+</div>
+
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total de Itens</CardTitle>
-            <span className="text-2xl">📦</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {loadingStock ? "…" : totalItens}
-            </div>
-            <p className="text-xs text-muted-foreground">Produtos cadastrados</p>
-          </CardContent>
-        </Card>
+<div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Total de Itens</CardTitle>
+      <span className="text-xl">📦</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold">{loadingStock ? "…" : totalItens}</div>
+      <p className="text-xs text-muted-foreground">Produtos cadastrados</p>
+    </CardContent>
+  </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Valor Total</CardTitle>
-            <span className="text-2xl">💰</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {loadingStock ? "R$ 0,00" : formatCurrency(valorTotal)}
-            </div>
-            <p className="text-xs text-muted-foreground">Valor do estoque</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Críticos</CardTitle>
-            <span className="text-2xl">🚨</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">
-              {loadingStock ? "…" : totalCriticos}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Itens abaixo do mínimo
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify_between space-y-0 pb-2">
-            <CardTitle className="text-sm font_medium">Baixos</CardTitle>
-            <span className="text-2xl">⚠️</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">
-              {loadingStock ? "…" : totalBaixos}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Itens próximos ao mínimo
-            </p>
-          </CardContent>
-        </Card>
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Valor Total</CardTitle>
+      <span className="text-xl">💰</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold">
+        {loadingStock ? "R$ 0,00" : formatCurrency(valorTotal)}
       </div>
+      <p className="text-xs text-muted-foreground">Valor do estoque</p>
+    </CardContent>
+  </Card>
+
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Críticos</CardTitle>
+      <span className="text-xl">🚨</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold text-red-600">
+        {loadingStock ? "…" : totalCriticos}
+      </div>
+      <p className="text-xs text-muted-foreground">Abaixo do mínimo</p>
+    </CardContent>
+  </Card>
+
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Baixos</CardTitle>
+      <span className="text-xl">⚠️</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold text-yellow-600">
+        {loadingStock ? "…" : totalBaixos}
+      </div>
+      <p className="text-xs text-muted-foreground">Próximos ao mínimo</p>
+    </CardContent>
+  </Card>
+</div>
+
 
       {/* Tabela Estoque Atual */}
       <Card>

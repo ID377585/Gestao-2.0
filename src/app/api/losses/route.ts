@@ -1,3 +1,4 @@
+// src/app/api/losses/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -6,18 +7,17 @@ function numOrNull(v: any) {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function GET(req: Request) {
-  const supabase = await createSupabaseServerClient();
+async function getAuthAndEstablishment() {
+  const supabase = createSupabaseServerClient();
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+    return { supabase, user: null, establishment_id: null, error: NextResponse.json({ error: "Não autenticado." }, { status: 401 }) };
   }
 
-  // Establishment do usuário
   const { data: membership, error: memErr } = await supabase
     .from("memberships")
     .select("establishment_id")
@@ -25,15 +25,21 @@ export async function GET(req: Request) {
     .single();
 
   if (memErr || !membership?.establishment_id) {
-    return NextResponse.json(
-      { error: "Estabelecimento não encontrado." },
-      { status: 400 }
-    );
+    return {
+      supabase,
+      user,
+      establishment_id: null,
+      error: NextResponse.json({ error: "Estabelecimento não encontrado." }, { status: 400 }),
+    };
   }
 
-  const establishment_id = membership.establishment_id;
+  return { supabase, user, establishment_id: membership.establishment_id, error: null };
+}
 
-  // Filtros opcionais via querystring
+export async function GET(req: Request) {
+  const { supabase, error, establishment_id } = await getAuthAndEstablishment();
+  if (error || !establishment_id) return error!;
+
   const url = new URL(req.url);
   const product_id = url.searchParams.get("product_id");
   const reason = url.searchParams.get("reason");
@@ -53,18 +59,12 @@ export async function GET(req: Request) {
   if (date_from) q = q.gte("created_at", date_from);
   if (date_to) q = q.lte("created_at", date_to);
 
-  const { data, error } = await q;
+  const { data, error: qErr } = await q;
 
-  if (error) {
-    // ✅ AJUSTE: devolver a mensagem real do Supabase (ajuda demais em RLS/policy)
-    console.error("GET /api/losses error:", error);
+  if (qErr) {
+    console.error("GET /api/losses error:", qErr);
     return NextResponse.json(
-      {
-        error: error.message ?? "Erro ao carregar histórico de perdas.",
-        code: (error as any).code ?? null,
-        details: (error as any).details ?? null,
-        hint: (error as any).hint ?? null,
-      },
+      { error: qErr.message ?? "Erro ao carregar histórico de perdas." },
       { status: 500 }
     );
   }
@@ -73,10 +73,13 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const supabase = await createSupabaseServerClient();
+  const { supabase, error, establishment_id } = await getAuthAndEstablishment();
+  if (error || !establishment_id) return error!;
+
   const body = await req.json();
 
   const { product_id, qty, lot, reason, reason_detail, qrcode } = body;
+  const unit_label = String(body.unit_label ?? body.unitLabel ?? "UN").trim();
 
   if (!product_id || qty == null || !reason) {
     return NextResponse.json(
@@ -88,6 +91,10 @@ export async function POST(req: Request) {
   const qtyNumber = numOrNull(qty);
   if (!qtyNumber || qtyNumber <= 0) {
     return NextResponse.json({ error: "Quantidade inválida." }, { status: 400 });
+  }
+
+  if (!unit_label) {
+    return NextResponse.json({ error: "Unidade inválida." }, { status: 400 });
   }
 
   const reasonTrim = String(reason).trim();
@@ -102,37 +109,36 @@ export async function POST(req: Request) {
     );
   }
 
-  // ✅ CHAMADA TRANSACIONAL (RPC no Supabase)
-  const { data, error } = await supabase.rpc("register_loss", {
+  // ✅ IMPORTANTE: PostgREST exige os nomes EXATOS dos parâmetros da função
+  // Hint do erro mostrou que a assinatura atual inclui p_establishment_id e p_unit_label.
+  const { data, error: rpcErr } = await supabase.rpc("register_loss", {
+    p_establishment_id: establishment_id,
     p_product_id: product_id,
     p_qty: qtyNumber,
+    p_unit_label: unit_label,
     p_reason: reasonTrim,
     p_reason_detail: reasonDetailTrim || null,
     p_lot: lotTrim || null,
-    // Aqui mandamos o label_code (da inventory_labels) via campo qrcode do front
     p_label_code: labelCodeTrim || null,
   });
 
-  if (error) {
-    // Mensagem vem do raise exception do Postgres (RPC)
-    console.error("POST /api/losses rpc error:", error);
-
-    // ✅ AJUSTE: incluir code/details/hint (ex.: 42703 coluna inexistente)
-    // Isso ajuda a identificar rapidamente se o problema está na FUNÇÃO SQL (register_loss)
-    // e não neste route.ts.
+  if (rpcErr) {
+    console.error("POST /api/losses rpc error:", rpcErr);
     return NextResponse.json(
-      {
-        error: error.message ?? "Erro ao registrar perda.",
-        code: (error as any).code ?? null,
-        details: (error as any).details ?? null,
-        hint: (error as any).hint ?? null,
-      },
+      { error: rpcErr.message ?? "Erro ao registrar perda." },
       { status: 400 }
     );
   }
 
-  // Retorno da RPC é TABLE -> vem como array com 1 linha
   const result = Array.isArray(data) ? data[0] : data;
+
+  // (opcional, mas recomendado) se a função não retornar nada, não finja sucesso
+  if (result == null) {
+    return NextResponse.json(
+      { error: "RPC executou sem retorno. Verifique assinatura/retorno da função register_loss." },
+      { status: 400 }
+    );
+  }
 
   return NextResponse.json({ success: true, result });
 }

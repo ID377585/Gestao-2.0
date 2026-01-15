@@ -928,10 +928,6 @@ export default function EstoquePage() {
 
           {/* ✅ Ações: Inventário + Export + Upload */}
           <div className="flex flex-wrap gap-2 pt-3">
-            <Button onClick={openInventoryModal} disabled={loadingInventory}>
-              <span className="mr-2">📋</span>
-              Iniciar Inventário
-            </Button>
 
             <Button
               variant="outline"

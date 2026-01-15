@@ -225,7 +225,7 @@ export default function InventarioPage() {
    * ✅ Senha de Admin (local)
    * Observação: ideal é mover para validação no backend futuramente.
    */
-  const ADMIN_PASSWORD = "Hb600i12c@2";
+  const ADMIN_PASSWORD = "123456";
 
   // Campos para INSUMOS (lançamento manual)
   const [manualProduto, setManualProduto] = useState("");

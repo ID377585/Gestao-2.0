@@ -989,9 +989,8 @@ export default function InventarioPage() {
         </CardContent>
       </Card>
 
-      {/* ✅ NOVO: Modal Senha Admin para limpar itens */}
-      // 2) SUBSTITUA APENAS o Dialog do "Senha de Admin" por este (mesmo lugar onde ele já está):
-      {/* ✅ NOVO: Modal Senha Admin para limpar itens */}
+      
+            {/* ✅ NOVO: Modal Senha Admin para limpar itens */}
       <Dialog
         open={adminDialogOpen}
         onOpenChange={(open) => {

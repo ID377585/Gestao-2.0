@@ -718,10 +718,7 @@ export default function InventarioPage() {
         <CardHeader>
           <CardTitle>Inventário / Contagem</CardTitle>
           <CardDescription>
-            Cada etiqueta pode ser lida apenas 1 vez por inventário. Você pode
-            lançar insumos (produtos primários) e também ler QR das etiquetas
-            geradas na sessão de Etiquetas. Ao finalizar, a contagem é enviada
-            ao backend para ajustar o Estoque Atual.
+            Inicie um inventário, leia os QR Codes das etiquetas ou lance
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -1260,8 +1257,7 @@ export default function InventarioPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <p className="text-sm text-muted-foreground">
-            Use essa tela para consultar inventários antigos, divergências e
-            gerar relatórios consolidados diretamente do Supabase.
+            
           </p>
           <Link href="/dashboard/inventario/historico">
             <Button variant="outline" size="sm">

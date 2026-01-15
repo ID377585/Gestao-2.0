@@ -279,7 +279,8 @@ async function apiCreateInventoryLabel(payload: {
 
 /**
  * ✅ NOVO: Revalidar/atualizar notes da etiqueta
- * - Usa PATCH no mesmo endpoint (conforme você já criou)
+ * - Endpoint correto: PATCH /api/inventory-labels/revalidate
+ *   (evita 405 em /api/inventory-labels)
  * - newNotes recebe um OBJETO (que será serializado no server action)
  */
 async function apiRevalidateInventoryLabel(payload: {
@@ -291,9 +292,9 @@ async function apiRevalidateInventoryLabel(payload: {
     newNotes: payload.newNotes ?? null,
   };
 
-  console.log("[PATCH /api/inventory-labels] payload:", bodyToSend);
+  console.log("[PATCH /api/inventory-labels/revalidate] payload:", bodyToSend);
 
-  const res = await fetch("/api/inventory-labels", {
+  const res = await fetch("/api/inventory-labels/revalidate", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(bodyToSend),

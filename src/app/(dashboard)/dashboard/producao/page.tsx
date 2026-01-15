@@ -360,93 +360,97 @@ export default async function ProducaoPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Produção - KDS</h1>
-          <p className="text-gray-600">
-            Kitchen Display System - visão de produção por status do pedido.
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Papel atual: <strong>{role ?? "—"}</strong>
-          </p>
-        </div>
-        <div className="flex space-x-2">
-          {/* Botão de atualizar */}
-          <form
-            action={async () => {
-              "use server";
-              revalidatePath("/dashboard/producao");
-            }}
-          >
-            <Button variant="outline" type="submit">
-              <span className="mr-2">🔄</span>
-              Atualizar
-            </Button>
-          </form>
-        </div>
-      </div>
+<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+  <div className="min-w-0">
+    <h1 className="text-3xl font-bold text-gray-900 leading-tight">
+      Produção - KDS
+    </h1>
+    <p className="text-gray-600">
+      Kitchen Display System - visão de produção por status do pedido.
+    </p>
+    <p className="mt-1 text-xs text-muted-foreground">
+      Papel atual: <strong>{role ?? "—"}</strong>
+    </p>
+  </div>
+
+  <div className="flex flex-wrap gap-2 sm:justify-end">
+    <form
+      action={async () => {
+        "use server";
+        revalidatePath("/dashboard/producao");
+      }}
+      className="w-full sm:w-auto"
+    >
+      <Button variant="outline" type="submit" className="w-full sm:w-auto">
+        <span className="mr-2">🔄</span>
+        Atualizar
+      </Button>
+    </form>
+  </div>
+</div>
+
 
       {/* Stats Cards (por pedido) */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pendentes</CardTitle>
-            <span className="text-2xl">⏳</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{pendentes.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Aceitos, aguardando início de preparo
-            </p>
-          </CardContent>
-        </Card>
+<div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-5">
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Pendentes</CardTitle>
+      <span className="text-xl">⏳</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold">{pendentes.length}</div>
+      <p className="text-xs text-muted-foreground">
+        Aceitos, aguardando preparo
+      </p>
+    </CardContent>
+  </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Em Preparo</CardTitle>
-            <span className="text-2xl">👨‍🍳</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{emPreparo.length}</div>
-            <p className="text-xs text-muted-foreground">Em produção agora</p>
-          </CardContent>
-        </Card>
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Em Preparo</CardTitle>
+      <span className="text-xl">👨‍🍳</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold">{emPreparo.length}</div>
+      <p className="text-xs text-muted-foreground">Em produção agora</p>
+    </CardContent>
+  </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pós-preparo</CardTitle>
-            <span className="text-2xl">📦</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{posPreparo.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Separação, faturamento ou transporte
-            </p>
-          </CardContent>
-        </Card>
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Pós-preparo</CardTitle>
+      <span className="text-xl">📦</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold">{posPreparo.length}</div>
+      <p className="text-xs text-muted-foreground">
+        Separação / faturamento / transporte
+      </p>
+    </CardContent>
+  </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Entregues</CardTitle>
-            <span className="text-2xl">✅</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{finalizadosHoje.length}</div>
-            <p className="text-xs text-muted-foreground">Pedidos concluídos</p>
-          </CardContent>
-        </Card>
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Entregues</CardTitle>
+      <span className="text-xl">✅</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold">{finalizadosHoje.length}</div>
+      <p className="text-xs text-muted-foreground">Pedidos concluídos</p>
+    </CardContent>
+  </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Cancelados</CardTitle>
-            <span className="text-2xl">🛑</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{cancelados.length}</div>
-            <p className="text-xs text-muted-foreground">Fora do fluxo</p>
-          </CardContent>
-        </Card>
-      </div>
+  <Card className="col-span-2 md:col-span-1">
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Cancelados</CardTitle>
+      <span className="text-xl">🛑</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold">{cancelados.length}</div>
+      <p className="text-xs text-muted-foreground">Fora do fluxo</p>
+    </CardContent>
+  </Card>
+</div>
 
       {/* KDS / Board de Produção (por ITEM) */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

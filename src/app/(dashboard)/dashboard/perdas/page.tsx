@@ -228,7 +228,10 @@ export default function PerdasPage() {
           id: String(p.id),
           name: String(p.name ?? p.product_name ?? ""),
           sku: String(p.sku ?? ""),
-          unit_label: String(p.unit_label ?? p.unit ?? ""),
+          // ✅ AJUSTE: no seu print a coluna é default_unit_label
+          unit_label: String(
+            p.unit_label ?? p.default_unit_label ?? p.unit ?? ""
+          ),
         }))
         .filter((p) => p.id && p.name);
 
@@ -249,18 +252,18 @@ export default function PerdasPage() {
     setLoadingLosses(true);
     try {
       const res = await fetch("/api/losses", { cache: "no-store" });
+
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
+        // mantém comportamento anterior (não quebrar UI)
+        console.warn("Falha ao carregar perdas:", data?.error ?? res.statusText);
         setLosses([]);
         return;
       }
-      const data = await res.json();
 
-      const list: LossRow[] = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.losses)
-        ? data.losses
-        : [];
-
+      // ✅ AJUSTE: sua API retorna { losses: [...] } — manter consistente
+      const list: LossRow[] = Array.isArray(data?.losses) ? data.losses : [];
       setLosses(list);
     } catch (err) {
       console.warn("Histórico não disponível.");
@@ -976,7 +979,9 @@ export default function PerdasPage() {
                       </TableCell>
 
                       <TableCell className="align-top">
-                        <Badge variant="secondary">{row.unit_label || "-"}</Badge>
+                        <Badge variant="secondary">
+                          {row.unit_label || "-"}
+                        </Badge>
                       </TableCell>
 
                       <TableCell className="align-top">

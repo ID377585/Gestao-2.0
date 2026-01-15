@@ -856,101 +856,107 @@ export default function EtiquetasPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            Sistema de Etiquetas
-          </h1>
-          <p className="text-gray-600">
-            Impressão térmica de etiquetas de manipulação
-          </p>
-        </div>
-        <div className="flex space-x-2">
-          <Button
-            variant="outline"
-            onClick={() => void refreshHistorico()}
-            disabled={carregandoHistorico}
-            title="Recarregar histórico"
-          >
-            <span className="mr-2">🔄</span>
-            Recarregar
-          </Button>
+<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+  <div className="min-w-0">
+    <h1 className="text-3xl font-bold text-gray-900 leading-tight">
+      Sistema de Etiquetas
+    </h1>
+    <p className="text-gray-600">
+      Impressão térmica de etiquetas de manipulação
+    </p>
+  </div>
 
-          <Button variant="outline">
-            <span className="mr-2">📊</span>
-            Relatório de Etiquetas
-          </Button>
+  {/* ✅ ações: quebram linha + não estouram no mobile */}
+  <div className="flex flex-wrap gap-2 sm:justify-end">
+    <Button
+      variant="outline"
+      onClick={() => void refreshHistorico()}
+      disabled={carregandoHistorico}
+      title="Recarregar histórico"
+      className="w-full sm:w-auto"
+    >
+      <span className="mr-2">🔄</span>
+      Recarregar
+    </Button>
 
-          <Button
-            onClick={() => {
-              setTipoSelecionado("MANIPULACAO");
-              setShowNovaEtiqueta(true);
-            }}
-          >
-            <span className="mr-2">🏷️</span>
-            Nova Etiqueta
-          </Button>
-        </div>
-      </div>
+    <Button variant="outline" className="w-full sm:w-auto">
+      <span className="mr-2">📊</span>
+      Relatório de Etiquetas
+    </Button>
+
+    <Button
+      className="w-full sm:w-auto"
+      onClick={() => {
+        setTipoSelecionado("MANIPULACAO");
+        setShowNovaEtiqueta(true);
+      }}
+    >
+      <span className="mr-2">🏷️</span>
+      Nova Etiqueta
+    </Button>
+  </div>
+</div>
+
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total de Etiquetas
-            </CardTitle>
-            <span className="text-2xl">🏷️</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{etiquetasGeradas.length}</div>
-            <p className="text-xs text-muted-foreground">Etiquetas geradas</p>
-          </CardContent>
-        </Card>
+<div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">
+        Total de Etiquetas
+      </CardTitle>
+      <span className="text-xl">🏷️</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold">{etiquetasGeradas.length}</div>
+      <p className="text-xs text-muted-foreground">Etiquetas geradas</p>
+    </CardContent>
+  </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Manipulação</CardTitle>
-            <span className="text-2xl">📝</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {etiquetasGeradas.filter((e) => e.tipo === "MANIPULACAO").length}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Etiquetas de manipulação
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Fabricante</CardTitle>
-            <span className="text-2xl">🏭</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {etiquetasGeradas.filter((e) => e.tipo === "REVALIDAR").length}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Etiquetas com dados do fabricante
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Hoje</CardTitle>
-            <span className="text-2xl">📅</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{etiquetasHoje}</div>
-            <p className="text-xs text-muted-foreground">
-              Etiquetas geradas hoje
-            </p>
-          </CardContent>
-        </Card>
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Manipulação</CardTitle>
+      <span className="text-xl">📝</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold">
+        {etiquetasGeradas.filter((e) => e.tipo === "MANIPULACAO").length}
       </div>
+      <p className="text-xs text-muted-foreground">
+        Etiquetas de manipulação
+      </p>
+    </CardContent>
+  </Card>
+
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Fabricante</CardTitle>
+      <span className="text-xl">🏭</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold">
+        {etiquetasGeradas.filter((e) => e.tipo === "REVALIDAR").length}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Etiquetas do fabricante
+      </p>
+    </CardContent>
+  </Card>
+
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+      <CardTitle className="text-sm font-medium">Hoje</CardTitle>
+      <span className="text-xl">📅</span>
+    </CardHeader>
+    <CardContent className="pt-0">
+      <div className="text-xl font-bold">{etiquetasHoje}</div>
+      <p className="text-xs text-muted-foreground">
+        Etiquetas geradas hoje
+      </p>
+    </CardContent>
+  </Card>
+</div>
+
 
       {/* Tipos */}
       <div className="grid grid-cols-1 md:grid-cols-1 gap-6">

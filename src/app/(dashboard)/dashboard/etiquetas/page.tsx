@@ -131,6 +131,10 @@ const tamanhosEtiqueta: TamanhoEtiqueta[] = [
 ========================= */
 type EtiquetaGeradaWithMarca = EtiquetaGerada & {
   marca?: string;
+
+  // ✅ NOVO: campos opcionais para revalidação (persistidos no notes)
+  revalidatedAt?: string;
+  revalidationNotes?: string;
 };
 
 /* =========================
@@ -273,6 +277,45 @@ async function apiCreateInventoryLabel(payload: {
   }
 }
 
+/**
+ * ✅ NOVO: Revalidar/atualizar notes da etiqueta
+ * - Usa PATCH no mesmo endpoint (conforme você já criou)
+ * - newNotes recebe um OBJETO (que será serializado no server action)
+ */
+async function apiRevalidateInventoryLabel(payload: {
+  labelId: string;
+  newNotes: any;
+}): Promise<void> {
+  const bodyToSend = {
+    labelId: payload.labelId,
+    newNotes: payload.newNotes ?? null,
+  };
+
+  console.log("[PATCH /api/inventory-labels] payload:", bodyToSend);
+
+  const res = await fetch("/api/inventory-labels", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bodyToSend),
+  });
+
+  const contentType = res.headers.get("content-type") || "";
+
+  if (!res.ok) {
+    let message = `Erro ao revalidar etiqueta (HTTP ${res.status}).`;
+    try {
+      if (contentType.includes("application/json")) {
+        const j = await res.json();
+        message = (j as any)?.error || message;
+      } else {
+        const t = await res.text();
+        if (t) message = t;
+      }
+    } catch {}
+    throw new Error(message);
+  }
+}
+
 export default function EtiquetasPage() {
   const [etiquetasGeradas, setEtiquetasGeradas] = useState<
     EtiquetaGeradaWithMarca[]
@@ -296,6 +339,13 @@ export default function EtiquetasPage() {
   const [formData, setFormData] = useState(createDefaultForm());
   const [linhasPorcao, setLinhasPorcao] = useState<LinhaPorcao[]>([]);
   const [erros, setErros] = useState<LinhaErro>({ baseQtd: false, porcoes: {} });
+
+  // ✅ NOVO: UI revalidação
+  const [showRevalidarModal, setShowRevalidarModal] = useState(false);
+  const [revalidarTarget, setRevalidarTarget] =
+    useState<EtiquetaGeradaWithMarca | null>(null);
+  const [revalidarNotes, setRevalidarNotes] = useState("");
+  const [revalidando, setRevalidando] = useState(false);
 
   const formatDate = useCallback((dateString: string) => {
     if (!dateString) return "";
@@ -397,6 +447,58 @@ export default function EtiquetasPage() {
     };
   }, []);
 
+  const mapRowsToEtiquetas = useCallback((rows: InventoryLabelRow[]) => {
+    const mapped: EtiquetaGeradaWithMarca[] = (rows ?? []).map((row) => {
+      const extra = row.notes
+        ? safeJsonParse<Partial<EtiquetaGeradaWithMarca>>(row.notes)
+        : null;
+
+      const createdAt = row.created_at;
+      const createdDateISO = createdAt?.slice(0, 10) ?? getTodayISO();
+
+      return {
+        id: row.id,
+        tipo: (extra?.tipo as TipoSel) ?? "MANIPULACAO",
+        tamanho: extra?.tamanho ?? "",
+        insumo: extra?.insumo ?? "",
+        qtd: typeof extra?.qtd === "number" ? extra.qtd : row.qty,
+        umd: extra?.umd ?? row.unit_label,
+        dataManip: extra?.dataManip ?? createdDateISO,
+        dataVenc: extra?.dataVenc ?? createdDateISO,
+        loteMan: extra?.loteMan ?? row.label_code,
+        responsavel: extra?.responsavel ?? USUARIO_LOGADO_NOME,
+
+        alergenico: extra?.alergenico,
+        armazenamento: extra?.armazenamento,
+        ingredientes: extra?.ingredientes,
+        dataFabricante: extra?.dataFabricante,
+        dataVencimento: extra?.dataVencimento,
+        sif: extra?.sif,
+        loteFab: extra?.loteFab,
+
+        // ✅ NOVO: marca (fabricante)
+        marca: extra?.marca,
+
+        // ✅ NOVO: revalidação (persistida no notes)
+        revalidatedAt: extra?.revalidatedAt,
+        revalidationNotes: extra?.revalidationNotes,
+
+        localEnvio: extra?.localEnvio,
+        localArmazenado: extra?.localArmazenado,
+
+        createdAt: extra?.createdAt ?? createdAt,
+      } as EtiquetaGeradaWithMarca;
+    });
+
+    return mapped;
+  }, []);
+
+  const refreshHistorico = useCallback(async () => {
+    const rows = await apiListInventoryLabels();
+    const mapped = mapRowsToEtiquetas(rows);
+    setEtiquetasGeradas(mapped);
+  }, [mapRowsToEtiquetas]);
+
   // ✅ carregar histórico
   useEffect(() => {
     let mounted = true;
@@ -411,44 +513,7 @@ export default function EtiquetasPage() {
           return;
         }
 
-        const mapped: EtiquetaGeradaWithMarca[] = rows.map((row) => {
-          const extra = row.notes
-            ? safeJsonParse<Partial<EtiquetaGeradaWithMarca>>(row.notes)
-            : null;
-
-          const createdAt = row.created_at;
-          const createdDateISO = createdAt?.slice(0, 10) ?? getTodayISO();
-
-          return {
-            id: row.id,
-            tipo: (extra?.tipo as TipoSel) ?? "MANIPULACAO",
-            tamanho: extra?.tamanho ?? "",
-            insumo: extra?.insumo ?? "",
-            qtd: typeof extra?.qtd === "number" ? extra.qtd : row.qty,
-            umd: extra?.umd ?? row.unit_label,
-            dataManip: extra?.dataManip ?? createdDateISO,
-            dataVenc: extra?.dataVenc ?? createdDateISO,
-            loteMan: extra?.loteMan ?? row.label_code,
-            responsavel: extra?.responsavel ?? USUARIO_LOGADO_NOME,
-
-            alergenico: extra?.alergenico,
-            armazenamento: extra?.armazenamento,
-            ingredientes: extra?.ingredientes,
-            dataFabricante: extra?.dataFabricante,
-            dataVencimento: extra?.dataVencimento,
-            sif: extra?.sif,
-            loteFab: extra?.loteFab,
-
-            // ✅ NOVO: marca (fabricante)
-            marca: extra?.marca,
-
-            localEnvio: extra?.localEnvio,
-            localArmazenado: extra?.localArmazenado,
-
-            createdAt: extra?.createdAt ?? createdAt,
-          } as EtiquetaGeradaWithMarca;
-        });
-
+        const mapped = mapRowsToEtiquetas(rows);
         setEtiquetasGeradas(mapped);
       } catch (e) {
         console.error("Erro ao carregar etiquetas do banco:", e);
@@ -462,7 +527,7 @@ export default function EtiquetasPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [mapRowsToEtiquetas]);
 
   // ✅ reset ao abrir modal
   useEffect(() => {
@@ -674,6 +739,51 @@ export default function EtiquetasPage() {
     [etiquetasGeradas, hojeISO]
   );
 
+  // ✅ NOVO: abrir modal de revalidação preservando notes já existentes
+  const openRevalidar = useCallback((et: EtiquetaGeradaWithMarca) => {
+    setRevalidarTarget(et);
+    setRevalidarNotes(String(et.revalidationNotes || "").trim());
+    setShowRevalidarModal(true);
+  }, []);
+
+  const handleConfirmRevalidar = useCallback(async () => {
+    if (!revalidarTarget?.id) {
+      setShowRevalidarModal(false);
+      setRevalidarTarget(null);
+      setRevalidarNotes("");
+      return;
+    }
+
+    const labelId = revalidarTarget.id;
+    const nowISO = new Date().toISOString();
+
+    // ✅ Monta newNotes como "objeto completo" da etiqueta, sem quebrar o padrão atual
+    // - Mantém tudo que já estava no notes
+    // - Acrescenta revalidatedAt + revalidationNotes
+    const newNotesObj = {
+      ...(revalidarTarget as any),
+      revalidatedAt: nowISO,
+      revalidationNotes: String(revalidarNotes || "").trim() || "",
+    };
+
+    setRevalidando(true);
+    try {
+      await apiRevalidateInventoryLabel({ labelId, newNotes: newNotesObj });
+
+      // ✅ atualiza a lista com fonte de verdade do banco
+      await refreshHistorico();
+
+      setShowRevalidarModal(false);
+      setRevalidarTarget(null);
+      setRevalidarNotes("");
+    } catch (e: any) {
+      console.error("Erro ao revalidar etiqueta:", e);
+      alert(e?.message ?? "Falha ao revalidar etiqueta.");
+    } finally {
+      setRevalidando(false);
+    }
+  }, [revalidarNotes, revalidarTarget, refreshHistorico]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -687,6 +797,16 @@ export default function EtiquetasPage() {
           </p>
         </div>
         <div className="flex space-x-2">
+          <Button
+            variant="outline"
+            onClick={() => void refreshHistorico()}
+            disabled={carregandoHistorico}
+            title="Recarregar histórico"
+          >
+            <span className="mr-2">🔄</span>
+            Recarregar
+          </Button>
+
           <Button variant="outline">
             <span className="mr-2">📊</span>
             Relatório de Etiquetas
@@ -857,8 +977,16 @@ export default function EtiquetasPage() {
                               ? "bg-blue-500 text-white"
                               : "bg-green-500 text-white"
                           }
+                          title={
+                            etiqueta.revalidatedAt
+                              ? `Revalidada em: ${formatDateTime(
+                                  etiqueta.revalidatedAt
+                                )}`
+                              : undefined
+                          }
                         >
                           {TIPO_LABEL[etiqueta.tipo]}
+                          {etiqueta.revalidatedAt ? " • ♻️" : ""}
                         </Badge>
                       </TableCell>
 
@@ -931,6 +1059,16 @@ export default function EtiquetasPage() {
                           >
                             🖨️
                           </Button>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openRevalidar(etiqueta)}
+                            title="Revalidar / adicionar observação"
+                          >
+                            ♻️
+                          </Button>
+
                           <Button
                             size="sm"
                             variant="outline"
@@ -1499,6 +1637,79 @@ export default function EtiquetasPage() {
                 </div>
 
                 <div className="text-xs text-muted-foreground" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ NOVO: Modal Revalidar */}
+      {showRevalidarModal && revalidarTarget && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-2xl max-h-[90dvh] overflow-visible flex flex-col">
+            <div className="flex justify-between items-center mb-4 gap-3 shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-lg sm:text-xl font-semibold">
+                  Revalidar etiqueta
+                </h3>
+                <div className="text-xs text-muted-foreground mt-1">
+                  <strong>Produto:</strong> {revalidarTarget.insumo} •{" "}
+                  <strong>Lote:</strong>{" "}
+                  <span className="font-mono">{revalidarTarget.loteMan}</span>
+                </div>
+              </div>
+
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (revalidando) return;
+                  setShowRevalidarModal(false);
+                  setRevalidarTarget(null);
+                  setRevalidarNotes("");
+                }}
+              >
+                ✕
+              </Button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="min-w-0">
+                <Label>Observações da revalidação</Label>
+                <Textarea
+                  value={revalidarNotes}
+                  onChange={(e) => setRevalidarNotes(e.target.value)}
+                  placeholder="Ex: conferido validade, ajustado armazenamento, lote original verificado..."
+                  rows={4}
+                  className="w-full"
+                  disabled={revalidando}
+                />
+                <div className="text-xs text-muted-foreground mt-1">
+                  Isso será salvo no <code>notes</code> da etiqueta (JSON) junto
+                  com data/hora da revalidação.
+                </div>
+              </div>
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 sm:gap-0 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (revalidando) return;
+                    setShowRevalidarModal(false);
+                    setRevalidarTarget(null);
+                    setRevalidarNotes("");
+                  }}
+                  disabled={revalidando}
+                >
+                  Cancelar
+                </Button>
+
+                <Button
+                  onClick={() => void handleConfirmRevalidar()}
+                  disabled={revalidando}
+                  title="Salvar revalidação"
+                >
+                  {revalidando ? "Salvando..." : "Salvar revalidação"}
+                </Button>
               </div>
             </div>
           </div>

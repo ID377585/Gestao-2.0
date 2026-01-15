@@ -7,7 +7,7 @@ function numOrNull(v: any) {
 }
 
 export async function GET(req: Request) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
 
   const {
     data: { user },
@@ -59,7 +59,12 @@ export async function GET(req: Request) {
     // ✅ AJUSTE: devolver a mensagem real do Supabase (ajuda demais em RLS/policy)
     console.error("GET /api/losses error:", error);
     return NextResponse.json(
-      { error: error.message ?? "Erro ao carregar histórico de perdas." },
+      {
+        error: error.message ?? "Erro ao carregar histórico de perdas.",
+        code: (error as any).code ?? null,
+        details: (error as any).details ?? null,
+        hint: (error as any).hint ?? null,
+      },
       { status: 500 }
     );
   }
@@ -68,7 +73,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const body = await req.json();
 
   const { product_id, qty, lot, reason, reason_detail, qrcode } = body;
@@ -111,8 +116,17 @@ export async function POST(req: Request) {
   if (error) {
     // Mensagem vem do raise exception do Postgres (RPC)
     console.error("POST /api/losses rpc error:", error);
+
+    // ✅ AJUSTE: incluir code/details/hint (ex.: 42703 coluna inexistente)
+    // Isso ajuda a identificar rapidamente se o problema está na FUNÇÃO SQL (register_loss)
+    // e não neste route.ts.
     return NextResponse.json(
-      { error: error.message ?? "Erro ao registrar perda." },
+      {
+        error: error.message ?? "Erro ao registrar perda.",
+        code: (error as any).code ?? null,
+        details: (error as any).details ?? null,
+        hint: (error as any).hint ?? null,
+      },
       { status: 400 }
     );
   }

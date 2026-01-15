@@ -216,6 +216,17 @@ export default function InventarioPage() {
   // Modal do scanner de câmera
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
 
+  // ✅ NOVO: Bloqueio de limpeza com senha admin
+  const [adminDialogOpen, setAdminDialogOpen] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+
+  /**
+   * ✅ Senha de Admin (local)
+   * Observação: ideal é mover para validação no backend futuramente.
+   */
+  const ADMIN_PASSWORD = "Hb600i12c@2";
+
   // Campos para INSUMOS (lançamento manual)
   const [manualProduto, setManualProduto] = useState("");
   const [manualQtd, setManualQtd] = useState("");
@@ -244,6 +255,7 @@ export default function InventarioPage() {
   const toastTimerRef = useRef<number | null>(null);
   const qrInputRef = useRef<HTMLInputElement | null>(null);
   const productFieldRef = useRef<HTMLDivElement | null>(null);
+  const adminPassRef = useRef<HTMLInputElement | null>(null);
 
   /* =========================
      🔥 Restaurar inventário não finalizado
@@ -411,6 +423,11 @@ export default function InventarioPage() {
     setUltimoResumo(null);
     setApplyResult(null);
 
+    // ✅ ao iniciar inventário, trava a limpeza até senha admin
+    setAdminUnlocked(false);
+    setAdminPassword("");
+    setAdminDialogOpen(false);
+
     showToast("Inventário iniciado!");
 
     setTimeout(() => {
@@ -516,11 +533,45 @@ export default function InventarioPage() {
     setManualQtd("");
   };
 
+  // ✅ NOVO: confirmação da senha admin para liberar "Limpar Itens"
+  const handleAdminConfirm = () => {
+    const ok = adminPassword === ADMIN_PASSWORD;
+
+    if (!ok) {
+      showToast("Senha de Admin incorreta.");
+      setAdminPassword("");
+      // mantém o dialog aberto pra tentar de novo
+      setTimeout(() => adminPassRef.current?.focus(), 50);
+      return;
+    }
+
+    setAdminUnlocked(true);
+    setAdminPassword("");
+    setAdminDialogOpen(false);
+    showToast("Admin liberado. Agora você pode limpar os itens.");
+  };
+
+  const handleAdminClose = () => {
+    setAdminDialogOpen(false);
+    setAdminPassword("");
+  };
+
   const limparItensInventarioAtual = () => {
+    // ✅ Se inventário está ativo e ainda não desbloqueou, pede senha
+    if (inventarioAtivo && !adminUnlocked) {
+      setAdminDialogOpen(true);
+      setTimeout(() => adminPassRef.current?.focus(), 50);
+      return;
+    }
+
     setInventarioItens([]);
     setInventarioScannedKeys({});
     setUltimoResumo(null);
     setApplyResult(null);
+
+    // ✅ opcional: volta a travar após limpar (mantive DESLIGADO para não atrapalhar)
+    // setAdminUnlocked(false);
+
     showToast("Itens do inventário atual foram limpos.");
   };
 
@@ -589,6 +640,11 @@ export default function InventarioPage() {
     setManualProduto("");
     setManualQtd("");
     setManualUmd("");
+
+    // ✅ ao finalizar, volta a travar para o próximo inventário
+    setAdminUnlocked(false);
+    setAdminPassword("");
+    setAdminDialogOpen(false);
   };
 
   /* =========================
@@ -687,13 +743,26 @@ export default function InventarioPage() {
                     ? "Aplicando ajustes..."
                     : "⏹️ Finalizar & Aplicar Estoque"}
                 </Button>
+
                 <Button
                   variant="outline"
                   onClick={limparItensInventarioAtual}
                   disabled={isApplying}
+                  title={
+                    inventarioAtivo && !adminUnlocked
+                      ? "Requer senha de Admin"
+                      : "Limpar itens do inventário atual"
+                  }
                 >
                   🧹 Limpar Itens
                 </Button>
+
+                {/* ✅ Opcional: indicador visual de desbloqueio */}
+                {adminUnlocked && (
+                  <span className="text-xs text-emerald-700 font-semibold">
+                    Admin liberado ✅
+                  </span>
+                )}
               </>
             )}
 
@@ -904,9 +973,7 @@ export default function InventarioPage() {
                         <TableCell className="font-medium">{produto}</TableCell>
                         <TableCell>{String(qtd)}</TableCell>
                         <TableCell>{String(un)}</TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {lt}
-                        </TableCell>
+                        <TableCell className="font-mono text-xs">{lt}</TableCell>
                         <TableCell>{dv}</TableCell>
                         <TableCell className="text-xs">{source}</TableCell>
                         <TableCell className="text-xs">
@@ -921,6 +988,60 @@ export default function InventarioPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ✅ NOVO: Modal Senha Admin para limpar itens */}
+      <Dialog
+        open={adminDialogOpen}
+        onOpenChange={(open) => {
+          setAdminDialogOpen(open);
+          if (open) {
+            setTimeout(() => adminPassRef.current?.focus(), 50);
+          } else {
+            setAdminPassword("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Senha de Admin</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Para limpar os itens do inventário em andamento, digite a senha de
+              administrador.
+            </p>
+
+            <div className="space-y-1">
+              <Label htmlFor="admin-pass">Senha</Label>
+              <Input
+                ref={adminPassRef}
+                id="admin-pass"
+                type="password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAdminConfirm();
+                }}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={handleAdminClose}>
+                Cancelar
+              </Button>
+              <Button onClick={handleAdminConfirm}>Confirmar</Button>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground">
+              Dica: depois de liberar, você pode limpar os itens normalmente
+              durante este inventário.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal do Scanner de QR Code */}
       <Dialog open={isQrModalOpen} onOpenChange={setIsQrModalOpen}>
@@ -988,9 +1109,7 @@ export default function InventarioPage() {
                 <TableBody>
                   {ultimoResumo.map((r) => (
                     <TableRow key={r.key}>
-                      <TableCell className="font-medium">
-                        {r.produto}
-                      </TableCell>
+                      <TableCell className="font-medium">{r.produto}</TableCell>
                       <TableCell>{r.unidade}</TableCell>
                       <TableCell>{r.totalQtd}</TableCell>
                       <TableCell className="text-xs">
@@ -1110,9 +1229,7 @@ export default function InventarioPage() {
                 <TableBody>
                   {historico.map((h) => (
                     <TableRow key={h.id}>
-                      <TableCell className="font-mono text-xs">
-                        {h.id}
-                      </TableCell>
+                      <TableCell className="font-mono text-xs">{h.id}</TableCell>
                       <TableCell className="text-xs">
                         {formatDateTime(h.startedAt)}
                       </TableCell>

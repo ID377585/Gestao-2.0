@@ -56,8 +56,10 @@ export async function GET(req: Request) {
   const { data, error } = await q;
 
   if (error) {
+    // ✅ AJUSTE: devolver a mensagem real do Supabase (ajuda demais em RLS/policy)
+    console.error("GET /api/losses error:", error);
     return NextResponse.json(
-      { error: "Erro ao carregar histórico de perdas." },
+      { error: error.message ?? "Erro ao carregar histórico de perdas." },
       { status: 500 }
     );
   }
@@ -108,6 +110,7 @@ export async function POST(req: Request) {
 
   if (error) {
     // Mensagem vem do raise exception do Postgres (RPC)
+    console.error("POST /api/losses rpc error:", error);
     return NextResponse.json(
       { error: error.message ?? "Erro ao registrar perda." },
       { status: 400 }

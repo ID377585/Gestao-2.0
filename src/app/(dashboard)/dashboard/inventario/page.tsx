@@ -990,58 +990,63 @@ export default function InventarioPage() {
       </Card>
 
       {/* ✅ NOVO: Modal Senha Admin para limpar itens */}
-      <Dialog
-        open={adminDialogOpen}
-        onOpenChange={(open) => {
-          setAdminDialogOpen(open);
-          if (open) {
-            setTimeout(() => adminPassRef.current?.focus(), 50);
-          } else {
-            setAdminPassword("");
-          }
-        }}
-      >
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Senha de Admin</DialogTitle>
-          </DialogHeader>
+      // 2) SUBSTITUA APENAS o Dialog do "Senha de Admin" por este (mesmo lugar onde ele já está):
+<Dialog
+  open={adminDialogOpen}
+  onOpenChange={(open) => {
+    setAdminDialogOpen(open);
+    if (open) {
+      setTimeout(() => adminPassRef.current?.focus(), 50);
+    } else {
+      setAdminPassword("");
+    }
+  }}
+>
+  <DialogContent
+    className="max-w-sm bg-white text-gray-900 border shadow-2xl"
+  >
+    <DialogHeader>
+      <DialogTitle>Senha de Admin</DialogTitle>
+    </DialogHeader>
 
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Para limpar os itens do inventário em andamento, digite a senha de
-              administrador.
-            </p>
+    <div className="space-y-3">
+      <p className="text-sm text-gray-600">
+        Para limpar os itens do inventário em andamento, digite a senha de
+        administrador.
+      </p>
 
-            <div className="space-y-1">
-              <Label htmlFor="admin-pass">Senha</Label>
-              <Input
-                ref={adminPassRef}
-                id="admin-pass"
-                type="password"
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete="current-password"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAdminConfirm();
-                }}
-              />
-            </div>
+      <div className="space-y-1">
+        <Label htmlFor="admin-pass">Senha</Label>
+        <Input
+          ref={adminPassRef}
+          id="admin-pass"
+          type="password"
+          value={adminPassword}
+          onChange={(e) => setAdminPassword(e.target.value)}
+          placeholder="••••••••"
+          autoComplete="current-password"
+          className="bg-white text-gray-900 placeholder:text-gray-400"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleAdminConfirm();
+          }}
+        />
+      </div>
 
-            <div className="flex justify-end gap-2 pt-1">
-              <Button variant="outline" onClick={handleAdminClose}>
-                Cancelar
-              </Button>
-              <Button onClick={handleAdminConfirm}>Confirmar</Button>
-            </div>
+      <div className="flex justify-end gap-2 pt-1">
+        <Button variant="outline" onClick={handleAdminClose}>
+          Cancelar
+        </Button>
+        <Button onClick={handleAdminConfirm}>Confirmar</Button>
+      </div>
 
-            <p className="text-[11px] text-muted-foreground">
-              Dica: depois de liberar, você pode limpar os itens normalmente
-              durante este inventário.
-            </p>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <p className="text-[11px] text-gray-500">
+        Dica: depois de liberar, você pode limpar os itens normalmente durante
+        este inventário.
+      </p>
+    </div>
+  </DialogContent>
+</Dialog>
+
 
       {/* Modal do Scanner de QR Code */}
       <Dialog open={isQrModalOpen} onOpenChange={setIsQrModalOpen}>

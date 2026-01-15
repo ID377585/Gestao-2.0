@@ -1,4 +1,3 @@
-// 1) src/app/(dashboard)/dashboard/etiquetas/action.ts
 "use server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -244,14 +243,15 @@ export async function createInventoryLabel(
 }
 
 /**
- * ✅ NOVO: Revalida UMA etiqueta existente
- * - Atualiza notes com novas datas (Manipulação/Vencimento)
+ * ✅ Revalida UMA etiqueta existente
+ * - Atualiza notes com novas datas (Manipulação/Vencimento etc)
+ * - Opcionalmente volta status para "available" e limpa vínculo de separação/pedido
  * - NÃO cria movimento
  * - NÃO move estoque
  */
 export async function revalidateInventoryLabel(params: {
   labelId: string;
-  newNotes: any;
+  newNotes?: unknown;
 }): Promise<InventoryLabelRow> {
   const { labelId, newNotes } = params;
 
@@ -259,6 +259,7 @@ export async function revalidateInventoryLabel(params: {
 
   const supabase = await createSupabaseServerClient();
   const { membership } = await getActiveMembershipOrRedirect();
+
   const establishmentId = (membership as any).establishment_id;
 
   if (!establishmentId) {
@@ -280,17 +281,29 @@ export async function revalidateInventoryLabel(params: {
     throw new Error("Só é possível revalidar etiquetas com status 'available'.");
   }
 
-  const notesJson = newNotes != null ? JSON.stringify(newNotes) : null;
+  const notesValue =
+    newNotes === undefined || newNotes === null
+      ? null
+      : typeof newNotes === "string"
+        ? newNotes
+        : JSON.stringify(newNotes);
 
+  // ✅ Revalidar: mantém "available" e garante que não fique presa em pedido
   const { data: updated, error: upErr } = await supabase
     .from("inventory_labels")
     .update({
-      notes: notesJson,
-      // ⚠️ não mexe em qty/unit/status/order_id etc
+      status: "available",
+      order_id: null,
+      separated_at: null,
+      separated_by: null,
+      notes: notesValue,
+      // ⚠️ não mexe em qty/unit/label_code etc
     })
     .eq("id", labelId)
     .eq("establishment_id", establishmentId)
-    .select("*")
+    .select(
+      "id, label_code, qty, unit_label, status, created_at, notes, order_id, separated_at, separated_by"
+    )
     .single();
 
   if (upErr || !updated) {
@@ -426,115 +439,6 @@ export async function separateLabelForOrder(params: {
     .maybeSingle();
 
   if (error) throw error;
-
-  return updated as InventoryLabelRow;
-}
-
-export async function revalidateInventoryLabel(params: {
-  labelId: string;
-  newNotes: string | null;
-}): Promise<InventoryLabelRow> {
-  const { labelId, newNotes } = params;
-
-  if (!labelId?.trim()) throw new Error("labelId não informado.");
-
-  const supabase = await createSupabaseServerClient();
-  const { membership } = await getActiveMembershipOrRedirect();
-
-  const establishmentId = (membership as any).establishment_id;
-  if (!establishmentId) {
-    throw new Error("Estabelecimento não encontrado no membership.");
-  }
-
-  // (Opcional) garante que a etiqueta pertence ao establishment atual
-  const { data: current, error: curErr } = await supabase
-    .from("inventory_labels")
-    .select("id, establishment_id")
-    .eq("id", labelId)
-    .maybeSingle();
-
-  if (curErr) {
-    console.error("Erro ao buscar etiqueta:", curErr);
-    throw new Error("Falha ao localizar etiqueta.");
-  }
-
-  if (!current) throw new Error("Etiqueta não encontrada.");
-
-  if ((current as any).establishment_id !== establishmentId) {
-    throw new Error("Etiqueta não pertence ao estabelecimento atual.");
-  }
-
-  const { data: updated, error: updErr } = await supabase
-    .from("inventory_labels")
-    .update({
-      notes: newNotes ?? null,
-    })
-    .eq("id", labelId)
-    .select(
-      "id, label_code, qty, unit_label, status, created_at, notes, order_id, separated_at, separated_by"
-    )
-    .single();
-
-  if (updErr || !updated) {
-    console.error("Erro ao atualizar notes da etiqueta:", updErr);
-    throw new Error("Falha ao revalidar etiqueta.");
-  }
-
-  return updated as InventoryLabelRow;
-}
-
-// src/app/(dashboard)/dashboard/etiquetas/actions.ts
-// ✅ COLE ESTE BLOCO NO FINAL DO ARQUIVO (NÃO ALTERE O RESTO)
-
-export async function revalidateInventoryLabel(params: {
-  labelId: string;
-  newNotes?: unknown;
-}): Promise<InventoryLabelRow> {
-  const { labelId, newNotes } = params;
-
-  if (!labelId?.trim()) throw new Error("labelId não informado.");
-
-  const supabase = await createSupabaseServerClient();
-  const { membership } = await getActiveMembershipOrRedirect();
-
-  const establishmentId = (membership as any).establishment_id;
-
-  if (!establishmentId) {
-    throw new Error("Estabelecimento não encontrado no membership.");
-  }
-
-  const notesJson =
-    newNotes === undefined
-      ? null
-      : typeof newNotes === "string"
-        ? newNotes
-        : JSON.stringify(newNotes);
-
-  // ✅ Revalidar: volta para "available" e limpa vínculo de separação/pedido
-  const { data: updated, error } = await supabase
-    .from("inventory_labels")
-    .update({
-      status: "available",
-      order_id: null,
-      separated_at: null,
-      separated_by: null,
-      notes: notesJson,
-    })
-    .eq("id", labelId)
-    .eq("establishment_id", establishmentId)
-    .select(
-      "id, label_code, qty, unit_label, status, created_at, notes, order_id, separated_at, separated_by"
-    )
-    .maybeSingle();
-
-  if (error) {
-    console.error("Erro ao revalidar etiqueta:", error);
-    throw new Error("Falha ao revalidar etiqueta no banco.");
-  }
-
-  if (!updated) {
-    throw new Error("Etiqueta não encontrada para revalidar.");
-  }
 
   return updated as InventoryLabelRow;
 }

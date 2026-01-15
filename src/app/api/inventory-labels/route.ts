@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
+// ✅ NOVO: permite PATCH aqui também (evita 405 e mantém compatibilidade)
+import { revalidateInventoryLabel } from "@/app/(dashboard)/dashboard/etiquetas/actions";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -229,11 +232,20 @@ export async function POST(req: Request) {
       : null;
 
   if (!productId)
-    return NextResponse.json({ error: "productId obrigatório." }, { status: 400 });
+    return NextResponse.json(
+      { error: "productId obrigatório." },
+      { status: 400 }
+    );
   if (!labelCode)
-    return NextResponse.json({ error: "labelCode obrigatório." }, { status: 400 });
+    return NextResponse.json(
+      { error: "labelCode obrigatório." },
+      { status: 400 }
+    );
   if (!unitLabel)
-    return NextResponse.json({ error: "unitLabel obrigatório." }, { status: 400 });
+    return NextResponse.json(
+      { error: "unitLabel obrigatório." },
+      { status: 400 }
+    );
   if (!qty || qty <= 0)
     return NextResponse.json({ error: "qty inválido." }, { status: 400 });
 
@@ -315,4 +327,41 @@ export async function POST(req: Request) {
     },
     { status: 500 }
   );
+}
+
+/**
+ * ✅ NOVO: PATCH (compatibilidade)
+ * - Aceita PATCH em /api/inventory-labels para NÃO retornar 405
+ * - Faz a revalidação chamando a server action (fonte de verdade)
+ *
+ * Body esperado:
+ * { labelId: string, newNotes: any }
+ */
+export async function PATCH(req: Request) {
+  let body: any = null;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Body inválido (JSON)." }, { status: 400 });
+  }
+
+  const labelId = normalizeId(body?.labelId);
+  const newNotes = body?.newNotes ?? null;
+
+  if (!labelId) {
+    return NextResponse.json(
+      { error: "labelId obrigatório." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const updated = await revalidateInventoryLabel({ labelId, newNotes });
+    return NextResponse.json(updated, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message ?? "Falha ao revalidar etiqueta." },
+      { status: 500 }
+    );
+  }
 }

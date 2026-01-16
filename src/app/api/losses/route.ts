@@ -15,7 +15,12 @@ async function getAuthAndEstablishment() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return { supabase, user: null, establishment_id: null, error: NextResponse.json({ error: "Não autenticado." }, { status: 401 }) };
+    return {
+      supabase,
+      user: null,
+      establishment_id: null,
+      error: NextResponse.json({ error: "Não autenticado." }, { status: 401 }),
+    };
   }
 
   const { data: membership, error: memErr } = await supabase
@@ -29,17 +34,28 @@ async function getAuthAndEstablishment() {
       supabase,
       user,
       establishment_id: null,
-      error: NextResponse.json({ error: "Estabelecimento não encontrado." }, { status: 400 }),
+      error: NextResponse.json(
+        { error: "Estabelecimento não encontrado." },
+        { status: 400 }
+      ),
     };
   }
 
-  return { supabase, user, establishment_id: membership.establishment_id, error: null };
+  return {
+    supabase,
+    user,
+    establishment_id: membership.establishment_id,
+    error: null,
+  };
 }
 
 export async function GET(req: Request) {
-  const { supabase, user, error, establishment_id } = await getAuthAndEstablishment();
+  const { supabase, user, error, establishment_id } =
+    await getAuthAndEstablishment();
   if (error || !establishment_id) return error!;
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  if (!user) {
+    return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
 
   const url = new URL(req.url);
   const product_id = url.searchParams.get("product_id");
@@ -74,8 +90,12 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { supabase, error, establishment_id } = await getAuthAndEstablishment();
+  const { supabase, user, error, establishment_id } =
+    await getAuthAndEstablishment();
   if (error || !establishment_id) return error!;
+  if (!user) {
+    return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
 
   const body = await req.json();
 
@@ -110,19 +130,19 @@ export async function POST(req: Request) {
     );
   }
 
-  // ✅ IMPORTANTE: PostgREST exige os nomes EXATOS dos parâmetros da função
+  // ✅ IMPORTANTE: PostgREST exige os nomes EXATOS dos parâmetros da função.
+  // E como existem 2 overloads no banco, passamos p_user_id para escolher a assinatura correta.
   const { data, error: rpcErr } = await supabase.rpc("register_loss", {
-  p_establishment_id: establishment_id,
-  p_product_id: product_id,
-  p_qty: qtyNumber,
-  p_unit_label: unit_label,
-  p_reason: reasonTrim,
-  p_reason_detail: reasonDetailTrim || null,
-  p_lot: lotTrim || null,
-  p_label_code: labelCodeTrim || null,
-  p_user_id: user.id,
-});
-
+    p_establishment_id: establishment_id,
+    p_product_id: product_id,
+    p_qty: qtyNumber,
+    p_unit_label: unit_label,
+    p_reason: reasonTrim,
+    p_reason_detail: reasonDetailTrim || null,
+    p_lot: lotTrim || null,
+    p_label_code: labelCodeTrim || null,
+    p_user_id: user.id,
+  });
 
   if (rpcErr) {
     console.error("POST /api/losses rpc error:", rpcErr);
@@ -136,7 +156,10 @@ export async function POST(req: Request) {
 
   if (result == null) {
     return NextResponse.json(
-      { error: "RPC executou sem retorno. Verifique assinatura/retorno da função register_loss." },
+      {
+        error:
+          "RPC executou sem retorno. Verifique assinatura/retorno da função register_loss.",
+      },
       { status: 400 }
     );
   }

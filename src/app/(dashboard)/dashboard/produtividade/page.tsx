@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+/* ------------------ helpers ------------------ */
 function formatDate(date: string | null | undefined) {
   if (!date) return "—";
   return new Date(date).toLocaleDateString("pt-BR", {
@@ -20,6 +21,7 @@ function formatDate(date: string | null | undefined) {
     month: "2-digit",
   });
 }
+
 function formatMinutes(min: number | null | undefined) {
   if (!min || min <= 0) return "—";
   if (min < 60) return `${Math.round(min)} min`;
@@ -29,6 +31,32 @@ function formatMinutes(min: number | null | undefined) {
   return `${horas} h ${resto} min`;
 }
 
+function Top3BarChart({ items }: { items: { label: string; value: number }[] }) {
+  const max = Math.max(...items.map((i) => i.value), 1);
+  return (
+    <div className="space-y-2">
+      {items.map((it, idx) => (
+        <div key={it.label} className="flex items-center gap-3">
+          <div className="w-6 text-xs text-muted-foreground">#{idx + 1}</div>
+          <div className="w-full">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-sm truncate">{it.label}</div>
+              <div className="text-xs font-semibold">{it.value.toFixed(0)}</div>
+            </div>
+            <div className="h-3 bg-slate-100 rounded overflow-hidden">
+              <div
+                className="h-3 bg-emerald-500"
+                style={{ width: `${(it.value / max) * 100}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------ page ------------------ */
 export default async function ProdutividadePage() {
   const supabase = await createSupabaseServerClient();
   const membership = await getActiveMembershipOrRedirect();
@@ -46,114 +74,136 @@ export default async function ProdutividadePage() {
     );
   }
 
+  // janela de análise
   const now = new Date();
-  const sevenDaysAgo = new Date();
+  const sevenDaysAgo = new Date(now);
   sevenDaysAgo.setDate(now.getDate() - 7);
-
-  const fourteenDaysAgo = new Date();
+  const fourteenDaysAgo = new Date(now);
   fourteenDaysAgo.setDate(now.getDate() - 14);
-
-  const thirtyDaysAgo = new Date();
+  const thirtyDaysAgo = new Date(now);
   thirtyDaysAgo.setDate(now.getDate() - 30);
 
-  // 1) Pedidos do estabelecimento (7 dias) - mantém seu cálculo
-  const { data: ordersData } = await supabase
+  // ---------- fetch raw data ----------
+  // 1) Orders (7 dias)
+  const { data: ordersData, error: ordersErr } = await supabase
     .from("orders")
     .select("id, status, created_at")
     .eq("establishment_id", establishmentId)
     .gte("created_at", sevenDaysAgo.toISOString())
     .order("created_at", { ascending: false });
+  if (ordersErr) throw new Error(ordersErr.message);
   const safeOrders = ordersData ?? [];
 
-  // 2) Eventos (timeline)
-  const { data: eventsData } = await supabase
+  // 2) Order timeline events (7 dias)
+  const { data: eventsData, error: eventsErr } = await supabase
     .from("order_status_events")
     .select("id, order_id, from_status, to_status, created_at, created_by, action")
     .eq("establishment_id", establishmentId)
     .gte("created_at", sevenDaysAgo.toISOString())
     .order("created_at", { ascending: true });
+  if (eventsErr) throw new Error(eventsErr.message);
   const safeEvents = eventsData ?? [];
 
-  // ====== Basic metrics (kept from original) ======
+  // 3) order_line_items para forecast (últimos 14 dias)
+  const { data: orderItems14, error: orderItemsErr } = await supabase
+    .from("order_line_items")
+    .select("id, order_id, product_id, quantity, created_at")
+    .eq("establishment_id", establishmentId)
+    .gte("created_at", fourteenDaysAgo.toISOString())
+    .order("created_at", { ascending: false });
+  if (orderItemsErr) throw new Error(orderItemsErr.message);
+  const orderItems = orderItems14 ?? [];
+
+  // 4) order_line_items (30 dias) -> para mapear production_productivity
+  const { data: orderLine30Rows, error: orderLine30Err } = await supabase
+    .from("order_line_items")
+    .select("id, product_id, created_at")
+    .eq("establishment_id", establishmentId)
+    .gte("created_at", thirtyDaysAgo.toISOString())
+    .order("created_at", { ascending: false });
+  if (orderLine30Err) throw new Error(orderLine30Err.message);
+  const orderLine30 = orderLine30Rows ?? [];
+  const orderLineIds = orderLine30.map((r: any) => r.id).filter(Boolean);
+
+  // 5) production_productivity: **não** filtramos por establishment_id (alguns esquemas não têm essa coluna).
+  //    Em vez disso, filtramos por order_item_id (obtidos acima). Se não houver orderLineIds, pulamos.
+  let productionRows: any[] = [];
+  if (orderLineIds.length > 0) {
+    const { data: prodRows, error: prodRowsErr } = await supabase
+      .from("production_productivity")
+      .select(
+        "id, order_item_id, collaborator_id, product_id, qty_produced, unit_label, started_at, finished_at, duration_minutes, created_at"
+      )
+      .in("order_item_id", orderLineIds)
+      .gte("created_at", thirtyDaysAgo.toISOString())
+      .order("created_at", { ascending: false });
+
+    if (prodRowsErr) throw new Error(prodRowsErr.message);
+    productionRows = prodRows ?? [];
+  } else {
+    productionRows = [];
+  }
+
+  // 6) losses (7 dias) para refugo
+  const { data: lossesRows, error: lossesErr } = await supabase
+    .from("losses")
+    .select("id, user_id, product_id, qty, created_at")
+    .eq("establishment_id", establishmentId)
+    .gte("created_at", sevenDaysAgo.toISOString());
+  if (lossesErr) throw new Error(lossesErr.message);
+  const losses = lossesRows ?? [];
+
+  // ---------- Basic KPIs (orders/events) ----------
   const totalPedidos = safeOrders.length;
   const entregues = safeOrders.filter((o) => o.status === "entregue").length;
   const cancelados = safeOrders.filter((o) => o.status === "cancelado").length;
-  const ativos = safeOrders.filter(
-    (o) => !["entregue", "cancelado"].includes(o.status)
-  ).length;
+  const ativos = safeOrders.filter((o) => !["entregue", "cancelado"].includes(o.status)).length;
 
   const porStatus: Record<string, number> = {};
-  for (const o of safeOrders) {
-    porStatus[o.status] = (porStatus[o.status] ?? 0) + 1;
-  }
+  for (const o of safeOrders) porStatus[o.status] = (porStatus[o.status] ?? 0) + 1;
 
-  // Tempo médio (pedido criado -> entregue) e médio produção (aceito -> em_separacao)
+  // Tempo médio: pedido criado -> entregue ; aceito -> em_separacao
   type OrderTime = { createdAt: Date; deliveredAt?: Date; acceptedAt?: Date; separatedAt?: Date };
   const timesByOrder = new Map<string, OrderTime>();
-  for (const o of safeOrders) {
-    timesByOrder.set(o.id, {
-      createdAt: new Date(o.created_at),
-    });
-  }
+  for (const o of safeOrders) timesByOrder.set(o.id, { createdAt: new Date(o.created_at) });
   for (const ev of safeEvents) {
     const entry = timesByOrder.get(ev.order_id);
     if (!entry) continue;
-    if (ev.to_status === "entregue" && !entry.deliveredAt) {
-      entry.deliveredAt = new Date(ev.created_at);
-    }
-    if (ev.to_status === "aceitou_pedido" && !entry.acceptedAt) {
-      entry.acceptedAt = new Date(ev.created_at);
-    }
-    if (ev.to_status === "em_separacao" && !entry.separatedAt) {
-      entry.separatedAt = new Date(ev.created_at);
-    }
+    if (ev.to_status === "entregue" && !entry.deliveredAt) entry.deliveredAt = new Date(ev.created_at);
+    if (ev.to_status === "aceitou_pedido" && !entry.acceptedAt) entry.acceptedAt = new Date(ev.created_at);
+    if (ev.to_status === "em_separacao" && !entry.separatedAt) entry.separatedAt = new Date(ev.created_at);
   }
 
-  let somaMinutos = 0, qtdComTempo = 0;
+  let somaMinutos = 0, qtdComTempo = 0, somaMinutosProd = 0, qtdComTempoProd = 0;
   for (const [, t] of timesByOrder) {
     if (t.deliveredAt) {
       const diffMin = (t.deliveredAt.getTime() - t.createdAt.getTime()) / (1000 * 60);
       if (diffMin > 0) { somaMinutos += diffMin; qtdComTempo++; }
     }
-  }
-  const tempoMedioEntregaMin = qtdComTempo > 0 ? somaMinutos / qtdComTempo : undefined;
-
-  let somaMinutosProd = 0, qtdComTempoProd = 0;
-  for (const [, t] of timesByOrder) {
     if (t.acceptedAt && t.separatedAt) {
       const diffMin = (t.separatedAt.getTime() - t.acceptedAt.getTime()) / (1000 * 60);
       if (diffMin > 0) { somaMinutosProd += diffMin; qtdComTempoProd++; }
     }
   }
+  const tempoMedioEntregaMin = qtdComTempo > 0 ? somaMinutos / qtdComTempo : undefined;
   const tempoMedioProducaoMin = qtdComTempoProd > 0 ? somaMinutosProd / qtdComTempoProd : undefined;
 
-  // ========= Ranking de colaboradores (últimos 7 dias) =========
-  // Usamos production_productivity: soma qty_produced, soma duration_minutes (horas)
-    // fetch raw rows for last 7 days and aggregate client-side
-  const { data: collRows, error: collRowsErr } = await supabase
-    .from("production_productivity")
-    .select("collaborator_id, qty_produced, duration_minutes, created_at")
-    .eq("establishment_id", establishmentId)
-    .gte("created_at", sevenDaysAgo.toISOString());
-
-  if (collRowsErr) {
-    throw new Error(collRowsErr.message);
-  }
-
+  // ---------- Ranking colaboradores (agregação client-side) ----------
   const collMap: Record<string, { total_qty: number; total_minutes: number }> = {};
-  (collRows ?? []).forEach((r: any) => {
+  for (const r of productionRows) {
     const id = r.collaborator_id ?? "unknown";
     if (!collMap[id]) collMap[id] = { total_qty: 0, total_minutes: 0 };
     collMap[id].total_qty += Number(r.qty_produced ?? 0);
-    collMap[id].total_minutes += Number(r.duration_minutes ?? 0);
-  });
+    // prefere duration_minutes, senão calcula a partir de timestamps
+    const dur =
+      r.duration_minutes ??
+      (r.started_at && r.finished_at ? ((new Date(r.finished_at).getTime() - new Date(r.started_at).getTime()) / 60000) : 0);
+    collMap[id].total_minutes += Number(dur ?? 0);
+  }
 
-  const collStats = Object.entries(collMap).map(([collaborator_id, v]) => ({
-    collaborator_id,
-    total_qty: v.total_qty,
-    total_minutes: v.total_minutes,
-  })).sort((a, b) => b.total_qty - a.total_qty);
-
+  const collStats = Object.entries(collMap)
+    .map(([collaborator_id, v]) => ({ collaborator_id, total_qty: v.total_qty, total_minutes: v.total_minutes }))
+    .sort((a, b) => b.total_qty - a.total_qty);
 
   const collaboratorIds = collStats.map((c) => c.collaborator_id).filter(Boolean);
   let profileMap: Record<string, { full_name?: string; sector?: string }> = {};
@@ -162,9 +212,7 @@ export default async function ProdutividadePage() {
       .from("profiles")
       .select("id, full_name, sector")
       .in("id", collaboratorIds);
-    (profiles ?? []).forEach((p: any) => {
-      profileMap[p.id] = { full_name: p.full_name, sector: p.sector };
-    });
+    (profiles ?? []).forEach((p: any) => { profileMap[p.id] = { full_name: p.full_name, sector: p.sector }; });
   }
 
   const rankingUsuarios = collStats
@@ -178,130 +226,138 @@ export default async function ProdutividadePage() {
     }))
     .sort((a, b) => b.qty - a.qty);
 
-  // Top-3 (para o gráfico)
   const top3 = rankingUsuarios.slice(0, 3);
   const maxTopQty = Math.max(...top3.map((t) => t.qty), 1);
 
-  // ========= Produtos mais produzidos (7 dias) =========
-    const { data: prodRows, error: prodRowsErr } = await supabase
-    .from("production_productivity")
-    .select("product_id, qty_produced, created_at")
-    .eq("establishment_id", establishmentId)
-    .gte("created_at", sevenDaysAgo.toISOString());
-
-  if (prodRowsErr) {
-    throw new Error(prodRowsErr.message);
-  }
-
+  // ---------- Produtos mais produzidos (agreg client-side) ----------
   const prodMap: Record<string, number> = {};
-  (prodRows ?? []).forEach((r: any) => {
+  for (const r of productionRows) {
     const pid = r.product_id;
-    if (!pid) return;
+    if (!pid) continue;
     prodMap[pid] = (prodMap[pid] ?? 0) + Number(r.qty_produced ?? 0);
-  });
-
+  }
   const prodStatsArray = Object.entries(prodMap)
     .map(([product_id, total_qty]) => ({ product_id, total_qty }))
     .sort((a, b) => b.total_qty - a.total_qty)
     .slice(0, 10);
 
+  // ---------- carregar dados de products (necessários) ----------
+  const productsNeeded = new Set<string>();
+  prodStatsArray.forEach((p) => p.product_id && productsNeeded.add(p.product_id));
+  (orderItems ?? []).forEach((oi) => oi.product_id && productsNeeded.add(oi.product_id));
+  orderLine30.forEach((l) => l.product_id && productsNeeded.add(l.product_id));
+  const productIdsArr = Array.from(productsNeeded).filter(Boolean);
 
-  const productIds = (prodStatsRaw ?? []).map((p: any) => p.product_id).filter(Boolean);
   let productsMap: Record<string, any> = {};
-  if (productIds.length > 0) {
+  if (productIdsArr.length > 0) {
     const { data: products } = await supabase
       .from("products")
-      .select("id, name, default_unit_label, price")
-      .in("id", productIds);
-    (products ?? []).forEach((p: any) => {
-      productsMap[p.id] = p;
-    });
+      .select("id, name, default_unit_label, price, standard_cost")
+      .in("id", productIdsArr);
+    (products ?? []).forEach((p: any) => { productsMap[p.id] = p; });
   }
-    const productsMostProduced = prodStatsArray.map((r: any) => ({
+
+  const productsMostProduced = prodStatsArray.map((r: any) => ({
     product_id: r.product_id,
     total_qty: Number(r.total_qty ?? 0),
     product: productsMap[r.product_id] ?? null,
     value_total: (productsMap[r.product_id]?.price ?? 0) * Number(r.total_qty ?? 0),
   }));
 
-
-  // ========= Forecast de 2 semanas (média diária últimos 14 dias * 14) =========
-  // Usamos order_items para estimar saída (se existir). Se não houver, fallback para production_productivity.
-  // Order_items usually: order_items has qty and product_id and created_at (or order -> created_at), we'll try order_items.created_at or join order.created_at.
-  const { data: sales30 } = await supabase
-    .from("order_items")
-    .select("product_id, total_qty:sum(qty)")
-    .eq("establishment_id", establishmentId)
-    .gte("created_at", fourteenDaysAgo.toISOString())
-    .group("product_id")
-    .order("total_qty", { ascending: false });
-
-  // build forecast array for top products
-  const forecasts: Array<{ product_id: string; avg_daily: number; forecast_14: number; product?: any }> = [];
+  // ---------- Forecast 2 semanas (média diária últimos 14 dias) ----------
   const salesMap: Record<string, number> = {};
-  (sales30 ?? []).forEach((r: any) => {
-    salesMap[r.product_id] = Number(r.total_qty ?? 0);
-  });
+  for (const s of orderItems) {
+    const pid = s.product_id;
+    if (!pid) continue;
+    salesMap[pid] = (salesMap[pid] ?? 0) + Number(s.quantity ?? 0);
+  }
 
-  // For each product in productsMap or in order_items, compute avg daily:
+  const forecasts: Array<{ product_id: string; avg_daily: number; forecast_14: number; product?: any }> = [];
   const allProductIds = Array.from(new Set([...Object.keys(productsMap), ...Object.keys(salesMap)])).slice(0, 200);
-  if (allProductIds.length > 0) {
-    // fetch product data if missing
-    const missing = allProductIds.filter((id) => !productsMap[id]);
-    if (missing.length > 0) {
-      const { data: moreProducts } = await supabase
-        .from("products")
-        .select("id, name, default_unit_label, price")
-        .in("id", missing);
-      (moreProducts ?? []).forEach((p: any) => (productsMap[p.id] = p));
-    }
+  for (const pid of allProductIds) {
+    const qtyLast14 = Number(salesMap[pid] ?? 0);
+    const avgDaily = qtyLast14 / 14;
+    forecasts.push({
+      product_id: pid,
+      avg_daily: Math.round(avgDaily * 100) / 100,
+      forecast_14: Math.round(avgDaily * 14 * 100) / 100,
+      product: productsMap[pid] ?? null,
+    });
+  }
+  forecasts.sort((a, b) => b.forecast_14 - a.forecast_14);
 
-    for (const pid of allProductIds) {
-      const qtyLast14 = salesMap[pid] ?? 0;
-      const avgDaily = qtyLast14 / 14;
-      forecasts.push({
+  // ---------- Top by value ----------
+  const topByValue = Object.entries(prodMap).map(([product_id, qty]) => {
+    const p = productsMap[product_id];
+    return {
+      product_id,
+      qty,
+      product: p ?? null,
+      value_total: (p?.price ?? 0) * Number(qty ?? 0),
+    };
+  }).sort((a, b) => b.qty - a.qty).slice(0, 10);
+
+  // ---------- Produção por setor ----------
+  const productionBySectorMap: Record<string, { qty_produced: number; value_br: number; hours_active: number }> = {};
+  for (const r of productionRows) {
+    const cid = r.collaborator_id ?? "unknown";
+    const sector = profileMap[cid]?.sector ?? "(sem setor)";
+    const qty = Number(r.qty_produced ?? 0);
+    const p = productsMap[r.product_id];
+    const value = qty * (p?.standard_cost ?? 0);
+    const hours = Number(r.duration_minutes ?? 0) / 60;
+    if (!productionBySectorMap[sector]) productionBySectorMap[sector] = { qty_produced: 0, value_br: 0, hours_active: 0 };
+    productionBySectorMap[sector].qty_produced += qty;
+    productionBySectorMap[sector].value_br += value;
+    productionBySectorMap[sector].hours_active += hours;
+  }
+  const productionBySector = Object.entries(productionBySectorMap).map(([sector, v]) => ({
+    sector, qty_produced: v.qty_produced, value_br: v.value_br, hours_active: v.hours_active,
+  })).sort((a, b) => b.qty_produced - a.qty_produced);
+
+  // ---------- Refugo por setor ----------
+  const refugoMap: Record<string, { qty_refugo: number; value_br: number }> = {};
+  for (const l of losses) {
+    const userSector = profileMap[l.user_id ?? ""]?.sector ?? "(sem setor)";
+    const qty = Number(l.qty ?? 0);
+    const prod = productsMap[l.product_id];
+    const value = qty * (prod?.standard_cost ?? 0);
+    if (!refugoMap[userSector]) refugoMap[userSector] = { qty_refugo: 0, value_br: 0 };
+    refugoMap[userSector].qty_refugo += qty;
+    refugoMap[userSector].value_br += value;
+  }
+  const refugoBySectorList = Object.entries(refugoMap).map(([sector, v]) => ({ sector, qty_refugo: v.qty_refugo, value_br: v.value_br }))
+    .sort((a, b) => b.qty_refugo - a.qty_refugo);
+
+  // ---------- produtos produzidos por setor (lista) ----------
+  const producedBySectorProductRaw: Record<string, Record<string, number>> = {};
+  for (const r of productionRows) {
+    const cid = r.collaborator_id ?? "unknown";
+    const sector = profileMap[cid]?.sector ?? "(sem setor)";
+    const pid = r.product_id ?? "(sem produto)";
+    if (!producedBySectorProductRaw[sector]) producedBySectorProductRaw[sector] = {};
+    producedBySectorProductRaw[sector][pid] = (producedBySectorProductRaw[sector][pid] ?? 0) + Number(r.qty_produced ?? 0);
+  }
+  const producedBySectorProduct: any[] = [];
+  for (const sector of Object.keys(producedBySectorProductRaw)) {
+    for (const pid of Object.keys(producedBySectorProductRaw[sector])) {
+      producedBySectorProduct.push({
+        sector,
         product_id: pid,
-        avg_daily: Math.round(avgDaily * 100) / 100,
-        forecast_14: Math.round(avgDaily * 14 * 100) / 100,
-        product: productsMap[pid] ?? null,
+        name: productsMap[pid]?.name ?? pid,
+        qty_produced: producedBySectorProductRaw[sector][pid],
+        value_br: producedBySectorProductRaw[sector][pid] * (productsMap[pid]?.standard_cost ?? 0)
       });
     }
   }
 
-  // Sort by forecast descending
-  forecasts.sort((a, b) => b.forecast_14 - a.forecast_14);
-
-  // ========= Top products by production value (KG / R$) - use production_productivity =========
-  const { data: prodValueRaw } = await supabase
-    .from("production_productivity")
-    .select("product_id, total_qty:sum(qty_produced)")
-    .eq("establishment_id", establishmentId)
-    .gte("created_at", sevenDaysAgo.toISOString())
-    .group("product_id")
-    .order("total_qty", { ascending: false })
-    .limit(10);
-
-  const topByValue = (prodValueRaw ?? []).map((r: any) => {
-    const p = productsMap[r.product_id];
-    const qty = Number(r.total_qty ?? 0);
-    return {
-      product_id: r.product_id,
-      qty,
-      product: p ?? null,
-      value_total: (p?.price ?? 0) * qty,
-    };
-  });
-
-  // ======== Top users data truncated to top 20 for display =======
-  const rankingTop20 = rankingUsuarios.slice(0, 20);
-
-  // RENDER
+  // ---------- render ----------
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="text-center sm:text-left">
-          <h1 className="text-3xl font-bold text-gray-900">Produtividade</h1>
+          <h1 className="text-3xl font-bold">Produtividade</h1>
           <p className="text-gray-600 max-w-prose mx-auto sm:mx-0">
             Visão de desempenho — últimos 7 dias.
           </p>
@@ -375,7 +431,7 @@ export default async function ProdutividadePage() {
         </Card>
       </div>
 
-      {/* Top-3 gráfico + ranking */}
+      {/* Top-3 e ranking */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -383,48 +439,44 @@ export default async function ProdutividadePage() {
             <CardDescription>Visual rápido dos 3 melhores</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {top3.length === 0 ? <div className="text-sm text-muted-foreground">Nenhum dado de produção.</div> : (
-                <div className="space-y-3">
-                  {top3.map((u, idx) => (
-                    <div key={u.id} className="flex items-center gap-3">
-                      <div className="w-10 text-xs text-muted-foreground">#{idx + 1}</div>
-                      <div className="flex-1">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <div className="font-medium">{u.name}</div>
-                            <div className="text-xs text-muted-foreground">{u.sector}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="font-semibold">{u.qty}</div>
-                            <div className="text-xs text-muted-foreground">{u.hours} h</div>
-                          </div>
+            {top3.length === 0 ? (
+              <div className="text-sm text-muted-foreground">Nenhum dado de produção.</div>
+            ) : (
+              <div className="space-y-3">
+                <Top3BarChart items={top3.map(u => ({ label: `${u.name} • ${u.sector}`, value: u.qty }))} />
+                {top3.map((u, idx) => (
+                  <div key={u.id} className="flex items-center gap-3">
+                    <div className="w-10 text-xs text-muted-foreground">#{idx + 1}</div>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <div className="font-medium">{u.name}</div>
+                          <div className="text-xs text-muted-foreground">{u.sector}</div>
                         </div>
-
-                        <div className="h-3 bg-slate-200 rounded mt-2 overflow-hidden">
-                          <div
-                            style={{ width: `${(u.qty / Math.max(maxTopQty, 1)) * 100}%` }}
-                            className="h-3 bg-green-500"
-                          />
+                        <div className="text-right">
+                          <div className="font-semibold">{u.qty}</div>
+                          <div className="text-xs text-muted-foreground">{u.hours} h</div>
                         </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
             <CardTitle>Ranking (Top 20)</CardTitle>
-            <CardDescription>Usuários por quantidade produzida (7 dias)</CardDescription>
+            <CardDescription>Usuários por quantidade produzida (últimos 30 dias)</CardDescription>
           </CardHeader>
           <CardContent>
-            {rankingTop20.length === 0 ? <p className="text-sm text-muted-foreground">Nenhum registro.</p> : (
+            {rankingUsuarios.slice(0, 20).length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhum registro.</p>
+            ) : (
               <div className="space-y-2">
-                {rankingTop20.map((r, idx) => (
+                {rankingUsuarios.slice(0, 20).map((r, idx) => (
                   <div key={r.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground">#{idx + 1}</span>
@@ -445,15 +497,17 @@ export default async function ProdutividadePage() {
         </Card>
       </div>
 
-      {/* Produtos mais produzidos & Forecast */}
+      {/* Produtos / Forecast / Produção por setor / Refugo */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Produtos mais produzidos (7 dias)</CardTitle>
+            <CardTitle>Produtos mais produzidos (últimos 30 dias)</CardTitle>
             <CardDescription>Quantidade e valor estimado</CardDescription>
           </CardHeader>
           <CardContent>
-            {productsMostProduced.length === 0 ? <p className="text-sm text-muted-foreground">Nenhum dado.</p> : (
+            {productsMostProduced.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhum dado.</p>
+            ) : (
               <div className="space-y-2">
                 {productsMostProduced.map((p) => (
                   <div key={p.product_id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
@@ -478,7 +532,9 @@ export default async function ProdutividadePage() {
             <CardDescription>Produtos com maior necessidade prevista</CardDescription>
           </CardHeader>
           <CardContent>
-            {forecasts.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados para previsão.</p> : (
+            {forecasts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem dados para previsão.</p>
+            ) : (
               <div className="space-y-2">
                 {forecasts.slice(0, 20).map((f) => (
                   <div key={f.product_id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
@@ -498,30 +554,69 @@ export default async function ProdutividadePage() {
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader><CardTitle>Produção por setor</CardTitle></CardHeader>
+          <CardContent>
+            {productionBySector.length === 0 ? <p className="text-sm text-muted-foreground">Nenhum dado.</p> : (
+              productionBySector.map((s) => (
+                <div key={s.sector} className="flex items-center justify-between border p-2 rounded mb-2">
+                  <div>
+                    <div className="font-medium">{s.sector}</div>
+                    <div className="text-xs text-muted-foreground">{Number(s.qty_produced).toFixed(2)} UN</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-semibold">R$ {Number(s.value_br).toFixed(2)}</div>
+                    <div className="text-xs text-muted-foreground">{Number(s.hours_active).toFixed(2)} h</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Refugo por setor</CardTitle></CardHeader>
+          <CardContent>
+            {refugoBySectorList.length === 0 ? <p className="text-sm text-muted-foreground">Nenhum refugo registrado no período.</p> : (
+              refugoBySectorList.map((r) => (
+                <div key={r.sector} className="flex items-center justify-between border p-2 rounded mb-2">
+                  <div>
+                    <div className="font-medium">{r.sector}</div>
+                    <div className="text-xs text-muted-foreground">{Number(r.qty_refugo).toFixed(2)} UN</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-semibold">R$ {Number(r.value_br).toFixed(2)}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Observações */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle>Observações</CardTitle>
-            <CardDescription>Como evoluir</CardDescription>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            <ul className="list-disc pl-4 space-y-1">
-              <li>Adicionar refugo (scrap) por setor: criar registro de refugo em production_productivity ou stock_movements e agregar.</li>
-              <li>Melhorar forecast: usar sazonalidade e regressão (ARIMA/Prophet) ao invés de média simples.</li>
-              <li>Produção real / rendimento: comparar matéria-prima usada vs produzido.</li>
-              <li>Classificação giro (alto/médio/baixo): usar percentis em vendas de 30 dias.</li>
+          <CardHeader><CardTitle>Produtos por giro (14d)</CardTitle></CardHeader>
+          <CardContent>
+            <ul className="list-disc pl-4">
+              {Object.entries(salesMap).slice(0, 20).map(([pid, qty]) => (
+                <li key={pid} className="py-1 flex justify-between">
+                  <div>{productsMap[pid]?.name ?? pid}</div>
+                  <div className="text-xs text-muted-foreground">{Number(qty).toFixed(0)}</div>
+                </li>
+              ))}
             </ul>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Dados brutos</CardTitle>
-            <CardDescription>Fonte: production_productivity, order_items, products, profiles</CardDescription>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            <p>Se quiser, gero endpoints específicos (RPC) que retornam os relatórios já agregados para melhorar performance.</p>
+          <CardHeader><CardTitle>Produtos sazonais</CardTitle></CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Sazonalidade simples baseada em 8 semanas (média comparativa). Para análise avançada, usar série temporal.
+            </p>
           </CardContent>
         </Card>
       </div>

@@ -13,7 +13,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-/* ---------- helpers ---------- */
 function formatDate(date: string | null | undefined) {
   if (!date) return "—";
   return new Date(date).toLocaleDateString("pt-BR", {
@@ -29,420 +28,500 @@ function formatMinutes(min: number | null | undefined) {
   if (resto === 0) return `${horas} h`;
   return `${horas} h ${resto} min`;
 }
-function Top3BarChart({ items }: { items: { label: string; value: number }[] }) {
-  const max = Math.max(...items.map((i) => i.value), 1);
-  return (
-    <div className="space-y-2">
-      {items.map((it, idx) => (
-        <div key={it.label} className="flex items-center gap-3">
-          <div className="w-6 text-xs text-muted-foreground">#{idx + 1}</div>
-          <div className="w-full">
-            <div className="flex items-center justify-between mb-1">
-              <div className="text-sm truncate">{it.label}</div>
-              <div className="text-xs font-semibold">{it.value.toFixed(0)}</div>
-            </div>
-            <div className="h-3 bg-slate-100 rounded overflow-hidden">
-              <div
-                className="h-3 bg-emerald-500"
-                style={{ width: `${(it.value / max) * 100}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
-/* ---------- page component ---------- */
 export default async function ProdutividadePage() {
   const supabase = await createSupabaseServerClient();
   const membership = await getActiveMembershipOrRedirect();
+
   const establishmentId = membership.establishmentId ?? membership.unitId;
   if (!establishmentId) {
     return (
-      <div>
+      <div className="space-y-2">
         <h1 className="text-xl font-semibold">Produtividade</h1>
         <p className="text-sm text-muted-foreground">
-          Membership sem establishmentId/unitId.
+          Membership sem establishmentId/unitId. Verifique sua tabela de
+          memberships.
         </p>
       </div>
     );
   }
 
-  // janela de análise (30 dias por padrão)
   const now = new Date();
-  const days = 30;
-  const sinceDate = new Date();
-  sinceDate.setDate(now.getDate() - days);
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(now.getDate() - 7);
 
-  // função utilitária para executar SQL cru usando supabase.postgres.query
-  const run = async (sql: string, params: any[] = []) => {
-    // supabase.postgres.query exists in @supabase/supabase-js v2.x
-    const supaAny = supabase as any;
-    if (supaAny?.postgres && typeof supaAny.postgres.query === "function") {
-      // The client returns an object with { error, data } or { data }
-      const res = await supaAny.postgres.query({ sql, params });
-      if (res?.error) throw res.error;
-      // prefer res?.data, or res?.rows, or res
-      if (res?.data) return res.data;
-      if (res?.rows) return res.rows;
-      return res;
-    }
+  const fourteenDaysAgo = new Date();
+  fourteenDaysAgo.setDate(now.getDate() - 14);
 
-    // fallback: try rpc 'sql_run' (only if you have such RPC); otherwise error
-    if (typeof supabase.rpc === "function") {
-      const { data, error } = await supabase.rpc("sql_run", { sql });
-      if (error) throw error;
-      return data;
-    }
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(now.getDate() - 30);
 
-    throw new Error("Nenhum método válido para executar SQL raw disponível no client Supabase.");
-  };
+  // 1) Pedidos do estabelecimento (7 dias) - mantém seu cálculo
+  const { data: ordersData } = await supabase
+    .from("orders")
+    .select("id, status, created_at")
+    .eq("establishment_id", establishmentId)
+    .gte("created_at", sevenDaysAgo.toISOString())
+    .order("created_at", { ascending: false });
+  const safeOrders = ordersData ?? [];
 
-  /* ------------------ SQL queries ------------------ */
+  // 2) Eventos (timeline)
+  const { data: eventsData } = await supabase
+    .from("order_status_events")
+    .select("id, order_id, from_status, to_status, created_at, created_by, action")
+    .eq("establishment_id", establishmentId)
+    .gte("created_at", sevenDaysAgo.toISOString())
+    .order("created_at", { ascending: true });
+  const safeEvents = eventsData ?? [];
 
-  const rankingQ = `
-    SELECT
-      pp.collaborator_id AS id,
-      COALESCE(p.full_name, pp.collaborator_id::text) as full_name,
-      COALESCE(p.sector,'(sem setor)') AS sector,
-      COALESCE(SUM(pp.qty_produced),0)::numeric AS qty_produced,
-      COALESCE(SUM(pp.qty_produced * COALESCE(prod.standard_cost,0)),0)::numeric AS value_br,
-      COALESCE(SUM(EXTRACT(epoch FROM (pp.finished_at - pp.started_at))/3600),0)::numeric AS hours_active
-    FROM production_productivity pp
-    LEFT JOIN profiles p ON pp.collaborator_id = p.id
-    LEFT JOIN products prod ON pp.product_id = prod.id
-    WHERE pp.establishment_id = $1
-      AND pp.started_at >= $2
-    GROUP BY pp.collaborator_id, p.full_name, p.sector
-    ORDER BY qty_produced DESC NULLS LAST;
-  `;
+  // ====== Basic metrics (kept from original) ======
+  const totalPedidos = safeOrders.length;
+  const entregues = safeOrders.filter((o) => o.status === "entregue").length;
+  const cancelados = safeOrders.filter((o) => o.status === "cancelado").length;
+  const ativos = safeOrders.filter(
+    (o) => !["entregue", "cancelado"].includes(o.status)
+  ).length;
 
-  const topProductsQ = `
-    SELECT
-      pp.product_id,
-      prod.name,
-      COALESCE(SUM(pp.qty_produced),0)::numeric AS qty_produced,
-      COALESCE(SUM(pp.qty_produced * COALESCE(prod.standard_cost,0)),0)::numeric AS value_br
-    FROM production_productivity pp
-    LEFT JOIN products prod ON pp.product_id = prod.id
-    WHERE pp.establishment_id = $1
-      AND pp.started_at >= $2
-    GROUP BY pp.product_id, prod.name
-    ORDER BY qty_produced DESC
-    LIMIT 20;
-  `;
-
-  const productionBySectorQ = `
-    SELECT
-      COALESCE(p.sector,'(sem setor)') AS sector,
-      COALESCE(SUM(pp.qty_produced),0)::numeric AS qty_produced,
-      COALESCE(SUM(pp.qty_produced * COALESCE(prod.standard_cost,0)),0)::numeric AS value_br,
-      COALESCE(SUM(EXTRACT(epoch FROM (pp.finished_at - pp.started_at))/3600),0)::numeric AS hours_active
-    FROM production_productivity pp
-    LEFT JOIN profiles p ON pp.collaborator_id = p.id
-    LEFT JOIN products prod ON pp.product_id = prod.id
-    WHERE pp.establishment_id = $1
-      AND pp.started_at >= $2
-    GROUP BY COALESCE(p.sector,'(sem setor)')
-    ORDER BY qty_produced DESC;
-  `;
-
-  const refugoBySectorQ = `
-    SELECT
-      COALESCE(pr.sector,'(sem setor)') AS sector,
-      COALESCE(SUM(l.qty),0)::numeric AS qty_refugo,
-      COALESCE(SUM(l.qty * COALESCE(prod.standard_cost,0)),0)::numeric AS value_br
-    FROM losses l
-    LEFT JOIN profiles pr ON l.user_id = pr.id
-    LEFT JOIN products prod ON l.product_id = prod.id
-    WHERE l.establishment_id = $1
-      AND l.created_at >= $2
-    GROUP BY COALESCE(pr.sector,'(sem setor)')
-    ORDER BY qty_refugo DESC;
-  `;
-
-  const producedBySectorProductQ = `
-    SELECT
-      COALESCE(pr.sector,'(sem setor)') AS sector,
-      prod.id as product_id,
-      prod.name,
-      COALESCE(SUM(pp.qty_produced),0)::numeric AS qty_produced,
-      COALESCE(SUM(pp.qty_produced * COALESCE(prod.standard_cost,0)),0)::numeric AS value_br
-    FROM production_productivity pp
-    LEFT JOIN profiles pr ON pp.collaborator_id = pr.id
-    LEFT JOIN products prod ON pp.product_id = prod.id
-    WHERE pp.establishment_id = $1
-      AND pp.started_at >= $2
-    GROUP BY COALESCE(pr.sector,'(sem setor)'), prod.id, prod.name
-    ORDER BY sector, qty_produced DESC
-    LIMIT 200;
-  `;
-
-  const productSales14DaysQ = `
-    SELECT oli.product_id, prod.name,
-      SUM(oli.quantity)::numeric AS qty_sold_14d,
-      COALESCE(SUM(oli.quantity * COALESCE(prod.standard_cost,0)),0)::numeric as value_br
-    FROM order_line_items oli
-    JOIN orders o ON oli.order_id = o.id
-    LEFT JOIN products prod ON oli.product_id = prod.id
-    WHERE o.establishment_id = $1
-      AND o.created_at >= NOW() - INTERVAL '14 days'
-    GROUP BY oli.product_id, prod.name
-    ORDER BY qty_sold_14d DESC;
-  `;
-
-  const seasonalityQ = `
-    WITH daily AS (
-      SELECT oli.product_id,
-        date_trunc('day', o.created_at) AS day,
-        SUM(oli.quantity) AS sold
-      FROM order_line_items oli
-      JOIN orders o ON oli.order_id = o.id
-      WHERE o.establishment_id = $1
-        AND o.created_at >= NOW() - INTERVAL '8 weeks'
-      GROUP BY oli.product_id, date_trunc('day', o.created_at)
-    ),
-    recent AS (
-      SELECT product_id, AVG(sold)::numeric AS avg_recent
-      FROM daily WHERE day >= (date_trunc('day', NOW()) - INTERVAL '28 days')
-      GROUP BY product_id
-    ),
-    prev AS (
-      SELECT product_id, AVG(sold)::numeric AS avg_prev
-      FROM daily WHERE day < (date_trunc('day', NOW()) - INTERVAL '28 days')
-      GROUP BY product_id
-    )
-    SELECT
-      COALESCE(r.product_id, p.product_id) as product_id,
-      prod.name,
-      COALESCE(r.avg_recent,0) AS avg_recent,
-      COALESCE(p.avg_prev,0) AS avg_prev,
-      CASE WHEN COALESCE(p.avg_prev,0) = 0 THEN NULL
-           ELSE ROUND( (COALESCE(r.avg_recent,0) - COALESCE(p.avg_prev,0)) / NULLIF(p.avg_prev,0) * 100, 2)
-      END AS change_pct
-    FROM recent r
-    FULL JOIN prev p ON r.product_id = p.product_id
-    LEFT JOIN products prod ON COALESCE(r.product_id, p.product_id) = prod.id
-    ORDER BY change_pct DESC NULLS LAST
-    LIMIT 50;
-  `;
-
-  const forecast2WeeksQ = `
-    SELECT oli.product_id, prod.name,
-      SUM(oli.quantity)::numeric AS qty_14d,
-      (SUM(oli.quantity)/14.0)::numeric AS avg_daily,
-      (SUM(oli.quantity)/14.0 * 14.0)::numeric AS forecast_14d
-    FROM order_line_items oli
-    JOIN orders o ON oli.order_id = o.id
-    LEFT JOIN products prod ON oli.product_id = prod.id
-    WHERE o.establishment_id = $1
-      AND o.created_at >= NOW() - INTERVAL '14 days'
-    GROUP BY oli.product_id, prod.name
-    ORDER BY qty_14d DESC;
-  `;
-
-  /* ---------- run all queries in parallel ---------- */
-  const [
-    rankingRes,
-    topProductsRes,
-    prodBySectorRes,
-    refugoBySectorRes,
-    prodSectorProductRes,
-    sales14Res,
-    seasonalityRes,
-    forecast2wRes,
-  ] = await Promise.all([
-    run(rankingQ, [establishmentId, sinceDate.toISOString()]),
-    run(topProductsQ, [establishmentId, sinceDate.toISOString()]),
-    run(productionBySectorQ, [establishmentId, sinceDate.toISOString()]),
-    run(refugoBySectorQ, [establishmentId, sinceDate.toISOString()]),
-    run(producedBySectorProductQ, [establishmentId, sinceDate.toISOString()]),
-    run(productSales14DaysQ, [establishmentId]),
-    run(seasonalityQ, [establishmentId]),
-    run(forecast2WeeksQ, [establishmentId]),
-  ]);
-
-  const rankingAll = Array.isArray(rankingRes) ? rankingRes : [];
-  const rankingEnumerated = rankingAll.map((r: any, idx: number) => ({
-    position: idx + 1,
-    id: r.id,
-    name: r.full_name ?? r.id,
-    sector: r.sector ?? "(sem setor)",
-    qty_produced: Number(r.qty_produced ?? 0),
-    value_br: Number(r.value_br ?? 0),
-    hours_active: Number(r.hours_active ?? 0),
-  }));
-
-  const top3 = rankingEnumerated.slice(0, 3);
-  const topProductsList = Array.isArray(topProductsRes) ? topProductsRes : [];
-  const productionBySector = Array.isArray(prodBySectorRes) ? prodBySectorRes : [];
-  const refugoBySectorList = Array.isArray(refugoBySectorRes) ? refugoBySectorRes : [];
-  const sales14List = Array.isArray(sales14Res) ? sales14Res : [];
-  const seasonalityList = Array.isArray(seasonalityRes) ? seasonalityRes : [];
-  const forecastList = Array.isArray(forecast2wRes) ? forecast2wRes : [];
-
-  // classify giro by tertiles (simple)
-  const salesQtys = sales14List.map((s: any) => Number(s.qty_sold_14d ?? 0)).sort((a, b) => b - a);
-  const n = salesQtys.length;
-  const highThreshold = salesQtys[Math.floor(Math.max(0, Math.floor(n * 0.33) - 1))] ?? 0;
-  const lowThreshold = salesQtys[Math.floor(Math.max(0, Math.floor(n * 0.66) - 1))] ?? 0;
-  const productGiroMap: Record<string, "high" | "medium" | "low"> = {};
-  for (const s of sales14List) {
-    const q = Number(s.qty_sold_14d ?? 0);
-    let cat: "high" | "medium" | "low" = "low";
-    if (q >= highThreshold) cat = "high";
-    else if (q >= lowThreshold) cat = "medium";
-    productGiroMap[s.product_id] = cat;
+  const porStatus: Record<string, number> = {};
+  for (const o of safeOrders) {
+    porStatus[o.status] = (porStatus[o.status] ?? 0) + 1;
   }
 
-  /* ---------- render UI ---------- */
+  // Tempo médio (pedido criado -> entregue) e médio produção (aceito -> em_separacao)
+  type OrderTime = { createdAt: Date; deliveredAt?: Date; acceptedAt?: Date; separatedAt?: Date };
+  const timesByOrder = new Map<string, OrderTime>();
+  for (const o of safeOrders) {
+    timesByOrder.set(o.id, {
+      createdAt: new Date(o.created_at),
+    });
+  }
+  for (const ev of safeEvents) {
+    const entry = timesByOrder.get(ev.order_id);
+    if (!entry) continue;
+    if (ev.to_status === "entregue" && !entry.deliveredAt) {
+      entry.deliveredAt = new Date(ev.created_at);
+    }
+    if (ev.to_status === "aceitou_pedido" && !entry.acceptedAt) {
+      entry.acceptedAt = new Date(ev.created_at);
+    }
+    if (ev.to_status === "em_separacao" && !entry.separatedAt) {
+      entry.separatedAt = new Date(ev.created_at);
+    }
+  }
+
+  let somaMinutos = 0, qtdComTempo = 0;
+  for (const [, t] of timesByOrder) {
+    if (t.deliveredAt) {
+      const diffMin = (t.deliveredAt.getTime() - t.createdAt.getTime()) / (1000 * 60);
+      if (diffMin > 0) { somaMinutos += diffMin; qtdComTempo++; }
+    }
+  }
+  const tempoMedioEntregaMin = qtdComTempo > 0 ? somaMinutos / qtdComTempo : undefined;
+
+  let somaMinutosProd = 0, qtdComTempoProd = 0;
+  for (const [, t] of timesByOrder) {
+    if (t.acceptedAt && t.separatedAt) {
+      const diffMin = (t.separatedAt.getTime() - t.acceptedAt.getTime()) / (1000 * 60);
+      if (diffMin > 0) { somaMinutosProd += diffMin; qtdComTempoProd++; }
+    }
+  }
+  const tempoMedioProducaoMin = qtdComTempoProd > 0 ? somaMinutosProd / qtdComTempoProd : undefined;
+
+  // ========= Ranking de colaboradores (últimos 7 dias) =========
+  // Usamos production_productivity: soma qty_produced, soma duration_minutes (horas)
+    // fetch raw rows for last 7 days and aggregate client-side
+  const { data: collRows, error: collRowsErr } = await supabase
+    .from("production_productivity")
+    .select("collaborator_id, qty_produced, duration_minutes, created_at")
+    .eq("establishment_id", establishmentId)
+    .gte("created_at", sevenDaysAgo.toISOString());
+
+  if (collRowsErr) {
+    throw new Error(collRowsErr.message);
+  }
+
+  const collMap: Record<string, { total_qty: number; total_minutes: number }> = {};
+  (collRows ?? []).forEach((r: any) => {
+    const id = r.collaborator_id ?? "unknown";
+    if (!collMap[id]) collMap[id] = { total_qty: 0, total_minutes: 0 };
+    collMap[id].total_qty += Number(r.qty_produced ?? 0);
+    collMap[id].total_minutes += Number(r.duration_minutes ?? 0);
+  });
+
+  const collStats = Object.entries(collMap).map(([collaborator_id, v]) => ({
+    collaborator_id,
+    total_qty: v.total_qty,
+    total_minutes: v.total_minutes,
+  })).sort((a, b) => b.total_qty - a.total_qty);
+
+
+  const collaboratorIds = collStats.map((c) => c.collaborator_id).filter(Boolean);
+  let profileMap: Record<string, { full_name?: string; sector?: string }> = {};
+  if (collaboratorIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name, sector")
+      .in("id", collaboratorIds);
+    (profiles ?? []).forEach((p: any) => {
+      profileMap[p.id] = { full_name: p.full_name, sector: p.sector };
+    });
+  }
+
+  const rankingUsuarios = collStats
+    .map((c) => ({
+      id: c.collaborator_id,
+      name: profileMap[c.collaborator_id]?.full_name ?? c.collaborator_id,
+      sector: profileMap[c.collaborator_id]?.sector ?? "-",
+      qty: c.total_qty,
+      minutes: c.total_minutes,
+      hours: Math.round((c.total_minutes / 60) * 10) / 10,
+    }))
+    .sort((a, b) => b.qty - a.qty);
+
+  // Top-3 (para o gráfico)
+  const top3 = rankingUsuarios.slice(0, 3);
+  const maxTopQty = Math.max(...top3.map((t) => t.qty), 1);
+
+  // ========= Produtos mais produzidos (7 dias) =========
+    const { data: prodRows, error: prodRowsErr } = await supabase
+    .from("production_productivity")
+    .select("product_id, qty_produced, created_at")
+    .eq("establishment_id", establishmentId)
+    .gte("created_at", sevenDaysAgo.toISOString());
+
+  if (prodRowsErr) {
+    throw new Error(prodRowsErr.message);
+  }
+
+  const prodMap: Record<string, number> = {};
+  (prodRows ?? []).forEach((r: any) => {
+    const pid = r.product_id;
+    if (!pid) return;
+    prodMap[pid] = (prodMap[pid] ?? 0) + Number(r.qty_produced ?? 0);
+  });
+
+  const prodStatsArray = Object.entries(prodMap)
+    .map(([product_id, total_qty]) => ({ product_id, total_qty }))
+    .sort((a, b) => b.total_qty - a.total_qty)
+    .slice(0, 10);
+
+
+  const productIds = (prodStatsRaw ?? []).map((p: any) => p.product_id).filter(Boolean);
+  let productsMap: Record<string, any> = {};
+  if (productIds.length > 0) {
+    const { data: products } = await supabase
+      .from("products")
+      .select("id, name, default_unit_label, price")
+      .in("id", productIds);
+    (products ?? []).forEach((p: any) => {
+      productsMap[p.id] = p;
+    });
+  }
+    const productsMostProduced = prodStatsArray.map((r: any) => ({
+    product_id: r.product_id,
+    total_qty: Number(r.total_qty ?? 0),
+    product: productsMap[r.product_id] ?? null,
+    value_total: (productsMap[r.product_id]?.price ?? 0) * Number(r.total_qty ?? 0),
+  }));
+
+
+  // ========= Forecast de 2 semanas (média diária últimos 14 dias * 14) =========
+  // Usamos order_items para estimar saída (se existir). Se não houver, fallback para production_productivity.
+  // Order_items usually: order_items has qty and product_id and created_at (or order -> created_at), we'll try order_items.created_at or join order.created_at.
+  const { data: sales30 } = await supabase
+    .from("order_items")
+    .select("product_id, total_qty:sum(qty)")
+    .eq("establishment_id", establishmentId)
+    .gte("created_at", fourteenDaysAgo.toISOString())
+    .group("product_id")
+    .order("total_qty", { ascending: false });
+
+  // build forecast array for top products
+  const forecasts: Array<{ product_id: string; avg_daily: number; forecast_14: number; product?: any }> = [];
+  const salesMap: Record<string, number> = {};
+  (sales30 ?? []).forEach((r: any) => {
+    salesMap[r.product_id] = Number(r.total_qty ?? 0);
+  });
+
+  // For each product in productsMap or in order_items, compute avg daily:
+  const allProductIds = Array.from(new Set([...Object.keys(productsMap), ...Object.keys(salesMap)])).slice(0, 200);
+  if (allProductIds.length > 0) {
+    // fetch product data if missing
+    const missing = allProductIds.filter((id) => !productsMap[id]);
+    if (missing.length > 0) {
+      const { data: moreProducts } = await supabase
+        .from("products")
+        .select("id, name, default_unit_label, price")
+        .in("id", missing);
+      (moreProducts ?? []).forEach((p: any) => (productsMap[p.id] = p));
+    }
+
+    for (const pid of allProductIds) {
+      const qtyLast14 = salesMap[pid] ?? 0;
+      const avgDaily = qtyLast14 / 14;
+      forecasts.push({
+        product_id: pid,
+        avg_daily: Math.round(avgDaily * 100) / 100,
+        forecast_14: Math.round(avgDaily * 14 * 100) / 100,
+        product: productsMap[pid] ?? null,
+      });
+    }
+  }
+
+  // Sort by forecast descending
+  forecasts.sort((a, b) => b.forecast_14 - a.forecast_14);
+
+  // ========= Top products by production value (KG / R$) - use production_productivity =========
+  const { data: prodValueRaw } = await supabase
+    .from("production_productivity")
+    .select("product_id, total_qty:sum(qty_produced)")
+    .eq("establishment_id", establishmentId)
+    .gte("created_at", sevenDaysAgo.toISOString())
+    .group("product_id")
+    .order("total_qty", { ascending: false })
+    .limit(10);
+
+  const topByValue = (prodValueRaw ?? []).map((r: any) => {
+    const p = productsMap[r.product_id];
+    const qty = Number(r.total_qty ?? 0);
+    return {
+      product_id: r.product_id,
+      qty,
+      product: p ?? null,
+      value_total: (p?.price ?? 0) * qty,
+    };
+  });
+
+  // ======== Top users data truncated to top 20 for display =======
+  const rankingTop20 = rankingUsuarios.slice(0, 20);
+
+  // RENDER
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Produtividade avançada</h1>
-          <p className="text-sm text-muted-foreground">Visão consolidada</p>
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="text-center sm:text-left">
+          <h1 className="text-3xl font-bold text-gray-900">Produtividade</h1>
+          <p className="text-gray-600 max-w-prose mx-auto sm:mx-0">
+            Visão de desempenho — últimos 7 dias.
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Papel atual: <strong>{membership.role ?? "—"}</strong> • Período:{" "}
+            <strong>
+              {formatDate(sevenDaysAgo.toISOString())} – {formatDate(now.toISOString())}
+            </strong>
+          </p>
         </div>
-        <form action={async () => { "use server"; revalidatePath("/dashboard/produtividade"); }}>
-          <Button variant="outline">🔄 Atualizar</Button>
-        </form>
+
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
+          <form
+            action={async () => {
+              "use server";
+              revalidatePath("/dashboard/produtividade");
+            }}
+            className="w-full sm:w-auto"
+          >
+            <Button type="submit" variant="outline" className="w-full sm:w-auto">
+              🔄 Atualizar
+            </Button>
+          </form>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Ranking de colaboradores</CardTitle>
-          <CardDescription>Todos os colaboradores — Top 3 em destaque</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2">
+      {/* KPIs */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="flex items-center justify-between pb-2">
+            <CardTitle className="text-xs sm:text-sm font-medium">Pedidos no período</CardTitle>
+            <span>📊</span>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="text-xl sm:text-2xl font-bold">{totalPedidos}</div>
+            <p className="text-[11px] sm:text-xs text-muted-foreground">Somando todos os status</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex items-center justify-between pb-2">
+            <CardTitle className="text-xs sm:text-sm font-medium">Ativos</CardTitle>
+            <span>⚙️</span>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="text-xl sm:text-2xl font-bold">{ativos}</div>
+            <p className="text-[11px] sm:text-xs text-muted-foreground">Em qualquer etapa</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex items-center justify-between pb-2">
+            <CardTitle className="text-xs sm:text-sm font-medium">Tempo médio até entrega</CardTitle>
+            <span>⏱</span>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="text-xl sm:text-2xl font-bold">{formatMinutes(tempoMedioEntregaMin)}</div>
+            <p className="text-[11px] sm:text-xs text-muted-foreground">Baseado em {qtdComTempo} pedidos entregues</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex items-center justify-between pb-2">
+            <CardTitle className="text-xs sm:text-sm font-medium">Tempo médio de produção</CardTitle>
+            <span>🏭</span>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="text-xl sm:text-2xl font-bold">{formatMinutes(tempoMedioProducaoMin)}</div>
+            <p className="text-[11px] sm:text-xs text-muted-foreground">Aceito → em_separação ({qtdComTempoProd})</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Top-3 gráfico + ranking */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Top 3 Colaboradores (quantidade produzida)</CardTitle>
+            <CardDescription>Visual rápido dos 3 melhores</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {top3.length === 0 ? <div className="text-sm text-muted-foreground">Nenhum dado de produção.</div> : (
+                <div className="space-y-3">
+                  {top3.map((u, idx) => (
+                    <div key={u.id} className="flex items-center gap-3">
+                      <div className="w-10 text-xs text-muted-foreground">#{idx + 1}</div>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="font-medium">{u.name}</div>
+                            <div className="text-xs text-muted-foreground">{u.sector}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-semibold">{u.qty}</div>
+                            <div className="text-xs text-muted-foreground">{u.hours} h</div>
+                          </div>
+                        </div>
+
+                        <div className="h-3 bg-slate-200 rounded mt-2 overflow-hidden">
+                          <div
+                            style={{ width: `${(u.qty / Math.max(maxTopQty, 1)) * 100}%` }}
+                            className="h-3 bg-green-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Ranking (Top 20)</CardTitle>
+            <CardDescription>Usuários por quantidade produzida (7 dias)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {rankingTop20.length === 0 ? <p className="text-sm text-muted-foreground">Nenhum registro.</p> : (
               <div className="space-y-2">
-                {rankingEnumerated.map(u => (
-                  <div key={u.id} className="flex items-center justify-between border p-2 rounded">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 font-mono text-sm text-muted-foreground">#{u.position}</div>
+                {rankingTop20.map((r, idx) => (
+                  <div key={r.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">#{idx + 1}</span>
                       <div>
-                        <div className="font-medium">{u.name}</div>
-                        <div className="text-xs text-muted-foreground">{u.sector}</div>
+                        <div className="font-medium">{r.name}</div>
+                        <div className="text-xs text-muted-foreground">{r.sector}</div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-semibold">{u.qty_produced.toFixed(0)} UN</div>
-                      <div className="text-xs text-muted-foreground">R$ {u.value_br.toFixed(2)}</div>
-                      <div className="text-xs text-muted-foreground">{formatMinutes(u.hours_active*60)}</div>
+                      <div className="font-semibold">{r.qty}</div>
+                      <div className="text-xs text-muted-foreground">{r.hours} h</div>
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
-
-            <div>
-              <CardTitle className="text-sm">Top 3 (gráfico)</CardTitle>
-              <Top3BarChart items={top3.map(t=>({ label: `${t.name} • ${t.sector}`, value: t.qty_produced }))} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Produtos mais produzidos (últimos {days} dias)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs text-muted-foreground">
-                <tr><th>Produto</th><th>Qtd</th><th>R$</th></tr>
-              </thead>
-              <tbody>
-                {topProductsList.map((p: any) => (
-                  <tr key={p.product_id} className="border-t">
-                    <td className="py-2">{p.name}</td>
-                    <td>{Number(p.qty_produced).toFixed(2)}</td>
-                    <td>R$ {Number(p.value_br).toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader><CardTitle>Produção por setor</CardTitle></CardHeader>
-          <CardContent>
-            {productionBySector.map((s: any) => (
-              <div key={s.sector} className="flex items-center justify-between border p-2 rounded mb-2">
-                <div>
-                  <div className="font-medium">{s.sector}</div>
-                  <div className="text-xs text-muted-foreground">{Number(s.qty_produced).toFixed(2)} UN</div>
-                </div>
-                <div className="text-right">
-                  <div className="font-semibold">R$ {Number(s.value_br).toFixed(2)}</div>
-                  <div className="text-xs text-muted-foreground">{Number(s.hours_active).toFixed(2)} h</div>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Refugo por setor</CardTitle></CardHeader>
-          <CardContent>
-            {refugoBySectorList.map((r:any) => (
-              <div key={r.sector} className="flex items-center justify-between border p-2 rounded mb-2">
-                <div>
-                  <div className="font-medium">{r.sector}</div>
-                  <div className="text-xs text-muted-foreground">{Number(r.qty_refugo).toFixed(2)} UN</div>
-                </div>
-                <div className="text-right">
-                  <div className="font-semibold">R$ {Number(r.value_br).toFixed(2)}</div>
-                </div>
-              </div>
-            ))}
+            )}
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* Produtos mais produzidos & Forecast */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Produtos por giro (14d)</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Produtos mais produzidos (7 dias)</CardTitle>
+            <CardDescription>Quantidade e valor estimado</CardDescription>
+          </CardHeader>
           <CardContent>
-            <ul className="list-disc pl-4">
-              {sales14List.map((s:any) => (
-                <li key={s.product_id} className="py-1 flex justify-between">
-                  <div>{s.name}</div>
-                  <div className="text-xs text-muted-foreground">{Number(s.qty_sold_14d).toFixed(0)} — {productGiroMap[s.product_id]}</div>
-                </li>
-              ))}
+            {productsMostProduced.length === 0 ? <p className="text-sm text-muted-foreground">Nenhum dado.</p> : (
+              <div className="space-y-2">
+                {productsMostProduced.map((p) => (
+                  <div key={p.product_id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                    <div>
+                      <div className="font-medium">{p.product?.name ?? p.product_id}</div>
+                      <div className="text-xs text-muted-foreground">{p.product?.default_unit_label ?? "UN"}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold">{p.total_qty}</div>
+                      <div className="text-xs text-muted-foreground">R$ {p.value_total?.toFixed(2)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Previsão 2 semanas (média diária × 14)</CardTitle>
+            <CardDescription>Produtos com maior necessidade prevista</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {forecasts.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados para previsão.</p> : (
+              <div className="space-y-2">
+                {forecasts.slice(0, 20).map((f) => (
+                  <div key={f.product_id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                    <div>
+                      <div className="font-medium">{f.product?.name ?? f.product_id}</div>
+                      <div className="text-xs text-muted-foreground">{f.product?.default_unit_label ?? "UN"}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold">{f.forecast_14}</div>
+                      <div className="text-xs text-muted-foreground">média diária: {f.avg_daily}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Observações */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Observações</CardTitle>
+            <CardDescription>Como evoluir</CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Adicionar refugo (scrap) por setor: criar registro de refugo em production_productivity ou stock_movements e agregar.</li>
+              <li>Melhorar forecast: usar sazonalidade e regressão (ARIMA/Prophet) ao invés de média simples.</li>
+              <li>Produção real / rendimento: comparar matéria-prima usada vs produzido.</li>
+              <li>Classificação giro (alto/médio/baixo): usar percentis em vendas de 30 dias.</li>
             </ul>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Produtos sazonais</CardTitle></CardHeader>
-          <CardContent>
-            {seasonalityList.slice(0,10).map((p:any)=>(
-              <div key={p.product_id} className="flex justify-between py-1 border-b">
-                <div>{p.name}</div>
-                <div className="text-xs text-muted-foreground">{p.change_pct ?? '—'}%</div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Previsão 2 semanas</CardTitle></CardHeader>
-          <CardContent>
-            {forecastList.slice(0,20).map((f:any)=>(
-              <div key={f.product_id} className="flex justify-between py-1 border-b">
-                <div>{f.name}</div>
-                <div className="text-xs text-muted-foreground">{Number(f.forecast_14d).toFixed(0)} UN</div>
-              </div>
-            ))}
+          <CardHeader>
+            <CardTitle>Dados brutos</CardTitle>
+            <CardDescription>Fonte: production_productivity, order_items, products, profiles</CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            <p>Se quiser, gero endpoints específicos (RPC) que retornam os relatórios já agregados para melhorar performance.</p>
           </CardContent>
         </Card>
       </div>

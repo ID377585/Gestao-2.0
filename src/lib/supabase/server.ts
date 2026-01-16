@@ -1,8 +1,11 @@
+// src/lib/supabase/server.ts
 import "server-only";
-
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
+/**
+ * Retorna um client supabase configurado para Server Components (app/).
+ */
 export function createSupabaseServerClient() {
   const cookieStore = cookies();
 
@@ -14,9 +17,13 @@ export function createSupabaseServerClient() {
         get(name: string) {
           return cookieStore.get(name)?.value;
         },
-        // 🚨 IMPORTANTE:
-        // não usar set/remove aqui fora de Server Action
+        // Não implementamos set/remove aqui (não use fora de Server Action).
       },
     }
   );
 }
+
+/**
+ * Alias/compatibilidade para quem importa createSupabaseRouteClient().
+ */
+export const createSupabaseRouteClient = () => createSupabaseServerClient();

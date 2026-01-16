@@ -36,7 +36,7 @@ async function getAuthAndEstablishment() {
   return { supabase, user, establishment_id: membership.establishment_id, error: null };
 }
 
-export async function POST(req: Request) {
+export async function GET(req: Request) {
   const { supabase, user, error, establishment_id } = await getAuthAndEstablishment();
   if (error || !establishment_id) return error!;
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });

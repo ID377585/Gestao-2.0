@@ -142,6 +142,7 @@ export async function POST(req: Request) {
     p_lot: lotTrim || null,
     p_label_code: labelCodeTrim || null,
     p_user_id: user.id,
+    p_allow_negative: false
   });
 
   if (rpcErr) {

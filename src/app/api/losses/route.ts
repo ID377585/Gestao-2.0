@@ -37,7 +37,7 @@ async function getAuthAndEstablishment() {
 }
 
 export async function GET(req: Request) {
-  const { supabase, error, establishment_id } = await getAuthAndEstablishment();
+  const { supabase, user, error, establishment_id } = await getAuthAndEstablishment();
   if (error || !establishment_id) return error!;
 
   const url = new URL(req.url);
@@ -110,17 +110,17 @@ export async function POST(req: Request) {
   }
 
   // ✅ IMPORTANTE: PostgREST exige os nomes EXATOS dos parâmetros da função
-  // Hint do erro mostrou que a assinatura atual inclui p_establishment_id e p_unit_label.
   const { data, error: rpcErr } = await supabase.rpc("register_loss", {
-    p_establishment_id: establishment_id,
-    p_product_id: product_id,
-    p_qty: qtyNumber,
-    p_unit_label: unit_label,
-    p_reason: reasonTrim,
-    p_reason_detail: reasonDetailTrim || null,
-    p_lot: lotTrim || null,
-    p_label_code: labelCodeTrim || null,
-  });
+  p_establishment_id: establishment_id,
+  p_product_id: product_id,
+  p_qty: qtyNumber,
+  p_unit_label: unit_label,
+  p_reason: reasonTrim,
+  p_reason_detail: reasonDetailTrim || null,
+  p_lot: lotTrim || null,
+  p_label_code: labelCodeTrim || null,
+  p_user_id: user!.id,
+});
 
   if (rpcErr) {
     console.error("POST /api/losses rpc error:", rpcErr);
@@ -132,7 +132,6 @@ export async function POST(req: Request) {
 
   const result = Array.isArray(data) ? data[0] : data;
 
-  // (opcional, mas recomendado) se a função não retornar nada, não finja sucesso
   if (result == null) {
     return NextResponse.json(
       { error: "RPC executou sem retorno. Verifique assinatura/retorno da função register_loss." },

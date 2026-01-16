@@ -36,9 +36,10 @@ async function getAuthAndEstablishment() {
   return { supabase, user, establishment_id: membership.establishment_id, error: null };
 }
 
-export async function GET(req: Request) {
+export async function POST(req: Request) {
   const { supabase, user, error, establishment_id } = await getAuthAndEstablishment();
   if (error || !establishment_id) return error!;
+  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
   const url = new URL(req.url);
   const product_id = url.searchParams.get("product_id");
@@ -119,8 +120,9 @@ export async function POST(req: Request) {
   p_reason_detail: reasonDetailTrim || null,
   p_lot: lotTrim || null,
   p_label_code: labelCodeTrim || null,
-  p_user_id: user!.id,
+  p_user_id: user.id,
 });
+
 
   if (rpcErr) {
     console.error("POST /api/losses rpc error:", rpcErr);

@@ -213,8 +213,9 @@ function normalizeHeader(h: string) {
  * ✅ Busca os valores "permitidos" de sector_category direto do banco (distintos)
  * Isso evita violar o CHECK caso o banco esteja com lista diferente do frontend.
  *
- * Se não retornar nada (tabela vazia), NÃO chuta valores: retorna lista vazia
- * para que qualquer valor do CSV seja gravado como NULL (evita 23514).
+ * ✅ FIX:
+ * Se não retornar nada (tabela vazia / coluna nova), usamos o fallback do app,
+ * senão a primeira importação vai converter tudo para NULL e “perder” a coluna.
  */
 async function loadAllowedSectorCategoriesFromDb(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
@@ -241,8 +242,8 @@ async function loadAllowedSectorCategoriesFromDb(
     if (v) set.add(v);
   }
 
-  // ✅ IMPORTANTE: tabela vazia -> retorna [] (não inventa allowed e não viola CHECK)
-  if (set.size === 0) return [];
+  // ✅ IMPORTANTE: tabela vazia/coluna nova -> usa fallback (permite primeira importação popular a coluna)
+  if (set.size === 0) return [...SECTOR_CATEGORIES_FALLBACK];
 
   return Array.from(set.values());
 }
@@ -582,13 +583,7 @@ export async function POST(request: Request) {
           field: "sector_category",
           value: sector_category_raw,
           action: "set_null_to_avoid_check_constraint",
-          // ✅ quando allowed vier vazio (tabela vazia), deixa aviso mais claro
-          allowed_examples:
-            allowedSectorCategories.length > 0
-              ? allowedSectorCategories.slice(0, 20)
-              : [
-                  "(tabela vazia) — valores do CSV serão gravados como NULL para não violar o CHECK",
-                ],
+          allowed_examples: allowedSectorCategories.slice(0, 20),
         });
       }
 

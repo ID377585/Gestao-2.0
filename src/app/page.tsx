@@ -1,45 +1,43 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { GestifyLogo } from "@/components/brand/GestifyLogo";
 
 const features = [
   {
-    title: "Mais controle de estoque",
+    title: "Controle de estoque com mais precisão",
     description:
-      "Acompanhe entradas, saídas, níveis críticos, inventários e saldo operacional em um único lugar.",
+      "Acompanhe saldos, níveis críticos, inventários, entradas e saídas em uma operação mais organizada.",
     icon: "📦",
   },
   {
-    title: "Menos perdas e desperdícios",
+    title: "Redução de perdas e desperdícios",
     description:
-      "Registre perdas, valide etiquetas e reduza falhas que impactam custo, margem e operação.",
+      "Registre perdas, acompanhe ocorrências e tenha mais clareza sobre o que impacta seu custo operacional.",
     icon: "⚠️",
   },
   {
     title: "Etiquetas e rastreabilidade",
     description:
-      "Imprima etiquetas com rapidez, organize lotes, revalidação e tenha mais segurança no processo.",
+      "Imprima etiquetas, organize lotes, revalidações e ganhe mais segurança no fluxo de produção e separação.",
     icon: "🏷️",
   },
   {
-    title: "Produção mais organizada",
+    title: "Mais agilidade na produção",
     description:
-      "Dê mais fluidez ao time com acompanhamento de pedidos, preparo, separação e produtividade.",
-    icon: "👨‍🍳",
+      "Estruture melhor pedidos, preparo, separação e etapas da operação para reduzir retrabalho.",
+    icon: "⚙️",
   },
   {
-    title: "Mais agilidade no dia a dia",
+    title: "Mais tempo para gerir",
     description:
-      "Reduza retrabalho, centralize informações e economize tempo em processos que antes ficavam espalhados.",
+      "Centralize informações em uma plataforma única e reduza o caos de processos espalhados.",
     icon: "⏱️",
   },
   {
-    title: "Gestão orientada por dados",
+    title: "Decisões com base em dados",
     description:
-      "Tenha histórico, exportações e visão operacional para decidir melhor compras, produção e abastecimento.",
+      "Use relatórios, histórico e visão operacional para comprar melhor, produzir melhor e perder menos.",
     icon: "📊",
   },
 ];
@@ -55,40 +53,34 @@ const modules = [
   "Usuários",
 ];
 
-const pains = [
+const painPoints = [
   "Falta de controle real do estoque",
-  "Perdas por validade, falhas e desperdícios",
+  "Desperdícios que reduzem a margem",
   "Produção desorganizada e retrabalho",
-  "Dificuldade para rastrear etiquetas e lotes",
-  "Compras feitas sem base confiável",
+  "Etiquetas e lotes sem rastreabilidade clara",
+  "Compras sem base operacional confiável",
   "Informações espalhadas em planilhas e anotações",
 ];
 
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(34,197,94,0.14),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(37,99,235,0.18),_transparent_30%)] pointer-events-none" />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.18),transparent_28%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.16),transparent_24%),linear-gradient(to_bottom,rgba(15,23,42,0.96),rgba(2,6,23,1))]" />
 
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/80 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/75 backdrop-blur-xl">
         <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-4">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-blue-600 to-green-500 shadow-lg shadow-green-500/20">
-              <span className="text-lg font-bold text-white">G2</span>
-            </div>
-
-            <div>
-              <p className="text-2xl font-bold tracking-tight">Gestify</p>
-              <p className="text-xs text-slate-400">
-                Gestão inteligente para restaurantes
-              </p>
-            </div>
-          </div>
+          <GestifyLogo
+            size={52}
+            showText
+            subtitle="Gestão inteligente para restaurantes"
+            textClassName="hidden sm:block"
+          />
 
           <div className="flex items-center gap-3">
             <Link href="/login">
               <Button
                 variant="outline"
-                className="border-white/20 bg-transparent text-white hover:bg-white hover:text-slate-950"
+                className="border-white/15 bg-white/5 text-white hover:bg-white hover:text-slate-950"
               >
                 Entrar
               </Button>
@@ -97,30 +89,29 @@ export default function HomePage() {
         </div>
       </header>
 
-      <main>
-        <section className="relative overflow-hidden">
+      <main className="relative">
+        <section className="overflow-hidden">
           <div className="mx-auto grid max-w-7xl gap-14 px-4 py-20 sm:px-6 lg:grid-cols-2 lg:px-8 lg:py-28">
             <div className="flex flex-col justify-center">
               <div className="mb-6 inline-flex w-fit items-center rounded-full border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-300">
-                Mais controle, menos perdas, mais tempo para operar
+                Mais controle, menos perdas, mais eficiência operacional
               </div>
 
               <h1 className="max-w-3xl text-4xl font-black leading-tight tracking-tight text-white sm:text-5xl lg:text-6xl">
-                Controle pedidos, estoque, produção e etiquetas em uma única
-                plataforma.
+                O sistema que ajuda sua operação a ganhar tempo, controle e previsibilidade.
               </h1>
 
               <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300 sm:text-xl">
-                O Gestify ajuda restaurantes e operações alimentícias a
-                organizarem o dia a dia com mais agilidade, menos desperdício e
-                mais previsibilidade operacional.
+                O Gestify centraliza pedidos, produção, estoque, perdas, etiquetas e
+                produtividade em uma única plataforma moderna para restaurantes e operações
+                alimentícias.
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link href="/login">
                   <Button
                     size="lg"
-                    className="h-12 rounded-xl bg-gradient-to-r from-blue-600 to-green-500 px-8 text-base font-semibold text-white hover:from-blue-500 hover:to-green-400"
+                    className="h-12 rounded-xl bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-500 px-8 text-base font-semibold text-white hover:from-blue-500 hover:via-cyan-400 hover:to-emerald-400"
                   >
                     Acessar sistema
                   </Button>
@@ -139,23 +130,23 @@ export default function HomePage() {
 
               <div className="mt-10 grid gap-4 sm:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-2xl font-bold text-white">+ controle</p>
-                  <p className="mt-1 text-sm text-slate-400">
-                    sobre estoque, perdas e operação
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-2xl font-bold text-white">- retrabalho</p>
-                  <p className="mt-1 text-sm text-slate-400">
-                    com processos mais claros e centralizados
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <p className="text-2xl font-bold text-white">+ agilidade</p>
                   <p className="mt-1 text-sm text-slate-400">
-                    para produzir, conferir e decidir
+                    no controle do dia a dia
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-2xl font-bold text-white">- desperdício</p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    com mais rastreabilidade
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-2xl font-bold text-white">+ controle</p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    sobre estoque e operação
                   </p>
                 </div>
               </div>
@@ -169,7 +160,7 @@ export default function HomePage() {
                       <div className="text-sm text-slate-400">Estoque</div>
                       <div className="mt-2 text-3xl font-bold">Controle ativo</div>
                       <p className="mt-2 text-sm text-slate-300">
-                        Visualize níveis críticos, inventário e saldo operacional.
+                        Visualize níveis críticos, inventários e movimentação com mais clareza.
                       </p>
                     </CardContent>
                   </Card>
@@ -179,7 +170,7 @@ export default function HomePage() {
                       <div className="text-sm text-slate-400">Etiquetas</div>
                       <div className="mt-2 text-3xl font-bold">Mais rastreio</div>
                       <p className="mt-2 text-sm text-slate-300">
-                        Imprima, valide e acompanhe etiquetas com mais organização.
+                        Organize lotes, impressão e identificação com rapidez.
                       </p>
                     </CardContent>
                   </Card>
@@ -187,9 +178,9 @@ export default function HomePage() {
                   <Card className="border-white/10 bg-slate-900/70 text-white">
                     <CardContent className="p-5">
                       <div className="text-sm text-slate-400">Perdas</div>
-                      <div className="mt-2 text-3xl font-bold">Menos desperdício</div>
+                      <div className="mt-2 text-3xl font-bold">Menos impacto</div>
                       <p className="mt-2 text-sm text-slate-300">
-                        Registre ocorrências e reduza impacto operacional e financeiro.
+                        Registre causas e reduza desperdícios que afetam sua margem.
                       </p>
                     </CardContent>
                   </Card>
@@ -199,7 +190,7 @@ export default function HomePage() {
                       <div className="text-sm text-slate-400">Produção</div>
                       <div className="mt-2 text-3xl font-bold">Fluxo melhor</div>
                       <p className="mt-2 text-sm text-slate-300">
-                        Organize pedidos, preparo e produtividade em um só ambiente.
+                        Mais organização para produzir, separar e entregar melhor.
                       </p>
                     </CardContent>
                   </Card>
@@ -210,7 +201,7 @@ export default function HomePage() {
                     Resultado esperado
                   </p>
                   <p className="mt-2 text-lg font-semibold text-white">
-                    Mais clareza operacional para decidir melhor, comprar melhor e perder menos.
+                    Mais eficiência operacional para comprar melhor, produzir melhor e perder menos.
                   </p>
                 </div>
               </div>
@@ -221,15 +212,15 @@ export default function HomePage() {
         <section id="recursos" className="border-y border-white/10 bg-slate-900/60">
           <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-3xl text-center">
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-300">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">
                 Recursos que fortalecem a operação
               </p>
               <h2 className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl">
                 Uma plataforma pensada para reduzir falhas e otimizar tempo
               </h2>
               <p className="mt-4 text-lg text-slate-400">
-                Em vez de operar com informações soltas, sua equipe trabalha com
-                mais organização, mais velocidade e mais previsibilidade.
+                Em vez de operar com informações soltas, sua equipe trabalha com mais
+                organização, mais velocidade e mais previsibilidade.
               </p>
             </div>
 
@@ -262,9 +253,9 @@ export default function HomePage() {
                 Menos caos operacional. Mais controle real no dia a dia.
               </h2>
               <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-400">
-                Quando pedidos, estoque, perdas, etiquetas e produção ficam
-                desconectados, a operação perde tempo, margem e previsibilidade.
-                O Gestify centraliza isso para apoiar uma gestão mais eficiente.
+                Quando pedidos, estoque, perdas, etiquetas e produção ficam desconectados,
+                a operação perde tempo, margem e previsibilidade. O Gestify concentra
+                tudo isso em um único ambiente.
               </p>
 
               <div className="mt-8 flex flex-wrap gap-3">
@@ -285,7 +276,7 @@ export default function HomePage() {
               </h3>
 
               <div className="mt-6 space-y-4">
-                {pains.map((pain) => (
+                {painPoints.map((pain) => (
                   <div
                     key={pain}
                     className="flex items-start gap-3 rounded-2xl border border-white/8 bg-slate-900/70 p-4"
@@ -296,7 +287,7 @@ export default function HomePage() {
                 ))}
               </div>
 
-              <div className="mt-8 rounded-2xl bg-gradient-to-r from-blue-600/20 to-green-500/20 p-5">
+              <div className="mt-8 rounded-2xl bg-gradient-to-r from-blue-600/20 to-emerald-500/20 p-5">
                 <p className="text-sm text-slate-300">
                   Com processos mais centralizados, sua operação ganha mais ritmo,
                   mais segurança e mais capacidade de crescimento.
@@ -308,7 +299,7 @@ export default function HomePage() {
 
         <section className="border-t border-white/10 bg-slate-900/70">
           <div className="mx-auto max-w-7xl px-4 py-20 text-center sm:px-6 lg:px-8">
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-300">
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">
               Pronto para centralizar a operação?
             </p>
 
@@ -325,7 +316,7 @@ export default function HomePage() {
               <Link href="/login">
                 <Button
                   size="lg"
-                  className="h-12 rounded-xl bg-gradient-to-r from-blue-600 to-green-500 px-8 text-base font-semibold text-white hover:from-blue-500 hover:to-green-400"
+                  className="h-12 rounded-xl bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-500 px-8 text-base font-semibold text-white hover:from-blue-500 hover:via-cyan-400 hover:to-emerald-400"
                 >
                   Entrar no sistema
                 </Button>

@@ -54,7 +54,6 @@ interface SidebarProps {
 
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
-
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -76,12 +75,12 @@ export function Sidebar({ className }: SidebarProps) {
     const isDesktop = variant === "desktop";
 
     return (
-      <div className={cn("flex h-full flex-col", isDesktop ? "min-h-screen" : "")}>
+      <div className={cn("flex h-full flex-col bg-white", isDesktop ? "min-h-screen" : "")}>
         <div className="flex h-16 shrink-0 items-center justify-between border-b px-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <GestifyMark size={40} compact={variant === "desktop" && collapsed} />
             {(variant === "mobile" || !collapsed) && (
-              <span className="text-xl font-black tracking-tight text-slate-950">
+              <span className="truncate text-xl font-black tracking-tight text-slate-950">
                 Gestify
               </span>
             )}
@@ -132,7 +131,7 @@ export function Sidebar({ className }: SidebarProps) {
                     <Button
                       variant={active ? "secondary" : "ghost"}
                       className={cn(
-                        "w-full justify-start gap-3 rounded-xl h-12",
+                        "h-12 w-full justify-start gap-3 rounded-xl",
                         variant === "desktop" ? (collapsed ? "px-3" : "px-4") : "px-4"
                       )}
                       title={variant === "desktop" && collapsed ? item.title : undefined}
@@ -167,7 +166,7 @@ export function Sidebar({ className }: SidebarProps) {
                     <Button
                       variant={active ? "secondary" : "ghost"}
                       className={cn(
-                        "w-full justify-start gap-3 rounded-xl h-12",
+                        "h-12 w-full justify-start gap-3 rounded-xl",
                         variant === "desktop" ? (collapsed ? "px-3" : "px-4") : "px-4"
                       )}
                       title={variant === "desktop" && collapsed ? item.title : undefined}
@@ -201,13 +200,13 @@ export function Sidebar({ className }: SidebarProps) {
         </Button>
 
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-[300px] p-0 overflow-y-auto">
+          <SheetContent side="left" className="w-[300px] overflow-y-auto p-0">
             <SidebarContent variant="mobile" onNavigate={() => setMobileOpen(false)} />
           </SheetContent>
         </Sheet>
       </div>
 
-      <div className={cn("hidden md:flex h-full w-full flex-col", className)}>
+      <div className={cn("hidden h-full w-full flex-col md:flex", className)}>
         <SidebarContent variant="desktop" />
       </div>
     </>

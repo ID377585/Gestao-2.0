@@ -194,7 +194,7 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
 }
 
 function toActionPayload(
-  ficha: Omit<FichaTecnica, "createdAt" | "updatedAt"> & {
+  ficha: Omit<FichaTecnica, "id" | "createdAt" | "updatedAt"> & {
     id?: string;
   }
 ): TechnicalSheetInput {

@@ -6,9 +6,9 @@ import { Providers } from "@/components/Providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Gestão 2.0 - Sistema de Gestão para Restaurantes",
+  title: "Gestify - Sistema de Gestão para Restaurantes",
   description:
-    "Sistema completo de gestão para restaurantes com controle de pedidos, produção, estoque e produtividade",
+    "Plataforma de gestão para restaurantes com controle de pedidos, produção, estoque, etiquetas, produtividade e operação.",
 };
 
 export default function RootLayout({

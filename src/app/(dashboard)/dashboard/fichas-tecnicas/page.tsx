@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,9 +30,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-// Interface para ingredientes da ficha técnica
-interface Ingrediente {
-  id: number;
+type ProductOption = {
+  id: string;
+  name: string;
+  price?: number | null;
+  default_unit_label?: string | null;
+  sector_category?: string | null;
+};
+
+type Ingrediente = {
+  id: string;
+  productId: string | null;
   nome: string;
   quantidade: number;
   unidade: string;
@@ -40,11 +48,10 @@ interface Ingrediente {
   custoIngrediente: number;
   fatorCorrecao: number;
   fatorCoccao: number;
-}
+};
 
-// Interface para ficha técnica
-interface FichaTecnica {
-  id: number;
+type FichaTecnica = {
+  id: string;
   nome: string;
   categoria: string;
   rendimento: number;
@@ -54,159 +61,158 @@ interface FichaTecnica {
   custoPorPorcao: number;
   margemLucro: number;
   precoVenda: number;
+  modoPreparo: string;
   ingredientes: Ingrediente[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+const STORAGE_KEY = "gestify:fichas-tecnicas:v1";
+
+function uid() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// Dados de exemplo
-const fichasTecnicasExemplo: FichaTecnica[] = [
-  {
-    id: 1,
-    nome: "Pão Francês",
-    categoria: "Panificação",
-    rendimento: 50,
-    pesoPorcao: 50,
-    tempoPreparo: 180,
-    custoTotal: 12.5,
-    custoPorPorcao: 0.25,
-    margemLucro: 200,
-    precoVenda: 0.75,
-    ingredientes: [
-      {
-        id: 1,
-        nome: "Farinha de Trigo",
-        quantidade: 1000,
-        unidade: "g",
-        precoUnitario: 4.5,
-        custoIngrediente: 4.5,
-        fatorCorrecao: 1.0,
-        fatorCoccao: 0.9,
-      },
-      {
-        id: 2,
-        nome: "Água",
-        quantidade: 600,
-        unidade: "ml",
-        precoUnitario: 0.01,
-        custoIngrediente: 0.6,
-        fatorCorrecao: 1.0,
-        fatorCoccao: 1.0,
-      },
-      {
-        id: 3,
-        nome: "Fermento Biológico",
-        quantidade: 20,
-        unidade: "g",
-        precoUnitario: 12.0,
-        custoIngrediente: 2.4,
-        fatorCorrecao: 1.0,
-        fatorCoccao: 1.0,
-      },
-      {
-        id: 4,
-        nome: "Sal",
-        quantidade: 20,
-        unidade: "g",
-        precoUnitario: 2.1,
-        custoIngrediente: 0.42,
-        fatorCorrecao: 1.0,
-        fatorCoccao: 1.0,
-      },
-    ],
-  },
-  {
-    id: 2,
-    nome: "Bolo de Chocolate",
-    categoria: "Confeitaria",
-    rendimento: 12,
-    pesoPorcao: 80,
-    tempoPreparo: 90,
-    custoTotal: 18.75,
-    custoPorPorcao: 1.56,
-    margemLucro: 180,
-    precoVenda: 4.37,
-    ingredientes: [
-      {
-        id: 5,
-        nome: "Farinha de Trigo",
-        quantidade: 300,
-        unidade: "g",
-        precoUnitario: 4.5,
-        custoIngrediente: 1.35,
-        fatorCorrecao: 1.0,
-        fatorCoccao: 1.0,
-      },
-      {
-        id: 6,
-        nome: "Açúcar",
-        quantidade: 200,
-        unidade: "g",
-        precoUnitario: 3.2,
-        custoIngrediente: 0.64,
-        fatorCorrecao: 1.0,
-        fatorCoccao: 1.0,
-      },
-      {
-        id: 7,
-        nome: "Ovos",
-        quantidade: 3,
-        unidade: "un",
-        precoUnitario: 0.45,
-        custoIngrediente: 1.35,
-        fatorCorrecao: 1.0,
-        fatorCoccao: 1.0,
-      },
-      {
-        id: 8,
-        nome: "Chocolate em Pó",
-        quantidade: 100,
-        unidade: "g",
-        precoUnitario: 15.0,
-        custoIngrediente: 1.5,
-        fatorCorrecao: 1.0,
-        fatorCoccao: 1.0,
-      },
-    ],
-  },
-];
+function toNumber(value: unknown, fallback = 0) {
+  const n = Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(n) ? n : fallback;
+}
 
-export default function FichasTecnicasPage() {
-  const [fichasTecnicas, setFichasTecnicas] = useState<FichaTecnica[]>(
-    fichasTecnicasExemplo
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value || 0);
+}
+
+function calcularCMV(custoPorPorcao: number, precoVenda: number) {
+  if (!precoVenda || precoVenda <= 0) return 0;
+  return (custoPorPorcao / precoVenda) * 100;
+}
+
+function calcularLucroUnitario(precoVenda: number, custoPorPorcao: number) {
+  return (precoVenda || 0) - (custoPorPorcao || 0);
+}
+
+function calcularCustos(
+  ingredientes: Ingrediente[],
+  rendimento: number,
+  margemLucro: number
+) {
+  const custoTotal = ingredientes.reduce(
+    (acc, item) => acc + (item.custoIngrediente || 0),
+    0
   );
 
+  const custoPorPorcao =
+    rendimento > 0 ? Number((custoTotal / rendimento).toFixed(2)) : 0;
+
+  const precoVenda =
+    margemLucro >= 0
+      ? Number((custoPorPorcao * (1 + margemLucro / 100)).toFixed(2))
+      : 0;
+
+  return {
+    custoTotal: Number(custoTotal.toFixed(2)),
+    custoPorPorcao,
+    precoVenda,
+  };
+}
+
+function loadSavedFichas(): FichaTecnica[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveFichas(data: FichaTecnica[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function escapeCsv(val: unknown) {
+  const s = String(val ?? "");
+  if (/[",;\n]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+export default function FichasTecnicasPage() {
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+
+  const [fichasTecnicas, setFichasTecnicas] = useState<FichaTecnica[]>([]);
   const [fichaSelecionada, setFichaSelecionada] = useState<FichaTecnica | null>(
     null
   );
 
   const [showNovaFicha, setShowNovaFicha] = useState(false);
-
-  // ✅ Edição (modal)
   const [showEditarFicha, setShowEditarFicha] = useState(false);
   const [fichaEditando, setFichaEditando] = useState<FichaTecnica | null>(null);
 
-  // Campos simples de edição (exemplo)
-  const [editNome, setEditNome] = useState("");
-  const [editCategoria, setEditCategoria] = useState("");
-  const [editRendimento, setEditRendimento] = useState<number>(0);
-  const [editPesoPorcao, setEditPesoPorcao] = useState<number>(0);
-  const [editTempoPreparo, setEditTempoPreparo] = useState<number>(0);
-  const [editMargemLucro, setEditMargemLucro] = useState<number>(0);
-  const [editPrecoVenda, setEditPrecoVenda] = useState<number>(0);
+  const [nome, setNome] = useState("");
+  const [categoria, setCategoria] = useState("");
+  const [rendimento, setRendimento] = useState<number>(1);
+  const [pesoPorcao, setPesoPorcao] = useState<number>(0);
+  const [tempoPreparo, setTempoPreparo] = useState<number>(0);
+  const [margemLucro, setMargemLucro] = useState<number>(200);
+  const [modoPreparo, setModoPreparo] = useState("");
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    }).format(value);
-  };
+  const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
+  const [draftIngredienteId, setDraftIngredienteId] = useState("");
+  const [draftIngredienteNome, setDraftIngredienteNome] = useState("");
+  const [draftQtd, setDraftQtd] = useState<number>(0);
+  const [draftUnidade, setDraftUnidade] = useState("UN");
+  const [draftPreco, setDraftPreco] = useState<number>(0);
+  const [draftFCorrecao, setDraftFCorrecao] = useState<number>(1);
+  const [draftFCoccao, setDraftFCoccao] = useState<number>(1);
 
-  const calcularCMV = (custoPorPorcao: number, precoVenda: number) => {
-    if (!precoVenda) return "0.0";
-    return ((custoPorPorcao / precoVenda) * 100).toFixed(1);
-  };
+  useEffect(() => {
+    const bootstrap = async () => {
+      try {
+        setLoadingProducts(true);
+        const res = await fetch("/api/products", { cache: "no-store" });
 
-  const calcularLucroUnitario = (precoVenda: number, custoPorPorcao: number) =>
-    precoVenda - custoPorPorcao;
+        if (!res.ok) {
+          throw new Error("Falha ao carregar produtos.");
+        }
+
+        const data = await res.json();
+        const normalized = Array.isArray(data)
+          ? data.map((p: any) => ({
+              id: String(p.id),
+              name: String(p.name ?? ""),
+              price: Number(p.price ?? 0),
+              default_unit_label: p.default_unit_label ?? "UN",
+              sector_category: p.sector_category ?? p.category ?? "",
+            }))
+          : [];
+
+        setProducts(normalized);
+      } catch (err) {
+        console.error("Erro ao carregar produtos para fichas técnicas:", err);
+        setProducts([]);
+      } finally {
+        setLoadingProducts(false);
+      }
+
+      const saved = loadSavedFichas();
+      setFichasTecnicas(saved);
+    };
+
+    bootstrap();
+  }, []);
+
+  useEffect(() => {
+    saveFichas(fichasTecnicas);
+  }, [fichasTecnicas]);
 
   const custoMedio = useMemo(() => {
     if (!fichasTecnicas.length) return 0;
@@ -220,7 +226,7 @@ export default function FichasTecnicasPage() {
     if (!fichasTecnicas.length) return 0;
     return (
       fichasTecnicas.reduce(
-        (acc, f) => acc + parseFloat(calcularCMV(f.custoPorPorcao, f.precoVenda)),
+        (acc, f) => acc + calcularCMV(f.custoPorPorcao, f.precoVenda),
         0
       ) / fichasTecnicas.length
     );
@@ -234,44 +240,217 @@ export default function FichasTecnicasPage() {
     );
   }, [fichasTecnicas]);
 
-  // ✅ BOTÃO EDITAR: abre modal e já preenche campos
+  const resetForm = () => {
+    setNome("");
+    setCategoria("");
+    setRendimento(1);
+    setPesoPorcao(0);
+    setTempoPreparo(0);
+    setMargemLucro(200);
+    setModoPreparo("");
+    setIngredientes([]);
+    setDraftIngredienteId("");
+    setDraftIngredienteNome("");
+    setDraftQtd(0);
+    setDraftUnidade("UN");
+    setDraftPreco(0);
+    setDraftFCorrecao(1);
+    setDraftFCoccao(1);
+  };
+
+  const onSelectProductIngredient = (productId: string) => {
+    setDraftIngredienteId(productId);
+
+    const p = products.find((item) => item.id === productId);
+    if (!p) return;
+
+    setDraftIngredienteNome(p.name);
+    setDraftUnidade(String(p.default_unit_label || "UN").toUpperCase());
+    setDraftPreco(Number(p.price ?? 0));
+  };
+
+  const addIngrediente = () => {
+    const quantidade = toNumber(draftQtd, 0);
+    const precoUnitario = toNumber(draftPreco, 0);
+    const fatorCorrecao = toNumber(draftFCorrecao, 1) || 1;
+    const fatorCoccao = toNumber(draftFCoccao, 1) || 1;
+
+    if (!draftIngredienteNome.trim()) {
+      alert("Selecione ou informe um ingrediente.");
+      return;
+    }
+
+    if (quantidade <= 0) {
+      alert("Informe uma quantidade válida.");
+      return;
+    }
+
+    const custoIngrediente = Number(
+      (quantidade * precoUnitario * fatorCorrecao * fatorCoccao).toFixed(2)
+    );
+
+    const novo: Ingrediente = {
+      id: uid(),
+      productId: draftIngredienteId || null,
+      nome: draftIngredienteNome.trim(),
+      quantidade,
+      unidade: String(draftUnidade || "UN").toUpperCase(),
+      precoUnitario,
+      custoIngrediente,
+      fatorCorrecao,
+      fatorCoccao,
+    };
+
+    setIngredientes((prev) => [...prev, novo]);
+
+    setDraftIngredienteId("");
+    setDraftIngredienteNome("");
+    setDraftQtd(0);
+    setDraftUnidade("UN");
+    setDraftPreco(0);
+    setDraftFCorrecao(1);
+    setDraftFCoccao(1);
+  };
+
+  const removerIngrediente = (id: string) => {
+    setIngredientes((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const salvarNovaFicha = () => {
+    if (!nome.trim()) {
+      alert("Informe o nome da receita.");
+      return;
+    }
+
+    if (!categoria.trim()) {
+      alert("Informe a categoria.");
+      return;
+    }
+
+    if (rendimento <= 0) {
+      alert("Informe um rendimento válido.");
+      return;
+    }
+
+    if (ingredientes.length === 0) {
+      alert("Adicione pelo menos um ingrediente.");
+      return;
+    }
+
+    const custos = calcularCustos(ingredientes, rendimento, margemLucro);
+
+    const novaFicha: FichaTecnica = {
+      id: uid(),
+      nome: nome.trim(),
+      categoria: categoria.trim(),
+      rendimento: toNumber(rendimento, 1),
+      pesoPorcao: toNumber(pesoPorcao, 0),
+      tempoPreparo: toNumber(tempoPreparo, 0),
+      custoTotal: custos.custoTotal,
+      custoPorPorcao: custos.custoPorPorcao,
+      margemLucro: toNumber(margemLucro, 0),
+      precoVenda: custos.precoVenda,
+      modoPreparo: modoPreparo.trim(),
+      ingredientes,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setFichasTecnicas((prev) => [novaFicha, ...prev]);
+    setShowNovaFicha(false);
+    resetForm();
+  };
+
   const handleEditarFicha = (ficha: FichaTecnica) => {
     setFichaEditando(ficha);
-    setEditNome(ficha.nome);
-    setEditCategoria(ficha.categoria);
-    setEditRendimento(ficha.rendimento);
-    setEditPesoPorcao(ficha.pesoPorcao);
-    setEditTempoPreparo(ficha.tempoPreparo);
-    setEditMargemLucro(ficha.margemLucro);
-    setEditPrecoVenda(ficha.precoVenda);
     setShowEditarFicha(true);
   };
 
   const salvarEdicaoFicha = () => {
     if (!fichaEditando) return;
 
-    setFichasTecnicas((prev) =>
-      prev.map((f) =>
-        f.id === fichaEditando.id
-          ? {
-              ...f,
-              nome: editNome,
-              categoria: editCategoria,
-              rendimento: editRendimento,
-              pesoPorcao: editPesoPorcao,
-              tempoPreparo: editTempoPreparo,
-              margemLucro: editMargemLucro,
-              precoVenda: editPrecoVenda,
-            }
-          : f
-      )
+    const custos = calcularCustos(
+      fichaEditando.ingredientes,
+      fichaEditando.rendimento,
+      fichaEditando.margemLucro
     );
 
-    setShowEditarFicha(false);
+    const atualizada: FichaTecnica = {
+      ...fichaEditando,
+      custoTotal: custos.custoTotal,
+      custoPorPorcao: custos.custoPorPorcao,
+      precoVenda: custos.precoVenda,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setFichasTecnicas((prev) =>
+      prev.map((f) => (f.id === atualizada.id ? atualizada : f))
+    );
     setFichaEditando(null);
+    setShowEditarFicha(false);
   };
 
-  // ✅ BOTÃO IMPRIMIR: abre print preview real
+  const excluirFicha = (id: string) => {
+    if (!confirm("Deseja realmente excluir esta ficha técnica?")) return;
+    setFichasTecnicas((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const exportarRelatorioCustos = () => {
+    if (!fichasTecnicas.length) {
+      alert("Nenhuma ficha técnica cadastrada para exportar.");
+      return;
+    }
+
+    const headers = [
+      "nome",
+      "categoria",
+      "rendimento",
+      "peso_por_porcao",
+      "tempo_preparo",
+      "custo_total",
+      "custo_por_porcao",
+      "preco_venda",
+      "cmv",
+      "margem_lucro",
+      "lucro_unitario",
+      "ingredientes",
+    ];
+
+    const lines = [headers.join(";")];
+
+    fichasTecnicas.forEach((ficha) => {
+      const row = [
+        escapeCsv(ficha.nome),
+        escapeCsv(ficha.categoria),
+        escapeCsv(ficha.rendimento),
+        escapeCsv(ficha.pesoPorcao),
+        escapeCsv(ficha.tempoPreparo),
+        escapeCsv(ficha.custoTotal.toFixed(2)),
+        escapeCsv(ficha.custoPorPorcao.toFixed(2)),
+        escapeCsv(ficha.precoVenda.toFixed(2)),
+        escapeCsv(calcularCMV(ficha.custoPorPorcao, ficha.precoVenda).toFixed(1)),
+        escapeCsv(ficha.margemLucro.toFixed(0)),
+        escapeCsv(
+          calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao).toFixed(2)
+        ),
+        escapeCsv(ficha.ingredientes.length),
+      ];
+
+      lines.push(row.join(";"));
+    });
+
+    const csvContent = "\uFEFF" + lines.join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "relatorio_fichas_tecnicas.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const handleImprimirFicha = (ficha: FichaTecnica) => {
     const html = `
 <!DOCTYPE html>
@@ -311,7 +490,7 @@ export default function FichasTecnicasPage() {
     <div class="box"><div class="label">CMV</div><div class="value">${calcularCMV(
       ficha.custoPorPorcao,
       ficha.precoVenda
-    )}%</div></div>
+    ).toFixed(1)}%</div></div>
     <div class="box"><div class="label">Lucro unitário</div><div class="value">${formatCurrency(
       calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao)
     )}</div></div>
@@ -351,14 +530,13 @@ export default function FichasTecnicasPage() {
     window.onload = () => {
       window.focus();
       window.print();
-      // window.close(); // se quiser fechar automaticamente depois de imprimir
     }
   </script>
 </body>
 </html>
     `.trim();
 
-    const w = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
+    const w = window.open("", "_blank", "noopener,noreferrer,width=1000,height=700");
     if (!w) return;
     w.document.open();
     w.document.write(html);
@@ -367,19 +545,20 @@ export default function FichasTecnicasPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Fichas Técnicas</h1>
           <p className="text-gray-600">
-            Receitas com cálculo automático de custos e CMV
+            Receitas com cálculo automático de custos, CMV e preço sugerido.
           </p>
         </div>
-        <div className="flex space-x-2">
-          <Button type="button" variant="outline">
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={exportarRelatorioCustos}>
             <span className="mr-2">📊</span>
             Relatório de Custos
           </Button>
+
           <Button type="button" onClick={() => setShowNovaFicha(true)}>
             <span className="mr-2">➕</span>
             Nova Ficha Técnica
@@ -387,13 +566,22 @@ export default function FichasTecnicasPage() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {loadingProducts && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800">
+          Carregando produtos para usar como ingredientes...
+        </div>
+      )}
+
+      {!loadingProducts && products.length === 0 && (
+        <div className="rounded-md border border-yellow-200 bg-yellow-50 px-4 py-2 text-sm text-yellow-800">
+          Nenhum produto foi carregado da base. Você ainda pode cadastrar fichas com ingredientes manuais, mas o ideal é ter produtos cadastrados antes.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total de Receitas
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Total de Receitas</CardTitle>
             <span className="text-2xl">📝</span>
           </CardHeader>
           <CardContent>
@@ -420,9 +608,7 @@ export default function FichasTecnicasPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{cmvMedio.toFixed(1)}%</div>
-            <p className="text-xs text-muted-foreground">
-              Custo da mercadoria vendida
-            </p>
+            <p className="text-xs text-muted-foreground">Custo da mercadoria vendida</p>
           </CardContent>
         </Card>
 
@@ -438,224 +624,228 @@ export default function FichasTecnicasPage() {
         </Card>
       </div>
 
-      {/* Lista de Fichas Técnicas */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-        {fichasTecnicas.map((ficha) => (
-          <Card key={ficha.id} className="hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <div className="flex justify-between items-start">
-                <div>
-                  <CardTitle className="text-lg">{ficha.nome}</CardTitle>
-                  <CardDescription>{ficha.categoria}</CardDescription>
-                </div>
-                <Badge variant="secondary">{ficha.rendimento} porções</Badge>
-              </div>
-            </CardHeader>
-
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-gray-600">Custo por porção:</p>
-                  <p className="font-bold text-red-600">
-                    {formatCurrency(ficha.custoPorPorcao)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-600">Preço de venda:</p>
-                  <p className="font-bold text-green-600">
-                    {formatCurrency(ficha.precoVenda)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-600">CMV:</p>
-                  <p className="font-bold">
-                    {calcularCMV(ficha.custoPorPorcao, ficha.precoVenda)}%
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-600">Lucro unitário:</p>
-                  <p className="font-bold text-blue-600">
-                    {formatCurrency(
-                      calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao)
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              <div className="text-sm text-gray-600">
-                <p>⏱️ Tempo: {ficha.tempoPreparo}min</p>
-                <p>⚖️ Peso por porção: {ficha.pesoPorcao}g</p>
-                <p>🧾 Ingredientes: {ficha.ingredientes.length}</p>
-              </div>
-
-              <div className="flex space-x-2">
-                {/* Ver detalhes */}
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => setFichaSelecionada(ficha)}
-                    >
-                      Ver Detalhes
-                    </Button>
-                  </DialogTrigger>
-
-                  <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto bg-white text-gray-900">
-                    <DialogHeader>
-                      <DialogTitle>{ficha.nome}</DialogTitle>
-                      <DialogDescription>
-                        Ficha técnica completa com ingredientes e custos
-                      </DialogDescription>
-                    </DialogHeader>
-
-                    {fichaSelecionada && (
-                      <div className="space-y-6">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                          <div>
-                            <Label>Categoria</Label>
-                            <p className="font-medium">
-                              {fichaSelecionada.categoria}
-                            </p>
-                          </div>
-                          <div>
-                            <Label>Rendimento</Label>
-                            <p className="font-medium">
-                              {fichaSelecionada.rendimento} porções
-                            </p>
-                          </div>
-                          <div>
-                            <Label>Peso por Porção</Label>
-                            <p className="font-medium">
-                              {fichaSelecionada.pesoPorcao}g
-                            </p>
-                          </div>
-                          <div>
-                            <Label>Tempo de Preparo</Label>
-                            <p className="font-medium">
-                              {fichaSelecionada.tempoPreparo}min
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
-                          <div>
-                            <Label>Custo Total</Label>
-                            <p className="font-bold text-red-600">
-                              {formatCurrency(fichaSelecionada.custoTotal)}
-                            </p>
-                          </div>
-                          <div>
-                            <Label>Custo por Porção</Label>
-                            <p className="font-bold text-red-600">
-                              {formatCurrency(fichaSelecionada.custoPorPorcao)}
-                            </p>
-                          </div>
-                          <div>
-                            <Label>Preço de Venda</Label>
-                            <p className="font-bold text-green-600">
-                              {formatCurrency(fichaSelecionada.precoVenda)}
-                            </p>
-                          </div>
-                          <div>
-                            <Label>CMV</Label>
-                            <p className="font-bold">
-                              {calcularCMV(
-                                fichaSelecionada.custoPorPorcao,
-                                fichaSelecionada.precoVenda
-                              )}
-                              %
-                            </p>
-                          </div>
-                        </div>
-
-                        <div>
-                          <h3 className="text-lg font-semibold mb-4">
-                            Ingredientes
-                          </h3>
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Ingrediente</TableHead>
-                                <TableHead>Quantidade</TableHead>
-                                <TableHead>Preço Unit.</TableHead>
-                                <TableHead>Custo</TableHead>
-                                <TableHead>F. Correção</TableHead>
-                                <TableHead>F. Cocção</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {fichaSelecionada.ingredientes.map((ingrediente) => (
-                                <TableRow key={ingrediente.id}>
-                                  <TableCell className="font-medium">
-                                    {ingrediente.nome}
-                                  </TableCell>
-                                  <TableCell>
-                                    {ingrediente.quantidade} {ingrediente.unidade}
-                                  </TableCell>
-                                  <TableCell>
-                                    {formatCurrency(ingrediente.precoUnitario)}
-                                  </TableCell>
-                                  <TableCell className="font-medium text-red-600">
-                                    {formatCurrency(ingrediente.custoIngrediente)}
-                                  </TableCell>
-                                  <TableCell>
-                                    {ingrediente.fatorCorrecao.toFixed(3)}
-                                  </TableCell>
-                                  <TableCell>
-                                    {ingrediente.fatorCoccao.toFixed(3)}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      </div>
-                    )}
-                  </DialogContent>
-                </Dialog>
-
-                {/* ✏️ Editar (abre modal local e FUNCIONA agora) */}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleEditarFicha(ficha);
-                  }}
-                  title="Editar ficha"
-                >
-                  ✏️
-                </Button>
-
-                {/* 🖨️ Imprimir (abre print preview real) */}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleImprimirFicha(ficha);
-                  }}
-                  title="Imprimir ficha"
-                >
-                  🖨️
-                </Button>
-              </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+        {fichasTecnicas.length === 0 ? (
+          <Card className="col-span-full">
+            <CardContent className="p-6">
+              <p className="text-sm text-muted-foreground">
+                Nenhuma ficha técnica cadastrada ainda. Clique em <strong>Nova Ficha Técnica</strong> para criar a primeira.
+              </p>
             </CardContent>
           </Card>
-        ))}
+        ) : (
+          fichasTecnicas.map((ficha) => (
+            <Card key={ficha.id} className="hover:shadow-lg transition-shadow">
+              <CardHeader>
+                <div className="flex justify-between items-start gap-4">
+                  <div>
+                    <CardTitle className="text-lg">{ficha.nome}</CardTitle>
+                    <CardDescription>{ficha.categoria}</CardDescription>
+                  </div>
+                  <Badge variant="secondary">{ficha.rendimento} porções</Badge>
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-gray-600">Custo por porção:</p>
+                    <p className="font-bold text-red-600">
+                      {formatCurrency(ficha.custoPorPorcao)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600">Preço de venda:</p>
+                    <p className="font-bold text-green-600">
+                      {formatCurrency(ficha.precoVenda)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600">CMV:</p>
+                    <p className="font-bold">
+                      {calcularCMV(ficha.custoPorPorcao, ficha.precoVenda).toFixed(1)}%
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600">Lucro unitário:</p>
+                    <p className="font-bold text-blue-600">
+                      {formatCurrency(
+                        calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao)
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-sm text-gray-600">
+                  <p>⏱️ Tempo: {ficha.tempoPreparo} min</p>
+                  <p>⚖️ Peso por porção: {ficha.pesoPorcao} g</p>
+                  <p>🧾 Ingredientes: {ficha.ingredientes.length}</p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => setFichaSelecionada(ficha)}
+                      >
+                        Ver Detalhes
+                      </Button>
+                    </DialogTrigger>
+
+                    <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto bg-white text-gray-900">
+                      <DialogHeader>
+                        <DialogTitle>{ficha.nome}</DialogTitle>
+                        <DialogDescription>
+                          Ficha técnica completa com ingredientes e custos
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      {fichaSelecionada && (
+                        <div className="space-y-6">
+                          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                            <div>
+                              <Label>Categoria</Label>
+                              <p className="font-medium">{fichaSelecionada.categoria}</p>
+                            </div>
+                            <div>
+                              <Label>Rendimento</Label>
+                              <p className="font-medium">{fichaSelecionada.rendimento} porções</p>
+                            </div>
+                            <div>
+                              <Label>Peso por Porção</Label>
+                              <p className="font-medium">{fichaSelecionada.pesoPorcao} g</p>
+                            </div>
+                            <div>
+                              <Label>Tempo de Preparo</Label>
+                              <p className="font-medium">{fichaSelecionada.tempoPreparo} min</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 rounded-lg bg-gray-50 p-4 md:grid-cols-4">
+                            <div>
+                              <Label>Custo Total</Label>
+                              <p className="font-bold text-red-600">
+                                {formatCurrency(fichaSelecionada.custoTotal)}
+                              </p>
+                            </div>
+                            <div>
+                              <Label>Custo por Porção</Label>
+                              <p className="font-bold text-red-600">
+                                {formatCurrency(fichaSelecionada.custoPorPorcao)}
+                              </p>
+                            </div>
+                            <div>
+                              <Label>Preço de Venda</Label>
+                              <p className="font-bold text-green-600">
+                                {formatCurrency(fichaSelecionada.precoVenda)}
+                              </p>
+                            </div>
+                            <div>
+                              <Label>CMV</Label>
+                              <p className="font-bold">
+                                {calcularCMV(
+                                  fichaSelecionada.custoPorPorcao,
+                                  fichaSelecionada.precoVenda
+                                ).toFixed(1)}
+                                %
+                              </p>
+                            </div>
+                          </div>
+
+                          <div>
+                            <Label>Modo de Preparo</Label>
+                            <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">
+                              {fichaSelecionada.modoPreparo || "Não informado."}
+                            </p>
+                          </div>
+
+                          <div>
+                            <h3 className="mb-4 text-lg font-semibold">Ingredientes</h3>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Ingrediente</TableHead>
+                                  <TableHead>Quantidade</TableHead>
+                                  <TableHead>Preço Unit.</TableHead>
+                                  <TableHead>Custo</TableHead>
+                                  <TableHead>F. Correção</TableHead>
+                                  <TableHead>F. Cocção</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {fichaSelecionada.ingredientes.map((ingrediente) => (
+                                  <TableRow key={ingrediente.id}>
+                                    <TableCell className="font-medium">
+                                      {ingrediente.nome}
+                                    </TableCell>
+                                    <TableCell>
+                                      {ingrediente.quantidade} {ingrediente.unidade}
+                                    </TableCell>
+                                    <TableCell>
+                                      {formatCurrency(ingrediente.precoUnitario)}
+                                    </TableCell>
+                                    <TableCell className="font-medium text-red-600">
+                                      {formatCurrency(ingrediente.custoIngrediente)}
+                                    </TableCell>
+                                    <TableCell>
+                                      {ingrediente.fatorCorrecao.toFixed(3)}
+                                    </TableCell>
+                                    <TableCell>
+                                      {ingrediente.fatorCoccao.toFixed(3)}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      )}
+                    </DialogContent>
+                  </Dialog>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleEditarFicha(ficha)}
+                    title="Editar ficha"
+                  >
+                    ✏️
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleImprimirFicha(ficha)}
+                    title="Imprimir ficha"
+                  >
+                    🖨️
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => excluirFicha(ficha.id)}
+                    title="Excluir ficha"
+                  >
+                    🗑️
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
 
-      {/* ✅ Modal Editar Ficha */}
       {showEditarFicha && fichaEditando && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-3xl max-h-[85vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white p-6">
+            <div className="mb-5 flex items-center justify-between">
               <h3 className="text-xl font-semibold">Editar Ficha Técnica</h3>
               <Button
                 type="button"
@@ -669,62 +859,98 @@ export default function FichasTecnicasPage() {
               </Button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <Label>Nome</Label>
-                <Input value={editNome} onChange={(e) => setEditNome(e.target.value)} />
+                <Input
+                  value={fichaEditando.nome}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev ? { ...prev, nome: e.target.value } : prev
+                    )
+                  }
+                />
               </div>
+
               <div>
                 <Label>Categoria</Label>
                 <Input
-                  value={editCategoria}
-                  onChange={(e) => setEditCategoria(e.target.value)}
+                  value={fichaEditando.categoria}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev ? { ...prev, categoria: e.target.value } : prev
+                    )
+                  }
                 />
               </div>
+
               <div>
                 <Label>Rendimento (porções)</Label>
                 <Input
                   type="number"
-                  value={editRendimento}
-                  onChange={(e) => setEditRendimento(Number(e.target.value))}
+                  value={fichaEditando.rendimento}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev ? { ...prev, rendimento: toNumber(e.target.value, 1) } : prev
+                    )
+                  }
                 />
               </div>
+
               <div>
                 <Label>Peso por porção (g)</Label>
                 <Input
                   type="number"
-                  value={editPesoPorcao}
-                  onChange={(e) => setEditPesoPorcao(Number(e.target.value))}
+                  value={fichaEditando.pesoPorcao}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev ? { ...prev, pesoPorcao: toNumber(e.target.value, 0) } : prev
+                    )
+                  }
                 />
               </div>
+
               <div>
                 <Label>Tempo de preparo (min)</Label>
                 <Input
                   type="number"
-                  value={editTempoPreparo}
-                  onChange={(e) => setEditTempoPreparo(Number(e.target.value))}
+                  value={fichaEditando.tempoPreparo}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev ? { ...prev, tempoPreparo: toNumber(e.target.value, 0) } : prev
+                    )
+                  }
                 />
               </div>
+
               <div>
                 <Label>Margem de lucro (%)</Label>
                 <Input
                   type="number"
-                  value={editMargemLucro}
-                  onChange={(e) => setEditMargemLucro(Number(e.target.value))}
+                  value={fichaEditando.margemLucro}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev ? { ...prev, margemLucro: toNumber(e.target.value, 0) } : prev
+                    )
+                  }
                 />
               </div>
-              <div className="col-span-2">
-                <Label>Preço de venda (R$)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={editPrecoVenda}
-                  onChange={(e) => setEditPrecoVenda(Number(e.target.value))}
+
+              <div className="md:col-span-2">
+                <Label>Modo de preparo</Label>
+                <Textarea
+                  rows={5}
+                  value={fichaEditando.modoPreparo}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev ? { ...prev, modoPreparo: e.target.value } : prev
+                    )
+                  }
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 mt-6">
+            <div className="mt-6 flex justify-end gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -743,42 +969,87 @@ export default function FichasTecnicasPage() {
         </div>
       )}
 
-      {/* Modal Nova Ficha Técnica (mantido como estava) */}
       {showNovaFicha && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[80vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-lg bg-white p-6">
+            <div className="mb-6 flex items-center justify-between">
               <h3 className="text-xl font-semibold">Nova Ficha Técnica</h3>
-              <Button type="button" variant="ghost" onClick={() => setShowNovaFicha(false)}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setShowNovaFicha(false);
+                  resetForm();
+                }}
+              >
                 ✕
               </Button>
             </div>
 
             <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
                   <Label htmlFor="nome">Nome da Receita</Label>
-                  <Input id="nome" placeholder="Ex: Pão de Açúcar" />
+                  <Input
+                    id="nome"
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value)}
+                    placeholder="Ex.: Pão de Açúcar"
+                  />
                 </div>
+
                 <div>
                   <Label htmlFor="categoria">Categoria</Label>
-                  <Input id="categoria" placeholder="Ex: Panificação" />
+                  <Input
+                    id="categoria"
+                    value={categoria}
+                    onChange={(e) => setCategoria(e.target.value)}
+                    placeholder="Ex.: Panificação"
+                  />
                 </div>
+
                 <div>
                   <Label htmlFor="rendimento">Rendimento (porções)</Label>
-                  <Input id="rendimento" type="number" placeholder="Ex: 20" />
+                  <Input
+                    id="rendimento"
+                    type="number"
+                    value={rendimento}
+                    onChange={(e) => setRendimento(toNumber(e.target.value, 1))}
+                    placeholder="Ex.: 20"
+                  />
                 </div>
+
                 <div>
                   <Label htmlFor="peso">Peso por Porção (g)</Label>
-                  <Input id="peso" type="number" placeholder="Ex: 50" />
+                  <Input
+                    id="peso"
+                    type="number"
+                    value={pesoPorcao}
+                    onChange={(e) => setPesoPorcao(toNumber(e.target.value, 0))}
+                    placeholder="Ex.: 50"
+                  />
                 </div>
+
                 <div>
                   <Label htmlFor="tempo">Tempo de Preparo (min)</Label>
-                  <Input id="tempo" type="number" placeholder="Ex: 120" />
+                  <Input
+                    id="tempo"
+                    type="number"
+                    value={tempoPreparo}
+                    onChange={(e) => setTempoPreparo(toNumber(e.target.value, 0))}
+                    placeholder="Ex.: 120"
+                  />
                 </div>
+
                 <div>
                   <Label htmlFor="margem">Margem de Lucro (%)</Label>
-                  <Input id="margem" type="number" placeholder="Ex: 200" />
+                  <Input
+                    id="margem"
+                    type="number"
+                    value={margemLucro}
+                    onChange={(e) => setMargemLucro(toNumber(e.target.value, 0))}
+                    placeholder="Ex.: 200"
+                  />
                 </div>
               </div>
 
@@ -786,38 +1057,194 @@ export default function FichasTecnicasPage() {
                 <Label htmlFor="modo">Modo de Preparo</Label>
                 <Textarea
                   id="modo"
+                  value={modoPreparo}
+                  onChange={(e) => setModoPreparo(e.target.value)}
                   placeholder="Descreva o modo de preparo da receita..."
                   rows={4}
                 />
               </div>
 
               <div>
-                <h4 className="text-lg font-semibold mb-4">Ingredientes</h4>
-                <div className="border rounded-lg p-4">
-                  <div className="grid grid-cols-6 gap-2 mb-4">
-                    <Input placeholder="Ingrediente" />
-                    <Input placeholder="Qtd" type="number" />
-                    <Input placeholder="Unidade" />
-                    <Input placeholder="Preço" type="number" step="0.01" />
-                    <Input
-                      placeholder="F.Correção"
-                      type="number"
-                      step="0.001"
-                      defaultValue="1.000"
-                    />
-                    <Button type="button" size="sm">➕</Button>
+                <h4 className="mb-4 text-lg font-semibold">Ingredientes</h4>
+
+                <div className="rounded-lg border p-4 space-y-4">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
+                    <div className="md:col-span-2">
+                      <Label>Produto cadastrado</Label>
+                      <select
+                        className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={draftIngredienteId}
+                        onChange={(e) => onSelectProductIngredient(e.target.value)}
+                      >
+                        <option value="">— Selecionar produto —</option>
+                        {products.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <Label>Ingrediente</Label>
+                      <Input
+                        value={draftIngredienteNome}
+                        onChange={(e) => setDraftIngredienteNome(e.target.value)}
+                        placeholder="Nome do ingrediente"
+                      />
+                    </div>
+
+                    <div>
+                      <Label>Qtd</Label>
+                      <Input
+                        type="number"
+                        value={draftQtd}
+                        onChange={(e) => setDraftQtd(toNumber(e.target.value, 0))}
+                      />
+                    </div>
+
+                    <div>
+                      <Label>Unidade</Label>
+                      <Input
+                        value={draftUnidade}
+                        onChange={(e) => setDraftUnidade(e.target.value.toUpperCase())}
+                      />
+                    </div>
+
+                    <div>
+                      <Label>Preço unit.</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={draftPreco}
+                        onChange={(e) => setDraftPreco(toNumber(e.target.value, 0))}
+                      />
+                    </div>
+
+                    <div>
+                      <Label>F. Correção</Label>
+                      <Input
+                        type="number"
+                        step="0.001"
+                        value={draftFCorrecao}
+                        onChange={(e) => setDraftFCorrecao(toNumber(e.target.value, 1))}
+                      />
+                    </div>
+
+                    <div>
+                      <Label>F. Cocção</Label>
+                      <Input
+                        type="number"
+                        step="0.001"
+                        value={draftFCoccao}
+                        onChange={(e) => setDraftFCoccao(toNumber(e.target.value, 1))}
+                      />
+                    </div>
+
+                    <div className="flex items-end">
+                      <Button type="button" className="w-full" onClick={addIngrediente}>
+                        ➕ Adicionar
+                      </Button>
+                    </div>
                   </div>
-                  <p className="text-sm text-gray-600">
-                    Nenhum ingrediente adicionado ainda.
-                  </p>
+
+                  {ingredientes.length === 0 ? (
+                    <p className="text-sm text-gray-600">
+                      Nenhum ingrediente adicionado ainda.
+                    </p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Ingrediente</TableHead>
+                          <TableHead>Qtd</TableHead>
+                          <TableHead>Preço Unit.</TableHead>
+                          <TableHead>Custo</TableHead>
+                          <TableHead>F. Correção</TableHead>
+                          <TableHead>F. Cocção</TableHead>
+                          <TableHead>Ação</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {ingredientes.map((item) => (
+                          <TableRow key={item.id}>
+                            <TableCell>{item.nome}</TableCell>
+                            <TableCell>
+                              {item.quantidade} {item.unidade}
+                            </TableCell>
+                            <TableCell>{formatCurrency(item.precoUnitario)}</TableCell>
+                            <TableCell className="font-medium text-red-600">
+                              {formatCurrency(item.custoIngrediente)}
+                            </TableCell>
+                            <TableCell>{item.fatorCorrecao.toFixed(3)}</TableCell>
+                            <TableCell>{item.fatorCoccao.toFixed(3)}</TableCell>
+                            <TableCell>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => removerIngrediente(item.id)}
+                              >
+                                Remover
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
                 </div>
               </div>
 
+              <div className="rounded-lg bg-gray-50 p-4">
+                <h4 className="mb-3 font-semibold">Prévia automática</h4>
+                {(() => {
+                  const preview = calcularCustos(ingredientes, rendimento, margemLucro);
+                  const cmv = calcularCMV(preview.custoPorPorcao, preview.precoVenda);
+                  return (
+                    <div className="grid grid-cols-2 gap-4 md:grid-cols-4 text-sm">
+                      <div>
+                        <p className="text-gray-600">Custo total</p>
+                        <p className="font-bold text-red-600">
+                          {formatCurrency(preview.custoTotal)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">Custo por porção</p>
+                        <p className="font-bold text-red-600">
+                          {formatCurrency(preview.custoPorPorcao)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">Preço sugerido</p>
+                        <p className="font-bold text-green-600">
+                          {formatCurrency(preview.precoVenda)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">CMV</p>
+                        <p className="font-bold">{cmv.toFixed(1)}%</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
               <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setShowNovaFicha(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowNovaFicha(false);
+                    resetForm();
+                  }}
+                >
                   Cancelar
                 </Button>
-                <Button type="button">Salvar Ficha Técnica</Button>
+
+                <Button type="button" onClick={salvarNovaFicha}>
+                  Salvar Ficha Técnica
+                </Button>
               </div>
             </div>
           </div>

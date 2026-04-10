@@ -31,6 +31,7 @@ export type TechnicalSheetInput = {
   total_cost: number;
   cost_per_portion: number;
   preparation_method: string;
+  image_url?: string | null;
   ingredients: TechnicalSheetIngredientInput[];
 };
 
@@ -80,6 +81,7 @@ export async function listTechnicalSheets() {
       total_cost,
       cost_per_portion,
       preparation_method,
+      image_url,
       created_by,
       created_at,
       updated_at,
@@ -144,7 +146,9 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
 
     for (const productId of productIds) {
       if (!validSet.has(productId)) {
-        throw new Error("Há ingrediente vinculado a produto inválido para este estabelecimento.");
+        throw new Error(
+          "Há ingrediente vinculado a produto inválido para este estabelecimento."
+        );
       }
     }
   }
@@ -163,6 +167,7 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
       total_cost: input.total_cost,
       cost_per_portion: input.cost_per_portion,
       preparation_method: input.preparation_method?.trim() || null,
+      image_url: input.image_url?.trim() || null,
       created_by: userId,
     })
     .select("id")
@@ -194,7 +199,10 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
     .insert(ingredientsPayload);
 
   if (ingredientsError) {
-    console.error("Erro ao criar ingredientes da ficha técnica:", ingredientsError);
+    console.error(
+      "Erro ao criar ingredientes da ficha técnica:",
+      ingredientsError
+    );
     throw new Error("Ficha criada, mas houve erro ao salvar os ingredientes.");
   }
 
@@ -239,6 +247,7 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
       total_cost: input.total_cost,
       cost_per_portion: input.cost_per_portion,
       preparation_method: input.preparation_method?.trim() || null,
+      image_url: input.image_url?.trim() || null,
     })
     .eq("id", input.id)
     .eq("establishment_id", establishmentId);
@@ -280,7 +289,9 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
 
   if (insertIngredientsError) {
     console.error("Erro ao recriar ingredientes da ficha:", insertIngredientsError);
-    throw new Error("A ficha foi atualizada, mas houve erro ao salvar os ingredientes.");
+    throw new Error(
+      "A ficha foi atualizada, mas houve erro ao salvar os ingredientes."
+    );
   }
 
   revalidatePath("/dashboard/fichas-tecnicas");

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -27,7 +29,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   createTechnicalSheet,
@@ -72,10 +73,13 @@ type FichaTecnica = {
   margemLucro: number;
   precoVenda: number;
   modoPreparo: string;
+  imageUrl: string | null;
   ingredientes: Ingrediente[];
   createdAt: string;
   updatedAt: string;
 };
+
+type ViewerTab = "ingredientes" | "preparo";
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -91,6 +95,16 @@ function formatCurrency(value: number) {
     style: "currency",
     currency: "BRL",
   }).format(value || 0);
+}
+
+function formatDate(value?: string) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
 }
 
 function calcularCMV(custoPorPorcao: number, precoVenda: number) {
@@ -170,6 +184,7 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
     margemLucro: Number(raw.profit_margin_percent ?? 0),
     precoVenda: Number(raw.sale_price ?? 0),
     modoPreparo: String(raw.preparation_method ?? ""),
+    imageUrl: raw.image_url ? String(raw.image_url) : null,
     createdAt: String(raw.created_at ?? ""),
     updatedAt: String(raw.updated_at ?? ""),
     ingredientes: Array.isArray(raw.ingredients)
@@ -210,6 +225,7 @@ function toActionPayload(
     total_cost: ficha.custoTotal,
     cost_per_portion: ficha.custoPorPorcao,
     preparation_method: ficha.modoPreparo,
+    image_url: ficha.imageUrl || null,
     ingredients: ficha.ingredientes.map((item, index) => ({
       product_id: item.productId,
       ingredient_name: item.nome,
@@ -235,20 +251,539 @@ function escapeCsv(val: unknown) {
   return s;
 }
 
+function getScaledFicha(ficha: FichaTecnica, servings: number) {
+  const safeServings = Math.max(1, toNumber(servings, 1));
+  const factor =
+    ficha.rendimento > 0 ? Number((safeServings / ficha.rendimento).toFixed(4)) : 1;
+
+  const ingredientesEscalados = ficha.ingredientes.map((item) => ({
+    ...item,
+    quantidadeUso: Number((item.quantidadeUso * factor).toFixed(3)),
+    custoIngrediente: Number((item.custoIngrediente * factor).toFixed(2)),
+  }));
+
+  const custoTotal = Number(
+    ingredientesEscalados
+      .reduce((acc, item) => acc + item.custoIngrediente, 0)
+      .toFixed(2)
+  );
+
+  return {
+    factor,
+    servings: safeServings,
+    ingredientes: ingredientesEscalados,
+    custoTotal,
+  };
+}
+
+function buildPrintHtml(
+  ficha: FichaTecnica,
+  desiredServings: number,
+  currentTab: ViewerTab
+) {
+  const scaled = getScaledFicha(ficha, desiredServings);
+  const cmv = calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
+  const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
+
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ficha Técnica - ${ficha.nome}</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    margin: 0;
+    padding: 24px;
+    color: #111827;
+    background: #ffffff;
+  }
+  .hero {
+    width: 100%;
+    max-height: 320px;
+    overflow: hidden;
+    border-radius: 16px;
+    margin-bottom: 20px;
+    border: 1px solid #e5e7eb;
+  }
+  .hero img {
+    width: 100%;
+    height: 320px;
+    object-fit: cover;
+    display: block;
+  }
+  .header {
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 16px;
+    margin-bottom: 20px;
+  }
+  .title {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 6px 0;
+  }
+  .subtitle {
+    color: #6b7280;
+    font-size: 14px;
+    margin: 0;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .box {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 12px;
+  }
+  .label {
+    color: #6b7280;
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .value {
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .section-title {
+    font-size: 18px;
+    margin: 24px 0 12px 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th, td {
+    border: 1px solid #e5e7eb;
+    padding: 10px 8px;
+    font-size: 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #f9fafb;
+  }
+  .right { text-align: right; }
+  .prep {
+    white-space: pre-wrap;
+    line-height: 1.6;
+    font-size: 14px;
+  }
+  .muted {
+    color: #6b7280;
+    font-size: 12px;
+  }
+  @media print {
+    body { padding: 0; }
+  }
+</style>
+</head>
+<body>
+  ${
+    ficha.imageUrl
+      ? `
+      <div class="hero">
+        <img src="${ficha.imageUrl}" alt="${ficha.nome}" />
+      </div>
+    `
+      : ""
+  }
+
+  <div class="header">
+    <h1 class="title">${ficha.nome}</h1>
+    <p class="subtitle">${ficha.categoria || "Sem categoria"}</p>
+    <p class="muted">Rendimento original: ${ficha.rendimento} porções | Impressão ajustada para: ${scaled.servings} porções</p>
+  </div>
+
+  <div class="grid">
+    <div class="box">
+      <div class="label">Custo total</div>
+      <div class="value">${formatCurrency(scaled.custoTotal)}</div>
+    </div>
+    <div class="box">
+      <div class="label">Custo por porção</div>
+      <div class="value">${formatCurrency(ficha.custoPorPorcao)}</div>
+    </div>
+    <div class="box">
+      <div class="label">Preço de venda</div>
+      <div class="value">${formatCurrency(ficha.precoVenda)}</div>
+    </div>
+    <div class="box">
+      <div class="label">CMV</div>
+      <div class="value">${cmv.toFixed(1)}%</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="box">
+      <div class="label">Peso por porção</div>
+      <div class="value">${ficha.pesoPorcao} g</div>
+    </div>
+    <div class="box">
+      <div class="label">Tempo de preparo</div>
+      <div class="value">${ficha.tempoPreparo} min</div>
+    </div>
+    <div class="box">
+      <div class="label">Lucro unitário</div>
+      <div class="value">${formatCurrency(lucro)}</div>
+    </div>
+    <div class="box">
+      <div class="label">Atualizado em</div>
+      <div class="value" style="font-size:14px;">${formatDate(ficha.updatedAt)}</div>
+    </div>
+  </div>
+
+  ${
+    currentTab === "ingredientes"
+      ? `
+      <h2 class="section-title">Ingredientes</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Ingrediente</th>
+            <th>Uso ajustado</th>
+            <th>Compra</th>
+            <th class="right">Preço compra</th>
+            <th class="right">Custo unitário</th>
+            <th class="right">Custo final</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${scaled.ingredientes
+            .map(
+              (i) => `
+                <tr>
+                  <td>${i.nome}</td>
+                  <td>${i.quantidadeUso} ${i.unidadeUso}</td>
+                  <td>${i.quantidadeCompra} ${i.unidadeCompra}</td>
+                  <td class="right">${formatCurrency(i.precoCompra)}</td>
+                  <td class="right">${formatCurrency(i.custoUnitarioBase)}</td>
+                  <td class="right">${formatCurrency(i.custoIngrediente)}</td>
+                </tr>
+              `
+            )
+            .join("")}
+        </tbody>
+      </table>
+      `
+      : `
+      <h2 class="section-title">Modo de preparo</h2>
+      <div class="prep">${(ficha.modoPreparo || "Não informado.").replace(
+        /</g,
+        "&lt;"
+      )}</div>
+      `
+  }
+
+  <script>
+    window.onload = function () {
+      window.focus();
+      window.print();
+    };
+  </script>
+</body>
+</html>
+  `.trim();
+}
+
+function RecipeViewer({
+  ficha,
+  desiredServings,
+  setDesiredServings,
+  currentTab,
+  setCurrentTab,
+  onEdit,
+  onPrint,
+  onFullscreen,
+}: {
+  ficha: FichaTecnica | null;
+  desiredServings: number;
+  setDesiredServings: (value: number) => void;
+  currentTab: ViewerTab;
+  setCurrentTab: (value: ViewerTab) => void;
+  onEdit: (ficha: FichaTecnica) => void;
+  onPrint: (ficha: FichaTecnica) => void;
+  onFullscreen: (ficha: FichaTecnica) => void;
+}) {
+  if (!ficha) {
+    return (
+      <Card className="min-h-[520px] border-dashed">
+        <CardContent className="flex h-full min-h-[520px] items-center justify-center p-8">
+          <div className="max-w-md text-center">
+            <div className="mb-3 text-4xl">📄</div>
+            <h3 className="text-lg font-semibold">Selecione uma ficha técnica</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Escolha uma ficha na lista para visualizar ingredientes, modo de preparo,
+              custos, impressão, foto do prato e visualização em tela cheia.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const scaled = getScaledFicha(ficha, desiredServings);
+  const cmv = calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
+  const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
+
+  return (
+    <Card className="overflow-hidden">
+      {ficha.imageUrl ? (
+        <div className="relative h-[260px] w-full border-b bg-slate-100 sm:h-[320px]">
+          <Image
+            src={ficha.imageUrl}
+            alt={ficha.nome}
+            fill
+            className="object-cover"
+            unoptimized
+          />
+        </div>
+      ) : (
+        <div className="flex h-[180px] items-center justify-center border-b bg-slate-100 text-sm text-muted-foreground">
+          Sem imagem do prato
+        </div>
+      )}
+
+      <div className="border-b bg-white p-4 sm:p-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-2xl font-bold text-gray-900">{ficha.nome}</h2>
+              <Badge variant="secondary">{ficha.categoria || "Sem categoria"}</Badge>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Última atualização: {formatDate(ficha.updatedAt)}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => onEdit(ficha)}>
+              ✏️ Editar
+            </Button>
+            <Button type="button" variant="outline" onClick={() => onPrint(ficha)}>
+              🖨️ Imprimir
+            </Button>
+            <Button type="button" onClick={() => onFullscreen(ficha)}>
+              ⛶ Tela cheia
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <CardContent className="space-y-6 p-4 sm:p-6">
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+          <div className="rounded-xl border bg-slate-50 p-4">
+            <p className="text-xs text-muted-foreground">Custo total</p>
+            <p className="mt-1 text-2xl font-bold text-red-600">
+              {formatCurrency(scaled.custoTotal)}
+            </p>
+          </div>
+
+          <div className="rounded-xl border bg-slate-50 p-4">
+            <p className="text-xs text-muted-foreground">Custo por porção</p>
+            <p className="mt-1 text-2xl font-bold">{formatCurrency(ficha.custoPorPorcao)}</p>
+          </div>
+
+          <div className="rounded-xl border bg-slate-50 p-4">
+            <p className="text-xs text-muted-foreground">Preço de venda</p>
+            <p className="mt-1 text-2xl font-bold text-green-600">
+              {formatCurrency(ficha.precoVenda)}
+            </p>
+          </div>
+
+          <div className="rounded-xl border bg-slate-50 p-4">
+            <p className="text-xs text-muted-foreground">CMV</p>
+            <p className="mt-1 text-2xl font-bold">{cmv.toFixed(1)}%</p>
+          </div>
+
+          <div className="rounded-xl border bg-slate-50 p-4">
+            <p className="text-xs text-muted-foreground">Lucro unitário</p>
+            <p className="mt-1 text-2xl font-bold text-blue-600">
+              {formatCurrency(lucro)}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Rendimento original</p>
+            <p className="mt-1 text-lg font-semibold">{ficha.rendimento} porções</p>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Peso por porção</p>
+            <p className="mt-1 text-lg font-semibold">{ficha.pesoPorcao} g</p>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Tempo de preparo</p>
+            <p className="mt-1 text-lg font-semibold">{ficha.tempoPreparo} min</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border p-4">
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <Label htmlFor="desired-servings">Rendimento desejado</Label>
+              <p className="text-xs text-muted-foreground">
+                Ajusta visualização dos ingredientes e custo total da produção.
+              </p>
+            </div>
+
+            <div className="flex w-full max-w-xs items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDesiredServings(Math.max(1, desiredServings - 1))}
+              >
+                −
+              </Button>
+              <Input
+                id="desired-servings"
+                type="number"
+                min={1}
+                value={desiredServings}
+                onChange={(e) => setDesiredServings(Math.max(1, toNumber(e.target.value, 1)))}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDesiredServings(desiredServings + 1)}
+              >
+                +
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-xs text-muted-foreground">Produção ajustada</p>
+              <p className="text-lg font-bold">{scaled.servings} porções</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-xs text-muted-foreground">Fator aplicado</p>
+              <p className="text-lg font-bold">{scaled.factor.toFixed(3)}x</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-xs text-muted-foreground">Ingredientes na ficha</p>
+              <p className="text-lg font-bold">{ficha.ingredientes.length}</p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-4 flex gap-2 border-b">
+            <button
+              type="button"
+              className={`border-b-2 px-4 py-2 text-sm font-medium transition ${
+                currentTab === "ingredientes"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground"
+              }`}
+              onClick={() => setCurrentTab("ingredientes")}
+            >
+              Ingredientes
+            </button>
+            <button
+              type="button"
+              className={`border-b-2 px-4 py-2 text-sm font-medium transition ${
+                currentTab === "preparo"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground"
+              }`}
+              onClick={() => setCurrentTab("preparo")}
+            >
+              Modo de preparo
+            </button>
+          </div>
+
+          {currentTab === "ingredientes" ? (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Ingrediente</TableHead>
+                    <TableHead>Uso ajustado</TableHead>
+                    <TableHead>Compra</TableHead>
+                    <TableHead>Preço compra</TableHead>
+                    <TableHead>Custo unit.</TableHead>
+                    <TableHead>Custo final</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {scaled.ingredientes.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground">
+                        Nenhum ingrediente cadastrado.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    scaled.ingredientes.map((ingrediente) => (
+                      <TableRow key={ingrediente.id}>
+                        <TableCell className="font-medium">{ingrediente.nome}</TableCell>
+                        <TableCell>
+                          {ingrediente.quantidadeUso} {ingrediente.unidadeUso}
+                        </TableCell>
+                        <TableCell>
+                          {ingrediente.quantidadeCompra} {ingrediente.unidadeCompra}
+                        </TableCell>
+                        <TableCell>{formatCurrency(ingrediente.precoCompra)}</TableCell>
+                        <TableCell>{formatCurrency(ingrediente.custoUnitarioBase)}</TableCell>
+                        <TableCell className="font-medium text-red-600">
+                          {formatCurrency(ingrediente.custoIngrediente)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-slate-50 p-5">
+              <p className="whitespace-pre-wrap leading-7 text-sm text-gray-700">
+                {ficha.modoPreparo || "Não informado."}
+              </p>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function FichasTecnicasPage() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  const supabase = useMemo(() => {
+    if (!supabaseUrl || !supabaseAnonKey) return null;
+    return createClient(supabaseUrl, supabaseAnonKey);
+  }, [supabaseUrl, supabaseAnonKey]);
+
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingFichas, setLoadingFichas] = useState(true);
   const [isPending, startTransition] = useTransition();
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const [fichasTecnicas, setFichasTecnicas] = useState<FichaTecnica[]>([]);
-  const [fichaSelecionada, setFichaSelecionada] = useState<FichaTecnica | null>(
-    null
-  );
+  const [fichaSelecionada, setFichaSelecionada] = useState<FichaTecnica | null>(null);
 
   const [showNovaFicha, setShowNovaFicha] = useState(false);
   const [showEditarFicha, setShowEditarFicha] = useState(false);
+  const [showFullscreenViewer, setShowFullscreenViewer] = useState(false);
   const [fichaEditando, setFichaEditando] = useState<FichaTecnica | null>(null);
+
+  const [viewerTab, setViewerTab] = useState<ViewerTab>("ingredientes");
+  const [desiredServings, setDesiredServings] = useState<number>(1);
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("TODAS");
 
   const [nome, setNome] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -257,6 +792,7 @@ export default function FichasTecnicasPage() {
   const [tempoPreparo, setTempoPreparo] = useState<number>(0);
   const [margemLucro, setMargemLucro] = useState<number>(200);
   const [modoPreparo, setModoPreparo] = useState("");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const [editandoIngredienteId, setEditandoIngredienteId] = useState<string | null>(null);
@@ -270,6 +806,44 @@ export default function FichasTecnicasPage() {
   const [draftUnidadeCompra, setDraftUnidadeCompra] = useState("UN");
   const [draftFCorrecao, setDraftFCorrecao] = useState<number>(1);
   const [draftFCoccao, setDraftFCoccao] = useState<number>(1);
+
+  const newImageInputRef = useRef<HTMLInputElement | null>(null);
+  const editImageInputRef = useRef<HTMLInputElement | null>(null);
+
+  async function uploadTechnicalSheetImage(file: File) {
+    if (!supabase) {
+      throw new Error(
+        "Variáveis públicas do Supabase não encontradas. Verifique NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY."
+      );
+    }
+
+    const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+    const safeName = file.name
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9.-]/g, "-")
+      .toLowerCase();
+
+    const filePath = `recipes/${Date.now()}-${safeName || `imagem.${extension}`}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("technical-sheets")
+      .upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error(uploadError);
+      throw new Error("Não foi possível enviar a imagem para o Supabase.");
+    }
+
+    const { data } = supabase.storage
+      .from("technical-sheets")
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  }
 
   const loadData = async () => {
     try {
@@ -297,9 +871,19 @@ export default function FichasTecnicasPage() {
         setProducts([]);
       }
 
-      setFichasTecnicas(
-        Array.isArray(fichasRes) ? fichasRes.map(normalizeFichaFromDb) : []
-      );
+      const fichasNormalizadas = Array.isArray(fichasRes)
+        ? fichasRes.map(normalizeFichaFromDb)
+        : [];
+
+      setFichasTecnicas(fichasNormalizadas);
+
+      setFichaSelecionada((prev) => {
+        if (!fichasNormalizadas.length) return null;
+        if (!prev) return fichasNormalizadas[0];
+        return (
+          fichasNormalizadas.find((f) => f.id === prev.id) ?? fichasNormalizadas[0]
+        );
+      });
     } catch (err) {
       console.error("Erro ao carregar fichas técnicas:", err);
       alert("Erro ao carregar fichas técnicas.");
@@ -312,6 +896,40 @@ export default function FichasTecnicasPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (fichaSelecionada) {
+      setDesiredServings(Math.max(1, fichaSelecionada.rendimento || 1));
+    }
+  }, [fichaSelecionada?.id]);
+
+  const categoriasDisponiveis = useMemo(() => {
+    const unique = Array.from(
+      new Set(
+        fichasTecnicas
+          .map((ficha) => ficha.categoria?.trim())
+          .filter((value): value is string => Boolean(value))
+      )
+    ).sort((a, b) => a.localeCompare(b, "pt-BR"));
+    return ["TODAS", ...unique];
+  }, [fichasTecnicas]);
+
+  const fichasFiltradas = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+
+    return fichasTecnicas.filter((ficha) => {
+      const matchesCategory =
+        categoryFilter === "TODAS" || ficha.categoria === categoryFilter;
+
+      const matchesSearch =
+        !q ||
+        ficha.nome.toLowerCase().includes(q) ||
+        ficha.categoria.toLowerCase().includes(q) ||
+        ficha.ingredientes.some((i) => i.nome.toLowerCase().includes(q));
+
+      return matchesCategory && matchesSearch;
+    });
+  }, [fichasTecnicas, searchTerm, categoryFilter]);
 
   const custoMedio = useMemo(() => {
     if (!fichasTecnicas.length) return 0;
@@ -376,6 +994,7 @@ export default function FichasTecnicasPage() {
     setTempoPreparo(0);
     setMargemLucro(200);
     setModoPreparo("");
+    setImageUrl(null);
     setIngredientes([]);
     resetDraftIngrediente();
   };
@@ -474,6 +1093,46 @@ export default function FichasTecnicasPage() {
     }
   };
 
+  const handleNewImageSelected = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setUploadingImage(true);
+      const publicUrl = await uploadTechnicalSheetImage(file);
+      setImageUrl(publicUrl);
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.message ?? "Erro ao enviar imagem.");
+    } finally {
+      setUploadingImage(false);
+      event.target.value = "";
+    }
+  };
+
+  const handleEditImageSelected = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file || !fichaEditando) return;
+
+    try {
+      setUploadingImage(true);
+      const publicUrl = await uploadTechnicalSheetImage(file);
+      setFichaEditando((prev) =>
+        prev ? { ...prev, imageUrl: publicUrl } : prev
+      );
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.message ?? "Erro ao enviar imagem.");
+    } finally {
+      setUploadingImage(false);
+      event.target.value = "";
+    }
+  };
+
   const salvarNovaFicha = () => {
     if (!nome.trim()) {
       alert("Informe o nome da receita.");
@@ -508,6 +1167,7 @@ export default function FichasTecnicasPage() {
       margemLucro: toNumber(margemLucro, 0),
       precoVenda: custos.precoVenda,
       modoPreparo: modoPreparo.trim(),
+      imageUrl,
       ingredientes,
     });
 
@@ -525,7 +1185,10 @@ export default function FichasTecnicasPage() {
   };
 
   const handleEditarFicha = (ficha: FichaTecnica) => {
-    setFichaEditando(ficha);
+    setFichaEditando({
+      ...ficha,
+      ingredientes: ficha.ingredientes.map((i) => ({ ...i })),
+    });
     setShowEditarFicha(true);
   };
 
@@ -550,6 +1213,7 @@ export default function FichasTecnicasPage() {
       margemLucro: fichaEditando.margemLucro,
       precoVenda: custos.precoVenda,
       modoPreparo: fichaEditando.modoPreparo,
+      imageUrl: fichaEditando.imageUrl,
       ingredientes: fichaEditando.ingredientes,
     });
 
@@ -572,6 +1236,7 @@ export default function FichasTecnicasPage() {
     startTransition(async () => {
       try {
         await deleteTechnicalSheet(id);
+        setFichaSelecionada((prev) => (prev?.id === id ? null : prev));
         await loadData();
       } catch (err: any) {
         console.error(err);
@@ -589,6 +1254,7 @@ export default function FichasTecnicasPage() {
     const headers = [
       "nome",
       "categoria",
+      "imagem_url",
       "rendimento",
       "peso_por_porcao",
       "tempo_preparo",
@@ -607,6 +1273,7 @@ export default function FichasTecnicasPage() {
       const row = [
         escapeCsv(ficha.nome),
         escapeCsv(ficha.categoria),
+        escapeCsv(ficha.imageUrl ?? ""),
         escapeCsv(ficha.rendimento),
         escapeCsv(ficha.pesoPorcao),
         escapeCsv(ficha.tempoPreparo),
@@ -637,116 +1304,47 @@ export default function FichasTecnicasPage() {
   };
 
   const handleImprimirFicha = (ficha: FichaTecnica) => {
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<title>Impressão - ${ficha.nome}</title>
-<style>
-  body{ font-family: Arial, sans-serif; padding: 24px; }
-  h1{ margin: 0 0 6px 0; font-size: 22px; }
-  .muted{ color:#555; margin:0 0 16px 0; }
-  .grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
-  .box{ border:1px solid #ddd; border-radius: 10px; padding: 10px; }
-  .label{ font-size: 12px; color:#666; margin-bottom: 4px; }
-  .value{ font-size: 14px; font-weight: 600; }
-  table{ width: 100%; border-collapse: collapse; margin-top: 10px; }
-  th,td{ border:1px solid #ddd; padding: 8px; font-size: 12px; }
-  th{ background:#f5f5f5; text-align:left; }
-  .right{ text-align:right; }
-  @media print { body{ padding:0; } }
-</style>
-</head>
-<body>
-  <h1>${ficha.nome}</h1>
-  <p class="muted">${ficha.categoria}</p>
-
-  <div class="grid">
-    <div class="box"><div class="label">Rendimento</div><div class="value">${ficha.rendimento} porções</div></div>
-    <div class="box"><div class="label">Peso por porção</div><div class="value">${ficha.pesoPorcao} g</div></div>
-    <div class="box"><div class="label">Tempo</div><div class="value">${ficha.tempoPreparo} min</div></div>
-    <div class="box"><div class="label">Preço de venda</div><div class="value">${formatCurrency(ficha.precoVenda)}</div></div>
-  </div>
-
-  <div class="grid">
-    <div class="box"><div class="label">Custo total</div><div class="value">${formatCurrency(ficha.custoTotal)}</div></div>
-    <div class="box"><div class="label">Custo por porção</div><div class="value">${formatCurrency(ficha.custoPorPorcao)}</div></div>
-    <div class="box"><div class="label">CMV</div><div class="value">${calcularCMV(
-      ficha.custoPorPorcao,
-      ficha.precoVenda
-    ).toFixed(1)}%</div></div>
-    <div class="box"><div class="label">Lucro unitário</div><div class="value">${formatCurrency(
-      calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao)
-    )}</div></div>
-  </div>
-
-  <h2 style="font-size:16px;margin:18px 0 8px 0;">Ingredientes</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Ingrediente</th>
-        <th>Uso</th>
-        <th>Compra</th>
-        <th class="right">Preço Compra</th>
-        <th class="right">Custo Unit.</th>
-        <th class="right">Custo Final</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${ficha.ingredientes
-        .map(
-          (i) => `
-        <tr>
-          <td>${i.nome}</td>
-          <td>${i.quantidadeUso} ${i.unidadeUso}</td>
-          <td>${i.quantidadeCompra} ${i.unidadeCompra}</td>
-          <td class="right">${formatCurrency(i.precoCompra)}</td>
-          <td class="right">${formatCurrency(i.custoUnitarioBase)}</td>
-          <td class="right">${formatCurrency(i.custoIngrediente)}</td>
-        </tr>
-      `
-        )
-        .join("")}
-    </tbody>
-  </table>
-
-  <script>
-    window.onload = () => {
-      window.focus();
-      window.print();
-    }
-  </script>
-</body>
-</html>
-    `.trim();
-
-    const w = window.open("", "_blank", "noopener,noreferrer,width=1000,height=700");
+    const html = buildPrintHtml(ficha, desiredServings, viewerTab);
+    const w = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
     if (!w) return;
     w.document.open();
     w.document.write(html);
     w.document.close();
   };
 
+  const fichaSelecionadaFiltrada = useMemo(() => {
+    if (!fichaSelecionada) return null;
+    return fichasFiltradas.find((f) => f.id === fichaSelecionada.id) ?? null;
+  }, [fichaSelecionada, fichasFiltradas]);
+
+  useEffect(() => {
+    if (!fichasFiltradas.length) {
+      setFichaSelecionada(null);
+      return;
+    }
+
+    if (!fichaSelecionadaFiltrada) {
+      setFichaSelecionada(fichasFiltradas[0]);
+    }
+  }, [fichasFiltradas, fichaSelecionadaFiltrada]);
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Fichas Técnicas</h1>
           <p className="text-gray-600">
-            Receitas com cálculo automático de custos, CMV e preço sugerido.
+            Visualização avançada, foto do prato, tela cheia, impressão e cálculo automático de custos.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={exportarRelatorioCustos}>
-            <span className="mr-2">📊</span>
-            Relatório de Custos
+            📊 Relatório de Custos
           </Button>
 
           <Button type="button" onClick={() => setShowNovaFicha(true)}>
-            <span className="mr-2">➕</span>
-            Nova Ficha Técnica
+            ➕ Nova Ficha Técnica
           </Button>
         </div>
       </div>
@@ -763,7 +1361,7 @@ export default function FichasTecnicasPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4 xl:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total de Receitas</CardTitle>
@@ -789,7 +1387,7 @@ export default function FichasTecnicasPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">CMV Médio</CardTitle>
-            <span className="text-2xl">📊</span>
+            <span className="text-2xl">📉</span>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{cmvMedio.toFixed(1)}%</div>
@@ -809,229 +1407,177 @@ export default function FichasTecnicasPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
-        {fichasTecnicas.length === 0 ? (
-          <Card className="col-span-full">
-            <CardContent className="p-6">
-              <p className="text-sm text-muted-foreground">
-                Nenhuma ficha técnica cadastrada ainda. Clique em <strong>Nova Ficha Técnica</strong> para criar a primeira.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          fichasTecnicas.map((ficha) => (
-            <Card key={ficha.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex justify-between items-start gap-4">
-                  <div>
-                    <CardTitle className="text-lg">{ficha.nome}</CardTitle>
-                    <CardDescription>{ficha.categoria}</CardDescription>
-                  </div>
-                  <Badge variant="secondary">{ficha.rendimento} porções</Badge>
-                </div>
-              </CardHeader>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <Card className="overflow-hidden">
+          <CardHeader className="space-y-4">
+            <div>
+              <CardTitle>Lista de fichas</CardTitle>
+              <CardDescription>
+                Selecione uma ficha para abrir a visualização detalhada.
+              </CardDescription>
+            </div>
 
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-gray-600">Custo por porção:</p>
-                    <p className="font-bold text-red-600">
-                      {formatCurrency(ficha.custoPorPorcao)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Preço de venda:</p>
-                    <p className="font-bold text-green-600">
-                      {formatCurrency(ficha.precoVenda)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">CMV:</p>
-                    <p className="font-bold">
-                      {calcularCMV(ficha.custoPorPorcao, ficha.precoVenda).toFixed(1)}%
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Lucro unitário:</p>
-                    <p className="font-bold text-blue-600">
-                      {formatCurrency(
-                        calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao)
-                      )}
-                    </p>
-                  </div>
-                </div>
+            <div className="space-y-3">
+              <div>
+                <Label htmlFor="search-fichas">Buscar</Label>
+                <Input
+                  id="search-fichas"
+                  placeholder="Nome, categoria ou ingrediente..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
 
-                <div className="text-sm text-gray-600">
-                  <p>⏱️ Tempo: {ficha.tempoPreparo} min</p>
-                  <p>⚖️ Peso por porção: {ficha.pesoPorcao} g</p>
-                  <p>🧾 Ingredientes: {ficha.ingredientes.length}</p>
-                </div>
+              <div>
+                <Label htmlFor="category-filter">Categoria</Label>
+                <select
+                  id="category-filter"
+                  className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  {categoriasDisponiveis.map((item) => (
+                    <option key={item} value={item}>
+                      {item === "TODAS" ? "Todas as categorias" : item}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </CardHeader>
 
-                <div className="flex flex-wrap gap-2">
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => setFichaSelecionada(ficha)}
-                      >
-                        Ver Detalhes
-                      </Button>
-                    </DialogTrigger>
+          <CardContent className="max-h-[820px] overflow-y-auto space-y-3">
+            {fichasFiltradas.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                Nenhuma ficha encontrada com os filtros informados.
+              </div>
+            ) : (
+              fichasFiltradas.map((ficha) => {
+                const ativa = fichaSelecionada?.id === ficha.id;
+                const cmv = calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
 
-                    <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto bg-white text-gray-900">
-                      <DialogHeader>
-                        <DialogTitle>{ficha.nome}</DialogTitle>
-                        <DialogDescription>
-                          Ficha técnica completa com ingredientes e custos
-                        </DialogDescription>
-                      </DialogHeader>
-
-                      {fichaSelecionada && (
-                        <div className="space-y-6">
-                          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                            <div>
-                              <Label>Categoria</Label>
-                              <p className="font-medium">{fichaSelecionada.categoria}</p>
-                            </div>
-                            <div>
-                              <Label>Rendimento</Label>
-                              <p className="font-medium">{fichaSelecionada.rendimento} porções</p>
-                            </div>
-                            <div>
-                              <Label>Peso por Porção</Label>
-                              <p className="font-medium">{fichaSelecionada.pesoPorcao} g</p>
-                            </div>
-                            <div>
-                              <Label>Tempo de Preparo</Label>
-                              <p className="font-medium">{fichaSelecionada.tempoPreparo} min</p>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4 rounded-lg bg-gray-50 p-4 md:grid-cols-4">
-                            <div>
-                              <Label>Custo Total</Label>
-                              <p className="font-bold text-red-600">
-                                {formatCurrency(fichaSelecionada.custoTotal)}
-                              </p>
-                            </div>
-                            <div>
-                              <Label>Custo por Porção</Label>
-                              <p className="font-bold text-red-600">
-                                {formatCurrency(fichaSelecionada.custoPorPorcao)}
-                              </p>
-                            </div>
-                            <div>
-                              <Label>Preço de Venda</Label>
-                              <p className="font-bold text-green-600">
-                                {formatCurrency(fichaSelecionada.precoVenda)}
-                              </p>
-                            </div>
-                            <div>
-                              <Label>CMV</Label>
-                              <p className="font-bold">
-                                {calcularCMV(
-                                  fichaSelecionada.custoPorPorcao,
-                                  fichaSelecionada.precoVenda
-                                ).toFixed(1)}
-                                %
-                              </p>
-                            </div>
-                          </div>
-
-                          <div>
-                            <Label>Modo de Preparo</Label>
-                            <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">
-                              {fichaSelecionada.modoPreparo || "Não informado."}
-                            </p>
-                          </div>
-
-                          <div>
-                            <h3 className="mb-4 text-lg font-semibold">Ingredientes</h3>
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Ingrediente</TableHead>
-                                  <TableHead>Uso</TableHead>
-                                  <TableHead>Compra</TableHead>
-                                  <TableHead>Preço Compra</TableHead>
-                                  <TableHead>Custo Unit.</TableHead>
-                                  <TableHead>Custo Final</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {fichaSelecionada.ingredientes.map((ingrediente) => (
-                                  <TableRow key={ingrediente.id}>
-                                    <TableCell className="font-medium">
-                                      {ingrediente.nome}
-                                    </TableCell>
-                                    <TableCell>
-                                      {ingrediente.quantidadeUso} {ingrediente.unidadeUso}
-                                    </TableCell>
-                                    <TableCell>
-                                      {ingrediente.quantidadeCompra} {ingrediente.unidadeCompra}
-                                    </TableCell>
-                                    <TableCell>
-                                      {formatCurrency(ingrediente.precoCompra)}
-                                    </TableCell>
-                                    <TableCell>
-                                      {formatCurrency(ingrediente.custoUnitarioBase)}
-                                    </TableCell>
-                                    <TableCell className="font-medium text-red-600">
-                                      {formatCurrency(ingrediente.custoIngrediente)}
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </div>
-                        </div>
-                      )}
-                    </DialogContent>
-                  </Dialog>
-
-                  <Button
+                return (
+                  <button
+                    key={ficha.id}
                     type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleEditarFicha(ficha)}
-                    title="Editar ficha"
-                    disabled={isPending}
+                    onClick={() => {
+                      setFichaSelecionada(ficha);
+                      setViewerTab("ingredientes");
+                    }}
+                    className={`w-full rounded-xl border p-4 text-left transition ${
+                      ativa
+                        ? "border-primary bg-primary/5 shadow-sm"
+                        : "border-border bg-white hover:bg-slate-50"
+                    }`}
                   >
-                    ✏️
-                  </Button>
+                    {ficha.imageUrl ? (
+                      <div className="relative mb-3 h-32 w-full overflow-hidden rounded-lg bg-slate-100">
+                        <Image
+                          src={ficha.imageUrl}
+                          alt={ficha.nome}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
+                      </div>
+                    ) : (
+                      <div className="mb-3 flex h-32 items-center justify-center rounded-lg bg-slate-100 text-xs text-muted-foreground">
+                        Sem imagem
+                      </div>
+                    )}
 
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleImprimirFicha(ficha)}
-                    title="Imprimir ficha"
-                  >
-                    🖨️
-                  </Button>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-gray-900">{ficha.nome}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {ficha.categoria || "Sem categoria"}
+                        </p>
+                      </div>
+                      <Badge variant={ativa ? "default" : "secondary"}>
+                        {ficha.rendimento} porções
+                      </Badge>
+                    </div>
 
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => excluirFicha(ficha.id)}
-                    title="Excluir ficha"
-                    disabled={isPending}
-                  >
-                    🗑️
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <p className="text-muted-foreground">Custo por porção</p>
+                        <p className="font-bold text-red-600">
+                          {formatCurrency(ficha.custoPorPorcao)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Preço sugerido</p>
+                        <p className="font-bold text-green-600">
+                          {formatCurrency(ficha.precoVenda)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">CMV</p>
+                        <p className="font-bold">{cmv.toFixed(1)}%</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Ingredientes</p>
+                        <p className="font-bold">{ficha.ingredientes.length}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 text-xs text-muted-foreground">
+                      ⏱️ {ficha.tempoPreparo} min • ⚖️ {ficha.pesoPorcao} g
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
+
+        <RecipeViewer
+          ficha={fichaSelecionadaFiltrada}
+          desiredServings={desiredServings}
+          setDesiredServings={setDesiredServings}
+          currentTab={viewerTab}
+          setCurrentTab={setViewerTab}
+          onEdit={handleEditarFicha}
+          onPrint={handleImprimirFicha}
+          onFullscreen={(ficha) => {
+            setFichaSelecionada(ficha);
+            setShowFullscreenViewer(true);
+          }}
+        />
       </div>
+
+      <Dialog open={showFullscreenViewer} onOpenChange={setShowFullscreenViewer}>
+        <DialogContent className="h-[95vh] max-w-[96vw] overflow-hidden bg-white p-0 text-gray-900">
+          <div className="flex h-full flex-col">
+            <DialogHeader className="border-b px-6 py-4">
+              <DialogTitle>Visualização em tela cheia</DialogTitle>
+              <DialogDescription>
+                Consulte a ficha técnica ampliada, com foto do prato, e imprima quando precisar.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              <RecipeViewer
+                ficha={fichaSelecionadaFiltrada}
+                desiredServings={desiredServings}
+                setDesiredServings={setDesiredServings}
+                currentTab={viewerTab}
+                setCurrentTab={setViewerTab}
+                onEdit={(ficha) => {
+                  setShowFullscreenViewer(false);
+                  handleEditarFicha(ficha);
+                }}
+                onPrint={handleImprimirFicha}
+                onFullscreen={() => undefined}
+              />
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {showEditarFicha && fichaEditando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white p-6">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-white p-6">
             <div className="mb-5 flex items-center justify-between">
               <h3 className="text-xl font-semibold">Editar Ficha Técnica</h3>
               <Button
@@ -1123,10 +1669,63 @@ export default function FichasTecnicasPage() {
                 />
               </div>
 
+              <div className="md:col-span-2 space-y-3">
+                <Label>Imagem do prato</Label>
+
+                {fichaEditando.imageUrl ? (
+                  <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
+                    <Image
+                      src={fichaEditando.imageUrl}
+                      alt={fichaEditando.nome}
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
+                ) : (
+                  <div className="flex h-40 items-center justify-center rounded-xl border border-dashed bg-slate-50 text-sm text-muted-foreground">
+                    Sem imagem cadastrada
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    ref={editImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleEditImageSelected}
+                  />
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => editImageInputRef.current?.click()}
+                    disabled={uploadingImage}
+                  >
+                    {uploadingImage ? "Enviando imagem..." : "Enviar nova imagem"}
+                  </Button>
+
+                  {fichaEditando.imageUrl ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        setFichaEditando((prev) =>
+                          prev ? { ...prev, imageUrl: null } : prev
+                        )
+                      }
+                    >
+                      Remover imagem
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
               <div className="md:col-span-2">
                 <Label>Modo de preparo</Label>
                 <Textarea
-                  rows={5}
+                  rows={6}
                   value={fichaEditando.modoPreparo}
                   onChange={(e) =>
                     setFichaEditando((prev) =>
@@ -1181,7 +1780,7 @@ export default function FichasTecnicasPage() {
                     id="nome"
                     value={nome}
                     onChange={(e) => setNome(e.target.value)}
-                    placeholder="Ex.: Calda de Caramelo"
+                    placeholder="Ex.: Calda de Chocolate"
                   />
                 </div>
 
@@ -1191,7 +1790,7 @@ export default function FichasTecnicasPage() {
                     id="categoria"
                     value={categoria}
                     onChange={(e) => setCategoria(e.target.value)}
-                    placeholder="Ex.: Secos"
+                    placeholder="Ex.: Sobremesas"
                   />
                 </div>
 
@@ -1240,6 +1839,55 @@ export default function FichasTecnicasPage() {
                 </div>
               </div>
 
+              <div className="space-y-3">
+                <Label>Imagem do prato</Label>
+
+                {imageUrl ? (
+                  <div className="relative h-64 w-full overflow-hidden rounded-xl border bg-slate-100">
+                    <Image
+                      src={imageUrl}
+                      alt={nome || "Imagem da receita"}
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
+                ) : (
+                  <div className="flex h-44 items-center justify-center rounded-xl border border-dashed bg-slate-50 text-sm text-muted-foreground">
+                    Nenhuma imagem enviada
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    ref={newImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleNewImageSelected}
+                  />
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => newImageInputRef.current?.click()}
+                    disabled={uploadingImage}
+                  >
+                    {uploadingImage ? "Enviando imagem..." : "Enviar imagem do prato"}
+                  </Button>
+
+                  {imageUrl ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setImageUrl(null)}
+                    >
+                      Remover imagem
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
               <div>
                 <Label htmlFor="modo">Modo de Preparo</Label>
                 <Textarea
@@ -1247,14 +1895,14 @@ export default function FichasTecnicasPage() {
                   value={modoPreparo}
                   onChange={(e) => setModoPreparo(e.target.value)}
                   placeholder="Descreva o modo de preparo da receita..."
-                  rows={4}
+                  rows={5}
                 />
               </div>
 
               <div>
                 <h4 className="mb-4 text-lg font-semibold">Ingredientes</h4>
 
-                <div className="rounded-lg border p-4 space-y-4">
+                <div className="space-y-4 rounded-lg border p-4">
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
                     <div className="md:col-span-3">
                       <Label>Produto cadastrado</Label>
@@ -1385,11 +2033,15 @@ export default function FichasTecnicasPage() {
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                       <div>
                         <p className="text-gray-600">Custo unitário base</p>
-                        <p className="font-bold">{formatCurrency(previewIngrediente.custoUnitarioBase)}</p>
+                        <p className="font-bold">
+                          {formatCurrency(previewIngrediente.custoUnitarioBase)}
+                        </p>
                       </div>
                       <div>
                         <p className="text-gray-600">Custo final do ingrediente</p>
-                        <p className="font-bold text-red-600">{formatCurrency(previewIngrediente.custoIngrediente)}</p>
+                        <p className="font-bold text-red-600">
+                          {formatCurrency(previewIngrediente.custoIngrediente)}
+                        </p>
                       </div>
                       <div>
                         <p className="text-gray-600">Modo</p>
@@ -1466,7 +2118,7 @@ export default function FichasTecnicasPage() {
                   const preview = calcularCustos(ingredientes, rendimento, margemLucro);
                   const cmv = calcularCMV(preview.custoPorPorcao, preview.precoVenda);
                   return (
-                    <div className="grid grid-cols-2 gap-4 md:grid-cols-4 text-sm">
+                    <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
                       <div>
                         <p className="text-gray-600">Custo total</p>
                         <p className="font-bold text-red-600">

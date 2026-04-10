@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { createClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -33,8 +32,10 @@ import {
 import {
   createTechnicalSheet,
   deleteTechnicalSheet,
+  deleteTechnicalSheetImageAction,
   listTechnicalSheets,
   updateTechnicalSheet,
+  uploadTechnicalSheetImageAction,
   type TechnicalSheetInput,
 } from "./actions";
 
@@ -74,6 +75,7 @@ type FichaTecnica = {
   precoVenda: number;
   modoPreparo: string;
   imageUrl: string | null;
+  imagePath: string | null;
   ingredientes: Ingrediente[];
   createdAt: string;
   updatedAt: string;
@@ -185,6 +187,7 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
     precoVenda: Number(raw.sale_price ?? 0),
     modoPreparo: String(raw.preparation_method ?? ""),
     imageUrl: raw.image_url ? String(raw.image_url) : null,
+    imagePath: raw.image_path ? String(raw.image_path) : null,
     createdAt: String(raw.created_at ?? ""),
     updatedAt: String(raw.updated_at ?? ""),
     ingredientes: Array.isArray(raw.ingredients)
@@ -226,6 +229,7 @@ function toActionPayload(
     cost_per_portion: ficha.custoPorPorcao,
     preparation_method: ficha.modoPreparo,
     image_url: ficha.imageUrl || null,
+    image_path: ficha.imagePath || null,
     ingredients: ficha.ingredientes.map((item, index) => ({
       product_id: item.productId,
       ingredient_name: item.nome,
@@ -757,14 +761,6 @@ function RecipeViewer({
 }
 
 export default function FichasTecnicasPage() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  const supabase = useMemo(() => {
-    if (!supabaseUrl || !supabaseAnonKey) return null;
-    return createClient(supabaseUrl, supabaseAnonKey);
-  }, [supabaseUrl, supabaseAnonKey]);
-
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingFichas, setLoadingFichas] = useState(true);
@@ -793,6 +789,7 @@ export default function FichasTecnicasPage() {
   const [margemLucro, setMargemLucro] = useState<number>(200);
   const [modoPreparo, setModoPreparo] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imagePath, setImagePath] = useState<string | null>(null);
 
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const [editandoIngredienteId, setEditandoIngredienteId] = useState<string | null>(null);
@@ -809,41 +806,6 @@ export default function FichasTecnicasPage() {
 
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
   const editImageInputRef = useRef<HTMLInputElement | null>(null);
-
-  async function uploadTechnicalSheetImage(file: File) {
-    if (!supabase) {
-      throw new Error(
-        "Variáveis públicas do Supabase não encontradas. Verifique NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY."
-      );
-    }
-
-    const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-    const safeName = file.name
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9.-]/g, "-")
-      .toLowerCase();
-
-    const filePath = `recipes/${Date.now()}-${safeName || `imagem.${extension}`}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("technical-sheets")
-      .upload(filePath, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error(uploadError);
-      throw new Error("Não foi possível enviar a imagem para o Supabase.");
-    }
-
-    const { data } = supabase.storage
-      .from("technical-sheets")
-      .getPublicUrl(filePath);
-
-    return data.publicUrl;
-  }
 
   const loadData = async () => {
     try {
@@ -995,6 +957,7 @@ export default function FichasTecnicasPage() {
     setMargemLucro(200);
     setModoPreparo("");
     setImageUrl(null);
+    setImagePath(null);
     setIngredientes([]);
     resetDraftIngrediente();
   };
@@ -1101,8 +1064,9 @@ export default function FichasTecnicasPage() {
 
     try {
       setUploadingImage(true);
-      const publicUrl = await uploadTechnicalSheetImage(file);
-      setImageUrl(publicUrl);
+      const result = await uploadTechnicalSheetImageAction(file);
+      setImageUrl(result.imageUrl);
+      setImagePath(result.imagePath);
     } catch (error: any) {
       console.error(error);
       alert(error?.message ?? "Erro ao enviar imagem.");
@@ -1120,9 +1084,22 @@ export default function FichasTecnicasPage() {
 
     try {
       setUploadingImage(true);
-      const publicUrl = await uploadTechnicalSheetImage(file);
+
+      const oldImagePath = fichaEditando.imagePath;
+      const result = await uploadTechnicalSheetImageAction(file);
+
+      if (oldImagePath) {
+        await deleteTechnicalSheetImageAction(oldImagePath);
+      }
+
       setFichaEditando((prev) =>
-        prev ? { ...prev, imageUrl: publicUrl } : prev
+        prev
+          ? {
+              ...prev,
+              imageUrl: result.imageUrl,
+              imagePath: result.imagePath,
+            }
+          : prev
       );
     } catch (error: any) {
       console.error(error);
@@ -1168,6 +1145,7 @@ export default function FichasTecnicasPage() {
       precoVenda: custos.precoVenda,
       modoPreparo: modoPreparo.trim(),
       imageUrl,
+      imagePath,
       ingredientes,
     });
 
@@ -1214,6 +1192,7 @@ export default function FichasTecnicasPage() {
       precoVenda: custos.precoVenda,
       modoPreparo: fichaEditando.modoPreparo,
       imageUrl: fichaEditando.imageUrl,
+      imagePath: fichaEditando.imagePath,
       ingredientes: fichaEditando.ingredientes,
     });
 
@@ -1254,7 +1233,8 @@ export default function FichasTecnicasPage() {
     const headers = [
       "nome",
       "categoria",
-      "imagem_url",
+      "image_url",
+      "image_path",
       "rendimento",
       "peso_por_porcao",
       "tempo_preparo",
@@ -1274,6 +1254,7 @@ export default function FichasTecnicasPage() {
         escapeCsv(ficha.nome),
         escapeCsv(ficha.categoria),
         escapeCsv(ficha.imageUrl ?? ""),
+        escapeCsv(ficha.imagePath ?? ""),
         escapeCsv(ficha.rendimento),
         escapeCsv(ficha.pesoPorcao),
         escapeCsv(ficha.tempoPreparo),
@@ -1710,11 +1691,27 @@ export default function FichasTecnicasPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() =>
-                        setFichaEditando((prev) =>
-                          prev ? { ...prev, imageUrl: null } : prev
-                        )
-                      }
+                      onClick={async () => {
+                        if (!fichaEditando.imagePath) {
+                          setFichaEditando((prev) =>
+                            prev ? { ...prev, imageUrl: null, imagePath: null } : prev
+                          );
+                          return;
+                        }
+
+                        try {
+                          setUploadingImage(true);
+                          await deleteTechnicalSheetImageAction(fichaEditando.imagePath);
+                          setFichaEditando((prev) =>
+                            prev ? { ...prev, imageUrl: null, imagePath: null } : prev
+                          );
+                        } catch (error: any) {
+                          console.error(error);
+                          alert(error?.message ?? "Erro ao remover imagem.");
+                        } finally {
+                          setUploadingImage(false);
+                        }
+                      }}
                     >
                       Remover imagem
                     </Button>
@@ -1880,7 +1877,21 @@ export default function FichasTecnicasPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setImageUrl(null)}
+                      onClick={async () => {
+                        try {
+                          setUploadingImage(true);
+                          if (imagePath) {
+                            await deleteTechnicalSheetImageAction(imagePath);
+                          }
+                          setImageUrl(null);
+                          setImagePath(null);
+                        } catch (error: any) {
+                          console.error(error);
+                          alert(error?.message ?? "Erro ao remover imagem.");
+                        } finally {
+                          setUploadingImage(false);
+                        }
+                      }}
                     >
                       Remover imagem
                     </Button>

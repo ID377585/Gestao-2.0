@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
+const TECHNICAL_SHEET_BUCKET = "technical-sheet-images";
+
 export type TechnicalSheetIngredientInput = {
   product_id: string | null;
   ingredient_name: string;
@@ -32,6 +34,7 @@ export type TechnicalSheetInput = {
   cost_per_portion: number;
   preparation_method: string;
   image_url?: string | null;
+  image_path?: string | null;
   ingredients: TechnicalSheetIngredientInput[];
 };
 
@@ -63,6 +66,74 @@ async function getContext() {
   };
 }
 
+function sanitizeFileName(fileName: string) {
+  return fileName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .toLowerCase();
+}
+
+export async function uploadTechnicalSheetImageAction(file: File) {
+  const { supabase, establishmentId, userId } = await getContext();
+
+  if (!file) {
+    throw new Error("Nenhum arquivo foi enviado.");
+  }
+
+  if (!file.type.startsWith("image/")) {
+    throw new Error("O arquivo enviado precisa ser uma imagem.");
+  }
+
+  const maxSizeInBytes = 10 * 1024 * 1024;
+  if (file.size > maxSizeInBytes) {
+    throw new Error("A imagem deve ter no máximo 10MB.");
+  }
+
+  const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const safeName = sanitizeFileName(file.name);
+  const filePath = `${establishmentId}/${userId}/${Date.now()}-${safeName || `imagem.${extension}`}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(TECHNICAL_SHEET_BUCKET)
+    .upload(filePath, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type,
+    });
+
+  if (uploadError) {
+    console.error("Erro ao enviar imagem da ficha técnica:", uploadError);
+    throw new Error(
+      `Não foi possível enviar a imagem para o Supabase. ${uploadError.message}`
+    );
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from(TECHNICAL_SHEET_BUCKET)
+    .getPublicUrl(filePath);
+
+  return {
+    imageUrl: publicUrlData.publicUrl,
+    imagePath: filePath,
+  };
+}
+
+export async function deleteTechnicalSheetImageAction(imagePath: string) {
+  const { supabase } = await getContext();
+
+  if (!imagePath?.trim()) return;
+
+  const { error } = await supabase.storage
+    .from(TECHNICAL_SHEET_BUCKET)
+    .remove([imagePath]);
+
+  if (error) {
+    console.error("Erro ao excluir imagem da ficha técnica:", error);
+  }
+}
+
 export async function listTechnicalSheets() {
   const { supabase, establishmentId } = await getContext();
 
@@ -82,6 +153,7 @@ export async function listTechnicalSheets() {
       cost_per_portion,
       preparation_method,
       image_url,
+      image_path,
       created_by,
       created_at,
       updated_at,
@@ -168,6 +240,7 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
       cost_per_portion: input.cost_per_portion,
       preparation_method: input.preparation_method?.trim() || null,
       image_url: input.image_url?.trim() || null,
+      image_path: input.image_path?.trim() || null,
       created_by: userId,
     })
     .select("id")
@@ -222,7 +295,7 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
 
   const { data: current, error: currentError } = await supabase
     .from("technical_sheets")
-    .select("id, establishment_id")
+    .select("id, establishment_id, image_path")
     .eq("id", input.id)
     .single();
 
@@ -233,6 +306,9 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
   if ((current as any).establishment_id !== establishmentId) {
     throw new Error("Ficha técnica não pertence ao estabelecimento atual.");
   }
+
+  const currentImagePath = (current as any).image_path as string | null;
+  const newImagePath = input.image_path?.trim() || null;
 
   const { error: updateError } = await supabase
     .from("technical_sheets")
@@ -248,6 +324,7 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
       cost_per_portion: input.cost_per_portion,
       preparation_method: input.preparation_method?.trim() || null,
       image_url: input.image_url?.trim() || null,
+      image_path: newImagePath,
     })
     .eq("id", input.id)
     .eq("establishment_id", establishmentId);
@@ -255,6 +332,16 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
   if (updateError) {
     console.error("Erro ao atualizar ficha técnica:", updateError);
     throw new Error("Não foi possível atualizar a ficha técnica.");
+  }
+
+  if (currentImagePath && currentImagePath !== newImagePath) {
+    const { error: removeOldImageError } = await supabase.storage
+      .from(TECHNICAL_SHEET_BUCKET)
+      .remove([currentImagePath]);
+
+    if (removeOldImageError) {
+      console.error("Erro ao remover imagem antiga da ficha:", removeOldImageError);
+    }
   }
 
   const { error: deleteIngredientsError } = await supabase
@@ -302,6 +389,17 @@ export async function deleteTechnicalSheet(id: string) {
 
   if (!id) throw new Error("ID da ficha não informado.");
 
+  const { data: current, error: currentError } = await supabase
+    .from("technical_sheets")
+    .select("image_path")
+    .eq("id", id)
+    .eq("establishment_id", establishmentId)
+    .single();
+
+  if (currentError) {
+    console.error("Erro ao buscar imagem da ficha antes de excluir:", currentError);
+  }
+
   const { error } = await supabase
     .from("technical_sheets")
     .delete()
@@ -311,6 +409,17 @@ export async function deleteTechnicalSheet(id: string) {
   if (error) {
     console.error("Erro ao excluir ficha técnica:", error);
     throw new Error("Não foi possível excluir a ficha técnica.");
+  }
+
+  const imagePath = (current as any)?.image_path as string | null;
+  if (imagePath) {
+    const { error: removeImageError } = await supabase.storage
+      .from(TECHNICAL_SHEET_BUCKET)
+      .remove([imagePath]);
+
+    if (removeImageError) {
+      console.error("Erro ao excluir imagem da ficha técnica:", removeImageError);
+    }
   }
 
   revalidatePath("/dashboard/fichas-tecnicas");

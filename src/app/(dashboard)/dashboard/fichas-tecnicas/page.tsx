@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,6 +29,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  createTechnicalSheet,
+  deleteTechnicalSheet,
+  listTechnicalSheets,
+  updateTechnicalSheet,
+  type TechnicalSheetInput,
+} from "./actions";
 
 type ProductOption = {
   id: string;
@@ -69,8 +76,6 @@ type FichaTecnica = {
   createdAt: string;
   updatedAt: string;
 };
-
-const STORAGE_KEY = "gestify:fichas-tecnicas:v2";
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -122,31 +127,6 @@ function calcularCustos(
   };
 }
 
-function loadSavedFichas(): FichaTecnica[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveFichas(data: FichaTecnica[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
-
-function escapeCsv(val: unknown) {
-  const s = String(val ?? "");
-  if (/[",;\n]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
-
 function calcularCustoIngrediente(input: {
   quantidadeUso: number;
   precoCompra: number;
@@ -177,9 +157,89 @@ function calcularCustoIngrediente(input: {
   };
 }
 
+function normalizeFichaFromDb(raw: any): FichaTecnica {
+  return {
+    id: String(raw.id),
+    nome: String(raw.name ?? ""),
+    categoria: String(raw.category ?? ""),
+    rendimento: Number(raw.yield_portions ?? 0),
+    pesoPorcao: Number(raw.portion_weight ?? 0),
+    tempoPreparo: Number(raw.prep_time_minutes ?? 0),
+    custoTotal: Number(raw.total_cost ?? 0),
+    custoPorPorcao: Number(raw.cost_per_portion ?? 0),
+    margemLucro: Number(raw.profit_margin_percent ?? 0),
+    precoVenda: Number(raw.sale_price ?? 0),
+    modoPreparo: String(raw.preparation_method ?? ""),
+    createdAt: String(raw.created_at ?? ""),
+    updatedAt: String(raw.updated_at ?? ""),
+    ingredientes: Array.isArray(raw.ingredients)
+      ? raw.ingredients
+          .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+          .map((i: any) => ({
+            id: String(i.id),
+            productId: i.product_id ? String(i.product_id) : null,
+            nome: String(i.ingredient_name ?? ""),
+            quantidadeUso: Number(i.usage_quantity ?? 0),
+            unidadeUso: String(i.usage_unit ?? "UN").toUpperCase(),
+            precoCompra: Number(i.purchase_price ?? 0),
+            quantidadeCompra: Number(i.purchase_quantity ?? 1),
+            unidadeCompra: String(i.purchase_unit ?? "UN").toUpperCase(),
+            custoUnitarioBase: Number(i.base_unit_cost ?? 0),
+            custoIngrediente: Number(i.final_cost ?? 0),
+            fatorCorrecao: Number(i.correction_factor ?? 1),
+            fatorCoccao: Number(i.cooking_factor ?? 1),
+          }))
+      : [],
+  };
+}
+
+function toActionPayload(
+  ficha: Omit<FichaTecnica, "createdAt" | "updatedAt"> & {
+    id?: string;
+  }
+): TechnicalSheetInput {
+  return {
+    id: ficha.id,
+    name: ficha.nome,
+    category: ficha.categoria,
+    yield_portions: ficha.rendimento,
+    portion_weight: ficha.pesoPorcao,
+    prep_time_minutes: ficha.tempoPreparo,
+    profit_margin_percent: ficha.margemLucro,
+    sale_price: ficha.precoVenda,
+    total_cost: ficha.custoTotal,
+    cost_per_portion: ficha.custoPorPorcao,
+    preparation_method: ficha.modoPreparo,
+    ingredients: ficha.ingredientes.map((item, index) => ({
+      product_id: item.productId,
+      ingredient_name: item.nome,
+      usage_quantity: item.quantidadeUso,
+      usage_unit: item.unidadeUso,
+      purchase_price: item.precoCompra,
+      purchase_quantity: item.quantidadeCompra,
+      purchase_unit: item.unidadeCompra,
+      correction_factor: item.fatorCorrecao,
+      cooking_factor: item.fatorCoccao,
+      base_unit_cost: item.custoUnitarioBase,
+      final_cost: item.custoIngrediente,
+      sort_order: index,
+    })),
+  };
+}
+
+function escapeCsv(val: unknown) {
+  const s = String(val ?? "");
+  if (/[",;\n]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
 export default function FichasTecnicasPage() {
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
+  const [loadingFichas, setLoadingFichas] = useState(true);
+  const [isPending, startTransition] = useTransition();
 
   const [fichasTecnicas, setFichasTecnicas] = useState<FichaTecnica[]>([]);
   const [fichaSelecionada, setFichaSelecionada] = useState<FichaTecnica | null>(
@@ -211,19 +271,20 @@ export default function FichasTecnicasPage() {
   const [draftFCorrecao, setDraftFCorrecao] = useState<number>(1);
   const [draftFCoccao, setDraftFCoccao] = useState<number>(1);
 
-  useEffect(() => {
-    const bootstrap = async () => {
-      try {
-        setLoadingProducts(true);
-        const res = await fetch("/api/products", { cache: "no-store" });
+  const loadData = async () => {
+    try {
+      setLoadingProducts(true);
+      setLoadingFichas(true);
 
-        if (!res.ok) {
-          throw new Error("Falha ao carregar produtos.");
-        }
+      const [productsRes, fichasRes] = await Promise.all([
+        fetch("/api/products", { cache: "no-store" }),
+        listTechnicalSheets(),
+      ]);
 
-        const data = await res.json();
-        const normalized = Array.isArray(data)
-          ? data.map((p: any) => ({
+      if (productsRes.ok) {
+        const productsData = await productsRes.json();
+        const normalized = Array.isArray(productsData)
+          ? productsData.map((p: any) => ({
               id: String(p.id),
               name: String(p.name ?? ""),
               price: Number(p.price ?? 0),
@@ -231,25 +292,26 @@ export default function FichasTecnicasPage() {
               sector_category: p.sector_category ?? p.category ?? "",
             }))
           : [];
-
         setProducts(normalized);
-      } catch (err) {
-        console.error("Erro ao carregar produtos para fichas técnicas:", err);
+      } else {
         setProducts([]);
-      } finally {
-        setLoadingProducts(false);
       }
 
-      const saved = loadSavedFichas();
-      setFichasTecnicas(saved);
-    };
-
-    bootstrap();
-  }, []);
+      setFichasTecnicas(
+        Array.isArray(fichasRes) ? fichasRes.map(normalizeFichaFromDb) : []
+      );
+    } catch (err) {
+      console.error("Erro ao carregar fichas técnicas:", err);
+      alert("Erro ao carregar fichas técnicas.");
+    } finally {
+      setLoadingProducts(false);
+      setLoadingFichas(false);
+    }
+  };
 
   useEffect(() => {
-    saveFichas(fichasTecnicas);
-  }, [fichasTecnicas]);
+    loadData();
+  }, []);
 
   const custoMedio = useMemo(() => {
     if (!fichasTecnicas.length) return 0;
@@ -435,8 +497,7 @@ export default function FichasTecnicasPage() {
 
     const custos = calcularCustos(ingredientes, rendimento, margemLucro);
 
-    const novaFicha: FichaTecnica = {
-      id: uid(),
+    const payload = toActionPayload({
       nome: nome.trim(),
       categoria: categoria.trim(),
       rendimento: toNumber(rendimento, 1),
@@ -448,13 +509,19 @@ export default function FichasTecnicasPage() {
       precoVenda: custos.precoVenda,
       modoPreparo: modoPreparo.trim(),
       ingredientes,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    });
 
-    setFichasTecnicas((prev) => [novaFicha, ...prev]);
-    setShowNovaFicha(false);
-    resetForm();
+    startTransition(async () => {
+      try {
+        await createTechnicalSheet(payload);
+        setShowNovaFicha(false);
+        resetForm();
+        await loadData();
+      } catch (err: any) {
+        console.error(err);
+        alert(err?.message ?? "Erro ao salvar ficha técnica.");
+      }
+    });
   };
 
   const handleEditarFicha = (ficha: FichaTecnica) => {
@@ -471,24 +538,46 @@ export default function FichasTecnicasPage() {
       fichaEditando.margemLucro
     );
 
-    const atualizada: FichaTecnica = {
-      ...fichaEditando,
+    const payload = toActionPayload({
+      id: fichaEditando.id,
+      nome: fichaEditando.nome,
+      categoria: fichaEditando.categoria,
+      rendimento: fichaEditando.rendimento,
+      pesoPorcao: fichaEditando.pesoPorcao,
+      tempoPreparo: fichaEditando.tempoPreparo,
       custoTotal: custos.custoTotal,
       custoPorPorcao: custos.custoPorPorcao,
+      margemLucro: fichaEditando.margemLucro,
       precoVenda: custos.precoVenda,
-      updatedAt: new Date().toISOString(),
-    };
+      modoPreparo: fichaEditando.modoPreparo,
+      ingredientes: fichaEditando.ingredientes,
+    });
 
-    setFichasTecnicas((prev) =>
-      prev.map((f) => (f.id === atualizada.id ? atualizada : f))
-    );
-    setFichaEditando(null);
-    setShowEditarFicha(false);
+    startTransition(async () => {
+      try {
+        await updateTechnicalSheet(payload);
+        setFichaEditando(null);
+        setShowEditarFicha(false);
+        await loadData();
+      } catch (err: any) {
+        console.error(err);
+        alert(err?.message ?? "Erro ao atualizar ficha técnica.");
+      }
+    });
   };
 
   const excluirFicha = (id: string) => {
     if (!confirm("Deseja realmente excluir esta ficha técnica?")) return;
-    setFichasTecnicas((prev) => prev.filter((f) => f.id !== id));
+
+    startTransition(async () => {
+      try {
+        await deleteTechnicalSheet(id);
+        await loadData();
+      } catch (err: any) {
+        console.error(err);
+        alert(err?.message ?? "Erro ao excluir ficha técnica.");
+      }
+    });
   };
 
   const exportarRelatorioCustos = () => {
@@ -662,9 +751,9 @@ export default function FichasTecnicasPage() {
         </div>
       </div>
 
-      {loadingProducts && (
+      {(loadingProducts || loadingFichas) && (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800">
-          Carregando produtos para usar como ingredientes...
+          Carregando fichas técnicas...
         </div>
       )}
 
@@ -908,6 +997,7 @@ export default function FichasTecnicasPage() {
                     variant="outline"
                     onClick={() => handleEditarFicha(ficha)}
                     title="Editar ficha"
+                    disabled={isPending}
                   >
                     ✏️
                   </Button>
@@ -928,6 +1018,7 @@ export default function FichasTecnicasPage() {
                     variant="outline"
                     onClick={() => excluirFicha(ficha.id)}
                     title="Excluir ficha"
+                    disabled={isPending}
                   >
                     🗑️
                   </Button>
@@ -1057,7 +1148,7 @@ export default function FichasTecnicasPage() {
               >
                 Cancelar
               </Button>
-              <Button type="button" onClick={salvarEdicaoFicha}>
+              <Button type="button" onClick={salvarEdicaoFicha} disabled={isPending}>
                 Salvar alterações
               </Button>
             </div>
@@ -1415,8 +1506,8 @@ export default function FichasTecnicasPage() {
                   Cancelar
                 </Button>
 
-                <Button type="button" onClick={salvarNovaFicha}>
-                  Salvar Ficha Técnica
+                <Button type="button" onClick={salvarNovaFicha} disabled={isPending}>
+                  {isPending ? "Salvando..." : "Salvar Ficha Técnica"}
                 </Button>
               </div>
             </div>

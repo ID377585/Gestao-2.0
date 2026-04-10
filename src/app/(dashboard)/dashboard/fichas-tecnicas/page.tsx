@@ -1056,59 +1056,67 @@ export default function FichasTecnicasPage() {
     }
   };
 
-  const handleNewImageSelected = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+const handleNewImageSelected = async (
+  event: React.ChangeEvent<HTMLInputElement>
+) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
 
-    try {
-      setUploadingImage(true);
-      const result = await uploadTechnicalSheetImageAction(file);
-      setImageUrl(result.imageUrl);
-      setImagePath(result.imagePath);
-    } catch (error: any) {
-      console.error(error);
-      alert(error?.message ?? "Erro ao enviar imagem.");
-    } finally {
-      setUploadingImage(false);
-      event.target.value = "";
-    }
-  };
+  try {
+    setUploadingImage(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const result = await uploadTechnicalSheetImageAction(formData);
+    setImageUrl(result.imageUrl);
+    setImagePath(result.imagePath);
+  } catch (error: any) {
+    console.error(error);
+    alert(error?.message ?? "Erro ao enviar imagem.");
+  } finally {
+    setUploadingImage(false);
+    event.target.value = "";
+  }
+};
 
   const handleEditImageSelected = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file || !fichaEditando) return;
+  event: React.ChangeEvent<HTMLInputElement>
+) => {
+  const file = event.target.files?.[0];
+  if (!file || !fichaEditando) return;
 
-    try {
-      setUploadingImage(true);
+  try {
+    setUploadingImage(true);
 
-      const oldImagePath = fichaEditando.imagePath;
-      const result = await uploadTechnicalSheetImageAction(file);
+    const oldImagePath = fichaEditando.imagePath;
 
-      if (oldImagePath) {
-        await deleteTechnicalSheetImageAction(oldImagePath);
-      }
+    const formData = new FormData();
+    formData.append("file", file);
 
-      setFichaEditando((prev) =>
-        prev
-          ? {
-              ...prev,
-              imageUrl: result.imageUrl,
-              imagePath: result.imagePath,
-            }
-          : prev
-      );
-    } catch (error: any) {
-      console.error(error);
-      alert(error?.message ?? "Erro ao enviar imagem.");
-    } finally {
-      setUploadingImage(false);
-      event.target.value = "";
+    const result = await uploadTechnicalSheetImageAction(formData);
+
+    if (oldImagePath) {
+      await deleteTechnicalSheetImageAction(oldImagePath);
     }
-  };
+
+    setFichaEditando((prev) =>
+      prev
+        ? {
+            ...prev,
+            imageUrl: result.imageUrl,
+            imagePath: result.imagePath,
+          }
+        : prev
+    );
+  } catch (error: any) {
+    console.error(error);
+    alert(error?.message ?? "Erro ao enviar imagem.");
+  } finally {
+    setUploadingImage(false);
+    event.target.value = "";
+  }
+};
 
   const salvarNovaFicha = () => {
     if (!nome.trim()) {

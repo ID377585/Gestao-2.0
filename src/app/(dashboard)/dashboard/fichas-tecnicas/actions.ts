@@ -75,12 +75,16 @@ function sanitizeFileName(fileName: string) {
     .toLowerCase();
 }
 
-export async function uploadTechnicalSheetImageAction(file: File) {
+export async function uploadTechnicalSheetImageAction(formData: FormData) {
   const { supabase, establishmentId, userId } = await getContext();
 
-  if (!file) {
-    throw new Error("Nenhum arquivo foi enviado.");
+  const fileEntry = formData.get("file");
+
+  if (!(fileEntry instanceof File)) {
+    throw new Error("Nenhum arquivo de imagem foi enviado.");
   }
+
+  const file = fileEntry;
 
   if (!file.type.startsWith("image/")) {
     throw new Error("O arquivo enviado precisa ser uma imagem.");

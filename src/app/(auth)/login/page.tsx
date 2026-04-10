@@ -162,20 +162,6 @@ function LoginInner() {
                   </Link>
                 </div>
               </form>
-
-              <div className="mt-6 rounded-xl bg-slate-100 p-4">
-                <p className="text-sm font-medium text-slate-700 mb-2">
-                  Credenciais de demo:
-                </p>
-                <p className="text-sm text-slate-600">Email: admin@gestao2.com</p>
-                <p className="text-sm text-slate-600">Senha: 123456</p>
-                <p className="mt-2 text-xs text-slate-500">
-                  * Essas credenciais precisam existir no Supabase Auth.
-                </p>
-                <p className="mt-2 text-xs text-slate-500">
-                  * Em ambiente de desenvolvimento, se não existir role, será definido role=admin no user_metadata.
-                </p>
-              </div>
             </CardContent>
           </Card>
 

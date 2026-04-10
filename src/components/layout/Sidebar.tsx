@@ -77,13 +77,8 @@ export function Sidebar({ className }: SidebarProps) {
     return (
       <div className={cn("flex h-full flex-col bg-white", isDesktop ? "min-h-screen" : "")}>
         <div className="flex h-16 shrink-0 items-center justify-between border-b px-4">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex min-w-0 items-center">
             <GestifyMark size={40} compact={variant === "desktop" && collapsed} />
-            {(variant === "mobile" || !collapsed) && (
-              <span className="truncate text-xl font-black tracking-tight text-slate-950">
-                Gestify
-              </span>
-            )}
           </div>
 
           {isDesktop ? (

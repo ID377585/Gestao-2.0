@@ -101,11 +101,8 @@ export function SidebarMobile() {
 
           <div className="fixed left-0 top-0 flex h-full w-72 flex-col overflow-hidden bg-white shadow-xl">
             <div className="flex h-16 shrink-0 items-center justify-between border-b px-4">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center">
                 <GestifyMark size={40} compact />
-                <div className="text-xl font-black tracking-tight text-slate-950">
-                  Gestify
-                </div>
               </div>
 
               <Button

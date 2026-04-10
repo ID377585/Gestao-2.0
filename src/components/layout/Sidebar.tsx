@@ -28,10 +28,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { GestifyMark } from "@/components/brand/GestifyMark";
 
-/* ======================
-   MENU CONFIG
-====================== */
 const menuItems = [
   { title: "Pedidos", href: "/dashboard/pedidos", icon: ClipboardList },
   { title: "Produção", href: "/dashboard/producao", icon: Factory },
@@ -57,15 +55,12 @@ interface SidebarProps {
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
 
-  const [collapsed, setCollapsed] = useState(false); // desktop
-  const [mobileOpen, setMobileOpen] = useState(false); // mobile
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(href + "/");
 
-  // ✅ Aqui é onde o "vão" some:
-  // - aberto  = 18rem (equiv. w-72)
-  // - fechado = 5rem  (equiv. w-20)
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty("--sidebar-w", collapsed ? "5rem" : "18rem");
@@ -82,15 +77,13 @@ export function Sidebar({ className }: SidebarProps) {
 
     return (
       <div className={cn("flex h-full flex-col", isDesktop ? "min-h-screen" : "")}>
-        {/* Header / Logo */}
         <div className="flex h-16 shrink-0 items-center justify-between border-b px-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-r from-blue-600 to-green-600 text-sm font-bold text-white">
-              G2
-            </div>
-
+            <GestifyMark size={40} compact={variant === "desktop" && collapsed} />
             {(variant === "mobile" || !collapsed) && (
-              <span className="text-lg font-semibold tracking-tight">Gestão 2.0</span>
+              <span className="text-xl font-black tracking-tight text-slate-950">
+                Gestify
+              </span>
             )}
           </div>
 
@@ -121,7 +114,6 @@ export function Sidebar({ className }: SidebarProps) {
           )}
         </div>
 
-        {/* Menu */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <div className="space-y-3">
             {(variant === "mobile" || !collapsed) && (
@@ -197,7 +189,6 @@ export function Sidebar({ className }: SidebarProps) {
 
   return (
     <>
-      {/* MOBILE trigger (se você já usa SidebarMobile no Topbar, pode manter assim mesmo) */}
       <div className="md:hidden">
         <Button
           variant="ghost"
@@ -216,8 +207,6 @@ export function Sidebar({ className }: SidebarProps) {
         </Sheet>
       </div>
 
-      {/* DESKTOP */}
-      {/* ✅ Aqui NÃO definimos w-20/w-72: a largura real vem do layout via --sidebar-w */}
       <div className={cn("hidden md:flex h-full w-full flex-col", className)}>
         <SidebarContent variant="desktop" />
       </div>

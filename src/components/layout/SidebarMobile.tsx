@@ -1,4 +1,3 @@
-// src/components/layout/sidebarmobile.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -7,6 +6,7 @@ import { usePathname } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { GestifyMark } from "@/components/brand/GestifyMark";
 
 import {
   BarChart3,
@@ -23,7 +23,7 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   BadgeDollarSign,
-  Boxes, // ✅ Inventário
+  Boxes,
 } from "lucide-react";
 
 const menuItems = [
@@ -31,27 +31,17 @@ const menuItems = [
   { title: "Produção", href: "/dashboard/producao", icon: Factory },
   { title: "Produtividade", href: "/dashboard/produtividade", icon: BarChart3 },
   { title: "Estoque", href: "/dashboard/estoque", icon: Package },
-
-  // ✅ INVENTÁRIO
   { title: "Inventário", href: "/dashboard/inventario", icon: Boxes },
-
-  // ✅ PRODUTOS
   { title: "Produtos", href: "/dashboard/produtos", icon: Package },
-
   { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },
   { title: "Etiquetas", href: "/dashboard/etiquetas", icon: Tag },
   { title: "Histórico", href: "/dashboard/historico-pedidos", icon: History },
-
-  // ✅ RENOMEADO: "Compras" -> "Hub de Dados" (mantém a rota)
   { title: "Hub de Dados", href: "/dashboard/compras", icon: ShoppingCart },
-
-  // ✅ AGORA SOBEM PARA O MENU PRINCIPAL
   { title: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },
   { title: "Transferências", href: "/dashboard/transferencias", icon: ArrowLeftRight },
 ];
 
 const adminItems = [
-  // ✅ permanecem aqui como você pediu
   { title: "Controladoria", href: "/dashboard/controladoria", icon: BadgeDollarSign },
   { title: "Usuários", href: "/dashboard/admin/usuarios", icon: Users },
 ];
@@ -60,12 +50,10 @@ export function SidebarMobile() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  // Fecha ao trocar de rota
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
 
-  // ✅ Melhoria 1: trava scroll do body quando menu estiver aberto (iOS/Android)
   useEffect(() => {
     if (!open) return;
 
@@ -81,7 +69,6 @@ export function SidebarMobile() {
     };
   }, [open]);
 
-  // Fecha no ESC
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -92,7 +79,6 @@ export function SidebarMobile() {
 
   return (
     <>
-      {/* Botão Hamburguer (aparece só no mobile) */}
       <Button
         type="button"
         variant="ghost"
@@ -104,10 +90,8 @@ export function SidebarMobile() {
         <Menu className="h-6 w-6" />
       </Button>
 
-      {/* Overlay + Drawer */}
       {open && (
         <div className="fixed inset-0 z-50 md:hidden">
-          {/* Fundo escuro */}
           <button
             type="button"
             className="absolute inset-0 bg-black/40"
@@ -115,11 +99,15 @@ export function SidebarMobile() {
             onClick={() => setOpen(false)}
           />
 
-          {/* ✅ Melhoria 2: painel como FIXED pra não influenciar layout/overflow */}
-          <div className="fixed left-0 top-0 h-full w-72 bg-white shadow-xl flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="flex h-16 items-center justify-between border-b px-4 shrink-0">
-              <div className="font-semibold">Gestão 2.0</div>
+          <div className="fixed left-0 top-0 flex h-full w-72 flex-col overflow-hidden bg-white shadow-xl">
+            <div className="flex h-16 shrink-0 items-center justify-between border-b px-4">
+              <div className="flex items-center gap-3">
+                <GestifyMark size={40} compact />
+                <div className="text-xl font-black tracking-tight text-slate-950">
+                  Gestify
+                </div>
+              </div>
+
               <Button
                 type="button"
                 variant="ghost"
@@ -131,8 +119,7 @@ export function SidebarMobile() {
               </Button>
             </div>
 
-            {/* Conteúdo (rolável) */}
-            <nav className="p-4 overflow-y-auto flex-1">
+            <nav className="flex-1 overflow-y-auto p-4">
               <div className="space-y-2">
                 {menuItems.map((item) => {
                   const Icon = item.icon;
@@ -154,7 +141,7 @@ export function SidebarMobile() {
               </div>
 
               <div className="mt-6 border-t pt-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 px-2 mb-2">
+                <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
                   Administração
                 </div>
 

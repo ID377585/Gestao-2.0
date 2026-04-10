@@ -3,10 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import {
   createCollaborator,
   listCollaborators,
+  resetCollaboratorPassword,
+  updateCollaborator,
   type ProfileRole,
 } from "./actions";
 
@@ -20,27 +23,55 @@ const ROLE_LABEL: Record<ProfileRole, string> = {
 };
 
 export default async function UsuariosPage() {
+  const supabase = await createSupabaseServerClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let establishmentId = "";
+
+  if (user?.id) {
+    const { data: membership } = await supabase
+      .from("establishment_memberships")
+      .select("establishment_id")
+      .eq("user_id", user.id)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    establishmentId = String(membership?.establishment_id ?? "");
+  }
+
   const collaborators = await listCollaborators();
 
-  // Server Action usada pelo <form action={handleCreate}>
   async function handleCreate(formData: FormData) {
     "use server";
     await createCollaborator(formData);
   }
 
+  async function handleUpdate(formData: FormData) {
+    "use server";
+    await updateCollaborator(formData);
+  }
+
+  async function handleResetPassword(formData: FormData) {
+    "use server";
+    await resetCollaboratorPassword(formData);
+  }
+
   return (
     <div className="space-y-6">
-      {/* Título */}
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Gestão de Usuários</h1>
         <p className="text-sm text-muted-foreground">
-          Cadastre colaboradores e gerencie quem pode atuar nos módulos de
-          Produção, Produtividade, Estoque, Entrega etc.
+          Cadastre colaboradores, veja quem já tem acesso ao sistema e ajuste papéis,
+          setor, status de acesso e senha.
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Card: Novo colaborador */}
+      <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Novo colaborador</CardTitle>
@@ -64,7 +95,7 @@ export default async function UsuariosPage() {
                   id="email"
                   name="email"
                   type="email"
-                  placeholder="ana@gestao2.com"
+                  placeholder="ana@gestify.app"
                   required
                 />
               </div>
@@ -78,17 +109,14 @@ export default async function UsuariosPage() {
                   placeholder="••••••••"
                   required
                 />
-                <p className="text-xs text-muted-foreground">
-                  (Esta senha será usada para login do colaborador.)
-                </p>
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="role">Papel</Label>
+                <Label htmlFor="role">Papel de acesso</Label>
                 <select
                   id="role"
                   name="role"
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                   defaultValue="producao"
                   required
                 >
@@ -106,7 +134,7 @@ export default async function UsuariosPage() {
                 <Input
                   id="sector"
                   name="sector"
-                  placeholder="Ex.: Confeitaria, Cozinha Quente, Logística..."
+                  placeholder="Ex.: Confeitaria, Estoque, Logística"
                 />
               </div>
 
@@ -117,58 +145,119 @@ export default async function UsuariosPage() {
           </CardContent>
         </Card>
 
-        {/* Card: Lista de colaboradores */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Usuários</CardTitle>
+            <CardTitle className="text-lg">Usuários com acesso</CardTitle>
           </CardHeader>
 
-          <CardContent>
+          <CardContent className="space-y-4">
             {collaborators.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Nenhum colaborador cadastrado ainda. Use o formulário ao lado
-                para criar o primeiro.
+                Nenhum colaborador cadastrado ainda.
               </p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-xs text-muted-foreground">
-                      <th className="py-2 pr-2">Nome</th>
-                      <th className="py-2 pr-2">E-mail</th>
-                      <th className="py-2 pr-2">Papel</th>
-                      <th className="py-2 pr-2">Setor</th>
-                    </tr>
-                  </thead>
+              collaborators.map((colab) => (
+                <div key={colab.id} className="rounded-xl border p-4">
+                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-gray-900">{colab.full_name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {colab.email || "Sem e-mail"}
+                      </p>
+                    </div>
 
-                  <tbody>
-                    {collaborators.map((colab) => (
-                      <tr
-                        key={colab.id}
-                        className="border-b last:border-0 align-top"
-                      >
-                        <td className="py-2 pr-2 font-medium">
-                          {colab.full_name}
-                        </td>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline">{ROLE_LABEL[colab.role]}</Badge>
+                      <Badge variant={colab.is_active ? "default" : "secondary"}>
+                        {colab.is_active ? "Ativo" : "Inativo"}
+                      </Badge>
+                    </div>
+                  </div>
 
-                        <td className="py-2 pr-2 text-xs text-muted-foreground">
-                          {colab.email || "—"}
-                        </td>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <form action={handleUpdate} className="space-y-3 rounded-lg border p-4">
+                      <input type="hidden" name="user_id" value={colab.id} />
+                      <input
+                        type="hidden"
+                        name="establishment_id"
+                        value={establishmentId}
+                      />
 
-                        <td className="py-2 pr-2">
-                          <Badge variant="outline">
-                            {ROLE_LABEL[colab.role]}
-                          </Badge>
-                        </td>
+                      <div className="space-y-1">
+                        <Label>Nome completo</Label>
+                        <Input name="full_name" defaultValue={colab.full_name} required />
+                      </div>
 
-                        <td className="py-2 pr-2 text-xs text-muted-foreground">
-                          {colab.sector ?? "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                      <div className="space-y-1">
+                        <Label>Papel</Label>
+                        <select
+                          name="role"
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          defaultValue={colab.role}
+                          required
+                        >
+                          <option value="admin">Admin</option>
+                          <option value="operacao">Operação</option>
+                          <option value="producao">Produção</option>
+                          <option value="estoque">Estoque</option>
+                          <option value="fiscal">Fiscal</option>
+                          <option value="entrega">Entrega</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label>Setor</Label>
+                        <Input
+                          name="sector"
+                          defaultValue={colab.sector ?? ""}
+                          placeholder="Ex.: Estoque"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label>Status de acesso</Label>
+                        <select
+                          name="is_active"
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          defaultValue={String(colab.is_active)}
+                        >
+                          <option value="true">Ativo</option>
+                          <option value="false">Inativo</option>
+                        </select>
+                      </div>
+
+                      <Button type="submit" className="w-full">
+                        Salvar alterações
+                      </Button>
+                    </form>
+
+                    <form action={handleResetPassword} className="space-y-3 rounded-lg border p-4">
+                      <input type="hidden" name="user_id" value={colab.id} />
+
+                      <div>
+                        <p className="mb-1 text-sm font-medium">Redefinir senha</p>
+                        <p className="text-xs text-muted-foreground">
+                          Defina uma nova senha para este usuário.
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label>Nova senha</Label>
+                        <Input
+                          type="password"
+                          name="password"
+                          placeholder="••••••••"
+                          required
+                        />
+                      </div>
+
+                      <Button type="submit" variant="outline" className="w-full">
+                        Atualizar senha
+                      </Button>
+                    </form>
+                  </div>
+                </div>
+              ))
             )}
           </CardContent>
         </Card>

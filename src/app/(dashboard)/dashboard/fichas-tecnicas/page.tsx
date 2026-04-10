@@ -42,9 +42,12 @@ type Ingrediente = {
   id: string;
   productId: string | null;
   nome: string;
-  quantidade: number;
-  unidade: string;
-  precoUnitario: number;
+  quantidadeUso: number;
+  unidadeUso: string;
+  precoCompra: number;
+  quantidadeCompra: number;
+  unidadeCompra: string;
+  custoUnitarioBase: number;
   custoIngrediente: number;
   fatorCorrecao: number;
   fatorCoccao: number;
@@ -67,7 +70,7 @@ type FichaTecnica = {
   updatedAt: string;
 };
 
-const STORAGE_KEY = "gestify:fichas-tecnicas:v1";
+const STORAGE_KEY = "gestify:fichas-tecnicas:v2";
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -144,6 +147,36 @@ function escapeCsv(val: unknown) {
   return s;
 }
 
+function calcularCustoIngrediente(input: {
+  quantidadeUso: number;
+  precoCompra: number;
+  quantidadeCompra: number;
+  fatorCorrecao: number;
+  fatorCoccao: number;
+}) {
+  const quantidadeUso = toNumber(input.quantidadeUso, 0);
+  const precoCompra = toNumber(input.precoCompra, 0);
+  const quantidadeCompra = toNumber(input.quantidadeCompra, 0);
+  const fatorCorrecao = toNumber(input.fatorCorrecao, 1) || 1;
+  const fatorCoccao = toNumber(input.fatorCoccao, 1) || 1;
+
+  if (quantidadeCompra <= 0 || quantidadeUso <= 0) {
+    return {
+      custoUnitarioBase: 0,
+      custoIngrediente: 0,
+    };
+  }
+
+  const custoUnitarioBase = precoCompra / quantidadeCompra;
+  const custoIngrediente =
+    quantidadeUso * custoUnitarioBase * fatorCorrecao * fatorCoccao;
+
+  return {
+    custoUnitarioBase: Number(custoUnitarioBase.toFixed(6)),
+    custoIngrediente: Number(custoIngrediente.toFixed(2)),
+  };
+}
+
 export default function FichasTecnicasPage() {
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
@@ -166,11 +199,15 @@ export default function FichasTecnicasPage() {
   const [modoPreparo, setModoPreparo] = useState("");
 
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
+  const [editandoIngredienteId, setEditandoIngredienteId] = useState<string | null>(null);
+
   const [draftIngredienteId, setDraftIngredienteId] = useState("");
   const [draftIngredienteNome, setDraftIngredienteNome] = useState("");
-  const [draftQtd, setDraftQtd] = useState<number>(0);
-  const [draftUnidade, setDraftUnidade] = useState("UN");
-  const [draftPreco, setDraftPreco] = useState<number>(0);
+  const [draftQuantidadeUso, setDraftQuantidadeUso] = useState<number>(0);
+  const [draftUnidadeUso, setDraftUnidadeUso] = useState("UN");
+  const [draftPrecoCompra, setDraftPrecoCompra] = useState<number>(0);
+  const [draftQuantidadeCompra, setDraftQuantidadeCompra] = useState<number>(1);
+  const [draftUnidadeCompra, setDraftUnidadeCompra] = useState("UN");
   const [draftFCorrecao, setDraftFCorrecao] = useState<number>(1);
   const [draftFCoccao, setDraftFCoccao] = useState<number>(1);
 
@@ -240,6 +277,35 @@ export default function FichasTecnicasPage() {
     );
   }, [fichasTecnicas]);
 
+  const previewIngrediente = useMemo(() => {
+    return calcularCustoIngrediente({
+      quantidadeUso: draftQuantidadeUso,
+      precoCompra: draftPrecoCompra,
+      quantidadeCompra: draftQuantidadeCompra,
+      fatorCorrecao: draftFCorrecao,
+      fatorCoccao: draftFCoccao,
+    });
+  }, [
+    draftQuantidadeUso,
+    draftPrecoCompra,
+    draftQuantidadeCompra,
+    draftFCorrecao,
+    draftFCoccao,
+  ]);
+
+  const resetDraftIngrediente = () => {
+    setEditandoIngredienteId(null);
+    setDraftIngredienteId("");
+    setDraftIngredienteNome("");
+    setDraftQuantidadeUso(0);
+    setDraftUnidadeUso("UN");
+    setDraftPrecoCompra(0);
+    setDraftQuantidadeCompra(1);
+    setDraftUnidadeCompra("UN");
+    setDraftFCorrecao(1);
+    setDraftFCoccao(1);
+  };
+
   const resetForm = () => {
     setNome("");
     setCategoria("");
@@ -249,13 +315,7 @@ export default function FichasTecnicasPage() {
     setMargemLucro(200);
     setModoPreparo("");
     setIngredientes([]);
-    setDraftIngredienteId("");
-    setDraftIngredienteNome("");
-    setDraftQtd(0);
-    setDraftUnidade("UN");
-    setDraftPreco(0);
-    setDraftFCorrecao(1);
-    setDraftFCoccao(1);
+    resetDraftIngrediente();
   };
 
   const onSelectProductIngredient = (productId: string) => {
@@ -264,14 +324,19 @@ export default function FichasTecnicasPage() {
     const p = products.find((item) => item.id === productId);
     if (!p) return;
 
+    const unit = String(p.default_unit_label || "UN").toUpperCase();
+
     setDraftIngredienteNome(p.name);
-    setDraftUnidade(String(p.default_unit_label || "UN").toUpperCase());
-    setDraftPreco(Number(p.price ?? 0));
+    setDraftUnidadeUso(unit);
+    setDraftUnidadeCompra(unit);
+    setDraftPrecoCompra(Number(p.price ?? 0));
+    setDraftQuantidadeCompra(1);
   };
 
-  const addIngrediente = () => {
-    const quantidade = toNumber(draftQtd, 0);
-    const precoUnitario = toNumber(draftPreco, 0);
+  const salvarIngrediente = () => {
+    const quantidadeUso = toNumber(draftQuantidadeUso, 0);
+    const precoCompra = toNumber(draftPrecoCompra, 0);
+    const quantidadeCompra = toNumber(draftQuantidadeCompra, 0);
     const fatorCorrecao = toNumber(draftFCorrecao, 1) || 1;
     const fatorCoccao = toNumber(draftFCoccao, 1) || 1;
 
@@ -280,40 +345,71 @@ export default function FichasTecnicasPage() {
       return;
     }
 
-    if (quantidade <= 0) {
-      alert("Informe uma quantidade válida.");
+    if (quantidadeUso <= 0) {
+      alert("Informe uma quantidade de uso válida.");
       return;
     }
 
-    const custoIngrediente = Number(
-      (quantidade * precoUnitario * fatorCorrecao * fatorCoccao).toFixed(2)
-    );
+    if (quantidadeCompra <= 0) {
+      alert("Informe uma quantidade de compra válida.");
+      return;
+    }
 
-    const novo: Ingrediente = {
-      id: uid(),
+    const calculo = calcularCustoIngrediente({
+      quantidadeUso,
+      precoCompra,
+      quantidadeCompra,
+      fatorCorrecao,
+      fatorCoccao,
+    });
+
+    const payload: Ingrediente = {
+      id: editandoIngredienteId || uid(),
       productId: draftIngredienteId || null,
       nome: draftIngredienteNome.trim(),
-      quantidade,
-      unidade: String(draftUnidade || "UN").toUpperCase(),
-      precoUnitario,
-      custoIngrediente,
+      quantidadeUso,
+      unidadeUso: String(draftUnidadeUso || "UN").toUpperCase(),
+      precoCompra,
+      quantidadeCompra,
+      unidadeCompra: String(draftUnidadeCompra || "UN").toUpperCase(),
+      custoUnitarioBase: calculo.custoUnitarioBase,
+      custoIngrediente: calculo.custoIngrediente,
       fatorCorrecao,
       fatorCoccao,
     };
 
-    setIngredientes((prev) => [...prev, novo]);
+    if (editandoIngredienteId) {
+      setIngredientes((prev) =>
+        prev.map((item) => (item.id === editandoIngredienteId ? payload : item))
+      );
+    } else {
+      setIngredientes((prev) => [...prev, payload]);
+    }
 
-    setDraftIngredienteId("");
-    setDraftIngredienteNome("");
-    setDraftQtd(0);
-    setDraftUnidade("UN");
-    setDraftPreco(0);
-    setDraftFCorrecao(1);
-    setDraftFCoccao(1);
+    resetDraftIngrediente();
+  };
+
+  const editarIngrediente = (id: string) => {
+    const item = ingredientes.find((ing) => ing.id === id);
+    if (!item) return;
+
+    setEditandoIngredienteId(item.id);
+    setDraftIngredienteId(item.productId || "");
+    setDraftIngredienteNome(item.nome);
+    setDraftQuantidadeUso(item.quantidadeUso);
+    setDraftUnidadeUso(item.unidadeUso);
+    setDraftPrecoCompra(item.precoCompra);
+    setDraftQuantidadeCompra(item.quantidadeCompra);
+    setDraftUnidadeCompra(item.unidadeCompra);
+    setDraftFCorrecao(item.fatorCorrecao);
+    setDraftFCoccao(item.fatorCoccao);
   };
 
   const removerIngrediente = (id: string) => {
     setIngredientes((prev) => prev.filter((item) => item.id !== id));
+    if (editandoIngredienteId === id) {
+      resetDraftIngrediente();
+    }
   };
 
   const salvarNovaFicha = () => {
@@ -501,11 +597,11 @@ export default function FichasTecnicasPage() {
     <thead>
       <tr>
         <th>Ingrediente</th>
-        <th>Qtd</th>
-        <th class="right">Preço Unit.</th>
-        <th class="right">Custo</th>
-        <th class="right">F. Correção</th>
-        <th class="right">F. Cocção</th>
+        <th>Uso</th>
+        <th>Compra</th>
+        <th class="right">Preço Compra</th>
+        <th class="right">Custo Unit.</th>
+        <th class="right">Custo Final</th>
       </tr>
     </thead>
     <tbody>
@@ -514,11 +610,11 @@ export default function FichasTecnicasPage() {
           (i) => `
         <tr>
           <td>${i.nome}</td>
-          <td>${i.quantidade} ${i.unidade}</td>
-          <td class="right">${formatCurrency(i.precoUnitario)}</td>
+          <td>${i.quantidadeUso} ${i.unidadeUso}</td>
+          <td>${i.quantidadeCompra} ${i.unidadeCompra}</td>
+          <td class="right">${formatCurrency(i.precoCompra)}</td>
+          <td class="right">${formatCurrency(i.custoUnitarioBase)}</td>
           <td class="right">${formatCurrency(i.custoIngrediente)}</td>
-          <td class="right">${i.fatorCorrecao.toFixed(3)}</td>
-          <td class="right">${i.fatorCoccao.toFixed(3)}</td>
         </tr>
       `
         )
@@ -768,11 +864,11 @@ export default function FichasTecnicasPage() {
                               <TableHeader>
                                 <TableRow>
                                   <TableHead>Ingrediente</TableHead>
-                                  <TableHead>Quantidade</TableHead>
-                                  <TableHead>Preço Unit.</TableHead>
-                                  <TableHead>Custo</TableHead>
-                                  <TableHead>F. Correção</TableHead>
-                                  <TableHead>F. Cocção</TableHead>
+                                  <TableHead>Uso</TableHead>
+                                  <TableHead>Compra</TableHead>
+                                  <TableHead>Preço Compra</TableHead>
+                                  <TableHead>Custo Unit.</TableHead>
+                                  <TableHead>Custo Final</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -782,19 +878,19 @@ export default function FichasTecnicasPage() {
                                       {ingrediente.nome}
                                     </TableCell>
                                     <TableCell>
-                                      {ingrediente.quantidade} {ingrediente.unidade}
+                                      {ingrediente.quantidadeUso} {ingrediente.unidadeUso}
                                     </TableCell>
                                     <TableCell>
-                                      {formatCurrency(ingrediente.precoUnitario)}
+                                      {ingrediente.quantidadeCompra} {ingrediente.unidadeCompra}
+                                    </TableCell>
+                                    <TableCell>
+                                      {formatCurrency(ingrediente.precoCompra)}
+                                    </TableCell>
+                                    <TableCell>
+                                      {formatCurrency(ingrediente.custoUnitarioBase)}
                                     </TableCell>
                                     <TableCell className="font-medium text-red-600">
                                       {formatCurrency(ingrediente.custoIngrediente)}
-                                    </TableCell>
-                                    <TableCell>
-                                      {ingrediente.fatorCorrecao.toFixed(3)}
-                                    </TableCell>
-                                    <TableCell>
-                                      {ingrediente.fatorCoccao.toFixed(3)}
                                     </TableCell>
                                   </TableRow>
                                 ))}
@@ -971,7 +1067,7 @@ export default function FichasTecnicasPage() {
 
       {showNovaFicha && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-lg bg-white p-6">
+          <div className="max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-lg bg-white p-6">
             <div className="mb-6 flex items-center justify-between">
               <h3 className="text-xl font-semibold">Nova Ficha Técnica</h3>
               <Button
@@ -994,7 +1090,7 @@ export default function FichasTecnicasPage() {
                     id="nome"
                     value={nome}
                     onChange={(e) => setNome(e.target.value)}
-                    placeholder="Ex.: Pão de Açúcar"
+                    placeholder="Ex.: Calda de Caramelo"
                   />
                 </div>
 
@@ -1004,7 +1100,7 @@ export default function FichasTecnicasPage() {
                     id="categoria"
                     value={categoria}
                     onChange={(e) => setCategoria(e.target.value)}
-                    placeholder="Ex.: Panificação"
+                    placeholder="Ex.: Secos"
                   />
                 </div>
 
@@ -1068,8 +1164,8 @@ export default function FichasTecnicasPage() {
                 <h4 className="mb-4 text-lg font-semibold">Ingredientes</h4>
 
                 <div className="rounded-lg border p-4 space-y-4">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                    <div className="md:col-span-2">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+                    <div className="md:col-span-3">
                       <Label>Produto cadastrado</Label>
                       <select
                         className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -1085,7 +1181,7 @@ export default function FichasTecnicasPage() {
                       </select>
                     </div>
 
-                    <div className="md:col-span-2">
+                    <div className="md:col-span-3">
                       <Label>Ingrediente</Label>
                       <Input
                         value={draftIngredienteNome}
@@ -1094,57 +1190,122 @@ export default function FichasTecnicasPage() {
                       />
                     </div>
 
-                    <div>
-                      <Label>Qtd</Label>
+                    <div className="md:col-span-2">
+                      <Label>Qtd de uso</Label>
                       <Input
                         type="number"
-                        value={draftQtd}
-                        onChange={(e) => setDraftQtd(toNumber(e.target.value, 0))}
+                        value={draftQuantidadeUso}
+                        onChange={(e) =>
+                          setDraftQuantidadeUso(toNumber(e.target.value, 0))
+                        }
                       />
                     </div>
 
-                    <div>
-                      <Label>Unidade</Label>
+                    <div className="md:col-span-2">
+                      <Label>Unidade de uso</Label>
                       <Input
-                        value={draftUnidade}
-                        onChange={(e) => setDraftUnidade(e.target.value.toUpperCase())}
+                        value={draftUnidadeUso}
+                        onChange={(e) =>
+                          setDraftUnidadeUso(e.target.value.toUpperCase())
+                        }
                       />
                     </div>
 
-                    <div>
-                      <Label>Preço unit.</Label>
+                    <div className="md:col-span-2">
+                      <Label>Preço da compra</Label>
                       <Input
                         type="number"
                         step="0.01"
-                        value={draftPreco}
-                        onChange={(e) => setDraftPreco(toNumber(e.target.value, 0))}
+                        value={draftPrecoCompra}
+                        onChange={(e) =>
+                          setDraftPrecoCompra(toNumber(e.target.value, 0))
+                        }
                       />
                     </div>
 
-                    <div>
+                    <div className="md:col-span-2">
+                      <Label>Qtd comprada</Label>
+                      <Input
+                        type="number"
+                        step="0.001"
+                        value={draftQuantidadeCompra}
+                        onChange={(e) =>
+                          setDraftQuantidadeCompra(toNumber(e.target.value, 1))
+                        }
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <Label>Unidade compra</Label>
+                      <Input
+                        value={draftUnidadeCompra}
+                        onChange={(e) =>
+                          setDraftUnidadeCompra(e.target.value.toUpperCase())
+                        }
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
                       <Label>F. Correção</Label>
                       <Input
                         type="number"
                         step="0.001"
                         value={draftFCorrecao}
-                        onChange={(e) => setDraftFCorrecao(toNumber(e.target.value, 1))}
+                        onChange={(e) =>
+                          setDraftFCorrecao(toNumber(e.target.value, 1))
+                        }
                       />
                     </div>
 
-                    <div>
+                    <div className="md:col-span-2">
                       <Label>F. Cocção</Label>
                       <Input
                         type="number"
                         step="0.001"
                         value={draftFCoccao}
-                        onChange={(e) => setDraftFCoccao(toNumber(e.target.value, 1))}
+                        onChange={(e) =>
+                          setDraftFCoccao(toNumber(e.target.value, 1))
+                        }
                       />
                     </div>
 
-                    <div className="flex items-end">
-                      <Button type="button" className="w-full" onClick={addIngrediente}>
-                        ➕ Adicionar
+                    <div className="md:col-span-4 flex items-end gap-2">
+                      <Button
+                        type="button"
+                        className="w-full"
+                        onClick={salvarIngrediente}
+                      >
+                        {editandoIngredienteId ? "Salvar ingrediente" : "Adicionar ingrediente"}
                       </Button>
+
+                      {editandoIngredienteId ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={resetDraftIngrediente}
+                        >
+                          Cancelar
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-slate-50 p-3 text-sm">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                      <div>
+                        <p className="text-gray-600">Custo unitário base</p>
+                        <p className="font-bold">{formatCurrency(previewIngrediente.custoUnitarioBase)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">Custo final do ingrediente</p>
+                        <p className="font-bold text-red-600">{formatCurrency(previewIngrediente.custoIngrediente)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">Modo</p>
+                        <p className="font-medium">
+                          {editandoIngredienteId ? "Editando ingrediente" : "Novo ingrediente"}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -1157,12 +1318,12 @@ export default function FichasTecnicasPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Ingrediente</TableHead>
-                          <TableHead>Qtd</TableHead>
-                          <TableHead>Preço Unit.</TableHead>
-                          <TableHead>Custo</TableHead>
-                          <TableHead>F. Correção</TableHead>
-                          <TableHead>F. Cocção</TableHead>
-                          <TableHead>Ação</TableHead>
+                          <TableHead>Uso</TableHead>
+                          <TableHead>Compra</TableHead>
+                          <TableHead>Preço compra</TableHead>
+                          <TableHead>Custo unit.</TableHead>
+                          <TableHead>Custo final</TableHead>
+                          <TableHead>Ações</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1170,23 +1331,35 @@ export default function FichasTecnicasPage() {
                           <TableRow key={item.id}>
                             <TableCell>{item.nome}</TableCell>
                             <TableCell>
-                              {item.quantidade} {item.unidade}
+                              {item.quantidadeUso} {item.unidadeUso}
                             </TableCell>
-                            <TableCell>{formatCurrency(item.precoUnitario)}</TableCell>
+                            <TableCell>
+                              {item.quantidadeCompra} {item.unidadeCompra}
+                            </TableCell>
+                            <TableCell>{formatCurrency(item.precoCompra)}</TableCell>
+                            <TableCell>{formatCurrency(item.custoUnitarioBase)}</TableCell>
                             <TableCell className="font-medium text-red-600">
                               {formatCurrency(item.custoIngrediente)}
                             </TableCell>
-                            <TableCell>{item.fatorCorrecao.toFixed(3)}</TableCell>
-                            <TableCell>{item.fatorCoccao.toFixed(3)}</TableCell>
                             <TableCell>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => removerIngrediente(item.id)}
-                              >
-                                Remover
-                              </Button>
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => editarIngrediente(item.id)}
+                                >
+                                  Editar
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => removerIngrediente(item.id)}
+                                >
+                                  Remover
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}

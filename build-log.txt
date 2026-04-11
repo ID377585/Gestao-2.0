@@ -1,0 +1,51 @@
+
+> gestao-app@1.0.0 build
+> next build
+
+  ▲ Next.js 14.2.0
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+Failed to compile.
+
+./src/lib/entradas/matching.ts
+Error: 
+  [31mx[0m Return statement is not allowed here
+    ,-[[36;1;4m/Users/ivanescobar/Downloads/Gestão-App/src/lib/entradas/matching.ts[0m:1:1]
+ [2m 1[0m |     import { Produto, XmlItemImportado } from './types';
+ [2m 2[0m |         const byEan = produtos.find((p) => p.ean && p.ean === item.ean);
+ [2m 3[0m |         if (byEan) {
+ [2m 4[0m | [31;1m,[0m[31;1m-[0m[31;1m>[0m       return {
+ [2m 5[0m | [31;1m|[0m           ...item,
+ [2m 6[0m | [31;1m|[0m           produtoId: byEan.id || null,
+ [2m 7[0m | [31;1m|[0m           skuVinculado: byEan.sku,
+ [2m 8[0m | [31;1m|[0m           categoriaVinculada: byEan.categoria,
+ [2m 9[0m | [31;1m|[0m           matchScore: 1,
+ [2m10[0m | [31;1m|[0m           matchMode: 'ean',
+ [2m11[0m | [31;1m|[0m           precisaVinculacaoManual: false,
+ [2m12[0m | [31;1m`[0m[31;1m-[0m[31;1m>[0m       };
+ [2m13[0m |         }
+ [2m14[0m |       }
+    `----
+
+  [31mx[0m Expression expected
+    ,-[[36;1;4m/Users/ivanescobar/Downloads/Gestão-App/src/lib/entradas/matching.ts[0m:11:1]
+ [2m11[0m |         precisaVinculacaoManual: false,
+ [2m12[0m |       };
+ [2m13[0m |     }
+ [2m14[0m |   }
+    : [31;1m  ^[0m
+ [2m15[0m | 
+ [2m16[0m |   if (item.cProd) {
+ [2m17[0m |     const byCodigoFornecedor = produtos.find(
+    `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/lib/entradas/matching.ts
+./src/app/entradas/page.tsx
+
+
+> Build failed because of webpack errors

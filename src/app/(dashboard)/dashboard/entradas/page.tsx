@@ -1527,7 +1527,7 @@ export default function EntradasPage() {
                     <XAxis dataKey="label" />
                     <YAxis />
                     <Tooltip
-                      formatter={(value: number) => [formatCurrency(value), "Valor total"]}
+                      formatter={(value) => [formatCurrency(Number(value ?? 0)), "Valor total"]}
                     />
                     <Bar dataKey="total" radius={[8, 8, 0, 0]} />
                   </BarChart>
@@ -1563,7 +1563,7 @@ export default function EntradasPage() {
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(value: number) => [formatCurrency(value), "Valor total"]}
+                      formatter={(value) => [formatCurrency(Number(value ?? 0)), "Valor total"]}
                     />
                     <Legend />
                   </PieChart>

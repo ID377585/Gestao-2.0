@@ -5,6 +5,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { moveStock } from "@/lib/stock/moveStock";
 
+const INVOICE_ENTRY_BUCKET = "invoice-entry-files";
+
 export type InvoiceEntryItemInput = {
   product_id: string;
   product_name_snapshot: string;
@@ -18,12 +20,18 @@ export type InvoiceEntryItemInput = {
 export type InvoiceEntryInput = {
   id?: string;
   supplier_name: string;
+  supplier_document?: string | null;
   invoice_number: string;
   invoice_series?: string | null;
   invoice_key?: string | null;
   issue_date: string;
   entry_date: string;
   notes?: string | null;
+  imported_from_xml?: boolean;
+  attachment_xml_url?: string | null;
+  attachment_xml_path?: string | null;
+  attachment_pdf_url?: string | null;
+  attachment_pdf_path?: string | null;
   items: InvoiceEntryItemInput[];
 };
 
@@ -60,9 +68,7 @@ function normalizeText(value: unknown) {
 }
 
 function normalizeDate(value: unknown) {
-  const text = String(value ?? "").trim();
-  if (!text) return "";
-  return text;
+  return String(value ?? "").trim();
 }
 
 function normalizeUnit(value: unknown) {
@@ -74,6 +80,97 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function sanitizeFileName(fileName: string) {
+  return fileName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .toLowerCase();
+}
+
+export async function uploadInvoiceEntryAttachmentAction(formData: FormData) {
+  const { supabase, establishmentId, userId } = await getContext();
+
+  const fileEntry = formData.get("file");
+  const kind = String(formData.get("kind") ?? "").trim().toLowerCase();
+
+  if (!(fileEntry instanceof File)) {
+    throw new Error("Nenhum arquivo foi enviado.");
+  }
+
+  if (!["xml", "pdf"].includes(kind)) {
+    throw new Error("Tipo de anexo inválido.");
+  }
+
+  const file = fileEntry;
+  const maxSizeInBytes = 12 * 1024 * 1024;
+
+  if (file.size > maxSizeInBytes) {
+    throw new Error("O arquivo deve ter no máximo 12MB.");
+  }
+
+  if (kind === "xml") {
+    const fileName = file.name.toLowerCase();
+    if (
+      file.type !== "text/xml" &&
+      file.type !== "application/xml" &&
+      !fileName.endsWith(".xml")
+    ) {
+      throw new Error("O anexo XML precisa ser um arquivo .xml válido.");
+    }
+  }
+
+  if (kind === "pdf") {
+    const fileName = file.name.toLowerCase();
+    if (file.type !== "application/pdf" && !fileName.endsWith(".pdf")) {
+      throw new Error("O anexo PDF precisa ser um arquivo .pdf válido.");
+    }
+  }
+
+  const safeName = sanitizeFileName(file.name);
+  const filePath = `${establishmentId}/${userId}/${kind}/${Date.now()}-${safeName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(INVOICE_ENTRY_BUCKET)
+    .upload(filePath, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || undefined,
+    });
+
+  if (uploadError) {
+    console.error("Erro ao enviar anexo da entrada:", uploadError);
+    throw new Error(
+      `Não foi possível enviar o anexo para o Supabase. ${uploadError.message}`
+    );
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from(INVOICE_ENTRY_BUCKET)
+    .getPublicUrl(filePath);
+
+  return {
+    fileUrl: publicUrlData.publicUrl,
+    filePath,
+    kind,
+  };
+}
+
+export async function deleteInvoiceEntryAttachmentAction(filePath: string) {
+  const { supabase } = await getContext();
+
+  if (!filePath?.trim()) return;
+
+  const { error } = await supabase.storage
+    .from(INVOICE_ENTRY_BUCKET)
+    .remove([filePath]);
+
+  if (error) {
+    console.error("Erro ao excluir anexo da entrada:", error);
+  }
+}
+
 export async function listInvoiceEntries() {
   const { supabase, establishmentId } = await getContext();
 
@@ -83,6 +180,7 @@ export async function listInvoiceEntries() {
       id,
       establishment_id,
       supplier_name,
+      supplier_document,
       invoice_number,
       invoice_series,
       invoice_key,
@@ -91,6 +189,11 @@ export async function listInvoiceEntries() {
       total_amount,
       notes,
       status,
+      imported_from_xml,
+      attachment_xml_url,
+      attachment_xml_path,
+      attachment_pdf_url,
+      attachment_pdf_path,
       created_by,
       created_at,
       updated_at,
@@ -124,6 +227,7 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
   const { supabase, establishmentId, userId } = await getContext();
 
   const supplierName = normalizeText(input.supplier_name);
+  const supplierDocument = normalizeText(input.supplier_document);
   const invoiceNumber = normalizeText(input.invoice_number);
   const invoiceSeries = normalizeText(input.invoice_series);
   const invoiceKey = normalizeText(input.invoice_key);
@@ -149,6 +253,48 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
 
   if (!input.items?.length) {
     throw new Error("Adicione pelo menos um item na nota.");
+  }
+
+  if (invoiceKey) {
+    const { data: existingByKey, error: duplicateKeyError } = await supabase
+      .from("invoice_entries")
+      .select("id")
+      .eq("establishment_id", establishmentId)
+      .eq("invoice_key", invoiceKey)
+      .eq("status", "active")
+      .limit(1)
+      .maybeSingle();
+
+    if (duplicateKeyError) {
+      console.error("Erro ao verificar duplicidade por chave:", duplicateKeyError);
+      throw new Error("Não foi possível validar duplicidade por chave NF-e.");
+    }
+
+    if (existingByKey) {
+      throw new Error("Já existe uma nota ativa lançada com essa chave NF-e.");
+    }
+  }
+
+  const { data: existingByNumberSeries, error: duplicateNumberError } = await supabase
+    .from("invoice_entries")
+    .select("id")
+    .eq("establishment_id", establishmentId)
+    .eq("invoice_number", invoiceNumber)
+    .eq("invoice_series", invoiceSeries || null)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+
+  if (duplicateNumberError) {
+    console.error(
+      "Erro ao verificar duplicidade por número/série:",
+      duplicateNumberError
+    );
+    throw new Error("Não foi possível validar duplicidade por número e série.");
+  }
+
+  if (existingByNumberSeries) {
+    throw new Error("Já existe uma nota ativa lançada com esse número e série.");
   }
 
   const productIds = input.items.map((item) => item.product_id);
@@ -225,6 +371,7 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
     .insert({
       establishment_id: establishmentId,
       supplier_name: supplierName,
+      supplier_document: supplierDocument || null,
       invoice_number: invoiceNumber,
       invoice_series: invoiceSeries || null,
       invoice_key: invoiceKey || null,
@@ -233,6 +380,11 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
       total_amount: totalAmount,
       notes: notes || null,
       status: "active",
+      imported_from_xml: Boolean(input.imported_from_xml),
+      attachment_xml_url: input.attachment_xml_url?.trim() || null,
+      attachment_xml_path: input.attachment_xml_path?.trim() || null,
+      attachment_pdf_url: input.attachment_pdf_url?.trim() || null,
+      attachment_pdf_path: input.attachment_pdf_path?.trim() || null,
       created_by: userId,
     })
     .select("id")

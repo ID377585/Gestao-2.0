@@ -1,7 +1,6 @@
-// src/components/layout/topbar.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
   HelpCircle,
@@ -31,56 +30,120 @@ import { HelpModal } from "@/components/modals/HelpModal";
 import { SidebarMobile } from "@/components/layout/SidebarMobile";
 
 import { clearSession, getUser, type AppUser } from "@/lib/auth/session";
-
-interface Notificacao {
-  id: number;
-  titulo: string;
-  mensagem: string;
-  tipo: "info" | "warning" | "success" | "error";
-  lida: boolean;
-  dataHora: string;
-}
+import {
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
+  subscribeToNotifications,
+  type AppNotification,
+} from "@/lib/notifications";
+import {
+  applyDarkMode,
+  getUserSettings,
+  type UserSettings,
+} from "@/lib/user-settings";
 
 interface TopbarProps {
   className?: string;
 }
 
+type SessionUserExtended = AppUser & {
+  id?: string;
+  uid?: string;
+};
+
+function formatDate(value?: AppNotification["createdAt"]) {
+  if (!value) return "Agora";
+
+  try {
+    const date =
+      typeof (value as any)?.toDate === "function"
+        ? (value as any).toDate()
+        : new Date(value as any);
+
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(date);
+  } catch {
+    return "Agora";
+  }
+}
+
 export function Topbar({ className }: TopbarProps) {
-  const [user, setUser] = useState<AppUser | null>(null);
+  const [user, setUser] = useState<SessionUserExtended | null>(null);
 
   const [showPerfil, setShowPerfil] = useState(false);
   const [showConfiguracoes, setShowConfiguracoes] = useState(false);
   const [showAjuda, setShowAjuda] = useState(false);
   const [showNotificacoesModal, setShowNotificacoesModal] = useState(false);
 
-  const [notificacoes, setNotificacoes] = useState<Notificacao[]>([
-    {
-      id: 1,
-      titulo: "Estoque crítico",
-      mensagem: "Ovos estão com estoque crítico. Reposição necessária.",
-      tipo: "warning",
-      lida: false,
-      dataHora: "2024-01-15T10:30:00",
-    },
-    {
-      id: 2,
-      titulo: "Pedido concluído",
-      mensagem: "Pedido #102 foi entregue com sucesso.",
-      tipo: "success",
-      lida: false,
-      dataHora: "2024-01-15T09:15:00",
-    },
-  ]);
+  const [notificacoes, setNotificacoes] = useState<AppNotification[]>([]);
+  const [settings, setSettings] = useState<UserSettings>(getUserSettings());
+
+  const previousIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
-    const currentUser = getUser();
+    const currentUser = getUser() as SessionUserExtended | null;
     setUser(currentUser);
+
+    const savedSettings = getUserSettings();
+    setSettings(savedSettings);
+    applyDarkMode(savedSettings.darkMode);
   }, []);
+
+  const userNotificationId = useMemo(() => {
+    if (!user) return null;
+    return user.id || user.uid || user.email || null;
+  }, [user]);
+
+  useEffect(() => {
+    if (!userNotificationId) return;
+
+    const unsubscribe = subscribeToNotifications(userNotificationId, (items) => {
+      setNotificacoes(items);
+
+      const currentIds = items.map((item) => item.id);
+      const previousIds = previousIdsRef.current;
+
+      const newNotifications = items.filter(
+        (item) => !previousIds.includes(item.id)
+      );
+
+      if (
+        settings.browserNotifications &&
+        typeof window !== "undefined" &&
+        "Notification" in window &&
+        Notification.permission === "granted"
+      ) {
+        newNotifications.forEach((item) => {
+          new Notification(item.titulo, {
+            body: item.mensagem,
+          });
+        });
+      }
+
+      previousIdsRef.current = currentIds;
+    });
+
+    return () => unsubscribe();
+  }, [userNotificationId, settings.browserNotifications]);
 
   const notificacoesNaoLidas = notificacoes.filter((n) => !n.lida).length;
 
-  const marcarTodasLidas = () => {
-    setNotificacoes((prev) => prev.map((n) => ({ ...n, lida: true })));
+  const handleMarkAllAsRead = async () => {
+    try {
+      await markAllNotificationsAsRead(notificacoes);
+    } catch (error) {
+      console.error("Erro ao marcar notificações como lidas:", error);
+    }
+  };
+
+  const handleMarkAsRead = async (id: string) => {
+    try {
+      await markNotificationAsRead(id);
+    } catch (error) {
+      console.error("Erro ao marcar notificação como lida:", error);
+    }
   };
 
   const handleLogout = () => {
@@ -88,7 +151,6 @@ export function Topbar({ className }: TopbarProps) {
     window.location.assign("/login");
   };
 
-  // ✅ Força visual correto (resolve “fundo incolor”)
   const dropdownBaseClasses =
     "bg-white text-gray-900 border border-gray-200 shadow-lg rounded-md";
 
@@ -96,16 +158,11 @@ export function Topbar({ className }: TopbarProps) {
     <>
       <header className={`bg-white border-b border-gray-200 ${className ?? ""}`}>
         <div className="flex h-16 items-center justify-between px-4 md:px-6">
-          {/* Left */}
           <div className="flex items-center gap-2 md:gap-3">
-            {/* ✅ BOTÃO DO MENU MOBILE (aparece só no mobile) */}
             <SidebarMobile />
-            {/* ✅ REMOVIDO: título fixo (evita aparecer "." no topo) */}
           </div>
 
-          {/* Right */}
           <div className="flex items-center gap-2">
-            {/* Notifications */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -138,7 +195,7 @@ export function Topbar({ className }: TopbarProps) {
                     size="sm"
                     variant="ghost"
                     className="h-8 px-2 text-xs"
-                    onClick={marcarTodasLidas}
+                    onClick={handleMarkAllAsRead}
                     disabled={notificacoesNaoLidas === 0}
                   >
                     Marcar todas
@@ -153,11 +210,15 @@ export function Topbar({ className }: TopbarProps) {
                   </div>
                 ) : (
                   <div className="max-h-80 overflow-auto">
-                    {notificacoes.map((n) => (
+                    {notificacoes.slice(0, 5).map((n) => (
                       <DropdownMenuItem
                         key={n.id}
-                        className="flex cursor-default flex-col items-start gap-1 py-3 focus:bg-gray-50"
-                        onSelect={(e) => e.preventDefault()}
+                        className="flex cursor-pointer flex-col items-start gap-1 py-3 focus:bg-gray-50"
+                        onSelect={() => {
+                          if (!n.lida) {
+                            handleMarkAsRead(n.id);
+                          }
+                        }}
                       >
                         <div className="flex w-full items-center justify-between gap-3">
                           <span className="text-sm font-medium text-gray-900">
@@ -168,6 +229,9 @@ export function Topbar({ className }: TopbarProps) {
                           )}
                         </div>
                         <span className="text-xs text-gray-700">{n.mensagem}</span>
+                        <span className="text-[11px] text-gray-500">
+                          {formatDate(n.createdAt)}
+                        </span>
                       </DropdownMenuItem>
                     ))}
                   </div>
@@ -188,7 +252,6 @@ export function Topbar({ className }: TopbarProps) {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* User Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -235,7 +298,7 @@ export function Topbar({ className }: TopbarProps) {
                 <DropdownMenuSeparator />
 
                 <DropdownMenuItem
-                  onClick={() => setShowPerfil(true)}
+                  onSelect={() => setShowPerfil(true)}
                   className="focus:bg-gray-50"
                 >
                   <UserIcon className="mr-2 h-4 w-4" />
@@ -243,7 +306,7 @@ export function Topbar({ className }: TopbarProps) {
                 </DropdownMenuItem>
 
                 <DropdownMenuItem
-                  onClick={() => setShowConfiguracoes(true)}
+                  onSelect={() => setShowConfiguracoes(true)}
                   className="focus:bg-gray-50"
                 >
                   <Settings className="mr-2 h-4 w-4" />
@@ -251,7 +314,7 @@ export function Topbar({ className }: TopbarProps) {
                 </DropdownMenuItem>
 
                 <DropdownMenuItem
-                  onClick={() => setShowAjuda(true)}
+                  onSelect={() => setShowAjuda(true)}
                   className="focus:bg-gray-50"
                 >
                   <HelpCircle className="mr-2 h-4 w-4" />
@@ -261,7 +324,7 @@ export function Topbar({ className }: TopbarProps) {
                 <DropdownMenuSeparator />
 
                 <DropdownMenuItem
-                  onClick={handleLogout}
+                  onSelect={handleLogout}
                   className="text-red-600 focus:bg-gray-50 focus:text-red-600"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
@@ -273,11 +336,12 @@ export function Topbar({ className }: TopbarProps) {
         </div>
       </header>
 
-      {/* Modais */}
       <NotificationsModal
         open={showNotificacoesModal}
         onClose={() => setShowNotificacoesModal(false)}
         notifications={notificacoes}
+        onMarkAsRead={handleMarkAsRead}
+        onMarkAllAsRead={handleMarkAllAsRead}
       />
 
       <ProfileModal
@@ -286,12 +350,14 @@ export function Topbar({ className }: TopbarProps) {
         user={{
           name: user?.name ?? "Usuário",
           email: user?.email ?? "",
+          role: user?.role,
         }}
       />
 
       <SettingsModal
         open={showConfiguracoes}
         onClose={() => setShowConfiguracoes(false)}
+        onSettingsChange={(nextSettings) => setSettings(nextSettings)}
       />
 
       <HelpModal open={showAjuda} onClose={() => setShowAjuda(false)} />

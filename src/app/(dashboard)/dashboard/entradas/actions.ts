@@ -33,6 +33,7 @@ export type InvoiceEntryInput = {
   attachment_pdf_url?: string | null;
   attachment_pdf_path?: string | null;
   update_product_standard_cost?: boolean;
+  approval_status?: "draft_review" | "approved";
   items: InvoiceEntryItemInput[];
 };
 
@@ -51,6 +52,7 @@ export type InvoiceEntryDraftPayload = {
   attachment_pdf_url?: string | null;
   attachment_pdf_path?: string | null;
   update_product_standard_cost?: boolean;
+  approval_status?: "draft_review" | "approved";
   items: InvoiceEntryItemInput[];
 };
 
@@ -60,6 +62,7 @@ export type InvoiceEntryDraftRow = {
   created_by: string;
   name: string;
   data: InvoiceEntryDraftPayload;
+  approval_status: "draft_review" | "approved";
   created_at: string;
   updated_at: string;
 };
@@ -131,7 +134,7 @@ async function validateAndNormalizeItems(
 
   const { data: products, error: productsError } = await supabase
     .from("products")
-    .select("id, establishment_id, name, default_unit_label")
+    .select("id, establishment_id, name, default_unit_label, category")
     .in("id", productIds);
 
   if (productsError) {
@@ -146,6 +149,7 @@ async function validateAndNormalizeItems(
       establishment_id: string;
       name: string;
       default_unit_label: string | null;
+      category: string | null;
     }
   >();
 
@@ -156,6 +160,7 @@ async function validateAndNormalizeItems(
         establishment_id: String((product as any).establishment_id),
         name: String((product as any).name ?? ""),
         default_unit_label: ((product as any).default_unit_label ?? null) as string | null,
+        category: ((product as any).category ?? null) as string | null,
       });
     }
   }
@@ -189,6 +194,7 @@ async function validateAndNormalizeItems(
       unit_cost: unitCost,
       total_cost: totalCost,
       sort_order: item.sort_order ?? index,
+      category_snapshot: found.category || null,
     };
   });
 }
@@ -260,6 +266,10 @@ async function updateProductsStandardCostIfNeeded(
       console.error("Erro ao atualizar standard_cost do produto:", error);
     }
   }
+}
+
+function getApprovalStatus(input?: string | null): "draft_review" | "approved" {
+  return input === "draft_review" ? "draft_review" : "approved";
 }
 
 export async function uploadInvoiceEntryAttachmentAction(formData: FormData) {
@@ -360,8 +370,11 @@ export async function listInvoiceEntries() {
       issue_date,
       entry_date,
       total_amount,
+      total_items_qty,
+      category_snapshot,
       notes,
       status,
+      approval_status,
       imported_from_xml,
       attachment_xml_url,
       attachment_xml_path,
@@ -372,6 +385,8 @@ export async function listInvoiceEntries() {
       updated_at,
       cancelled_at,
       cancelled_by,
+      approved_at,
+      approved_by,
       items:invoice_entry_items (
         id,
         invoice_entry_id,
@@ -401,7 +416,9 @@ export async function listInvoiceEntryDrafts(): Promise<InvoiceEntryDraftRow[]> 
 
   const { data, error } = await supabase
     .from("invoice_entry_drafts")
-    .select("id, establishment_id, created_by, name, data, created_at, updated_at")
+    .select(
+      "id, establishment_id, created_by, name, data, approval_status, created_at, updated_at"
+    )
     .eq("establishment_id", establishmentId)
     .order("updated_at", { ascending: false });
 
@@ -437,6 +454,7 @@ export async function saveInvoiceEntryDraft(
     attachment_pdf_url: normalizeText(payload.attachment_pdf_url) || null,
     attachment_pdf_path: normalizeText(payload.attachment_pdf_path) || null,
     update_product_standard_cost: Boolean(payload.update_product_standard_cost),
+    approval_status: getApprovalStatus(payload.approval_status),
     items: (payload.items ?? []).map((item, index) => ({
       product_id: String(item.product_id),
       product_name_snapshot: normalizeText(item.product_name_snapshot),
@@ -454,6 +472,7 @@ export async function saveInvoiceEntryDraft(
       .update({
         name: draftName,
         data: draftPayload,
+        approval_status: getApprovalStatus(payload.approval_status),
         updated_at: new Date().toISOString(),
       })
       .eq("id", draftId)
@@ -475,6 +494,7 @@ export async function saveInvoiceEntryDraft(
       created_by: userId,
       name: draftName,
       data: draftPayload,
+      approval_status: getApprovalStatus(payload.approval_status),
     })
     .select("id")
     .single();
@@ -520,6 +540,7 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
   const issueDate = normalizeDate(input.issue_date);
   const entryDate = normalizeDate(input.entry_date);
   const notes = normalizeText(input.notes);
+  const approvalStatus = getApprovalStatus(input.approval_status);
 
   if (!supplierName) {
     throw new Error("Informe o fornecedor.");
@@ -589,6 +610,12 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
     normalizedItems.reduce((acc, item) => acc + item.total_cost, 0).toFixed(2)
   );
 
+  const totalItemsQty = Number(
+    normalizedItems.reduce((acc, item) => acc + item.quantity, 0).toFixed(3)
+  );
+
+  const categorySnapshot = normalizedItems[0]?.category_snapshot || null;
+
   const { data: entry, error: entryError } = await supabase
     .from("invoice_entries")
     .insert({
@@ -601,8 +628,13 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
       issue_date: issueDate,
       entry_date: entryDate,
       total_amount: totalAmount,
+      total_items_qty: totalItemsQty,
+      category_snapshot: categorySnapshot,
       notes: notes || null,
       status: "active",
+      approval_status: approvalStatus,
+      approved_at: approvalStatus === "approved" ? new Date().toISOString() : null,
+      approved_by: approvalStatus === "approved" ? userId : null,
       imported_from_xml: Boolean(input.imported_from_xml),
       attachment_xml_url: input.attachment_xml_url?.trim() || null,
       attachment_xml_path: input.attachment_xml_path?.trim() || null,
@@ -640,13 +672,15 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
     throw new Error("Entrada criada, mas houve erro ao salvar os itens.");
   }
 
-  await applyStockFromItems(supabase, establishmentId, normalizedItems);
-  await updateProductsStandardCostIfNeeded(
-    supabase,
-    establishmentId,
-    normalizedItems,
-    input.update_product_standard_cost
-  );
+  if (approvalStatus === "approved") {
+    await applyStockFromItems(supabase, establishmentId, normalizedItems);
+    await updateProductsStandardCostIfNeeded(
+      supabase,
+      establishmentId,
+      normalizedItems,
+      input.update_product_standard_cost
+    );
+  }
 
   revalidatePath("/dashboard/entradas");
   revalidatePath("/dashboard/estoque");
@@ -654,8 +688,68 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
   return entry;
 }
 
+export async function approveInvoiceEntry(entryId: string) {
+  const { supabase, establishmentId, userId } = await getContext();
+
+  const { data: entry, error } = await supabase
+    .from("invoice_entries")
+    .select(`
+      id,
+      establishment_id,
+      approval_status,
+      status,
+      items:invoice_entry_items (
+        product_id,
+        quantity,
+        unit_label,
+        unit_cost
+      )
+    `)
+    .eq("id", entryId)
+    .eq("establishment_id", establishmentId)
+    .single();
+
+  if (error || !entry) {
+    throw new Error("Entrada não encontrada para aprovação.");
+  }
+
+  if ((entry as any).status !== "active") {
+    throw new Error("Somente entradas ativas podem ser aprovadas.");
+  }
+
+  if ((entry as any).approval_status === "approved") {
+    throw new Error("Essa entrada já está aprovada.");
+  }
+
+  const items = Array.isArray((entry as any).items) ? (entry as any).items : [];
+
+  await applyStockFromItems(
+    supabase,
+    establishmentId,
+    items.map((item: any) => ({
+      product_id: String(item.product_id),
+      quantity: toNumber(item.quantity, 0),
+      unit_label: normalizeUnit(item.unit_label),
+    }))
+  );
+
+  await supabase
+    .from("invoice_entries")
+    .update({
+      approval_status: "approved",
+      approved_at: new Date().toISOString(),
+      approved_by: userId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", entryId)
+    .eq("establishment_id", establishmentId);
+
+  revalidatePath("/dashboard/entradas");
+  revalidatePath("/dashboard/estoque");
+}
+
 export async function updateInvoiceEntry(input: InvoiceEntryInput) {
-  const { supabase, establishmentId } = await getContext();
+  const { supabase, establishmentId, userId } = await getContext();
 
   if (!input.id?.trim()) {
     throw new Error("ID da entrada não informado.");
@@ -669,6 +763,7 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
   const issueDate = normalizeDate(input.issue_date);
   const entryDate = normalizeDate(input.entry_date);
   const notes = normalizeText(input.notes);
+  const approvalStatus = getApprovalStatus(input.approval_status);
 
   if (!supplierName) {
     throw new Error("Informe o fornecedor.");
@@ -692,16 +787,16 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
       id,
       establishment_id,
       status,
+      approval_status,
       invoice_key,
       invoice_number,
       invoice_series,
-      attachment_xml_path,
-      attachment_pdf_path,
       items:invoice_entry_items (
         id,
         product_id,
         quantity,
-        unit_label
+        unit_label,
+        unit_cost
       )
     `)
     .eq("id", input.id)
@@ -768,20 +863,29 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
   );
 
   const currentItems = Array.isArray((current as any).items) ? (current as any).items : [];
+  const currentApprovalStatus = String((current as any).approval_status);
 
-  await reverseStockFromItems(
-    supabase,
-    establishmentId,
-    currentItems.map((item: any) => ({
-      product_id: String(item.product_id),
-      quantity: toNumber(item.quantity, 0),
-      unit_label: normalizeUnit(item.unit_label),
-    }))
-  );
+  if (currentApprovalStatus === "approved") {
+    await reverseStockFromItems(
+      supabase,
+      establishmentId,
+      currentItems.map((item: any) => ({
+        product_id: String(item.product_id),
+        quantity: toNumber(item.quantity, 0),
+        unit_label: normalizeUnit(item.unit_label),
+      }))
+    );
+  }
 
   const totalAmount = Number(
     normalizedItems.reduce((acc, item) => acc + item.total_cost, 0).toFixed(2)
   );
+
+  const totalItemsQty = Number(
+    normalizedItems.reduce((acc, item) => acc + item.quantity, 0).toFixed(3)
+  );
+
+  const categorySnapshot = normalizedItems[0]?.category_snapshot || null;
 
   const { error: updateError } = await supabase
     .from("invoice_entries")
@@ -794,7 +898,12 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
       issue_date: issueDate,
       entry_date: entryDate,
       total_amount: totalAmount,
+      total_items_qty: totalItemsQty,
+      category_snapshot: categorySnapshot,
       notes: notes || null,
+      approval_status: approvalStatus,
+      approved_at: approvalStatus === "approved" ? new Date().toISOString() : null,
+      approved_by: approvalStatus === "approved" ? userId : null,
       imported_from_xml: Boolean(input.imported_from_xml),
       attachment_xml_url: input.attachment_xml_url?.trim() || null,
       attachment_xml_path: input.attachment_xml_path?.trim() || null,
@@ -840,13 +949,15 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
     throw new Error("A entrada foi atualizada, mas houve erro ao salvar os novos itens.");
   }
 
-  await applyStockFromItems(supabase, establishmentId, normalizedItems);
-  await updateProductsStandardCostIfNeeded(
-    supabase,
-    establishmentId,
-    normalizedItems,
-    input.update_product_standard_cost
-  );
+  if (approvalStatus === "approved") {
+    await applyStockFromItems(supabase, establishmentId, normalizedItems);
+    await updateProductsStandardCostIfNeeded(
+      supabase,
+      establishmentId,
+      normalizedItems,
+      input.update_product_standard_cost
+    );
+  }
 
   revalidatePath("/dashboard/entradas");
   revalidatePath("/dashboard/estoque");
@@ -865,6 +976,7 @@ export async function reverseInvoiceEntry(entryId: string) {
       id,
       establishment_id,
       status,
+      approval_status,
       items:invoice_entry_items (
         id,
         product_id,
@@ -887,15 +999,17 @@ export async function reverseInvoiceEntry(entryId: string) {
 
   const items = Array.isArray((entry as any).items) ? (entry as any).items : [];
 
-  await reverseStockFromItems(
-    supabase,
-    establishmentId,
-    items.map((item: any) => ({
-      product_id: String(item.product_id),
-      quantity: toNumber(item.quantity, 0),
-      unit_label: normalizeUnit(item.unit_label),
-    }))
-  );
+  if (String((entry as any).approval_status) === "approved") {
+    await reverseStockFromItems(
+      supabase,
+      establishmentId,
+      items.map((item: any) => ({
+        product_id: String(item.product_id),
+        quantity: toNumber(item.quantity, 0),
+        unit_label: normalizeUnit(item.unit_label),
+      }))
+    );
+  }
 
   const { error: updateError } = await supabase
     .from("invoice_entries")

@@ -860,10 +860,10 @@ export default function FichasTecnicasPage() {
   }, []);
 
   useEffect(() => {
-    if (fichaSelecionada) {
-      setDesiredServings(Math.max(1, fichaSelecionada.rendimento || 1));
-    }
-  }, [fichaSelecionada?.id]);
+  if (fichaSelecionada) {
+    setDesiredServings(Math.max(1, fichaSelecionada.rendimento || 1));
+  }
+}, [fichaSelecionada]);
 
   const categoriasDisponiveis = useMemo(() => {
     const unique = Array.from(

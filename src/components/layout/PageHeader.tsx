@@ -8,10 +8,17 @@ const titles: Record<string, string> = {
   "/dashboard/producao": "Produção",
   "/dashboard/produtividade": "Produtividade",
   "/dashboard/estoque": "Estoque",
+  "/dashboard/entradas": "Entradas",
+  "/dashboard/inventario": "Inventário",
+  "/dashboard/produtos": "Produtos",
   "/dashboard/fichas-tecnicas": "Fichas Técnicas",
   "/dashboard/etiquetas": "Etiquetas",
-  "/dashboard/historico-pedidos": "Histórico de Pedidos",
-  "/dashboard/compras": "Compras",
+  "/dashboard/historico-pedidos": "Histórico",
+  "/dashboard/perdas": "Perdas",
+  "/dashboard/transferencias": "Transferências",
+  "/dashboard/compras": "Hub de Dados",
+  "/dashboard/controladoria": "Controladoria",
+  "/dashboard/admin/usuarios": "Usuários",
 };
 
 export function PageHeader() {

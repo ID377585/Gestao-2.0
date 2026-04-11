@@ -3,51 +3,17 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-import {
-  ClipboardList,
-  Factory,
-  BarChart3,
-  Package,
-  FileText,
-  Tag,
-  History,
-  ShoppingCart,
-  Users,
-  ChevronLeft,
-  ChevronRight,
-  AlertTriangle,
-  ArrowLeftRight,
-  BadgeDollarSign,
-  Menu,
-  X,
-  Boxes,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { GestifyMark } from "@/components/brand/GestifyMark";
-
-const menuItems = [
-  { title: "Pedidos", href: "/dashboard/pedidos", icon: ClipboardList },
-  { title: "Produção", href: "/dashboard/producao", icon: Factory },
-  { title: "Produtividade", href: "/dashboard/produtividade", icon: BarChart3 },
-  { title: "Estoque", href: "/dashboard/estoque", icon: Package },
-  { title: "Entradas", href: "/dashboard/entradas", icon: FileText },
-  { title: "Inventário", href: "/dashboard/inventario", icon: Boxes },
-  { title: "Produtos", href: "/dashboard/produtos", icon: Package },
-  { title: "Fichas Técnicas", href: "/dashboard/fichas-tecnicas", icon: FileText },
-  { title: "Etiquetas", href: "/dashboard/etiquetas", icon: Tag },
-  { title: "Histórico", href: "/dashboard/historico-pedidos", icon: History },
-  { title: "Perdas", href: "/dashboard/perdas", icon: AlertTriangle },
-  { title: "Transferências", href: "/dashboard/transferencias", icon: ArrowLeftRight },
-  { title: "Hub de Dados", href: "/dashboard/compras", icon: ShoppingCart },
-  { title: "Controladoria", href: "/dashboard/controladoria", icon: BadgeDollarSign },
-];
-
-const adminItems = [{ title: "Usuários", href: "/dashboard/admin/usuarios", icon: Users }];
+import {
+  principalMenuItems,
+  administracaoMenuItems,
+} from "@/components/layout/menu-items";
 
 interface SidebarProps {
   className?: string;
@@ -118,7 +84,7 @@ export function Sidebar({ className }: SidebarProps) {
             )}
 
             <div className="space-y-2">
-              {menuItems.map((item) => {
+              {principalMenuItems.map((item) => {
                 const active = isActive(item.href);
                 const Icon = item.icon;
 
@@ -130,11 +96,11 @@ export function Sidebar({ className }: SidebarProps) {
                         "h-12 w-full justify-start gap-3 rounded-xl",
                         variant === "desktop" ? (collapsed ? "px-3" : "px-4") : "px-4"
                       )}
-                      title={variant === "desktop" && collapsed ? item.title : undefined}
+                      title={variant === "desktop" && collapsed ? item.label : undefined}
                     >
                       <Icon className="h-4 w-4 shrink-0" />
                       {(variant === "mobile" || !collapsed) && (
-                        <span className="text-sm font-medium">{item.title}</span>
+                        <span className="text-sm font-medium">{item.label}</span>
                       )}
                     </Button>
                   </Link>
@@ -153,7 +119,7 @@ export function Sidebar({ className }: SidebarProps) {
             )}
 
             <div className="space-y-2">
-              {adminItems.map((item) => {
+              {administracaoMenuItems.map((item) => {
                 const active = isActive(item.href);
                 const Icon = item.icon;
 
@@ -165,11 +131,11 @@ export function Sidebar({ className }: SidebarProps) {
                         "h-12 w-full justify-start gap-3 rounded-xl",
                         variant === "desktop" ? (collapsed ? "px-3" : "px-4") : "px-4"
                       )}
-                      title={variant === "desktop" && collapsed ? item.title : undefined}
+                      title={variant === "desktop" && collapsed ? item.label : undefined}
                     >
                       <Icon className="h-4 w-4 shrink-0" />
                       {(variant === "mobile" || !collapsed) && (
-                        <span className="text-sm font-medium">{item.title}</span>
+                        <span className="text-sm font-medium">{item.label}</span>
                       )}
                     </Button>
                   </Link>

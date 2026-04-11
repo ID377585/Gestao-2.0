@@ -38,9 +38,15 @@ import {
 import {
   createInvoiceEntry,
   deleteInvoiceEntryAttachmentAction,
+  deleteInvoiceEntryDraft,
   listInvoiceEntries,
+  listInvoiceEntryDrafts,
   reverseInvoiceEntry,
+  saveInvoiceEntryDraft,
+  updateInvoiceEntry,
   uploadInvoiceEntryAttachmentAction,
+  type InvoiceEntryDraftPayload,
+  type InvoiceEntryDraftRow,
   type InvoiceEntryInput,
 } from "./actions";
 
@@ -206,7 +212,7 @@ function normalizeTextForCompare(text: string) {
     .trim();
 }
 
-function findTagText(node: ParentNode, tagName: string) {
+function findTagText(node: Document | Element, tagName: string) {
   const elements = Array.from(node.getElementsByTagName("*"));
   const found = elements.find(
     (el) => el.localName?.toLowerCase() === tagName.toLowerCase()
@@ -373,9 +379,14 @@ function buildPrintHtml(entry: InvoiceEntryRow) {
 export default function EntradasPage() {
   const [products, setProducts] = useState<ProductCatalogItem[]>([]);
   const [entries, setEntries] = useState<InvoiceEntryRow[]>([]);
+  const [drafts, setDrafts] = useState<InvoiceEntryDraftRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+
+  const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState("Rascunho de entrada");
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
 
   const [supplierName, setSupplierName] = useState("");
   const [supplierDocument, setSupplierDocument] = useState("");
@@ -389,6 +400,7 @@ export default function EntradasPage() {
   });
   const [notes, setNotes] = useState("");
   const [importedFromXml, setImportedFromXml] = useState(false);
+  const [updateProductStandardCost, setUpdateProductStandardCost] = useState(false);
 
   const [attachmentXmlUrl, setAttachmentXmlUrl] = useState<string | null>(null);
   const [attachmentXmlPath, setAttachmentXmlPath] = useState<string | null>(null);
@@ -422,9 +434,10 @@ export default function EntradasPage() {
     try {
       setLoading(true);
 
-      const [productsRes, entriesRes] = await Promise.all([
+      const [productsRes, entriesRes, draftsRes] = await Promise.all([
         fetch("/api/products/catalog", { cache: "no-store" }),
         listInvoiceEntries(),
+        listInvoiceEntryDrafts(),
       ]);
 
       if (productsRes.ok) {
@@ -459,6 +472,8 @@ export default function EntradasPage() {
         if (!prev) return normalizedEntries[0];
         return normalizedEntries.find((entry) => entry.id === prev.id) ?? normalizedEntries[0];
       });
+
+      setDrafts(Array.isArray(draftsRes) ? draftsRes : []);
     } catch (error) {
       console.error("Erro ao carregar entradas:", error);
       alert("Erro ao carregar a sessão de entradas.");
@@ -482,6 +497,9 @@ export default function EntradasPage() {
   };
 
   const resetForm = () => {
+    setCurrentDraftId(null);
+    setDraftName("Rascunho de entrada");
+    setEditingEntryId(null);
     setSupplierName("");
     setSupplierDocument("");
     setInvoiceNumber("");
@@ -491,11 +509,71 @@ export default function EntradasPage() {
     setEntryDate(new Date().toISOString().slice(0, 10));
     setNotes("");
     setImportedFromXml(false);
+    setUpdateProductStandardCost(false);
     setAttachmentXmlUrl(null);
     setAttachmentXmlPath(null);
     setAttachmentPdfUrl(null);
     setAttachmentPdfPath(null);
     setItems([]);
+    resetDraftItem();
+  };
+
+  const buildDraftPayload = (): InvoiceEntryDraftPayload => ({
+    supplier_name: supplierName,
+    supplier_document: supplierDocument || null,
+    invoice_number: invoiceNumber,
+    invoice_series: invoiceSeries || null,
+    invoice_key: invoiceKey || null,
+    issue_date: issueDate,
+    entry_date: entryDate,
+    notes: notes || null,
+    imported_from_xml: importedFromXml,
+    attachment_xml_url: attachmentXmlUrl,
+    attachment_xml_path: attachmentXmlPath,
+    attachment_pdf_url: attachmentPdfUrl,
+    attachment_pdf_path: attachmentPdfPath,
+    update_product_standard_cost: updateProductStandardCost,
+    items: items.map((item, index) => ({
+      product_id: item.productId,
+      product_name_snapshot: item.productName,
+      quantity: item.quantity,
+      unit_label: item.unitLabel,
+      unit_cost: item.unitCost,
+      total_cost: item.totalCost,
+      sort_order: index,
+    })),
+  });
+
+  const applyDraftPayload = (payload: InvoiceEntryDraftPayload) => {
+    setSupplierName(payload.supplier_name || "");
+    setSupplierDocument(payload.supplier_document || "");
+    setInvoiceNumber(payload.invoice_number || "");
+    setInvoiceSeries(payload.invoice_series || "");
+    setInvoiceKey(payload.invoice_key || "");
+    setIssueDate(payload.issue_date || "");
+    setEntryDate(payload.entry_date || new Date().toISOString().slice(0, 10));
+    setNotes(payload.notes || "");
+    setImportedFromXml(Boolean(payload.imported_from_xml));
+    setAttachmentXmlUrl(payload.attachment_xml_url || null);
+    setAttachmentXmlPath(payload.attachment_xml_path || null);
+    setAttachmentPdfUrl(payload.attachment_pdf_url || null);
+    setAttachmentPdfPath(payload.attachment_pdf_path || null);
+    setUpdateProductStandardCost(Boolean(payload.update_product_standard_cost));
+    setItems(
+      (payload.items ?? []).map((item) => {
+        const product = products.find((p) => p.id === item.product_id);
+        return {
+          id: uid(),
+          productId: String(item.product_id),
+          productName: item.product_name_snapshot,
+          productSku: product?.sku ?? null,
+          quantity: Number(item.quantity),
+          unitLabel: item.unit_label,
+          unitCost: Number(item.unit_cost),
+          totalCost: Number(item.total_cost),
+        };
+      })
+    );
     resetDraftItem();
   };
 
@@ -705,6 +783,87 @@ export default function EntradasPage() {
     }
   };
 
+  const saveDraft = () => {
+    const payload = buildDraftPayload();
+
+    startTransition(async () => {
+      try {
+        const result = await saveInvoiceEntryDraft(
+          draftName,
+          payload,
+          currentDraftId || undefined
+        );
+        setCurrentDraftId(result.id);
+        await loadData();
+        alert("Rascunho salvo com sucesso.");
+      } catch (error: any) {
+        console.error(error);
+        alert(error?.message ?? "Não foi possível salvar o rascunho.");
+      }
+    });
+  };
+
+  const loadDraft = (draft: InvoiceEntryDraftRow) => {
+    setCurrentDraftId(draft.id);
+    setDraftName(draft.name);
+    setEditingEntryId(null);
+    applyDraftPayload(draft.data);
+  };
+
+  const removeDraft = (draftId: string) => {
+    if (!confirm("Deseja excluir este rascunho?")) return;
+
+    startTransition(async () => {
+      try {
+        await deleteInvoiceEntryDraft(draftId);
+        if (currentDraftId === draftId) {
+          resetForm();
+        }
+        await loadData();
+      } catch (error: any) {
+        console.error(error);
+        alert(error?.message ?? "Não foi possível excluir o rascunho.");
+      }
+    });
+  };
+
+  const loadEntryForEdit = (entry: InvoiceEntryRow) => {
+    setEditingEntryId(entry.id);
+    setCurrentDraftId(null);
+    setDraftName(`Edicao NF ${entry.invoice_number}`);
+    setSupplierName(entry.supplier_name);
+    setSupplierDocument(entry.supplier_document || "");
+    setInvoiceNumber(entry.invoice_number);
+    setInvoiceSeries(entry.invoice_series || "");
+    setInvoiceKey(entry.invoice_key || "");
+    setIssueDate(entry.issue_date);
+    setEntryDate(entry.entry_date);
+    setNotes(entry.notes || "");
+    setImportedFromXml(entry.imported_from_xml);
+    setAttachmentXmlUrl(entry.attachment_xml_url || null);
+    setAttachmentXmlPath(entry.attachment_xml_path || null);
+    setAttachmentPdfUrl(entry.attachment_pdf_url || null);
+    setAttachmentPdfPath(entry.attachment_pdf_path || null);
+    setUpdateProductStandardCost(false);
+    setItems(
+      entry.items.map((item) => {
+        const product = products.find((p) => p.id === item.product_id);
+        return {
+          id: uid(),
+          productId: item.product_id,
+          productName: item.product_name_snapshot,
+          productSku: product?.sku ?? null,
+          quantity: item.quantity,
+          unitLabel: item.unit_label,
+          unitCost: item.unit_cost,
+          totalCost: item.total_cost,
+        };
+      })
+    );
+    resetDraftItem();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const saveEntry = () => {
     if (!supplierName.trim()) {
       alert("Informe o fornecedor.");
@@ -732,6 +891,7 @@ export default function EntradasPage() {
     }
 
     const payload: InvoiceEntryInput = {
+      id: editingEntryId || undefined,
       supplier_name: supplierName.trim(),
       supplier_document: supplierDocument.trim() || null,
       invoice_number: invoiceNumber.trim(),
@@ -745,6 +905,7 @@ export default function EntradasPage() {
       attachment_xml_path: attachmentXmlPath,
       attachment_pdf_url: attachmentPdfUrl,
       attachment_pdf_path: attachmentPdfPath,
+      update_product_standard_cost: updateProductStandardCost,
       items: items.map((item, index) => ({
         product_id: item.productId,
         product_name_snapshot: item.productName,
@@ -758,10 +919,20 @@ export default function EntradasPage() {
 
     startTransition(async () => {
       try {
-        await createInvoiceEntry(payload);
+        if (editingEntryId) {
+          await updateInvoiceEntry(payload);
+          alert("Entrada atualizada com sucesso e estoque reaplicado.");
+        } else {
+          await createInvoiceEntry(payload);
+          alert("Entrada lançada com sucesso e estoque atualizado.");
+        }
+
+        if (currentDraftId) {
+          await deleteInvoiceEntryDraft(currentDraftId);
+        }
+
         resetForm();
         await loadData();
-        alert("Entrada lançada com sucesso e estoque atualizado.");
       } catch (error: any) {
         console.error(error);
         alert(error?.message ?? "Não foi possível gravar a entrada.");
@@ -1011,7 +1182,7 @@ export default function EntradasPage() {
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = "historico_entradas_v2.csv";
+    a.download = "historico_entradas_v3.csv";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1030,38 +1201,41 @@ export default function EntradasPage() {
   };
 
   const getCostReview = (item: EntryItemDraft | InvoiceEntryRow["items"][number]) => {
-    const product =
-      "productId" in item
-        ? products.find((p) => p.id === item.productId)
-        : products.find((p) => p.id === item.product_id);
+  const product =
+    "productId" in item
+      ? products.find((p) => p.id === item.productId)
+      : products.find((p) => p.id === item.product_id);
 
-    const currentCost = Number(product?.standard_cost || product?.price || 0);
-    const incomingCost = Number(item.unitCost ?? item.unit_cost ?? 0);
+  const currentCost = Number(product?.standard_cost || product?.price || 0);
 
-    if (!currentCost || currentCost <= 0) {
-      return {
-        currentCost,
-        incomingCost,
-        diffPercent: null as number | null,
-        label: "Sem base cadastrada",
-      };
-    }
+  const incomingCost = Number(
+    "unitCost" in item ? item.unitCost : item.unit_cost
+  );
 
-    const diffPercent = Number(
-      (((incomingCost - currentCost) / currentCost) * 100).toFixed(2)
-    );
-
-    let label = "Dentro da faixa";
-    if (diffPercent > 10) label = "Acima do custo atual";
-    if (diffPercent < -10) label = "Abaixo do custo atual";
-
+  if (!currentCost || currentCost <= 0) {
     return {
       currentCost,
       incomingCost,
-      diffPercent,
-      label,
+      diffPercent: null as number | null,
+      label: "Sem base cadastrada",
     };
+  }
+
+  const diffPercent = Number(
+    (((incomingCost - currentCost) / currentCost) * 100).toFixed(2)
+  );
+
+  let label = "Dentro da faixa";
+  if (diffPercent > 10) label = "Acima do custo atual";
+  if (diffPercent < -10) label = "Abaixo do custo atual";
+
+  return {
+    currentCost,
+    incomingCost,
+    diffPercent,
+    label,
   };
+};
 
   return (
     <div className="space-y-6">
@@ -1069,7 +1243,7 @@ export default function EntradasPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Entradas</h1>
           <p className="text-gray-600">
-            Importação de XML da NF-e, anexos, conferência de custos, filtros avançados e dashboard.
+            Versão 3 com rascunho persistente, edição de entrada lançada, XML, anexos e conferência de custos.
           </p>
         </div>
 
@@ -1079,6 +1253,9 @@ export default function EntradasPage() {
           </Button>
           <Button type="button" variant="outline" onClick={clearFilters}>
             Limpar filtros
+          </Button>
+          <Button type="button" variant="outline" onClick={resetForm}>
+            Novo lançamento
           </Button>
         </div>
       </div>
@@ -1140,6 +1317,84 @@ export default function EntradasPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Rascunhos persistentes</CardTitle>
+          <CardDescription>
+            Salve uma entrada em andamento e continue depois sem perder os dados.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_220px_220px]">
+            <div>
+              <Label htmlFor="draft_name">Nome do rascunho</Label>
+              <Input
+                id="draft_name"
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                placeholder="Ex.: NF fornecedor setembro"
+              />
+            </div>
+
+            <div className="flex items-end">
+              <Button type="button" className="w-full" onClick={saveDraft} disabled={isPending}>
+                {currentDraftId ? "Atualizar rascunho" : "Salvar rascunho"}
+              </Button>
+            </div>
+
+            <div className="flex items-end">
+              {currentDraftId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    const draft = drafts.find((item) => item.id === currentDraftId);
+                    if (draft) {
+                      removeDraft(draft.id);
+                    }
+                  }}
+                >
+                  Excluir rascunho atual
+                </Button>
+              ) : (
+                <div className="text-sm text-muted-foreground">Nenhum rascunho aberto</div>
+              )}
+            </div>
+          </div>
+
+          {drafts.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              Nenhum rascunho salvo ainda.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {drafts.map((draft) => (
+                <div key={draft.id} className="rounded-xl border p-4">
+                  <div className="mb-2 font-semibold">{draft.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Atualizado em {formatDateTime(draft.updated_at)}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <Button type="button" size="sm" onClick={() => loadDraft(draft)}>
+                      Abrir
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => removeDraft(draft.id)}
+                    >
+                      Excluir
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -1322,9 +1577,11 @@ export default function EntradasPage() {
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[500px_minmax(0,1fr)]">
         <Card>
           <CardHeader>
-            <CardTitle>Nova entrada</CardTitle>
+            <CardTitle>
+              {editingEntryId ? "Editar entrada lançada" : "Nova entrada"}
+            </CardTitle>
             <CardDescription>
-              Importe XML da NF-e, anexe arquivos e revise antes de confirmar.
+              Importe XML da NF-e, anexe arquivos, revise itens e confirme.
             </CardDescription>
           </CardHeader>
 
@@ -1458,6 +1715,10 @@ export default function EntradasPage() {
                 <Badge variant={importedFromXml ? "default" : "secondary"}>
                   {importedFromXml ? "Importado de XML" : "Lançamento manual"}
                 </Badge>
+
+                {editingEntryId ? (
+                  <Badge variant="outline">Modo edição</Badge>
+                ) : null}
 
                 {attachmentXmlUrl ? (
                   <a
@@ -1671,12 +1932,33 @@ export default function EntradasPage() {
               </div>
             </div>
 
+            <div className="rounded-xl border p-4">
+              <div className="flex items-center gap-3">
+                <input
+                  id="update_product_standard_cost"
+                  type="checkbox"
+                  checked={updateProductStandardCost}
+                  onChange={(e) => setUpdateProductStandardCost(e.target.checked)}
+                />
+                <Label htmlFor="update_product_standard_cost">
+                  Atualizar custo padrão dos produtos com base nesta entrada
+                </Label>
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={resetForm}>
                 Limpar
               </Button>
+              <Button type="button" variant="outline" onClick={saveDraft} disabled={isPending}>
+                Salvar rascunho
+              </Button>
               <Button type="button" onClick={saveEntry} disabled={isPending}>
-                {isPending ? "Gravando..." : "Salvar entrada"}
+                {isPending
+                  ? "Processando..."
+                  : editingEntryId
+                  ? "Atualizar entrada"
+                  : "Salvar entrada"}
               </Button>
             </div>
           </CardContent>
@@ -1686,7 +1968,7 @@ export default function EntradasPage() {
           <CardHeader>
             <CardTitle>Histórico de notas lançadas</CardTitle>
             <CardDescription>
-              Consulte as entradas registradas, imprima, filtre e faça estorno quando necessário.
+              Consulte as entradas registradas, imprima, edite, filtre e faça estorno quando necessário.
             </CardDescription>
           </CardHeader>
 
@@ -1750,15 +2032,26 @@ export default function EntradasPage() {
                               </Button>
 
                               {entry.status === "active" && (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleReverse(entry.id)}
-                                  disabled={isPending}
-                                >
-                                  Estornar
-                                </Button>
+                                <>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => loadEntryForEdit(entry)}
+                                  >
+                                    Editar
+                                  </Button>
+
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleReverse(entry.id)}
+                                    disabled={isPending}
+                                  >
+                                    Estornar
+                                  </Button>
+                                </>
                               )}
                             </div>
                           </TableCell>

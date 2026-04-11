@@ -77,6 +77,9 @@ export function Topbar({ className }: TopbarProps) {
   const [showAjuda, setShowAjuda] = useState(false);
   const [showNotificacoesModal, setShowNotificacoesModal] = useState(false);
 
+  const [notificationsMenuOpen, setNotificationsMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+
   const [notificacoes, setNotificacoes] = useState<AppNotification[]>([]);
   const [settings, setSettings] = useState<UserSettings>(getUserSettings());
 
@@ -146,13 +149,34 @@ export function Topbar({ className }: TopbarProps) {
     }
   };
 
+  const handleOpenPerfil = () => {
+    setUserMenuOpen(false);
+    setShowPerfil(true);
+  };
+
+  const handleOpenConfiguracoes = () => {
+    setUserMenuOpen(false);
+    setShowConfiguracoes(true);
+  };
+
+  const handleOpenAjuda = () => {
+    setUserMenuOpen(false);
+    setShowAjuda(true);
+  };
+
+  const handleOpenTodasNotificacoes = () => {
+    setNotificationsMenuOpen(false);
+    setShowNotificacoesModal(true);
+  };
+
   const handleLogout = () => {
+    setUserMenuOpen(false);
     clearSession();
     window.location.assign("/login");
   };
 
   const dropdownBaseClasses =
-    "bg-white text-gray-900 border border-gray-200 shadow-lg rounded-md";
+    "z-50 bg-white text-gray-900 border border-gray-200 shadow-lg rounded-md";
 
   return (
     <>
@@ -163,7 +187,10 @@ export function Topbar({ className }: TopbarProps) {
           </div>
 
           <div className="flex items-center gap-2">
-            <DropdownMenu>
+            <DropdownMenu
+              open={notificationsMenuOpen}
+              onOpenChange={setNotificationsMenuOpen}
+            >
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -244,7 +271,7 @@ export function Topbar({ className }: TopbarProps) {
                     variant="outline"
                     size="sm"
                     className="w-full"
-                    onClick={() => setShowNotificacoesModal(true)}
+                    onClick={handleOpenTodasNotificacoes}
                   >
                     Ver todas
                   </Button>
@@ -252,7 +279,7 @@ export function Topbar({ className }: TopbarProps) {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu>
+            <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -298,7 +325,7 @@ export function Topbar({ className }: TopbarProps) {
                 <DropdownMenuSeparator />
 
                 <DropdownMenuItem
-                  onSelect={() => setShowPerfil(true)}
+                  onSelect={handleOpenPerfil}
                   className="focus:bg-gray-50"
                 >
                   <UserIcon className="mr-2 h-4 w-4" />
@@ -306,7 +333,7 @@ export function Topbar({ className }: TopbarProps) {
                 </DropdownMenuItem>
 
                 <DropdownMenuItem
-                  onSelect={() => setShowConfiguracoes(true)}
+                  onSelect={handleOpenConfiguracoes}
                   className="focus:bg-gray-50"
                 >
                   <Settings className="mr-2 h-4 w-4" />
@@ -314,7 +341,7 @@ export function Topbar({ className }: TopbarProps) {
                 </DropdownMenuItem>
 
                 <DropdownMenuItem
-                  onSelect={() => setShowAjuda(true)}
+                  onSelect={handleOpenAjuda}
                   className="focus:bg-gray-50"
                 >
                   <HelpCircle className="mr-2 h-4 w-4" />

@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,19 +8,40 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import type { AppNotification } from "@/lib/notifications";
 
 type NotificationsModalProps = {
   open: boolean;
   onClose: () => void;
-  // ⚠️ deixo como any[] para não depender do tipo Notificacao definido no Topbar
-  // (evita erro de tipos diferentes em arquivos diferentes)
-  notifications: any[];
+  notifications: AppNotification[];
+  onMarkAsRead?: (id: string) => void;
+  onMarkAllAsRead?: () => void;
 };
+
+function formatDate(value?: AppNotification["createdAt"]) {
+  if (!value) return "Agora";
+
+  try {
+    const date =
+      typeof (value as any)?.toDate === "function"
+        ? (value as any).toDate()
+        : new Date(value as any);
+
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(date);
+  } catch {
+    return "Agora";
+  }
+}
 
 export default function NotificationsModal({
   open,
   onClose,
   notifications,
+  onMarkAsRead,
+  onMarkAllAsRead,
 }: NotificationsModalProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => (!v ? onClose() : undefined)}>
@@ -33,32 +53,42 @@ export default function NotificationsModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2 max-h-[55vh] overflow-auto pr-1">
-          {(!notifications || notifications.length === 0) && (
+        <div className="mb-3 flex justify-end">
+          <Button variant="outline" size="sm" onClick={onMarkAllAsRead}>
+            Marcar todas como lidas
+          </Button>
+        </div>
+
+        <div className="max-h-[55vh] space-y-2 overflow-auto pr-1">
+          {notifications.length === 0 && (
             <div className="text-sm text-muted-foreground">
               Nenhuma notificação no momento.
             </div>
           )}
 
-          {Array.isArray(notifications) &&
-            notifications.map((n: any, idx: number) => (
-              <div
-                key={n?.id ?? idx}
-                className="rounded-md border p-3 text-sm"
-              >
-                <div className="font-semibold">
-                  {n?.title ?? n?.titulo ?? "Notificação"}
-                </div>
-                <div className="text-muted-foreground">
-                  {n?.message ?? n?.mensagem ?? ""}
-                </div>
-                {(n?.date || n?.createdAt) && (
+          {notifications.map((n) => (
+            <div key={n.id} className="rounded-md border p-3 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-gray-900">{n.titulo}</div>
+                  <div className="text-muted-foreground">{n.mensagem}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {String(n?.date ?? n?.createdAt)}
+                    {formatDate(n.createdAt)}
                   </div>
+                </div>
+
+                {!n.lida && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onMarkAsRead?.(n.id)}
+                  >
+                    Marcar lida
+                  </Button>
                 )}
               </div>
-            ))}
+            </div>
+          ))}
         </div>
 
         <div className="flex justify-end gap-2">

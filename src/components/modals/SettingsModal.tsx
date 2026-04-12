@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -21,6 +22,8 @@ export function SettingsModal({
   onClose,
   onSettingsChange,
 }: SettingsModalProps) {
+  const { setTheme, resolvedTheme } = useTheme();
+
   const [settings, setSettings] = useState<UserSettings>({
     emailNotifications: true,
     browserNotifications: true,
@@ -29,8 +32,15 @@ export function SettingsModal({
 
   useEffect(() => {
     if (!open) return;
-    setSettings(getUserSettings());
-  }, [open]);
+
+    const saved = getUserSettings();
+
+    setSettings({
+      ...saved,
+      darkMode:
+        resolvedTheme === "dark" ? true : saved.darkMode,
+    });
+  }, [open, resolvedTheme]);
 
   const updateSettings = async (
     key: keyof UserSettings,
@@ -61,6 +71,7 @@ export function SettingsModal({
 
     if (key === "darkMode") {
       applyDarkMode(next.darkMode);
+      setTheme(next.darkMode ? "dark" : "light");
     }
 
     setSettings(next);
@@ -72,9 +83,9 @@ export function SettingsModal({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
+      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-6 shadow-lg dark:border-slate-700 dark:bg-slate-900">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-gray-900">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">
             Configurações
           </h3>
           <Button variant="ghost" onClick={onClose}>
@@ -83,12 +94,12 @@ export function SettingsModal({
         </div>
 
         <div className="space-y-4">
-          <div className="flex items-center justify-between rounded-md border p-3">
+          <div className="flex items-center justify-between rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
             <div>
-              <div className="text-sm font-medium text-gray-900">
+              <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
                 Notificações por email
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-gray-500 dark:text-slate-400">
                 Receber alertas importantes por email
               </div>
             </div>
@@ -100,12 +111,12 @@ export function SettingsModal({
             />
           </div>
 
-          <div className="flex items-center justify-between rounded-md border p-3">
+          <div className="flex items-center justify-between rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
             <div>
-              <div className="text-sm font-medium text-gray-900">
+              <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
                 Notificações no navegador
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-gray-500 dark:text-slate-400">
                 Receber alertas no navegador em tempo real
               </div>
             </div>
@@ -117,12 +128,12 @@ export function SettingsModal({
             />
           </div>
 
-          <div className="flex items-center justify-between rounded-md border p-3">
+          <div className="flex items-center justify-between rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
             <div>
-              <div className="text-sm font-medium text-gray-900">
+              <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
                 Tema escuro
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-gray-500 dark:text-slate-400">
                 Ativar modo escuro
               </div>
             </div>

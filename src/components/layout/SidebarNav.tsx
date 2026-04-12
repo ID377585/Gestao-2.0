@@ -21,7 +21,7 @@ export function SidebarNav({ onNavigate }: Props) {
   return (
     <nav className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <div className="px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
           Menu Principal
         </div>
 
@@ -36,10 +36,10 @@ export function SidebarNav({ onNavigate }: Props) {
                 href={item.href}
                 onClick={onNavigate}
                 className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                  "flex items-center gap-3 rounded-md border px-3 py-2 text-sm transition-colors",
                   active
-                    ? "bg-muted font-medium"
-                    : "text-foreground hover:bg-muted/70"
+                    ? "border-blue-200 bg-blue-50 font-medium text-blue-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    : "border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -51,7 +51,7 @@ export function SidebarNav({ onNavigate }: Props) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <div className="px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
           Administração
         </div>
 
@@ -66,10 +66,10 @@ export function SidebarNav({ onNavigate }: Props) {
                 href={item.href}
                 onClick={onNavigate}
                 className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                  "flex items-center gap-3 rounded-md border px-3 py-2 text-sm transition-colors",
                   active
-                    ? "bg-muted font-medium"
-                    : "text-foreground hover:bg-muted/70"
+                    ? "border-blue-200 bg-blue-50 font-medium text-blue-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    : "border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                 )}
               >
                 <Icon className="h-4 w-4" />

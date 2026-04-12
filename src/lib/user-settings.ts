@@ -4,7 +4,8 @@ export type UserSettings = {
   darkMode: boolean;
 };
 
-const STORAGE_KEY = "gestify:user-settings";
+const STORAGE_KEY = "gestify-user-settings";
+const THEME_STORAGE_KEY = "gestify-theme";
 
 const defaultSettings: UserSettings = {
   emailNotifications: true,
@@ -13,27 +14,25 @@ const defaultSettings: UserSettings = {
 };
 
 export function getUserSettings(): UserSettings {
-  if (typeof window === "undefined") return defaultSettings;
+  if (typeof window === "undefined") {
+    return defaultSettings;
+  }
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultSettings;
+
+    if (!raw) {
+      return defaultSettings;
+    }
 
     const parsed = JSON.parse(raw) as Partial<UserSettings>;
 
     return {
       emailNotifications:
-        typeof parsed.emailNotifications === "boolean"
-          ? parsed.emailNotifications
-          : defaultSettings.emailNotifications,
+        parsed.emailNotifications ?? defaultSettings.emailNotifications,
       browserNotifications:
-        typeof parsed.browserNotifications === "boolean"
-          ? parsed.browserNotifications
-          : defaultSettings.browserNotifications,
-      darkMode:
-        typeof parsed.darkMode === "boolean"
-          ? parsed.darkMode
-          : defaultSettings.darkMode,
+        parsed.browserNotifications ?? defaultSettings.browserNotifications,
+      darkMode: parsed.darkMode ?? defaultSettings.darkMode,
     };
   } catch {
     return defaultSettings;
@@ -42,11 +41,13 @@ export function getUserSettings(): UserSettings {
 
 export function saveUserSettings(settings: UserSettings) {
   if (typeof window === "undefined") return;
+
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  localStorage.setItem(THEME_STORAGE_KEY, settings.darkMode ? "dark" : "light");
 }
 
 export function applyDarkMode(enabled: boolean) {
-  if (typeof document === "undefined") return;
+  if (typeof window === "undefined") return;
 
   const root = document.documentElement;
 
@@ -55,4 +56,13 @@ export function applyDarkMode(enabled: boolean) {
   } else {
     root.classList.remove("dark");
   }
+
+  localStorage.setItem(THEME_STORAGE_KEY, enabled ? "dark" : "light");
+}
+
+export function initializeTheme() {
+  if (typeof window === "undefined") return;
+
+  const settings = getUserSettings();
+  applyDarkMode(settings.darkMode);
 }

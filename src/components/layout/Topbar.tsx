@@ -149,24 +149,29 @@ export function Topbar({ className }: TopbarProps) {
     }
   };
 
-  const handleOpenPerfil = () => {
+  const openAfterDropdownClose = (openModal: () => void) => {
     setUserMenuOpen(false);
-    setShowPerfil(true);
+    setNotificationsMenuOpen(false);
+
+    setTimeout(() => {
+      openModal();
+    }, 80);
+  };
+
+  const handleOpenPerfil = () => {
+    openAfterDropdownClose(() => setShowPerfil(true));
   };
 
   const handleOpenConfiguracoes = () => {
-    setUserMenuOpen(false);
-    setShowConfiguracoes(true);
+    openAfterDropdownClose(() => setShowConfiguracoes(true));
   };
 
   const handleOpenAjuda = () => {
-    setUserMenuOpen(false);
-    setShowAjuda(true);
+    openAfterDropdownClose(() => setShowAjuda(true));
   };
 
   const handleOpenTodasNotificacoes = () => {
-    setNotificationsMenuOpen(false);
-    setShowNotificacoesModal(true);
+    openAfterDropdownClose(() => setShowNotificacoesModal(true));
   };
 
   const handleLogout = () => {
@@ -176,11 +181,13 @@ export function Topbar({ className }: TopbarProps) {
   };
 
   const dropdownBaseClasses =
-    "z-50 bg-white text-gray-900 border border-gray-200 shadow-lg rounded-md";
+    "z-50 rounded-md border border-gray-200 bg-white text-gray-900 shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100";
 
   return (
     <>
-      <header className={`bg-white border-b border-gray-200 ${className ?? ""}`}>
+      <header
+        className={`border-b border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-950 ${className ?? ""}`}
+      >
         <div className="flex h-16 items-center justify-between px-4 md:px-6">
           <div className="flex items-center gap-2 md:gap-3">
             <SidebarMobile />
@@ -190,16 +197,17 @@ export function Topbar({ className }: TopbarProps) {
             <DropdownMenu
               open={notificationsMenuOpen}
               onOpenChange={setNotificationsMenuOpen}
+              modal={false}
             >
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="relative inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  className="relative inline-flex h-10 w-10 items-center justify-center rounded-md text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-300 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-slate-600"
                   aria-label="Notificações"
                 >
-                  <Bell className="h-5 w-5 text-gray-700" />
+                  <Bell className="h-5 w-5" />
                   {notificacoesNaoLidas > 0 && (
-                    <span className="absolute -top-1 -right-1">
+                    <span className="absolute -right-1 -top-1">
                       <Badge className="h-5 min-w-5 justify-center rounded-full px-1 text-[10px]">
                         {notificacoesNaoLidas}
                       </Badge>
@@ -214,11 +222,12 @@ export function Topbar({ className }: TopbarProps) {
                 className={`w-80 ${dropdownBaseClasses}`}
               >
                 <DropdownMenuLabel className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-gray-900">
+                  <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">
                     Notificações
                   </span>
 
                   <Button
+                    type="button"
                     size="sm"
                     variant="ghost"
                     className="h-8 px-2 text-xs"
@@ -232,7 +241,7 @@ export function Topbar({ className }: TopbarProps) {
                 <DropdownMenuSeparator />
 
                 {notificacoes.length === 0 ? (
-                  <div className="px-3 py-6 text-center text-sm text-gray-600">
+                  <div className="px-3 py-6 text-center text-sm text-gray-600 dark:text-slate-400">
                     Nenhuma notificação
                   </div>
                 ) : (
@@ -240,23 +249,26 @@ export function Topbar({ className }: TopbarProps) {
                     {notificacoes.slice(0, 5).map((n) => (
                       <DropdownMenuItem
                         key={n.id}
-                        className="flex cursor-pointer flex-col items-start gap-1 py-3 focus:bg-gray-50"
-                        onSelect={() => {
+                        className="flex cursor-pointer flex-col items-start gap-1 py-3 focus:bg-gray-50 dark:focus:bg-slate-800"
+                        onSelect={(event) => {
+                          event.preventDefault();
                           if (!n.lida) {
                             handleMarkAsRead(n.id);
                           }
                         }}
                       >
                         <div className="flex w-full items-center justify-between gap-3">
-                          <span className="text-sm font-medium text-gray-900">
+                          <span className="text-sm font-medium text-gray-900 dark:text-slate-100">
                             {n.titulo}
                           </span>
                           {!n.lida && (
                             <span className="h-2 w-2 rounded-full bg-blue-600" />
                           )}
                         </div>
-                        <span className="text-xs text-gray-700">{n.mensagem}</span>
-                        <span className="text-[11px] text-gray-500">
+                        <span className="text-xs text-gray-700 dark:text-slate-300">
+                          {n.mensagem}
+                        </span>
+                        <span className="text-[11px] text-gray-500 dark:text-slate-400">
                           {formatDate(n.createdAt)}
                         </span>
                       </DropdownMenuItem>
@@ -268,6 +280,7 @@ export function Topbar({ className }: TopbarProps) {
 
                 <div className="p-2">
                   <Button
+                    type="button"
                     variant="outline"
                     size="sm"
                     className="w-full"
@@ -279,11 +292,15 @@ export function Topbar({ className }: TopbarProps) {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen}>
+            <DropdownMenu
+              open={userMenuOpen}
+              onOpenChange={setUserMenuOpen}
+              modal={false}
+            >
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-gray-300 dark:focus:ring-slate-600"
                   aria-label="Menu do usuário"
                 >
                   <Avatar className="h-10 w-10">
@@ -308,10 +325,10 @@ export function Topbar({ className }: TopbarProps) {
               >
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold text-gray-900">
+                    <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">
                       {user?.name ?? "Usuário"}
                     </span>
-                    <span className="text-xs text-gray-600">
+                    <span className="text-xs text-gray-600 dark:text-slate-400">
                       {user?.email ?? ""}
                     </span>
                     <Badge variant="secondary" className="mt-1 w-fit">
@@ -325,24 +342,33 @@ export function Topbar({ className }: TopbarProps) {
                 <DropdownMenuSeparator />
 
                 <DropdownMenuItem
-                  onSelect={handleOpenPerfil}
-                  className="focus:bg-gray-50"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    handleOpenPerfil();
+                  }}
+                  className="focus:bg-gray-50 dark:focus:bg-slate-800"
                 >
                   <UserIcon className="mr-2 h-4 w-4" />
                   Perfil
                 </DropdownMenuItem>
 
                 <DropdownMenuItem
-                  onSelect={handleOpenConfiguracoes}
-                  className="focus:bg-gray-50"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    handleOpenConfiguracoes();
+                  }}
+                  className="focus:bg-gray-50 dark:focus:bg-slate-800"
                 >
                   <Settings className="mr-2 h-4 w-4" />
                   Configurações
                 </DropdownMenuItem>
 
                 <DropdownMenuItem
-                  onSelect={handleOpenAjuda}
-                  className="focus:bg-gray-50"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    handleOpenAjuda();
+                  }}
+                  className="focus:bg-gray-50 dark:focus:bg-slate-800"
                 >
                   <HelpCircle className="mr-2 h-4 w-4" />
                   Ajuda
@@ -351,8 +377,11 @@ export function Topbar({ className }: TopbarProps) {
                 <DropdownMenuSeparator />
 
                 <DropdownMenuItem
-                  onSelect={handleLogout}
-                  className="text-red-600 focus:bg-gray-50 focus:text-red-600"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    handleLogout();
+                  }}
+                  className="text-red-600 focus:bg-gray-50 focus:text-red-600 dark:text-red-400 dark:focus:bg-slate-800 dark:focus:text-red-400"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
                   Sair

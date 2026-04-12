@@ -28,7 +28,7 @@ export function PageHeader() {
   return (
     <div className="mb-6">
       <Breadcrumbs />
-      <h1 className="mt-2 text-2xl font-semibold text-gray-900">
+      <h1 className="mt-2 text-2xl font-semibold text-gray-900 dark:text-slate-100">
         {title}
       </h1>
     </div>

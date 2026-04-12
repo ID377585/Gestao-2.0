@@ -45,10 +45,12 @@ export default function NotificationsModal({
 }: NotificationsModalProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => (!v ? onClose() : undefined)}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         <DialogHeader>
-          <DialogTitle>Notificações</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-gray-900 dark:text-slate-100">
+            Notificações
+          </DialogTitle>
+          <DialogDescription className="text-gray-500 dark:text-slate-400">
             Acompanhe alertas e avisos do sistema.
           </DialogDescription>
         </DialogHeader>
@@ -67,10 +69,15 @@ export default function NotificationsModal({
           )}
 
           {notifications.map((n) => (
-            <div key={n.id} className="rounded-md border p-3 text-sm">
+            <div
+              key={n.id}
+              className="rounded-md border border-gray-200 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/50"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="font-semibold text-gray-900">{n.titulo}</div>
+                  <div className="font-semibold text-gray-900 dark:text-slate-100">
+                    {n.titulo}
+                  </div>
                   <div className="text-muted-foreground">{n.mensagem}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {formatDate(n.createdAt)}

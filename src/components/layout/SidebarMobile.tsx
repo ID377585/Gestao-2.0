@@ -73,8 +73,8 @@ export function SidebarMobile() {
             onClick={() => setOpen(false)}
           />
 
-          <div className="fixed left-0 top-0 flex h-full w-[300px] flex-col bg-white shadow-xl">
-            <div className="flex h-16 shrink-0 items-center justify-between border-b px-4">
+          <div className="fixed left-0 top-0 flex h-full w-[300px] flex-col bg-white shadow-xl dark:bg-slate-900 dark:shadow-black/40">
+            <div className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200 px-4 dark:border-slate-700">
               <div className="flex items-center">
                 <GestifyMark size={40} compact />
               </div>
@@ -92,7 +92,7 @@ export function SidebarMobile() {
 
             <nav className="flex-1 overflow-y-auto px-4 py-4">
               <div className="space-y-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
                   Menu Principal
                 </div>
 
@@ -118,10 +118,10 @@ export function SidebarMobile() {
                 </div>
 
                 <div className="py-4">
-                  <div className="border-t" />
+                  <div className="border-t border-gray-200 dark:border-slate-700" />
                 </div>
 
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
                   Administração
                 </div>
 

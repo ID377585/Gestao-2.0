@@ -101,6 +101,19 @@ type ImportedRecipe = {
   scales: TechnicalSheetScaleInput[];
 };
 
+type ParsedIngredientRow = {
+  ingredient_name: string;
+  usage_unit: string;
+  values: number[];
+};
+
+type ParsedScaleTable = {
+  scaleLabels: string[];
+  yieldDescriptions: string[];
+  ingredientRows: ParsedIngredientRow[];
+  netWeights: number[];
+};
+
 async function getContext() {
   const supabase = await createSupabaseServerClient();
   const { membership } = await getActiveMembershipOrRedirect();
@@ -190,9 +203,64 @@ function shouldIgnoreLine(line: string) {
     "RENDIMENTO",
     "PESO DA PORÇÃO",
     "PESO LÍQUIDO",
+    "ASSISTA O",
   ];
 
   return ignoredFragments.some((fragment) => upper.includes(fragment));
+}
+
+function isScaleHeaderLine(line: string) {
+  return /^\d+X(?:\s+\d+X)+$/i.test(line.trim());
+}
+
+function isYieldOnlyLine(line: string) {
+  const trimmed = line.trim().toUpperCase();
+
+  if (!trimmed) return false;
+  if (/^\d+(?:[.,]\d+)?$/.test(trimmed)) return true;
+  if (/^(ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA)$/i.test(trimmed)) {
+    return true;
+  }
+
+  return /^(?:\d+(?:[.,]\d+)?\s*(?:ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA)\s*)+$/i.test(
+    trimmed
+  );
+}
+
+function inferUsageUnit(name: string) {
+  const upper = name.toUpperCase();
+
+  if (
+    upper.includes("OVO") &&
+    (upper.includes("UNI") || upper.includes("UNID") || upper.includes("(1 UNID"))
+  ) {
+    return "UN";
+  }
+
+  if (upper.includes("AGUA") || upper.includes("ÁGUA") || upper.includes("LICOR")) {
+    return "ML";
+  }
+
+  return "G";
+}
+
+function splitIngredientRow(line: string) {
+  const cleaned = line.replace(/\s+/g, " ").trim();
+
+  const match = cleaned.match(
+    /^(.*?)(\d+(?:[.,]\d+)?(?:\s+\d+(?:[.,]\d+)?)+)\s*$/
+  );
+
+  if (!match) return null;
+
+  const name = match[1].trim();
+  const values = (match[2].match(/\d+(?:[.,]\d+)?/g) ?? []).map((value) =>
+    toNumber(value, 0)
+  );
+
+  if (!values.length) return null;
+
+  return { name, values };
 }
 
 function extractTitle(pageText: string) {
@@ -214,7 +282,8 @@ function extractTitle(pageText: string) {
     }
   }
 
-  for (const line of lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
     if (!shouldIgnoreLine(line) && /[A-Za-zÀ-ÿ]/.test(line)) {
       return line.trim();
     }
@@ -230,7 +299,7 @@ function extractTemperature(pageText: string) {
 
 function extractPrepTime(pageText: string) {
   const match =
-    pageText.match(/TEM\s*PO\s*DE\s*PREP\.[\s\S]{0,50}?(\d{1,4})/i) ||
+    pageText.match(/TEM\s*PO\s*DE\s*PREP[\s\S]{0,50}?(\d{1,4})/i) ||
     pageText.match(/(\d{1,3})\s*º\s*(\d{1,4})\s*Minutos/i);
 
   if (!match) return 0;
@@ -238,7 +307,7 @@ function extractPrepTime(pageText: string) {
 }
 
 function extractCookingTime(pageText: string) {
-  const match = pageText.match(/TEMPO\s+COC[ÇC][ÃA]O[\s\S]{0,40}?(\d{1,4})/i);
+  const match = pageText.match(/TEM\s*PO\s+COC[ÇC][ÃA]O[\s\S]{0,40}?(\d{1,4})/i);
   return match ? toNumber(match[1], 0) : null;
 }
 
@@ -285,9 +354,9 @@ function extractPortionWeightUnit(pageText: string) {
   ];
 
   if (!matches.length) return "G";
+
   const unit = String(matches[matches.length - 1][2] ?? "").toUpperCase();
-  if (unit === "KILO" || unit === "KG") return "KG";
-  return "G";
+  return unit === "KILO" || unit === "KG" ? "KG" : "G";
 }
 
 function extractYieldPortions(pageText: string) {
@@ -321,26 +390,26 @@ function extractUpdatedDate(pageText: string) {
 }
 
 function extractStorage(pageText: string) {
-  const match = pageText.match(/Armazenamento:\s*(.+)/i);
+  const match = pageText.match(/Armazenamento:\s*([^\n]+)/i);
   return match ? match[1].trim() : null;
 }
 
 function extractShelfLifeFrozen(pageText: string) {
   const match =
-    pageText.match(/Congelamento:\s*(.+)/i) ||
-    pageText.match(/Congelado\s*:\s*(.+)/i);
+    pageText.match(/Congelamento:\s*([^\n]+)/i) ||
+    pageText.match(/Congelado\s*:\s*([^\n]+)/i);
   return match ? match[1].trim() : null;
 }
 
 function extractShelfLifeRefrigerated(pageText: string) {
-  const match = pageText.match(/Sob refrigeração:\s*(.+)/i);
+  const match = pageText.match(/Sob refrigeração:\s*([^\n]+)/i);
   return match ? match[1].trim() : null;
 }
 
 function extractShelfLifeRoomTemp(pageText: string) {
   const match =
-    pageText.match(/Temperatura Ambiente:\s*(.+)/i) ||
-    pageText.match(/Temp\.\s*Ambiente:\s*(.+)/i);
+    pageText.match(/Temperatura Ambiente:\s*([^\n]+)/i) ||
+    pageText.match(/Temp\.\s*Ambiente:\s*([^\n]+)/i);
   return match ? match[1].trim() : null;
 }
 
@@ -351,12 +420,30 @@ function extractAllergens(pageText: string) {
     return "NÃO CONTÉM";
   }
 
-  const containsMatch = normalized.match(/Cont[eé]m:\s*(.+)/i);
-  if (containsMatch?.[1]) {
-    return containsMatch[1].trim();
-  }
+  const multilineMatch = normalized.match(
+    /Cont[eé]m:\s*([\s\S]*?)(?:Atualizada em:|$)/i
+  );
 
-  return null;
+  if (!multilineMatch?.[1]) return null;
+
+  const cleaned = multilineMatch[1]
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line &&
+        !line.toUpperCase().includes("ALERGÊNICOS") &&
+        !line.toUpperCase().includes("ARMAZENAMENTO") &&
+        !line.toUpperCase().includes("CONGEL") &&
+        !line.toUpperCase().includes("SOB REFRIGERA") &&
+        !line.toUpperCase().includes("TEMP. AMBIENTE") &&
+        !line.toUpperCase().includes("TEMPERATURA AMBIENTE")
+    )
+    .join(", ")
+    .replace(/\s+,/g, ",")
+    .trim();
+
+  return cleaned || null;
 }
 
 function extractPreparationMethod(pageText: string) {
@@ -374,184 +461,180 @@ function extractVideoUrl(pageText: string) {
   return match?.[0] || null;
 }
 
-function inferUsageUnit(name: string) {
-  const upper = name.toUpperCase();
-  if (
-    upper.includes("OVO") &&
-    (upper.includes("UNI") || upper.includes("UNID"))
-  ) {
-    return "UN";
+function parseScaleTable(pageText: string): ParsedScaleTable | null {
+  const lines = normalizeSpaces(pageText)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const scaleHeaderIndex = lines.findIndex(isScaleHeaderLine);
+  if (scaleHeaderIndex < 0) return null;
+
+  const scaleLabels = lines[scaleHeaderIndex]
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const yieldPieces: string[] = [];
+  const ingredientRows: ParsedIngredientRow[] = [];
+  const nameBuffer: string[] = [];
+  let netWeights: number[] = [];
+
+  for (let i = scaleHeaderIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    const upper = line.toUpperCase();
+
+    if (upper.includes("PESO LÍQUIDO")) {
+      netWeights = (line.match(/\d+(?:[.,]\d+)?/g) ?? []).map((value) =>
+        toNumber(value, 0)
+      );
+      break;
+    }
+
+    if (shouldIgnoreLine(line)) continue;
+    if (isScaleHeaderLine(line)) continue;
+
+    if (isYieldOnlyLine(line)) {
+      yieldPieces.push(line);
+      continue;
+    }
+
+    const parsedRow = splitIngredientRow(line);
+
+    if (parsedRow) {
+      const ingredientName = [nameBuffer.join(" "), parsedRow.name]
+        .filter(Boolean)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      nameBuffer.length = 0;
+
+      if (!ingredientName) continue;
+
+      ingredientRows.push({
+        ingredient_name: ingredientName,
+        usage_unit: inferUsageUnit(ingredientName),
+        values: parsedRow.values,
+      });
+
+      continue;
+    }
+
+    if (/^[A-Za-zÀ-ÿ().\-\/ ]+$/.test(line) || /[A-Za-zÀ-ÿ]/.test(line)) {
+      nameBuffer.push(line);
+    }
   }
-  return "G";
-}
 
-function isIngredientValueLine(line: string) {
-  const trimmed = line.trim();
-  if (!trimmed) return false;
+  const joinedYieldText = yieldPieces.join(" ");
+  const yieldDescriptions = [
+    ...joinedYieldText.matchAll(
+      /(\d+(?:[.,]\d+)?)\s*(ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA)/gi
+    ),
+  ].map((match) => `${match[1]} ${match[2]}`.replace(/\s+/g, " ").trim());
 
-  const hasDigits = /\d/.test(trimmed);
-  const mostlyNumbers = /^[0-9.,\sXxA-Za-zº°()%/-]+$/.test(trimmed);
-
-  return hasDigits && mostlyNumbers;
+  return {
+    scaleLabels,
+    yieldDescriptions,
+    ingredientRows,
+    netWeights,
+  };
 }
 
 function extractIngredients(pageText: string): TechnicalSheetIngredientInput[] {
-  const lines = normalizeSpaces(pageText)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const table = parseScaleTable(pageText);
+  if (!table) return [];
 
-  const ingredients: TechnicalSheetIngredientInput[] = [];
-  let ingredientsStart = lines.findIndex((line) =>
-    line.toUpperCase().includes("INGREDIENTES")
-  );
-
-  if (ingredientsStart < 0) return ingredients;
-  ingredientsStart += 1;
-
-  let ingredientsEnd = lines.findIndex((line, idx) => {
-    if (idx <= ingredientsStart) return false;
-    return (
-      line.toUpperCase().includes("PESO LÍQUIDO") ||
-      line.toUpperCase().includes("MODO DE PREPARO") ||
-      line.toUpperCase().includes("ARMAZENAMENTO")
-    );
-  });
-
-  if (ingredientsEnd < 0) {
-    ingredientsEnd = lines.length;
-  }
-
-  const block = lines.slice(ingredientsStart, ingredientsEnd);
-
-  let i = 0;
-  while (i < block.length) {
-    const current = block[i];
-
-    if (shouldIgnoreLine(current)) {
-      i++;
-      continue;
-    }
-
-    if (/^\d+X(\s+\d+X)*$/i.test(current)) {
-      i++;
-      continue;
-    }
-
-    if (
-      current.toUpperCase().includes("PAC") ||
-      current.toUpperCase().includes("BSN") ||
-      current.toUpperCase().includes("ASSADEIRA")
-    ) {
-      i++;
-      continue;
-    }
-
-    const nameParts: string[] = [];
-
-    while (i < block.length && !isIngredientValueLine(block[i])) {
-      const line = block[i].trim();
-      if (!shouldIgnoreLine(line)) {
-        nameParts.push(line);
-      }
-      i++;
-    }
-
-    if (!nameParts.length || i >= block.length) {
-      i++;
-      continue;
-    }
-
-    const valueLine = block[i];
-    const numbers = valueLine.match(/\d+(?:[.,]\d+)?/g) ?? [];
-    const usageQuantity = numbers.length ? toNumber(numbers[0], 0) : 0;
-    const ingredientName = nameParts.join(" ").replace(/\s+/g, " ").trim();
-
-    if (ingredientName) {
-      const usageUnit = inferUsageUnit(ingredientName);
-
-      ingredients.push({
-        product_id: null,
-        ingredient_name: ingredientName,
-        usage_quantity: usageQuantity,
-        usage_unit: usageUnit,
-        purchase_price: 0,
-        purchase_quantity: 1,
-        purchase_unit: usageUnit,
-        correction_factor: 1,
-        cooking_factor: 1,
-        base_unit_cost: 0,
-        final_cost: 0,
-        sort_order: ingredients.length,
-      });
-    }
-
-    i++;
-  }
-
-  return ingredients;
+  return table.ingredientRows.map((row, index) => ({
+    product_id: null,
+    ingredient_name: row.ingredient_name,
+    usage_quantity: row.values[0] ?? 0,
+    usage_unit: row.usage_unit,
+    purchase_price: 0,
+    purchase_quantity: 1,
+    purchase_unit: row.usage_unit,
+    correction_factor: 1,
+    cooking_factor: 1,
+    base_unit_cost: 0,
+    final_cost: 0,
+    sort_order: index,
+  }));
 }
 
 function extractScales(pageText: string): TechnicalSheetScaleInput[] {
-  const lines = normalizeSpaces(pageText)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const table = parseScaleTable(pageText);
+  if (!table) return [];
 
-  const scales: TechnicalSheetScaleInput[] = [];
-
-  const scaleHeaderIndex = lines.findIndex((line) =>
-    /^\d+X(\s+\d+X)+$/i.test(line)
-  );
-  if (scaleHeaderIndex < 0) return scales;
-
-  const labels = lines[scaleHeaderIndex]
-    .split(/\s+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const yieldLine = lines[scaleHeaderIndex + 1] ?? "";
-  const weightLine =
-    lines.find((line, idx) => idx > scaleHeaderIndex && /PESO L[ÍI]QUIDO/i.test(line)) || "";
-
-  const yieldTokens = yieldLine.split(/\s{2,}|\t+/).filter(Boolean);
-  const weightTokens = weightLine ? weightLine.match(/\d+(?:[.,]\d+)?/g) ?? [] : [];
-
-  labels.forEach((label, index) => {
-    scales.push({
-      scale_label: label,
-      yield_description: yieldTokens[index] ?? null,
-      net_weight: weightTokens[index] ? toNumber(weightTokens[index], 0) : null,
-      sort_order: index,
-      ingredients: [],
-    });
-  });
-
-  return scales;
+  return table.scaleLabels.map((label, scaleIndex) => ({
+    scale_label: label,
+    yield_description: table.yieldDescriptions[scaleIndex] ?? null,
+    net_weight:
+      table.netWeights[scaleIndex] !== undefined
+        ? table.netWeights[scaleIndex]
+        : null,
+    sort_order: scaleIndex,
+    ingredients: table.ingredientRows
+      .map((row, ingredientIndex) => ({
+        ingredient_name: row.ingredient_name,
+        amount:
+          row.values[scaleIndex] !== undefined ? row.values[scaleIndex] : 0,
+        unit: row.usage_unit,
+        sort_order: ingredientIndex,
+      }))
+      .filter((item) => item.amount > 0),
+  }));
 }
 
-async function extractPdfPagesText(file: File) {
+async function extractRawPdfText(file: File) {
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  const pdfParseModule = await import("pdf-parse");
-  const pdfParse =
-    (pdfParseModule as any).default ?? (pdfParseModule as any);
+  let pdfParse: any;
+
+  try {
+    const pdfParseModule = await import("pdf-parse");
+    pdfParse = (pdfParseModule as any).default ?? pdfParseModule;
+  } catch (error) {
+    console.error("[importPDF] erro ao carregar pdf-parse", error);
+    throw new Error(
+      'A dependência "pdf-parse" não foi encontrada corretamente. Rode: npm install pdf-parse@1.1.1'
+    );
+  }
+
+  if (typeof pdfParse !== "function") {
+    throw new Error(
+      'A versão instalada de "pdf-parse" não é compatível. Rode: npm install pdf-parse@1.1.1'
+    );
+  }
 
   const parsed = await pdfParse(buffer);
+  const rawText = normalizeSpaces(parsed?.text ?? "");
 
-  const raw = normalizeSpaces(parsed.text || "");
-  if (!raw) return [];
+  if (!rawText) {
+    throw new Error("Não foi possível extrair texto do PDF.");
+  }
 
-  const pages = raw
-    .split(/\n\s*(?=INGREDIENTES\b)/i)
-    .map((chunk: string) => normalizeSpaces(chunk))
+  return rawText;
+}
+
+function splitPdfIntoRecipes(rawText: string) {
+  const normalized = normalizeSpaces(rawText);
+
+  const pages = [
+    ...normalized.matchAll(/[\s\S]*?Atualizada em:\s*\d{2}\/\d{2}\/\d{4}/gi),
+  ]
+    .map((match) => normalizeSpaces(match[0]))
     .filter(Boolean);
 
   if (pages.length > 0) {
     return pages;
   }
 
-  return [raw];
+  return [normalized];
+}
+
+async function extractPdfPagesText(file: File) {
+  const rawText = await extractRawPdfText(file);
+  return splitPdfIntoRecipes(rawText);
 }
 
 function parsePdfPageToRecipe(
@@ -563,6 +646,7 @@ function parsePdfPageToRecipe(
   const name = extractTitle(pageText);
   const ingredients = extractIngredients(pageText);
   const preparationMethod = extractPreparationMethod(pageText);
+  const scales = extractScales(pageText);
 
   if (!name || !ingredients.length) {
     return null;
@@ -592,7 +676,7 @@ function parsePdfPageToRecipe(
     source_page_number: pageNumber,
     video_url: extractVideoUrl(pageText),
     ingredients,
-    scales: extractScales(pageText),
+    scales,
   };
 }
 
@@ -635,7 +719,10 @@ async function saveScales(
         .insert(payload);
 
       if (scaleIngredientsError) {
-        console.error("Erro ao salvar ingredientes da escala:", scaleIngredientsError);
+        console.error(
+          "Erro ao salvar ingredientes da escala:",
+          scaleIngredientsError
+        );
         throw new Error("Não foi possível salvar os ingredientes das escalas.");
       }
     }
@@ -895,7 +982,10 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
     .insert(ingredientsPayload);
 
   if (ingredientsError) {
-    console.error("Erro ao criar ingredientes da ficha técnica:", ingredientsError);
+    console.error(
+      "Erro ao criar ingredientes da ficha técnica:",
+      ingredientsError
+    );
     throw new Error("Ficha criada, mas houve erro ao salvar os ingredientes.");
   }
 
@@ -979,7 +1069,10 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
       .remove([currentImagePath]);
 
     if (removeOldImageError) {
-      console.error("Erro ao remover imagem antiga da ficha:", removeOldImageError);
+      console.error(
+        "Erro ao remover imagem antiga da ficha:",
+        removeOldImageError
+      );
     }
   }
 
@@ -989,7 +1082,10 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
     .eq("technical_sheet_id", input.id);
 
   if (deleteIngredientsError) {
-    console.error("Erro ao limpar ingredientes antigos:", deleteIngredientsError);
+    console.error(
+      "Erro ao limpar ingredientes antigos:",
+      deleteIngredientsError
+    );
     throw new Error("Não foi possível atualizar os ingredientes da ficha.");
   }
 
@@ -1014,7 +1110,10 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
     .insert(ingredientsPayload);
 
   if (insertIngredientsError) {
-    console.error("Erro ao recriar ingredientes da ficha:", insertIngredientsError);
+    console.error(
+      "Erro ao recriar ingredientes da ficha:",
+      insertIngredientsError
+    );
     throw new Error(
       "A ficha foi atualizada, mas houve erro ao salvar os ingredientes."
     );
@@ -1057,7 +1156,10 @@ export async function deleteTechnicalSheet(id: string) {
     .single();
 
   if (currentError) {
-    console.error("Erro ao buscar imagem da ficha antes de excluir:", currentError);
+    console.error(
+      "Erro ao buscar imagem da ficha antes de excluir:",
+      currentError
+    );
   }
 
   const { error } = await supabase
@@ -1078,7 +1180,10 @@ export async function deleteTechnicalSheet(id: string) {
       .remove([imagePath]);
 
     if (removeImageError) {
-      console.error("Erro ao excluir imagem da ficha técnica:", removeImageError);
+      console.error(
+        "Erro ao excluir imagem da ficha técnica:",
+        removeImageError
+      );
     }
   }
 
@@ -1130,7 +1235,7 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
         defaultCategory
       );
 
-      console.log("[importPDF] analise pagina/bloco", {
+      console.log("[importPDF] análise do bloco", {
         page: index + 1,
         recipeName: recipe?.name ?? null,
         ingredientsCount: recipe?.ingredients?.length ?? 0,
@@ -1216,7 +1321,10 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
           .insert(payload);
 
         if (ingredientsError) {
-          console.error("[importPDF] erro ao criar ingredientes", ingredientsError);
+          console.error(
+            "[importPDF] erro ao criar ingredientes",
+            ingredientsError
+          );
           throw new Error(
             `A ficha "${recipe.name}" foi criada, mas os ingredientes não foram salvos.`
           );

@@ -63,6 +63,21 @@ type Ingrediente = {
   fatorCoccao: number;
 };
 
+type EscalaIngrediente = {
+  id: string;
+  nome: string;
+  quantidade: number;
+  unidade: string;
+};
+
+type EscalaFicha = {
+  id: string;
+  label: string;
+  rendimentoDescricao: string | null;
+  pesoLiquido: number | null;
+  ingredientes: EscalaIngrediente[];
+};
+
 type FichaTecnica = {
   id: string;
   nome: string;
@@ -78,7 +93,13 @@ type FichaTecnica = {
   imageUrl: string | null;
   imagePath: string | null;
 
+  difficultyLevel: string | null;
   temperatureCelsius: number | null;
+  cookingTimeMinutes: number | null;
+  cookingFactorGrams: number | null;
+  correctionFactorGrams: number | null;
+  yieldLabel: string | null;
+  portionWeightUnit: string | null;
   storageInstructions: string | null;
   shelfLifeFrozen: string | null;
   shelfLifeRefrigerated: string | null;
@@ -88,13 +109,16 @@ type FichaTecnica = {
   importOrigin: string | null;
   sourceFileName: string | null;
   sourcePageNumber: number | null;
+  videoUrl: string | null;
 
   ingredientes: Ingrediente[];
+  escalas: EscalaFicha[];
+
   createdAt: string;
   updatedAt: string;
 };
 
-type ViewerTab = "ingredientes" | "preparo";
+type ViewerTab = "ingredientes" | "preparo" | "escalas";
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -103,6 +127,11 @@ function uid() {
 function toNumber(value: unknown, fallback = 0) {
   const n = Number(String(value ?? "").replace(",", "."));
   return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeUnit(value: unknown, fallback = "UN") {
+  const unit = String(value ?? "").trim().toUpperCase();
+  return unit || fallback;
 }
 
 function formatCurrency(value: number) {
@@ -202,10 +231,28 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
     imageUrl: raw.image_url ? String(raw.image_url) : null,
     imagePath: raw.image_path ? String(raw.image_path) : null,
 
+    difficultyLevel: raw.difficulty_level ? String(raw.difficulty_level) : null,
     temperatureCelsius:
       raw.temperature_celsius !== null && raw.temperature_celsius !== undefined
         ? Number(raw.temperature_celsius)
         : null,
+    cookingTimeMinutes:
+      raw.cooking_time_minutes !== null && raw.cooking_time_minutes !== undefined
+        ? Number(raw.cooking_time_minutes)
+        : null,
+    cookingFactorGrams:
+      raw.cooking_factor_grams !== null && raw.cooking_factor_grams !== undefined
+        ? Number(raw.cooking_factor_grams)
+        : null,
+    correctionFactorGrams:
+      raw.correction_factor_grams !== null &&
+      raw.correction_factor_grams !== undefined
+        ? Number(raw.correction_factor_grams)
+        : null,
+    yieldLabel: raw.yield_label ? String(raw.yield_label) : null,
+    portionWeightUnit: raw.portion_weight_unit
+      ? String(raw.portion_weight_unit).toUpperCase()
+      : null,
     storageInstructions: raw.storage_instructions
       ? String(raw.storage_instructions)
       : null,
@@ -224,9 +271,8 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
       raw.source_page_number !== null && raw.source_page_number !== undefined
         ? Number(raw.source_page_number)
         : null,
+    videoUrl: raw.video_url ? String(raw.video_url) : null,
 
-    createdAt: String(raw.created_at ?? ""),
-    updatedAt: String(raw.updated_at ?? ""),
     ingredientes: Array.isArray(raw.ingredients)
       ? raw.ingredients
           .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -235,16 +281,47 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
             productId: i.product_id ? String(i.product_id) : null,
             nome: String(i.ingredient_name ?? ""),
             quantidadeUso: Number(i.usage_quantity ?? 0),
-            unidadeUso: String(i.usage_unit ?? "UN").toUpperCase(),
+            unidadeUso: normalizeUnit(i.usage_unit, "UN"),
             precoCompra: Number(i.purchase_price ?? 0),
             quantidadeCompra: Number(i.purchase_quantity ?? 1),
-            unidadeCompra: String(i.purchase_unit ?? "UN").toUpperCase(),
+            unidadeCompra: normalizeUnit(i.purchase_unit, "UN"),
             custoUnitarioBase: Number(i.base_unit_cost ?? 0),
             custoIngrediente: Number(i.final_cost ?? 0),
             fatorCorrecao: Number(i.correction_factor ?? 1),
             fatorCoccao: Number(i.cooking_factor ?? 1),
           }))
       : [],
+
+    escalas: Array.isArray(raw.scales)
+      ? raw.scales
+          .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+          .map((scale: any) => ({
+            id: String(scale.id),
+            label: String(scale.scale_label ?? ""),
+            rendimentoDescricao: scale.yield_description
+              ? String(scale.yield_description)
+              : null,
+            pesoLiquido:
+              scale.net_weight !== null && scale.net_weight !== undefined
+                ? Number(scale.net_weight)
+                : null,
+            ingredientes: Array.isArray(scale.ingredients)
+              ? scale.ingredients
+                  .sort(
+                    (a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+                  )
+                  .map((ing: any) => ({
+                    id: String(ing.id),
+                    nome: String(ing.ingredient_name ?? ""),
+                    quantidade: Number(ing.amount ?? 0),
+                    unidade: normalizeUnit(ing.unit, "G"),
+                  }))
+              : [],
+          }))
+      : [],
+
+    createdAt: String(raw.created_at ?? ""),
+    updatedAt: String(raw.updated_at ?? ""),
   };
 }
 
@@ -268,7 +345,13 @@ function toActionPayload(
     image_url: ficha.imageUrl || null,
     image_path: ficha.imagePath || null,
 
+    difficulty_level: ficha.difficultyLevel,
     temperature_celsius: ficha.temperatureCelsius,
+    cooking_time_minutes: ficha.cookingTimeMinutes,
+    cooking_factor_grams: ficha.cookingFactorGrams,
+    correction_factor_grams: ficha.correctionFactorGrams,
+    yield_label: ficha.yieldLabel,
+    portion_weight_unit: ficha.portionWeightUnit,
     storage_instructions: ficha.storageInstructions,
     shelf_life_frozen: ficha.shelfLifeFrozen,
     shelf_life_refrigerated: ficha.shelfLifeRefrigerated,
@@ -278,6 +361,7 @@ function toActionPayload(
     import_origin: ficha.importOrigin,
     source_file_name: ficha.sourceFileName,
     source_page_number: ficha.sourcePageNumber,
+    video_url: ficha.videoUrl,
 
     ingredients: ficha.ingredientes.map((item, index) => ({
       product_id: item.productId,
@@ -292,6 +376,19 @@ function toActionPayload(
       base_unit_cost: item.custoUnitarioBase,
       final_cost: item.custoIngrediente,
       sort_order: index,
+    })),
+
+    scales: ficha.escalas.map((scale, index) => ({
+      scale_label: scale.label,
+      yield_description: scale.rendimentoDescricao,
+      net_weight: scale.pesoLiquido,
+      sort_order: index,
+      ingredients: scale.ingredientes.map((item, ingIndex) => ({
+        ingredient_name: item.nome,
+        amount: item.quantidade,
+        unit: item.unidade,
+        sort_order: ingIndex,
+      })),
     })),
   };
 }
@@ -337,6 +434,81 @@ function buildPrintHtml(
   const scaled = getScaledFicha(ficha, desiredServings);
   const cmv = calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
   const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
+
+  const metadataHtml = `
+    <div class="grid">
+      <div class="box"><div class="label">Temperatura</div><div class="value">${ficha.temperatureCelsius !== null ? `${ficha.temperatureCelsius} ºC` : "—"}</div></div>
+      <div class="box"><div class="label">Tempo de cocção</div><div class="value">${ficha.cookingTimeMinutes !== null ? `${ficha.cookingTimeMinutes} min` : "—"}</div></div>
+      <div class="box"><div class="label">Fator de cocção</div><div class="value">${ficha.cookingFactorGrams !== null ? `${ficha.cookingFactorGrams} g` : "—"}</div></div>
+      <div class="box"><div class="label">Fator de correção</div><div class="value">${ficha.correctionFactorGrams !== null ? `${ficha.correctionFactorGrams} g` : "—"}</div></div>
+    </div>
+
+    <div class="grid">
+      <div class="box"><div class="label">Dificuldade</div><div class="value">${ficha.difficultyLevel || "—"}</div></div>
+      <div class="box"><div class="label">Armazenamento</div><div class="value">${ficha.storageInstructions || "—"}</div></div>
+      <div class="box"><div class="label">Validade congelado</div><div class="value">${ficha.shelfLifeFrozen || "—"}</div></div>
+      <div class="box"><div class="label">Validade refrigerado</div><div class="value">${ficha.shelfLifeRefrigerated || "—"}</div></div>
+    </div>
+
+    <div class="grid">
+      <div class="box"><div class="label">Validade ambiente</div><div class="value">${ficha.shelfLifeRoomTemp || "—"}</div></div>
+      <div class="box"><div class="label">Alergênicos</div><div class="value">${ficha.allergens || "—"}</div></div>
+      <div class="box"><div class="label">Yield label</div><div class="value">${ficha.yieldLabel || "—"}</div></div>
+      <div class="box"><div class="label">Atualizado em</div><div class="value" style="font-size:14px;">${formatDate(
+        ficha.sourceUpdatedAt || ficha.updatedAt
+      )}</div></div>
+    </div>
+  `;
+
+  const scalesHtml = `
+    <h2 class="section-title">Escalas</h2>
+    ${
+      ficha.escalas.length === 0
+        ? `<p class="muted">Nenhuma escala cadastrada.</p>`
+        : ficha.escalas
+            .map(
+              (scale) => `
+        <div class="box" style="margin-bottom:16px;">
+          <div class="value" style="font-size:20px;">${scale.label}</div>
+          <div class="muted" style="margin-top:6px;">
+            Rendimento: ${scale.rendimentoDescricao || "—"} | Peso líquido: ${
+                scale.pesoLiquido !== null ? `${scale.pesoLiquido} g` : "—"
+              }
+          </div>
+          ${
+            scale.ingredientes.length
+              ? `
+              <table style="margin-top:12px;">
+                <thead>
+                  <tr>
+                    <th>Ingrediente</th>
+                    <th>Quantidade</th>
+                    <th>Unidade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${scale.ingredientes
+                    .map(
+                      (ing) => `
+                      <tr>
+                        <td>${ing.nome}</td>
+                        <td>${ing.quantidade}</td>
+                        <td>${ing.unidade}</td>
+                      </tr>
+                    `
+                    )
+                    .join("")}
+                </tbody>
+              </table>
+            `
+              : `<p class="muted" style="margin-top:12px;">Sem ingredientes cadastrados nesta escala.</p>`
+          }
+        </div>
+      `
+            )
+            .join("")
+    }
+  `;
 
   return `
 <!DOCTYPE html>
@@ -475,7 +647,7 @@ function buildPrintHtml(
   <div class="grid">
     <div class="box">
       <div class="label">Peso por porção</div>
-      <div class="value">${ficha.pesoPorcao} g</div>
+      <div class="value">${ficha.pesoPorcao} ${ficha.portionWeightUnit || "G"}</div>
     </div>
     <div class="box">
       <div class="label">Tempo de preparo</div>
@@ -492,6 +664,8 @@ function buildPrintHtml(
       )}</div>
     </div>
   </div>
+
+  ${metadataHtml}
 
   ${
     currentTab === "ingredientes"
@@ -526,13 +700,15 @@ function buildPrintHtml(
         </tbody>
       </table>
       `
-      : `
+      : currentTab === "preparo"
+      ? `
       <h2 class="section-title">Modo de preparo</h2>
       <div class="prep">${(ficha.modoPreparo || "Não informado.").replace(
         /</g,
         "&lt;"
       )}</div>
       `
+      : scalesHtml
   }
 
   <script>
@@ -544,6 +720,65 @@ function buildPrintHtml(
 </body>
 </html>
   `.trim();
+}
+
+function EscalasViewer({ escalas }: { escalas: EscalaFicha[] }) {
+  if (!escalas.length) {
+    return (
+      <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+        Nenhuma escala cadastrada para esta ficha.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {escalas.map((scale) => (
+        <div key={scale.id} className="rounded-xl border p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h4 className="text-lg font-semibold">{scale.label}</h4>
+              <p className="text-sm text-muted-foreground">
+                Rendimento: {scale.rendimentoDescricao || "—"} • Peso líquido:{" "}
+                {scale.pesoLiquido !== null ? `${scale.pesoLiquido} g` : "—"}
+              </p>
+            </div>
+            <Badge variant="secondary">
+              {scale.ingredientes.length} ingrediente
+              {scale.ingredientes.length === 1 ? "" : "s"}
+            </Badge>
+          </div>
+
+          {scale.ingredientes.length > 0 ? (
+            <div className="mt-4 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Ingrediente</TableHead>
+                    <TableHead>Quantidade</TableHead>
+                    <TableHead>Unidade</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {scale.ingredientes.map((ing) => (
+                    <TableRow key={ing.id}>
+                      <TableCell className="font-medium">{ing.nome}</TableCell>
+                      <TableCell>{ing.quantidade}</TableCell>
+                      <TableCell>{ing.unidade}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-muted-foreground">
+              Sem ingredientes cadastrados nesta escala.
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function RecipeViewer({
@@ -574,7 +809,7 @@ function RecipeViewer({
             <h3 className="text-lg font-semibold">Selecione uma ficha técnica</h3>
             <p className="mt-2 text-sm text-muted-foreground">
               Escolha uma ficha na lista para visualizar ingredientes, modo de preparo,
-              custos, impressão, foto do prato e visualização em tela cheia.
+              escalas, custos, vídeo, impressão, foto do prato e visualização em tela cheia.
             </p>
           </div>
         </CardContent>
@@ -610,6 +845,9 @@ function RecipeViewer({
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="truncate text-2xl font-bold text-gray-900">{ficha.nome}</h2>
               <Badge variant="secondary">{ficha.categoria || "Sem categoria"}</Badge>
+              {ficha.difficultyLevel ? (
+                <Badge variant="outline">Dificuldade: {ficha.difficultyLevel}</Badge>
+              ) : null}
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
               Última atualização: {formatDate(ficha.sourceUpdatedAt || ficha.updatedAt)}
@@ -617,6 +855,16 @@ function RecipeViewer({
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {ficha.videoUrl ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.open(ficha.videoUrl || "", "_blank", "noopener,noreferrer")}
+              >
+                ▶️ Vídeo
+              </Button>
+            ) : null}
+
             <Button type="button" variant="outline" onClick={() => onEdit(ficha)}>
               ✏️ Editar
             </Button>
@@ -667,12 +915,17 @@ function RecipeViewer({
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <div className="rounded-xl border p-4">
             <p className="text-sm text-muted-foreground">Rendimento original</p>
-            <p className="mt-1 text-lg font-semibold">{ficha.rendimento} porções</p>
+            <p className="mt-1 text-lg font-semibold">
+              {ficha.rendimento} porções
+              {ficha.yieldLabel ? ` • ${ficha.yieldLabel}` : ""}
+            </p>
           </div>
 
           <div className="rounded-xl border p-4">
             <p className="text-sm text-muted-foreground">Peso por porção</p>
-            <p className="mt-1 text-lg font-semibold">{ficha.pesoPorcao} g</p>
+            <p className="mt-1 text-lg font-semibold">
+              {ficha.pesoPorcao} {ficha.portionWeightUnit || "G"}
+            </p>
           </div>
 
           <div className="rounded-xl border p-4">
@@ -681,7 +934,7 @@ function RecipeViewer({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-xl border p-4">
             <p className="text-sm text-muted-foreground">Temperatura</p>
             <p className="mt-1 text-lg font-semibold">
@@ -690,36 +943,52 @@ function RecipeViewer({
           </div>
 
           <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Armazenamento</p>
+            <p className="text-sm text-muted-foreground">Tempo de cocção</p>
             <p className="mt-1 text-lg font-semibold">
+              {ficha.cookingTimeMinutes !== null ? `${ficha.cookingTimeMinutes} min` : "—"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Fator de cocção</p>
+            <p className="mt-1 text-lg font-semibold">
+              {ficha.cookingFactorGrams !== null ? `${ficha.cookingFactorGrams} g` : "—"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Fator de correção</p>
+            <p className="mt-1 text-lg font-semibold">
+              {ficha.correctionFactorGrams !== null
+                ? `${ficha.correctionFactorGrams} g`
+                : "—"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Armazenamento</p>
+            <p className="mt-1 text-base font-semibold">
               {ficha.storageInstructions || "—"}
             </p>
           </div>
 
           <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Atualizada em</p>
-            <p className="mt-1 text-lg font-semibold">
-              {ficha.sourceUpdatedAt ? formatDate(ficha.sourceUpdatedAt) : "—"}
-            </p>
-          </div>
-
-          <div className="rounded-xl border p-4">
             <p className="text-sm text-muted-foreground">Validade congelado</p>
-            <p className="mt-1 text-lg font-semibold">
+            <p className="mt-1 text-base font-semibold">
               {ficha.shelfLifeFrozen || "—"}
             </p>
           </div>
 
           <div className="rounded-xl border p-4">
             <p className="text-sm text-muted-foreground">Validade refrigerado</p>
-            <p className="mt-1 text-lg font-semibold">
+            <p className="mt-1 text-base font-semibold">
               {ficha.shelfLifeRefrigerated || "—"}
             </p>
           </div>
 
           <div className="rounded-xl border p-4">
             <p className="text-sm text-muted-foreground">Validade ambiente</p>
-            <p className="mt-1 text-lg font-semibold">
+            <p className="mt-1 text-base font-semibold">
               {ficha.shelfLifeRoomTemp || "—"}
             </p>
           </div>
@@ -784,8 +1053,8 @@ function RecipeViewer({
               <p className="text-lg font-bold">{scaled.factor.toFixed(3)}x</p>
             </div>
             <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-muted-foreground">Ingredientes na ficha</p>
-              <p className="text-lg font-bold">{ficha.ingredientes.length}</p>
+              <p className="text-xs text-muted-foreground">Escalas cadastradas</p>
+              <p className="text-lg font-bold">{ficha.escalas.length}</p>
             </div>
           </div>
         </div>
@@ -813,6 +1082,17 @@ function RecipeViewer({
               onClick={() => setCurrentTab("preparo")}
             >
               Modo de preparo
+            </button>
+            <button
+              type="button"
+              className={`border-b-2 px-4 py-2 text-sm font-medium transition ${
+                currentTab === "escalas"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground"
+              }`}
+              onClick={() => setCurrentTab("escalas")}
+            >
+              Escalas
             </button>
           </div>
 
@@ -857,16 +1137,258 @@ function RecipeViewer({
                 </TableBody>
               </Table>
             </div>
-          ) : (
+          ) : currentTab === "preparo" ? (
             <div className="rounded-xl border bg-slate-50 p-5">
               <p className="whitespace-pre-wrap leading-7 text-sm text-gray-700">
                 {ficha.modoPreparo || "Não informado."}
               </p>
             </div>
+          ) : (
+            <EscalasViewer escalas={ficha.escalas} />
           )}
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ScaleEditor({
+  scales,
+  onChange,
+}: {
+  scales: EscalaFicha[];
+  onChange: (scales: EscalaFicha[]) => void;
+}) {
+  const addScale = () => {
+    onChange([
+      ...scales,
+      {
+        id: uid(),
+        label: `Escala ${scales.length + 1}`,
+        rendimentoDescricao: "",
+        pesoLiquido: null,
+        ingredientes: [],
+      },
+    ]);
+  };
+
+  const updateScale = (scaleId: string, patch: Partial<EscalaFicha>) => {
+    onChange(scales.map((scale) => (scale.id === scaleId ? { ...scale, ...patch } : scale)));
+  };
+
+  const removeScale = (scaleId: string) => {
+    onChange(scales.filter((scale) => scale.id !== scaleId));
+  };
+
+  const addScaleIngredient = (scaleId: string) => {
+    onChange(
+      scales.map((scale) =>
+        scale.id === scaleId
+          ? {
+              ...scale,
+              ingredientes: [
+                ...scale.ingredientes,
+                {
+                  id: uid(),
+                  nome: "",
+                  quantidade: 0,
+                  unidade: "G",
+                },
+              ],
+            }
+          : scale
+      )
+    );
+  };
+
+  const updateScaleIngredient = (
+    scaleId: string,
+    ingredientId: string,
+    patch: Partial<EscalaIngrediente>
+  ) => {
+    onChange(
+      scales.map((scale) =>
+        scale.id === scaleId
+          ? {
+              ...scale,
+              ingredientes: scale.ingredientes.map((ingredient) =>
+                ingredient.id === ingredientId
+                  ? { ...ingredient, ...patch }
+                  : ingredient
+              ),
+            }
+          : scale
+      )
+    );
+  };
+
+  const removeScaleIngredient = (scaleId: string, ingredientId: string) => {
+    onChange(
+      scales.map((scale) =>
+        scale.id === scaleId
+          ? {
+              ...scale,
+              ingredientes: scale.ingredientes.filter(
+                (ingredient) => ingredient.id !== ingredientId
+              ),
+            }
+          : scale
+      )
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h4 className="text-lg font-semibold">Escalas</h4>
+          <p className="text-sm text-muted-foreground">
+            Cadastre 1X, 2X, 3X ou qualquer outra escala da ficha.
+          </p>
+        </div>
+
+        <Button type="button" variant="outline" onClick={addScale}>
+          ➕ Adicionar escala
+        </Button>
+      </div>
+
+      {scales.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+          Nenhuma escala cadastrada ainda.
+        </div>
+      ) : (
+        scales.map((scale) => (
+          <div key={scale.id} className="rounded-xl border p-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <div>
+                <Label>Label</Label>
+                <Input
+                  value={scale.label}
+                  onChange={(e) => updateScale(scale.id, { label: e.target.value })}
+                  placeholder="Ex.: 1X"
+                />
+              </div>
+
+              <div>
+                <Label>Rendimento</Label>
+                <Input
+                  value={scale.rendimentoDescricao ?? ""}
+                  onChange={(e) =>
+                    updateScale(scale.id, {
+                      rendimentoDescricao: e.target.value || null,
+                    })
+                  }
+                  placeholder="Ex.: 4 assadeiras"
+                />
+              </div>
+
+              <div>
+                <Label>Peso líquido</Label>
+                <Input
+                  type="number"
+                  value={scale.pesoLiquido ?? ""}
+                  onChange={(e) =>
+                    updateScale(scale.id, {
+                      pesoLiquido:
+                        e.target.value === "" ? null : toNumber(e.target.value, 0),
+                    })
+                  }
+                  placeholder="Ex.: 1200"
+                />
+              </div>
+
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => removeScale(scale.id)}
+                >
+                  Remover escala
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">Ingredientes da escala</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => addScaleIngredient(scale.id)}
+                >
+                  Adicionar ingrediente
+                </Button>
+              </div>
+
+              {scale.ingredientes.length === 0 ? (
+                <div className="rounded-lg bg-slate-50 p-3 text-sm text-muted-foreground">
+                  Nenhum ingrediente cadastrado para esta escala.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {scale.ingredientes.map((ingredient) => (
+                    <div
+                      key={ingredient.id}
+                      className="grid grid-cols-1 gap-3 rounded-lg border p-3 md:grid-cols-[2fr_1fr_1fr_auto]"
+                    >
+                      <div>
+                        <Label>Ingrediente</Label>
+                        <Input
+                          value={ingredient.nome}
+                          onChange={(e) =>
+                            updateScaleIngredient(scale.id, ingredient.id, {
+                              nome: e.target.value,
+                            })
+                          }
+                          placeholder="Nome do ingrediente"
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Quantidade</Label>
+                        <Input
+                          type="number"
+                          value={ingredient.quantidade}
+                          onChange={(e) =>
+                            updateScaleIngredient(scale.id, ingredient.id, {
+                              quantidade: toNumber(e.target.value, 0),
+                            })
+                          }
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Unidade</Label>
+                        <Input
+                          value={ingredient.unidade}
+                          onChange={(e) =>
+                            updateScaleIngredient(scale.id, ingredient.id, {
+                              unidade: normalizeUnit(e.target.value, "G"),
+                            })
+                          }
+                        />
+                      </div>
+
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => removeScaleIngredient(scale.id, ingredient.id)}
+                        >
+                          Remover
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
   );
 }
 
@@ -902,6 +1424,22 @@ export default function FichasTecnicasPage() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
 
+  const [difficultyLevel, setDifficultyLevel] = useState("");
+  const [temperatureCelsius, setTemperatureCelsius] = useState<number | "">("");
+  const [cookingTimeMinutes, setCookingTimeMinutes] = useState<number | "">("");
+  const [cookingFactorGrams, setCookingFactorGrams] = useState<number | "">("");
+  const [correctionFactorGrams, setCorrectionFactorGrams] = useState<number | "">("");
+  const [yieldLabel, setYieldLabel] = useState("");
+  const [portionWeightUnit, setPortionWeightUnit] = useState("G");
+  const [storageInstructions, setStorageInstructions] = useState("");
+  const [shelfLifeFrozen, setShelfLifeFrozen] = useState("");
+  const [shelfLifeRefrigerated, setShelfLifeRefrigerated] = useState("");
+  const [shelfLifeRoomTemp, setShelfLifeRoomTemp] = useState("");
+  const [allergens, setAllergens] = useState("");
+  const [sourceUpdatedAt, setSourceUpdatedAt] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [escalas, setEscalas] = useState<EscalaFicha[]>([]);
+
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const [editandoIngredienteId, setEditandoIngredienteId] = useState<string | null>(null);
 
@@ -915,13 +1453,13 @@ export default function FichasTecnicasPage() {
   const [draftFCorrecao, setDraftFCorrecao] = useState<number>(1);
   const [draftFCoccao, setDraftFCoccao] = useState<number>(1);
 
-  const [importingPdf, setImportingPdf] = useState(false);
-  const [importDefaultCategory, setImportDefaultCategory] = useState("Importado PDF");
-  const [importPdfFileName, setImportPdfFileName] = useState("");
-
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
   const editImageInputRef = useRef<HTMLInputElement | null>(null);
   const importPdfInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [importingPdf, setImportingPdf] = useState(false);
+  const [importDefaultCategory, setImportDefaultCategory] = useState("Importado PDF");
+  const [importPdfFileName, setImportPdfFileName] = useState("");
 
   const loadData = async () => {
     try {
@@ -1001,7 +1539,12 @@ export default function FichasTecnicasPage() {
         !q ||
         ficha.nome.toLowerCase().includes(q) ||
         ficha.categoria.toLowerCase().includes(q) ||
-        ficha.ingredientes.some((i) => i.nome.toLowerCase().includes(q));
+        ficha.ingredientes.some((i) => i.nome.toLowerCase().includes(q)) ||
+        ficha.escalas.some(
+          (s) =>
+            s.label.toLowerCase().includes(q) ||
+            s.ingredientes.some((ing) => ing.nome.toLowerCase().includes(q))
+        );
 
       return matchesCategory && matchesSearch;
     });
@@ -1072,6 +1615,23 @@ export default function FichasTecnicasPage() {
     setModoPreparo("");
     setImageUrl(null);
     setImagePath(null);
+
+    setDifficultyLevel("");
+    setTemperatureCelsius("");
+    setCookingTimeMinutes("");
+    setCookingFactorGrams("");
+    setCorrectionFactorGrams("");
+    setYieldLabel("");
+    setPortionWeightUnit("G");
+    setStorageInstructions("");
+    setShelfLifeFrozen("");
+    setShelfLifeRefrigerated("");
+    setShelfLifeRoomTemp("");
+    setAllergens("");
+    setSourceUpdatedAt("");
+    setVideoUrl("");
+    setEscalas([]);
+
     setIngredientes([]);
     resetDraftIngrediente();
   };
@@ -1082,7 +1642,7 @@ export default function FichasTecnicasPage() {
     const p = products.find((item) => item.id === productId);
     if (!p) return;
 
-    const unit = String(p.default_unit_label || "UN").toUpperCase();
+    const unit = normalizeUnit(p.default_unit_label, "UN");
 
     setDraftIngredienteNome(p.name);
     setDraftUnidadeUso(unit);
@@ -1126,10 +1686,10 @@ export default function FichasTecnicasPage() {
       productId: draftIngredienteId || null,
       nome: draftIngredienteNome.trim(),
       quantidadeUso,
-      unidadeUso: String(draftUnidadeUso || "UN").toUpperCase(),
+      unidadeUso: normalizeUnit(draftUnidadeUso, "UN"),
       precoCompra,
       quantidadeCompra,
-      unidadeCompra: String(draftUnidadeCompra || "UN").toUpperCase(),
+      unidadeCompra: normalizeUnit(draftUnidadeCompra, "UN"),
       custoUnitarioBase: calculo.custoUnitarioBase,
       custoIngrediente: calculo.custoIngrediente,
       fatorCorrecao,
@@ -1303,18 +1863,28 @@ export default function FichasTecnicasPage() {
       imageUrl,
       imagePath,
 
-      temperatureCelsius: null,
-      storageInstructions: null,
-      shelfLifeFrozen: null,
-      shelfLifeRefrigerated: null,
-      shelfLifeRoomTemp: null,
-      allergens: null,
-      sourceUpdatedAt: null,
+      difficultyLevel: difficultyLevel.trim() || null,
+      temperatureCelsius: temperatureCelsius === "" ? null : toNumber(temperatureCelsius, 0),
+      cookingTimeMinutes: cookingTimeMinutes === "" ? null : toNumber(cookingTimeMinutes, 0),
+      cookingFactorGrams:
+        cookingFactorGrams === "" ? null : toNumber(cookingFactorGrams, 0),
+      correctionFactorGrams:
+        correctionFactorGrams === "" ? null : toNumber(correctionFactorGrams, 0),
+      yieldLabel: yieldLabel.trim() || null,
+      portionWeightUnit: normalizeUnit(portionWeightUnit, "G"),
+      storageInstructions: storageInstructions.trim() || null,
+      shelfLifeFrozen: shelfLifeFrozen.trim() || null,
+      shelfLifeRefrigerated: shelfLifeRefrigerated.trim() || null,
+      shelfLifeRoomTemp: shelfLifeRoomTemp.trim() || null,
+      allergens: allergens.trim() || null,
+      sourceUpdatedAt: sourceUpdatedAt || null,
       importOrigin: null,
       sourceFileName: null,
       sourcePageNumber: null,
+      videoUrl: videoUrl.trim() || null,
 
       ingredientes,
+      escalas,
     });
 
     startTransition(async () => {
@@ -1334,6 +1904,10 @@ export default function FichasTecnicasPage() {
     setFichaEditando({
       ...ficha,
       ingredientes: ficha.ingredientes.map((i) => ({ ...i })),
+      escalas: ficha.escalas.map((s) => ({
+        ...s,
+        ingredientes: s.ingredientes.map((i) => ({ ...i })),
+      })),
     });
     setShowEditarFicha(true);
   };
@@ -1362,7 +1936,13 @@ export default function FichasTecnicasPage() {
       imageUrl: fichaEditando.imageUrl,
       imagePath: fichaEditando.imagePath,
 
+      difficultyLevel: fichaEditando.difficultyLevel,
       temperatureCelsius: fichaEditando.temperatureCelsius,
+      cookingTimeMinutes: fichaEditando.cookingTimeMinutes,
+      cookingFactorGrams: fichaEditando.cookingFactorGrams,
+      correctionFactorGrams: fichaEditando.correctionFactorGrams,
+      yieldLabel: fichaEditando.yieldLabel,
+      portionWeightUnit: fichaEditando.portionWeightUnit,
       storageInstructions: fichaEditando.storageInstructions,
       shelfLifeFrozen: fichaEditando.shelfLifeFrozen,
       shelfLifeRefrigerated: fichaEditando.shelfLifeRefrigerated,
@@ -1372,8 +1952,10 @@ export default function FichasTecnicasPage() {
       importOrigin: fichaEditando.importOrigin,
       sourceFileName: fichaEditando.sourceFileName,
       sourcePageNumber: fichaEditando.sourcePageNumber,
+      videoUrl: fichaEditando.videoUrl,
 
       ingredientes: fichaEditando.ingredientes,
+      escalas: fichaEditando.escalas,
     });
 
     startTransition(async () => {
@@ -1416,18 +1998,26 @@ export default function FichasTecnicasPage() {
       "image_url",
       "image_path",
       "rendimento",
+      "yield_label",
       "peso_por_porcao",
+      "unidade_peso_porcao",
       "tempo_preparo",
+      "tempo_coccao",
       "temperatura_celsius",
+      "fator_coccao_gramas",
+      "fator_correcao_gramas",
+      "dificuldade",
       "armazenamento",
       "validade_congelado",
       "validade_refrigerado",
       "validade_ambiente",
       "alergenicos",
       "atualizada_em",
+      "video_url",
       "import_origin",
       "source_file_name",
       "source_page_number",
+      "escalas",
       "custo_total",
       "custo_por_porcao",
       "preco_venda",
@@ -1446,18 +2036,26 @@ export default function FichasTecnicasPage() {
         escapeCsv(ficha.imageUrl ?? ""),
         escapeCsv(ficha.imagePath ?? ""),
         escapeCsv(ficha.rendimento),
+        escapeCsv(ficha.yieldLabel ?? ""),
         escapeCsv(ficha.pesoPorcao),
+        escapeCsv(ficha.portionWeightUnit ?? ""),
         escapeCsv(ficha.tempoPreparo),
+        escapeCsv(ficha.cookingTimeMinutes ?? ""),
         escapeCsv(ficha.temperatureCelsius ?? ""),
+        escapeCsv(ficha.cookingFactorGrams ?? ""),
+        escapeCsv(ficha.correctionFactorGrams ?? ""),
+        escapeCsv(ficha.difficultyLevel ?? ""),
         escapeCsv(ficha.storageInstructions ?? ""),
         escapeCsv(ficha.shelfLifeFrozen ?? ""),
         escapeCsv(ficha.shelfLifeRefrigerated ?? ""),
         escapeCsv(ficha.shelfLifeRoomTemp ?? ""),
         escapeCsv(ficha.allergens ?? ""),
         escapeCsv(ficha.sourceUpdatedAt ?? ""),
+        escapeCsv(ficha.videoUrl ?? ""),
         escapeCsv(ficha.importOrigin ?? ""),
         escapeCsv(ficha.sourceFileName ?? ""),
         escapeCsv(ficha.sourcePageNumber ?? ""),
+        escapeCsv(ficha.escalas.length),
         escapeCsv(ficha.custoTotal.toFixed(2)),
         escapeCsv(ficha.custoPorPorcao.toFixed(2)),
         escapeCsv(ficha.precoVenda.toFixed(2)),
@@ -1515,7 +2113,8 @@ export default function FichasTecnicasPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Fichas Técnicas</h1>
           <p className="text-gray-600">
-            Visualização avançada, foto do prato, tela cheia, impressão e cálculo automático de custos.
+            Visualização avançada, foto do prato, vídeo, escalas, tela cheia, impressão
+            e cálculo automático de custos.
           </p>
         </div>
 
@@ -1546,7 +2145,8 @@ export default function FichasTecnicasPage() {
 
       {!loadingProducts && products.length === 0 && (
         <div className="rounded-md border border-yellow-200 bg-yellow-50 px-4 py-2 text-sm text-yellow-800">
-          Nenhum produto foi carregado da base. Você ainda pode cadastrar fichas com ingredientes manuais, mas o ideal é ter produtos cadastrados antes.
+          Nenhum produto foi carregado da base. Você ainda pode cadastrar fichas com
+          ingredientes manuais, mas o ideal é ter produtos cadastrados antes.
         </div>
       )}
 
@@ -1611,7 +2211,7 @@ export default function FichasTecnicasPage() {
                 <Label htmlFor="search-fichas">Buscar</Label>
                 <Input
                   id="search-fichas"
-                  placeholder="Nome, categoria ou ingrediente..."
+                  placeholder="Nome, categoria, ingrediente ou escala..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -1705,13 +2305,14 @@ export default function FichasTecnicasPage() {
                         <p className="font-bold">{cmv.toFixed(1)}%</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground">Ingredientes</p>
-                        <p className="font-bold">{ficha.ingredientes.length}</p>
+                        <p className="text-muted-foreground">Escalas</p>
+                        <p className="font-bold">{ficha.escalas.length}</p>
                       </div>
                     </div>
 
                     <div className="mt-3 text-xs text-muted-foreground">
-                      ⏱️ {ficha.tempoPreparo} min • ⚖️ {ficha.pesoPorcao} g
+                      ⏱️ {ficha.tempoPreparo} min • ⚖️ {ficha.pesoPorcao}{" "}
+                      {ficha.portionWeightUnit || "G"}
                     </div>
                   </button>
                 );
@@ -1741,7 +2342,7 @@ export default function FichasTecnicasPage() {
             <DialogHeader className="border-b px-6 py-4">
               <DialogTitle>Visualização em tela cheia</DialogTitle>
               <DialogDescription>
-                Consulte a ficha técnica ampliada, com foto do prato, e imprima quando precisar.
+                Consulte a ficha técnica ampliada, com foto, vídeo, escalas e impressão.
               </DialogDescription>
             </DialogHeader>
 
@@ -1769,7 +2370,8 @@ export default function FichasTecnicasPage() {
           <DialogHeader>
             <DialogTitle>Importar Ficha Técnica</DialogTitle>
             <DialogDescription>
-              Envie um PDF do Canva. O sistema irá ler página por página e criar uma ficha separada para cada receita encontrada.
+              Envie um PDF do Canva. O sistema irá ler página por página e criar uma
+              ficha separada para cada receita encontrada.
             </DialogDescription>
           </DialogHeader>
 
@@ -1821,9 +2423,10 @@ export default function FichasTecnicasPage() {
             </div>
 
             <div className="rounded-md bg-slate-50 p-3 text-sm text-muted-foreground">
-              Campos importados nesta primeira versão: nome, modo de preparo,
-              ingredientes base, rendimento, peso por porção, tempo de preparo,
-              temperatura, armazenamento, validade, alergênicos e data de atualização.
+              Campos importados nesta versão: nome, modo de preparo, ingredientes base,
+              rendimento, peso por porção, tempo de preparo, temperatura, tempo de cocção,
+              fatores, armazenamento, validade, alergênicos, vídeo, data de atualização
+              e escalas.
             </div>
           </div>
         </DialogContent>
@@ -1831,7 +2434,7 @@ export default function FichasTecnicasPage() {
 
       {showEditarFicha && fichaEditando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-white p-6">
+          <div className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-lg bg-white p-6">
             <div className="mb-5 flex items-center justify-between">
               <h3 className="text-xl font-semibold">Editar Ficha Técnica</h3>
               <Button
@@ -1846,267 +2449,437 @@ export default function FichasTecnicasPage() {
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <Label>Nome</Label>
-                <Input
-                  value={fichaEditando.nome}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev ? { ...prev, nome: e.target.value } : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <Label>Categoria</Label>
-                <Input
-                  value={fichaEditando.categoria}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev ? { ...prev, categoria: e.target.value } : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <Label>Rendimento (porções)</Label>
-                <Input
-                  type="number"
-                  value={fichaEditando.rendimento}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev ? { ...prev, rendimento: toNumber(e.target.value, 1) } : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <Label>Peso por porção (g)</Label>
-                <Input
-                  type="number"
-                  value={fichaEditando.pesoPorcao}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev ? { ...prev, pesoPorcao: toNumber(e.target.value, 0) } : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <Label>Tempo de preparo (min)</Label>
-                <Input
-                  type="number"
-                  value={fichaEditando.tempoPreparo}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev ? { ...prev, tempoPreparo: toNumber(e.target.value, 0) } : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <Label>Margem de lucro (%)</Label>
-                <Input
-                  type="number"
-                  value={fichaEditando.margemLucro}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev ? { ...prev, margemLucro: toNumber(e.target.value, 0) } : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <Label>Temperatura (ºC)</Label>
-                <Input
-                  type="number"
-                  value={fichaEditando.temperatureCelsius ?? ""}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            temperatureCelsius:
-                              e.target.value === ""
-                                ? null
-                                : toNumber(e.target.value, 0),
-                          }
-                        : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <Label>Armazenamento</Label>
-                <Input
-                  value={fichaEditando.storageInstructions ?? ""}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev
-                        ? { ...prev, storageInstructions: e.target.value || null }
-                        : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <Label>Validade congelado</Label>
-                <Input
-                  value={fichaEditando.shelfLifeFrozen ?? ""}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev ? { ...prev, shelfLifeFrozen: e.target.value || null } : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <Label>Validade refrigerado</Label>
-                <Input
-                  value={fichaEditando.shelfLifeRefrigerated ?? ""}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev
-                        ? { ...prev, shelfLifeRefrigerated: e.target.value || null }
-                        : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <Label>Validade ambiente</Label>
-                <Input
-                  value={fichaEditando.shelfLifeRoomTemp ?? ""}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev
-                        ? { ...prev, shelfLifeRoomTemp: e.target.value || null }
-                        : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <Label>Alergênicos</Label>
-                <Input
-                  value={fichaEditando.allergens ?? ""}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev ? { ...prev, allergens: e.target.value || null } : prev
-                    )
-                  }
-                />
-              </div>
-
-              <div className="md:col-span-2 space-y-3">
-                <Label>Imagem do prato</Label>
-
-                {fichaEditando.imageUrl ? (
-                  <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
-                    <Image
-                      src={fichaEditando.imageUrl}
-                      alt={fichaEditando.nome}
-                      fill
-                      className="object-cover"
-                      unoptimized
-                    />
-                  </div>
-                ) : (
-                  <div className="flex h-40 items-center justify-center rounded-xl border border-dashed bg-slate-50 text-sm text-muted-foreground">
-                    Sem imagem cadastrada
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-2">
-                  <input
-                    ref={editImageInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleEditImageSelected}
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div>
+                  <Label>Nome</Label>
+                  <Input
+                    value={fichaEditando.nome}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, nome: e.target.value } : prev
+                      )
+                    }
                   />
+                </div>
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => editImageInputRef.current?.click()}
-                    disabled={uploadingImage}
-                  >
-                    {uploadingImage ? "Enviando imagem..." : "Enviar nova imagem"}
-                  </Button>
+                <div>
+                  <Label>Categoria</Label>
+                  <Input
+                    value={fichaEditando.categoria}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, categoria: e.target.value } : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Rendimento</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.rendimento}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, rendimento: toNumber(e.target.value, 1) } : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Yield label</Label>
+                  <Input
+                    value={fichaEditando.yieldLabel ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, yieldLabel: e.target.value || null } : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Peso por porção</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.pesoPorcao}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, pesoPorcao: toNumber(e.target.value, 0) } : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Unidade do peso</Label>
+                  <Input
+                    value={fichaEditando.portionWeightUnit ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              portionWeightUnit: normalizeUnit(e.target.value, "G"),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Tempo de preparo</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.tempoPreparo}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, tempoPreparo: toNumber(e.target.value, 0) } : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Tempo de cocção</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.cookingTimeMinutes ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              cookingTimeMinutes:
+                                e.target.value === "" ? null : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Margem de lucro (%)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.margemLucro}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, margemLucro: toNumber(e.target.value, 0) } : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Dificuldade</Label>
+                  <Input
+                    value={fichaEditando.difficultyLevel ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, difficultyLevel: e.target.value || null } : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Temperatura (ºC)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.temperatureCelsius ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              temperatureCelsius:
+                                e.target.value === "" ? null : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Fator de cocção (g)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.cookingFactorGrams ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              cookingFactorGrams:
+                                e.target.value === "" ? null : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Fator de correção (g)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.correctionFactorGrams ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              correctionFactorGrams:
+                                e.target.value === "" ? null : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Armazenamento</Label>
+                  <Input
+                    value={fichaEditando.storageInstructions ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? { ...prev, storageInstructions: e.target.value || null }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Validade congelado</Label>
+                  <Input
+                    value={fichaEditando.shelfLifeFrozen ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, shelfLifeFrozen: e.target.value || null } : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Validade refrigerado</Label>
+                  <Input
+                    value={fichaEditando.shelfLifeRefrigerated ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? { ...prev, shelfLifeRefrigerated: e.target.value || null }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Validade ambiente</Label>
+                  <Input
+                    value={fichaEditando.shelfLifeRoomTemp ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? { ...prev, shelfLifeRoomTemp: e.target.value || null }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Alergênicos</Label>
+                  <Input
+                    value={fichaEditando.allergens ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, allergens: e.target.value || null } : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Atualizada em</Label>
+                  <Input
+                    type="date"
+                    value={fichaEditando.sourceUpdatedAt ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, sourceUpdatedAt: e.target.value || null } : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="md:col-span-2 xl:col-span-2">
+                  <Label>Vídeo / URL</Label>
+                  <Input
+                    value={fichaEditando.videoUrl ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, videoUrl: e.target.value || null } : prev
+                      )
+                    }
+                    placeholder="https://..."
+                  />
+                </div>
+
+                <div className="md:col-span-2 xl:col-span-4 space-y-3">
+                  <Label>Imagem do prato</Label>
 
                   {fichaEditando.imageUrl ? (
+                    <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
+                      <Image
+                        src={fichaEditando.imageUrl}
+                        alt={fichaEditando.nome}
+                        fill
+                        className="object-cover"
+                        unoptimized
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex h-40 items-center justify-center rounded-xl border border-dashed bg-slate-50 text-sm text-muted-foreground">
+                      Sem imagem cadastrada
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      ref={editImageInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleEditImageSelected}
+                    />
+
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={async () => {
-                        if (!fichaEditando.imagePath) {
-                          setFichaEditando((prev) =>
-                            prev ? { ...prev, imageUrl: null, imagePath: null } : prev
-                          );
-                          return;
-                        }
-
-                        try {
-                          setUploadingImage(true);
-                          await deleteTechnicalSheetImageAction(fichaEditando.imagePath);
-                          setFichaEditando((prev) =>
-                            prev ? { ...prev, imageUrl: null, imagePath: null } : prev
-                          );
-                        } catch (error: any) {
-                          console.error(error);
-                          alert(error?.message ?? "Erro ao remover imagem.");
-                        } finally {
-                          setUploadingImage(false);
-                        }
-                      }}
+                      onClick={() => editImageInputRef.current?.click()}
+                      disabled={uploadingImage}
                     >
-                      Remover imagem
+                      {uploadingImage ? "Enviando imagem..." : "Enviar nova imagem"}
                     </Button>
-                  ) : null}
+
+                    {fichaEditando.imageUrl ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={async () => {
+                          if (!fichaEditando.imagePath) {
+                            setFichaEditando((prev) =>
+                              prev ? { ...prev, imageUrl: null, imagePath: null } : prev
+                            );
+                            return;
+                          }
+
+                          try {
+                            setUploadingImage(true);
+                            await deleteTechnicalSheetImageAction(fichaEditando.imagePath);
+                            setFichaEditando((prev) =>
+                              prev ? { ...prev, imageUrl: null, imagePath: null } : prev
+                            );
+                          } catch (error: any) {
+                            console.error(error);
+                            alert(error?.message ?? "Erro ao remover imagem.");
+                          } finally {
+                            setUploadingImage(false);
+                          }
+                        }}
+                      >
+                        Remover imagem
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="md:col-span-2 xl:col-span-4">
+                  <Label>Modo de preparo</Label>
+                  <Textarea
+                    rows={6}
+                    value={fichaEditando.modoPreparo}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, modoPreparo: e.target.value } : prev
+                      )
+                    }
+                  />
                 </div>
               </div>
 
-              <div className="md:col-span-2">
-                <Label>Modo de preparo</Label>
-                <Textarea
-                  rows={6}
-                  value={fichaEditando.modoPreparo}
-                  onChange={(e) =>
-                    setFichaEditando((prev) =>
-                      prev ? { ...prev, modoPreparo: e.target.value } : prev
-                    )
-                  }
-                />
-              </div>
-            </div>
+              <div>
+                <h4 className="mb-4 text-lg font-semibold">Ingredientes</h4>
 
-            <div className="mt-6 flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setShowEditarFicha(false);
-                  setFichaEditando(null);
-                }}
-              >
-                Cancelar
-              </Button>
-              <Button type="button" onClick={salvarEdicaoFicha} disabled={isPending}>
-                Salvar alterações
-              </Button>
+                {fichaEditando.ingredientes.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                    Nenhum ingrediente cadastrado.
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Ingrediente</TableHead>
+                        <TableHead>Uso</TableHead>
+                        <TableHead>Compra</TableHead>
+                        <TableHead>Preço compra</TableHead>
+                        <TableHead>Custo final</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {fichaEditando.ingredientes.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell>{item.nome}</TableCell>
+                          <TableCell>
+                            {item.quantidadeUso} {item.unidadeUso}
+                          </TableCell>
+                          <TableCell>
+                            {item.quantidadeCompra} {item.unidadeCompra}
+                          </TableCell>
+                          <TableCell>{formatCurrency(item.precoCompra)}</TableCell>
+                          <TableCell className="font-medium text-red-600">
+                            {formatCurrency(item.custoIngrediente)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+
+              <ScaleEditor
+                scales={fichaEditando.escalas}
+                onChange={(next) =>
+                  setFichaEditando((prev) => (prev ? { ...prev, escalas: next } : prev))
+                }
+              />
+
+              <div className="mt-6 flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowEditarFicha(false);
+                    setFichaEditando(null);
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button type="button" onClick={salvarEdicaoFicha} disabled={isPending}>
+                  Salvar alterações
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -2114,7 +2887,7 @@ export default function FichasTecnicasPage() {
 
       {showNovaFicha && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-lg bg-white p-6">
+          <div className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-lg bg-white p-6">
             <div className="mb-6 flex items-center justify-between">
               <h3 className="text-xl font-semibold">Nova Ficha Técnica</h3>
               <Button
@@ -2130,7 +2903,7 @@ export default function FichasTecnicasPage() {
             </div>
 
             <div className="space-y-6">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div>
                   <Label htmlFor="nome">Nome da Receita</Label>
                   <Input
@@ -2152,7 +2925,7 @@ export default function FichasTecnicasPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="rendimento">Rendimento (porções)</Label>
+                  <Label htmlFor="rendimento">Rendimento</Label>
                   <Input
                     id="rendimento"
                     type="number"
@@ -2163,13 +2936,33 @@ export default function FichasTecnicasPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="peso">Peso por Porção (g)</Label>
+                  <Label htmlFor="yieldLabel">Yield label</Label>
+                  <Input
+                    id="yieldLabel"
+                    value={yieldLabel}
+                    onChange={(e) => setYieldLabel(e.target.value)}
+                    placeholder="Ex.: 1 PAC / 4 assadeiras"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="peso">Peso por Porção</Label>
                   <Input
                     id="peso"
                     type="number"
                     value={pesoPorcao}
                     onChange={(e) => setPesoPorcao(toNumber(e.target.value, 0))}
                     placeholder="Ex.: 50"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="pesoUnit">Unidade do peso</Label>
+                  <Input
+                    id="pesoUnit"
+                    value={portionWeightUnit}
+                    onChange={(e) => setPortionWeightUnit(normalizeUnit(e.target.value, "G"))}
+                    placeholder="Ex.: G"
                   />
                 </div>
 
@@ -2185,6 +2978,21 @@ export default function FichasTecnicasPage() {
                 </div>
 
                 <div>
+                  <Label htmlFor="tempoCoccao">Tempo de Cocção (min)</Label>
+                  <Input
+                    id="tempoCoccao"
+                    type="number"
+                    value={cookingTimeMinutes}
+                    onChange={(e) =>
+                      setCookingTimeMinutes(
+                        e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                      )
+                    }
+                    placeholder="Ex.: 18"
+                  />
+                </div>
+
+                <div>
                   <Label htmlFor="margem">Margem de Lucro (%)</Label>
                   <Input
                     id="margem"
@@ -2192,6 +3000,131 @@ export default function FichasTecnicasPage() {
                     value={margemLucro}
                     onChange={(e) => setMargemLucro(toNumber(e.target.value, 0))}
                     placeholder="Ex.: 200"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="dificuldade">Dificuldade</Label>
+                  <Input
+                    id="dificuldade"
+                    value={difficultyLevel}
+                    onChange={(e) => setDifficultyLevel(e.target.value)}
+                    placeholder="Ex.: Média"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="temperatura">Temperatura (ºC)</Label>
+                  <Input
+                    id="temperatura"
+                    type="number"
+                    value={temperatureCelsius}
+                    onChange={(e) =>
+                      setTemperatureCelsius(
+                        e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                      )
+                    }
+                    placeholder="Ex.: 180"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="fatorCoccao">Fator de Cocção (g)</Label>
+                  <Input
+                    id="fatorCoccao"
+                    type="number"
+                    value={cookingFactorGrams}
+                    onChange={(e) =>
+                      setCookingFactorGrams(
+                        e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                      )
+                    }
+                    placeholder="Ex.: 850"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="fatorCorrecao">Fator de Correção (g)</Label>
+                  <Input
+                    id="fatorCorrecao"
+                    type="number"
+                    value={correctionFactorGrams}
+                    onChange={(e) =>
+                      setCorrectionFactorGrams(
+                        e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                      )
+                    }
+                    placeholder="Ex.: 1000"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="armazenamento">Armazenamento</Label>
+                  <Input
+                    id="armazenamento"
+                    value={storageInstructions}
+                    onChange={(e) => setStorageInstructions(e.target.value)}
+                    placeholder="Ex.: Sob refrigeração"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="validadeCongelado">Validade congelado</Label>
+                  <Input
+                    id="validadeCongelado"
+                    value={shelfLifeFrozen}
+                    onChange={(e) => setShelfLifeFrozen(e.target.value)}
+                    placeholder="Ex.: 90 dias"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="validadeRefrigerado">Validade refrigerado</Label>
+                  <Input
+                    id="validadeRefrigerado"
+                    value={shelfLifeRefrigerated}
+                    onChange={(e) => setShelfLifeRefrigerated(e.target.value)}
+                    placeholder="Ex.: 5 dias"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="validadeAmbiente">Validade ambiente</Label>
+                  <Input
+                    id="validadeAmbiente"
+                    value={shelfLifeRoomTemp}
+                    onChange={(e) => setShelfLifeRoomTemp(e.target.value)}
+                    placeholder="Ex.: 12 horas"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="alergenicos">Alergênicos</Label>
+                  <Input
+                    id="alergenicos"
+                    value={allergens}
+                    onChange={(e) => setAllergens(e.target.value)}
+                    placeholder="Ex.: Contém leite e ovos"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="atualizadaEm">Atualizada em</Label>
+                  <Input
+                    id="atualizadaEm"
+                    type="date"
+                    value={sourceUpdatedAt}
+                    onChange={(e) => setSourceUpdatedAt(e.target.value)}
+                  />
+                </div>
+
+                <div className="md:col-span-2 xl:col-span-2">
+                  <Label htmlFor="videoUrl">Vídeo / URL</Label>
+                  <Input
+                    id="videoUrl"
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                    placeholder="https://..."
                   />
                 </div>
               </div>
@@ -2316,7 +3249,7 @@ export default function FichasTecnicasPage() {
                       <Input
                         value={draftUnidadeUso}
                         onChange={(e) =>
-                          setDraftUnidadeUso(e.target.value.toUpperCase())
+                          setDraftUnidadeUso(normalizeUnit(e.target.value, "UN"))
                         }
                       />
                     </div>
@@ -2350,7 +3283,7 @@ export default function FichasTecnicasPage() {
                       <Input
                         value={draftUnidadeCompra}
                         onChange={(e) =>
-                          setDraftUnidadeCompra(e.target.value.toUpperCase())
+                          setDraftUnidadeCompra(normalizeUnit(e.target.value, "UN"))
                         }
                       />
                     </div>
@@ -2482,6 +3415,8 @@ export default function FichasTecnicasPage() {
                   )}
                 </div>
               </div>
+
+              <ScaleEditor scales={escalas} onChange={setEscalas} />
 
               <div className="rounded-lg bg-gray-50 p-4">
                 <h4 className="mb-3 font-semibold">Prévia automática</h4>

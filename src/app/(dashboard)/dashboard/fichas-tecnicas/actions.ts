@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
-import pdfParse from "pdf-parse";
+import { Buffer } from "node:buffer";
 
 const TECHNICAL_SHEET_BUCKET = "technical-sheet-images";
 
@@ -532,6 +532,11 @@ function extractScales(pageText: string): TechnicalSheetScaleInput[] {
 
 async function extractPdfPagesText(file: File) {
   const buffer = Buffer.from(await file.arrayBuffer());
+
+  const pdfParseModule = await import("pdf-parse");
+  const pdfParse =
+    (pdfParseModule as any).default ?? (pdfParseModule as any);
+
   const parsed = await pdfParse(buffer);
 
   const raw = normalizeSpaces(parsed.text || "");
@@ -539,7 +544,7 @@ async function extractPdfPagesText(file: File) {
 
   const pages = raw
     .split(/\n\s*(?=INGREDIENTES\b)/i)
-    .map((chunk) => normalizeSpaces(chunk))
+    .map((chunk: string) => normalizeSpaces(chunk))
     .filter(Boolean);
 
   if (pages.length > 0) {

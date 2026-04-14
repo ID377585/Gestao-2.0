@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import pdfParse from "pdf-parse";
 
 const TECHNICAL_SHEET_BUCKET = "technical-sheet-images";
 
@@ -242,12 +243,16 @@ function extractCookingTime(pageText: string) {
 }
 
 function extractCookingFactor(pageText: string) {
-  const match = pageText.match(/FATOR\s+COC[ÇC][ÃA]O[\s\S]{0,40}?(\d+(?:[.,]\d+)?)/i);
+  const match = pageText.match(
+    /FATOR\s+COC[ÇC][ÃA]O[\s\S]{0,40}?(\d+(?:[.,]\d+)?)/i
+  );
   return match ? toNumber(match[1], 0) : null;
 }
 
 function extractCorrectionFactor(pageText: string) {
-  const match = pageText.match(/FATOR\s+CORRE[ÇC][ÃA]O[\s\S]{0,40}?(\d+(?:[.,]\d+)?)/i);
+  const match = pageText.match(
+    /FATOR\s+CORRE[ÇC][ÃA]O[\s\S]{0,40}?(\d+(?:[.,]\d+)?)/i
+  );
   return match ? toNumber(match[1], 0) : null;
 }
 
@@ -385,7 +390,7 @@ function isIngredientValueLine(line: string) {
   if (!trimmed) return false;
 
   const hasDigits = /\d/.test(trimmed);
-  const mostlyNumbers = /^[0-9.,\sXxA-Za-zº°()-]+$/.test(trimmed);
+  const mostlyNumbers = /^[0-9.,\sXxA-Za-zº°()%/-]+$/.test(trimmed);
 
   return hasDigits && mostlyNumbers;
 }
@@ -408,7 +413,8 @@ function extractIngredients(pageText: string): TechnicalSheetIngredientInput[] {
     if (idx <= ingredientsStart) return false;
     return (
       line.toUpperCase().includes("PESO LÍQUIDO") ||
-      line.toUpperCase().includes("MODO DE PREPARO")
+      line.toUpperCase().includes("MODO DE PREPARO") ||
+      line.toUpperCase().includes("ARMAZENAMENTO")
     );
   });
 
@@ -494,17 +500,22 @@ function extractScales(pageText: string): TechnicalSheetScaleInput[] {
 
   const scales: TechnicalSheetScaleInput[] = [];
 
-  const scaleHeaderIndex = lines.findIndex((line) => /^\d+X(\s+\d+X)+$/i.test(line));
+  const scaleHeaderIndex = lines.findIndex((line) =>
+    /^\d+X(\s+\d+X)+$/i.test(line)
+  );
   if (scaleHeaderIndex < 0) return scales;
 
-  const labels = lines[scaleHeaderIndex].split(/\s+/).map((s) => s.trim()).filter(Boolean);
+  const labels = lines[scaleHeaderIndex]
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   const yieldLine = lines[scaleHeaderIndex + 1] ?? "";
-  const weightLine = lines.find((line, idx) => idx > scaleHeaderIndex && /PESO L[ÍI]QUIDO/i.test(line)) || "";
+  const weightLine =
+    lines.find((line, idx) => idx > scaleHeaderIndex && /PESO L[ÍI]QUIDO/i.test(line)) || "";
 
   const yieldTokens = yieldLine.split(/\s{2,}|\t+/).filter(Boolean);
-  const weightTokens = weightLine
-    ? (weightLine.match(/\d+(?:[.,]\d+)?/g) ?? [])
-    : [];
+  const weightTokens = weightLine ? weightLine.match(/\d+(?:[.,]\d+)?/g) ?? [] : [];
 
   labels.forEach((label, index) => {
     scales.push({
@@ -520,32 +531,22 @@ function extractScales(pageText: string): TechnicalSheetScaleInput[] {
 }
 
 async function extractPdfPagesText(file: File) {
-  const buffer = await file.arrayBuffer();
-  const uint8 = new Uint8Array(buffer);
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const parsed = await pdfParse(buffer);
 
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const raw = normalizeSpaces(parsed.text || "");
+  if (!raw) return [];
 
-  const doc = await pdfjs.getDocument({
-    data: uint8,
-    useWorkerFetch: false,
-    isEvalSupported: false,
-    useSystemFonts: true,
-  }).promise;
+  const pages = raw
+    .split(/\n\s*(?=INGREDIENTES\b)/i)
+    .map((chunk) => normalizeSpaces(chunk))
+    .filter(Boolean);
 
-  const pages: string[] = [];
-
-  for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
-    const page = await doc.getPage(pageNum);
-    const textContent = await page.getTextContent();
-
-    const text = textContent.items
-      .map((item: any) => ("str" in item ? item.str : ""))
-      .join("\n");
-
-    pages.push(normalizeSpaces(text));
+  if (pages.length > 0) {
+    return pages;
   }
 
-  return pages;
+  return [raw];
 }
 
 function parsePdfPageToRecipe(
@@ -556,7 +557,7 @@ function parsePdfPageToRecipe(
 ): ImportedRecipe | null {
   const name = extractTitle(pageText);
   const ingredients = extractIngredients(pageText);
-  const preparation_method = extractPreparationMethod(pageText);
+  const preparationMethod = extractPreparationMethod(pageText);
 
   if (!name || !ingredients.length) {
     return null;
@@ -568,7 +569,7 @@ function parsePdfPageToRecipe(
     yield_portions: extractYieldPortions(pageText),
     portion_weight: extractPortionWeight(pageText),
     prep_time_minutes: extractPrepTime(pageText),
-    preparation_method,
+    preparation_method: preparationMethod,
     difficulty_level: extractDifficulty(pageText),
     temperature_celsius: extractTemperature(pageText),
     cooking_time_minutes: extractCookingTime(pageText),
@@ -1082,126 +1083,159 @@ export async function deleteTechnicalSheet(id: string) {
 export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
   const { supabase, establishmentId, userId } = await getContext();
 
-  const fileEntry = formData.get("file");
-  const categoryEntry = formData.get("defaultCategory");
+  try {
+    const fileEntry = formData.get("file");
+    const categoryEntry = formData.get("defaultCategory");
 
-  if (!(fileEntry instanceof File)) {
-    throw new Error("Envie um arquivo PDF.");
-  }
-
-  const file = fileEntry;
-
-  if (
-    file.type !== "application/pdf" &&
-    !file.name.toLowerCase().endsWith(".pdf")
-  ) {
-    throw new Error("O arquivo enviado precisa ser um PDF.");
-  }
-
-  const defaultCategory =
-    String(categoryEntry ?? "Importado PDF").trim() || "Importado PDF";
-
-  const pages = await extractPdfPagesText(file);
-
-  const recipes = pages
-    .map((pageText, index) =>
-      parsePdfPageToRecipe(pageText, index + 1, file.name, defaultCategory)
-    )
-    .filter(Boolean) as ImportedRecipe[];
-
-  if (!recipes.length) {
-    throw new Error("Não foi possível identificar receitas válidas no PDF.");
-  }
-
-  const created: Array<{ id: string; name: string; page: number | null }> = [];
-
-  for (const recipe of recipes) {
-    const { data: sheet, error: sheetError } = await supabase
-      .from("technical_sheets")
-      .insert({
-        establishment_id: establishmentId,
-        name: recipe.name,
-        category: recipe.category,
-        yield_portions: recipe.yield_portions,
-        portion_weight: recipe.portion_weight,
-        prep_time_minutes: recipe.prep_time_minutes,
-        profit_margin_percent: 0,
-        sale_price: 0,
-        total_cost: 0,
-        cost_per_portion: 0,
-        preparation_method: recipe.preparation_method || null,
-        image_url: null,
-        image_path: null,
-        difficulty_level: recipe.difficulty_level,
-        temperature_celsius: recipe.temperature_celsius,
-        cooking_time_minutes: recipe.cooking_time_minutes,
-        cooking_factor_grams: recipe.cooking_factor_grams,
-        correction_factor_grams: recipe.correction_factor_grams,
-        yield_label: recipe.yield_label,
-        portion_weight_unit: normalizeUnit(recipe.portion_weight_unit, "G"),
-        storage_instructions: recipe.storage_instructions,
-        shelf_life_frozen: recipe.shelf_life_frozen,
-        shelf_life_refrigerated: recipe.shelf_life_refrigerated,
-        shelf_life_room_temp: recipe.shelf_life_room_temp,
-        allergens: recipe.allergens,
-        source_updated_at: recipe.source_updated_at,
-        import_origin: "pdf_canva",
-        source_file_name: recipe.source_file_name,
-        source_page_number: recipe.source_page_number,
-        video_url: recipe.video_url,
-        created_by: userId,
-      })
-      .select("id, name")
-      .single();
-
-    if (sheetError || !sheet) {
-      console.error("Erro ao criar ficha importada:", sheetError, recipe);
-      throw new Error(`Falha ao criar a ficha "${recipe.name}".`);
+    if (!(fileEntry instanceof File)) {
+      throw new Error("Envie um arquivo PDF.");
     }
 
-    if (recipe.ingredients.length) {
-      const payload = recipe.ingredients.map((ingredient, index) => ({
-        technical_sheet_id: sheet.id,
-        product_id: null,
-        ingredient_name: ingredient.ingredient_name.trim(),
-        usage_quantity: ingredient.usage_quantity,
-        usage_unit: normalizeUnit(ingredient.usage_unit, "G"),
-        purchase_price: 0,
-        purchase_quantity: ingredient.purchase_quantity || 1,
-        purchase_unit: normalizeUnit(ingredient.purchase_unit, "G"),
-        correction_factor: ingredient.correction_factor || 1,
-        cooking_factor: ingredient.cooking_factor || 1,
-        base_unit_cost: 0,
-        final_cost: 0,
-        sort_order: index,
-      }));
+    const file = fileEntry;
 
-      const { error: ingredientsError } = await supabase
-        .from("technical_sheet_ingredients")
-        .insert(payload);
-
-      if (ingredientsError) {
-        console.error("Erro ao criar ingredientes importados:", ingredientsError);
-        throw new Error(
-          `A ficha "${recipe.name}" foi criada, mas os ingredientes não foram salvos.`
-        );
-      }
+    if (
+      file.type !== "application/pdf" &&
+      !file.name.toLowerCase().endsWith(".pdf")
+    ) {
+      throw new Error("O arquivo enviado precisa ser um PDF.");
     }
 
-    await saveScales(supabase, sheet.id, recipe.scales);
+    const defaultCategory =
+      String(categoryEntry ?? "Importado PDF").trim() || "Importado PDF";
 
-    created.push({
-      id: sheet.id,
-      name: recipe.name,
-      page: recipe.source_page_number,
+    console.log("[importPDF] iniciando", {
+      fileName: file.name,
+      size: file.size,
+      type: file.type,
+      establishmentId,
+      userId,
     });
+
+    const pages = await extractPdfPagesText(file);
+
+    console.log("[importPDF] blocos encontrados", {
+      total: pages.length,
+    });
+
+    const parsedPages = pages.map((pageText, index) => {
+      const recipe = parsePdfPageToRecipe(
+        pageText,
+        index + 1,
+        file.name,
+        defaultCategory
+      );
+
+      console.log("[importPDF] analise pagina/bloco", {
+        page: index + 1,
+        recipeName: recipe?.name ?? null,
+        ingredientsCount: recipe?.ingredients?.length ?? 0,
+        scalesCount: recipe?.scales?.length ?? 0,
+      });
+
+      return recipe;
+    });
+
+    const recipes = parsedPages.filter(Boolean) as ImportedRecipe[];
+
+    if (!recipes.length) {
+      throw new Error(
+        "Não foi possível identificar receitas válidas no PDF. Tente um PDF com texto selecionável."
+      );
+    }
+
+    const created: Array<{ id: string; name: string; page: number | null }> = [];
+
+    for (const recipe of recipes) {
+      const { data: sheet, error: sheetError } = await supabase
+        .from("technical_sheets")
+        .insert({
+          establishment_id: establishmentId,
+          name: recipe.name,
+          category: recipe.category,
+          yield_portions: recipe.yield_portions,
+          portion_weight: recipe.portion_weight,
+          prep_time_minutes: recipe.prep_time_minutes,
+          profit_margin_percent: 0,
+          sale_price: 0,
+          total_cost: 0,
+          cost_per_portion: 0,
+          preparation_method: recipe.preparation_method || null,
+          image_url: null,
+          image_path: null,
+          difficulty_level: recipe.difficulty_level,
+          temperature_celsius: recipe.temperature_celsius,
+          cooking_time_minutes: recipe.cooking_time_minutes,
+          cooking_factor_grams: recipe.cooking_factor_grams,
+          correction_factor_grams: recipe.correction_factor_grams,
+          yield_label: recipe.yield_label,
+          portion_weight_unit: normalizeUnit(recipe.portion_weight_unit, "G"),
+          storage_instructions: recipe.storage_instructions,
+          shelf_life_frozen: recipe.shelf_life_frozen,
+          shelf_life_refrigerated: recipe.shelf_life_refrigerated,
+          shelf_life_room_temp: recipe.shelf_life_room_temp,
+          allergens: recipe.allergens,
+          source_updated_at: recipe.source_updated_at,
+          import_origin: "pdf_canva",
+          source_file_name: recipe.source_file_name,
+          source_page_number: recipe.source_page_number,
+          video_url: recipe.video_url,
+          created_by: userId,
+        })
+        .select("id, name")
+        .single();
+
+      if (sheetError || !sheet) {
+        console.error("[importPDF] erro ao criar ficha", sheetError, recipe);
+        throw new Error(`Falha ao criar a ficha "${recipe.name}".`);
+      }
+
+      if (recipe.ingredients.length) {
+        const payload = recipe.ingredients.map((ingredient, index) => ({
+          technical_sheet_id: sheet.id,
+          product_id: null,
+          ingredient_name: ingredient.ingredient_name.trim(),
+          usage_quantity: ingredient.usage_quantity,
+          usage_unit: normalizeUnit(ingredient.usage_unit, "G"),
+          purchase_price: 0,
+          purchase_quantity: ingredient.purchase_quantity || 1,
+          purchase_unit: normalizeUnit(ingredient.purchase_unit, "G"),
+          correction_factor: ingredient.correction_factor || 1,
+          cooking_factor: ingredient.cooking_factor || 1,
+          base_unit_cost: 0,
+          final_cost: 0,
+          sort_order: index,
+        }));
+
+        const { error: ingredientsError } = await supabase
+          .from("technical_sheet_ingredients")
+          .insert(payload);
+
+        if (ingredientsError) {
+          console.error("[importPDF] erro ao criar ingredientes", ingredientsError);
+          throw new Error(
+            `A ficha "${recipe.name}" foi criada, mas os ingredientes não foram salvos.`
+          );
+        }
+      }
+
+      await saveScales(supabase, sheet.id, recipe.scales);
+
+      created.push({
+        id: sheet.id,
+        name: recipe.name,
+        page: recipe.source_page_number,
+      });
+    }
+
+    revalidatePath("/dashboard/fichas-tecnicas");
+
+    return {
+      ok: true,
+      importedCount: created.length,
+      recipes: created,
+    };
+  } catch (error: any) {
+    console.error("[importPDF] falha geral", error);
+    throw new Error(error?.message || "Erro ao importar PDF.");
   }
-
-  revalidatePath("/dashboard/fichas-tecnicas");
-
-  return {
-    ok: true,
-    importedCount: created.length,
-    recipes: created,
-  };
 }

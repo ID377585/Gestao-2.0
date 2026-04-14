@@ -1721,7 +1721,7 @@ export default function FichasTecnicasPage() {
         </Card>
 
         <RecipeViewer
-          ficha={fichaSelecionadaFiltrada}
+          ficha={fichaSelecionada}
           desiredServings={desiredServings}
           setDesiredServings={setDesiredServings}
           currentTab={viewerTab}
@@ -1747,7 +1747,7 @@ export default function FichasTecnicasPage() {
 
             <div className="flex-1 overflow-y-auto p-6">
               <RecipeViewer
-                ficha={fichaSelecionadaFiltrada}
+                ficha={fichaSelecionada}
                 desiredServings={desiredServings}
                 setDesiredServings={setDesiredServings}
                 currentTab={viewerTab}

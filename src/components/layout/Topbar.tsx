@@ -21,7 +21,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-
+import { supabase } from "@/lib/supabase";
 import NotificationsModal from "@/components/modals/NotificationsModal";
 import { ProfileModal } from "@/components/modals/ProfileModal";
 import { SettingsModal } from "@/components/modals/SettingsModal";
@@ -174,11 +174,12 @@ export function Topbar({ className }: TopbarProps) {
     openAfterDropdownClose(() => setShowNotificacoesModal(true));
   };
 
-  const handleLogout = () => {
-    setUserMenuOpen(false);
-    clearSession();
-    window.location.assign("/login");
-  };
+  const handleLogout = async () => {
+  setUserMenuOpen(false);
+  await supabase.auth.signOut(); // encerra a sessão autenticada do Supabase
+  clearSession();                // remove cookie e dados locais da aplicação
+  window.location.assign("/login");
+};
 
   const dropdownBaseClasses =
     "z-50 rounded-md border border-gray-200 bg-white text-gray-900 shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100";

@@ -21,6 +21,21 @@ export type TechnicalSheetIngredientInput = {
   sort_order: number;
 };
 
+export type TechnicalSheetScaleIngredientInput = {
+  ingredient_name: string;
+  amount: number;
+  unit: string;
+  sort_order: number;
+};
+
+export type TechnicalSheetScaleInput = {
+  scale_label: string;
+  yield_description: string | null;
+  net_weight: number | null;
+  sort_order: number;
+  ingredients: TechnicalSheetScaleIngredientInput[];
+};
+
 export type TechnicalSheetInput = {
   id?: string;
   name: string;
@@ -36,7 +51,13 @@ export type TechnicalSheetInput = {
   image_url?: string | null;
   image_path?: string | null;
 
+  difficulty_level?: string | null;
   temperature_celsius?: number | null;
+  cooking_time_minutes?: number | null;
+  cooking_factor_grams?: number | null;
+  correction_factor_grams?: number | null;
+  yield_label?: string | null;
+  portion_weight_unit?: string | null;
   storage_instructions?: string | null;
   shelf_life_frozen?: string | null;
   shelf_life_refrigerated?: string | null;
@@ -46,8 +67,10 @@ export type TechnicalSheetInput = {
   import_origin?: string | null;
   source_file_name?: string | null;
   source_page_number?: number | null;
+  video_url?: string | null;
 
   ingredients: TechnicalSheetIngredientInput[];
+  scales?: TechnicalSheetScaleInput[];
 };
 
 type ImportedRecipe = {
@@ -57,7 +80,13 @@ type ImportedRecipe = {
   portion_weight: number;
   prep_time_minutes: number;
   preparation_method: string;
+  difficulty_level: string | null;
   temperature_celsius: number | null;
+  cooking_time_minutes: number | null;
+  cooking_factor_grams: number | null;
+  correction_factor_grams: number | null;
+  yield_label: string | null;
+  portion_weight_unit: string | null;
   storage_instructions: string | null;
   shelf_life_frozen: string | null;
   shelf_life_refrigerated: string | null;
@@ -66,7 +95,9 @@ type ImportedRecipe = {
   source_updated_at: string | null;
   source_file_name: string | null;
   source_page_number: number | null;
+  video_url: string | null;
   ingredients: TechnicalSheetIngredientInput[];
+  scales: TechnicalSheetScaleInput[];
 };
 
 async function getContext() {
@@ -126,6 +157,11 @@ function normalizeSpaces(value: string) {
     .replace(/\s+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function normalizeUnit(value: string | null | undefined, fallback = "G") {
+  const unit = String(value ?? "").trim().toUpperCase();
+  return unit || fallback;
 }
 
 function shouldIgnoreLine(line: string) {
@@ -197,8 +233,27 @@ function extractPrepTime(pageText: string) {
     pageText.match(/(\d{1,3})\s*º\s*(\d{1,4})\s*Minutos/i);
 
   if (!match) return 0;
-
   return match[2] ? toNumber(match[2], 0) : toNumber(match[1], 0);
+}
+
+function extractCookingTime(pageText: string) {
+  const match = pageText.match(/TEMPO\s+COC[ÇC][ÃA]O[\s\S]{0,40}?(\d{1,4})/i);
+  return match ? toNumber(match[1], 0) : null;
+}
+
+function extractCookingFactor(pageText: string) {
+  const match = pageText.match(/FATOR\s+COC[ÇC][ÃA]O[\s\S]{0,40}?(\d+(?:[.,]\d+)?)/i);
+  return match ? toNumber(match[1], 0) : null;
+}
+
+function extractCorrectionFactor(pageText: string) {
+  const match = pageText.match(/FATOR\s+CORRE[ÇC][ÃA]O[\s\S]{0,40}?(\d+(?:[.,]\d+)?)/i);
+  return match ? toNumber(match[1], 0) : null;
+}
+
+function extractDifficulty(pageText: string) {
+  const match = pageText.match(/GRAU\s+DE\s+DIFICULDADE:\s*([^\n]+)/i);
+  return match?.[1]?.trim() || null;
 }
 
 function extractPortionWeight(pageText: string) {
@@ -219,6 +274,17 @@ function extractPortionWeight(pageText: string) {
   return value;
 }
 
+function extractPortionWeightUnit(pageText: string) {
+  const matches = [
+    ...pageText.matchAll(/(\d+(?:[.,]\d+)?)\s*(GRAMAS|G|KILO|KG)\b/gi),
+  ];
+
+  if (!matches.length) return "G";
+  const unit = String(matches[matches.length - 1][2] ?? "").toUpperCase();
+  if (unit === "KILO" || unit === "KG") return "KG";
+  return "G";
+}
+
 function extractYieldPortions(pageText: string) {
   const candidates = [
     pageText.match(/\b(\d+)\s+Pacotes?\b/i),
@@ -229,8 +295,19 @@ function extractYieldPortions(pageText: string) {
   ].filter(Boolean) as RegExpMatchArray[];
 
   if (!candidates.length) return 1;
-
   return toNumber(candidates[0][1], 1);
+}
+
+function extractYieldLabel(pageText: string) {
+  const candidates = [
+    pageText.match(/\b\d+\s+Pacotes?\b/i),
+    pageText.match(/\b\d+\s+PAC\b/i),
+    pageText.match(/\b\d+\s+Bisnaga\b/i),
+    pageText.match(/\b\d+\s+BSN\b/i),
+    pageText.match(/\b\d+\s+assadeiras?\b/i),
+  ].filter(Boolean) as RegExpMatchArray[];
+
+  return candidates[0]?.[0]?.trim() || null;
 }
 
 function extractUpdatedDate(pageText: string) {
@@ -247,7 +324,6 @@ function extractShelfLifeFrozen(pageText: string) {
   const match =
     pageText.match(/Congelamento:\s*(.+)/i) ||
     pageText.match(/Congelado\s*:\s*(.+)/i);
-
   return match ? match[1].trim() : null;
 }
 
@@ -260,7 +336,6 @@ function extractShelfLifeRoomTemp(pageText: string) {
   const match =
     pageText.match(/Temperatura Ambiente:\s*(.+)/i) ||
     pageText.match(/Temp\.\s*Ambiente:\s*(.+)/i);
-
   return match ? match[1].trim() : null;
 }
 
@@ -289,16 +364,19 @@ function extractPreparationMethod(pageText: string) {
   return match?.[1]?.trim() || "";
 }
 
+function extractVideoUrl(pageText: string) {
+  const match = pageText.match(/https?:\/\/[^\s]+/i);
+  return match?.[0] || null;
+}
+
 function inferUsageUnit(name: string) {
   const upper = name.toUpperCase();
-
   if (
     upper.includes("OVO") &&
     (upper.includes("UNI") || upper.includes("UNID"))
   ) {
     return "UN";
   }
-
   return "G";
 }
 
@@ -319,13 +397,11 @@ function extractIngredients(pageText: string): TechnicalSheetIngredientInput[] {
     .filter(Boolean);
 
   const ingredients: TechnicalSheetIngredientInput[] = [];
-
   let ingredientsStart = lines.findIndex((line) =>
     line.toUpperCase().includes("INGREDIENTES")
   );
 
   if (ingredientsStart < 0) return ingredients;
-
   ingredientsStart += 1;
 
   let ingredientsEnd = lines.findIndex((line, idx) => {
@@ -383,7 +459,6 @@ function extractIngredients(pageText: string): TechnicalSheetIngredientInput[] {
     const valueLine = block[i];
     const numbers = valueLine.match(/\d+(?:[.,]\d+)?/g) ?? [];
     const usageQuantity = numbers.length ? toNumber(numbers[0], 0) : 0;
-
     const ingredientName = nameParts.join(" ").replace(/\s+/g, " ").trim();
 
     if (ingredientName) {
@@ -409,6 +484,39 @@ function extractIngredients(pageText: string): TechnicalSheetIngredientInput[] {
   }
 
   return ingredients;
+}
+
+function extractScales(pageText: string): TechnicalSheetScaleInput[] {
+  const lines = normalizeSpaces(pageText)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const scales: TechnicalSheetScaleInput[] = [];
+
+  const scaleHeaderIndex = lines.findIndex((line) => /^\d+X(\s+\d+X)+$/i.test(line));
+  if (scaleHeaderIndex < 0) return scales;
+
+  const labels = lines[scaleHeaderIndex].split(/\s+/).map((s) => s.trim()).filter(Boolean);
+  const yieldLine = lines[scaleHeaderIndex + 1] ?? "";
+  const weightLine = lines.find((line, idx) => idx > scaleHeaderIndex && /PESO L[ÍI]QUIDO/i.test(line)) || "";
+
+  const yieldTokens = yieldLine.split(/\s{2,}|\t+/).filter(Boolean);
+  const weightTokens = weightLine
+    ? (weightLine.match(/\d+(?:[.,]\d+)?/g) ?? [])
+    : [];
+
+  labels.forEach((label, index) => {
+    scales.push({
+      scale_label: label,
+      yield_description: yieldTokens[index] ?? null,
+      net_weight: weightTokens[index] ? toNumber(weightTokens[index], 0) : null,
+      sort_order: index,
+      ingredients: [],
+    });
+  });
+
+  return scales;
 }
 
 async function extractPdfPagesText(file: File) {
@@ -461,7 +569,13 @@ function parsePdfPageToRecipe(
     portion_weight: extractPortionWeight(pageText),
     prep_time_minutes: extractPrepTime(pageText),
     preparation_method,
+    difficulty_level: extractDifficulty(pageText),
     temperature_celsius: extractTemperature(pageText),
+    cooking_time_minutes: extractCookingTime(pageText),
+    cooking_factor_grams: extractCookingFactor(pageText),
+    correction_factor_grams: extractCorrectionFactor(pageText),
+    yield_label: extractYieldLabel(pageText),
+    portion_weight_unit: extractPortionWeightUnit(pageText),
     storage_instructions: extractStorage(pageText),
     shelf_life_frozen: extractShelfLifeFrozen(pageText),
     shelf_life_refrigerated: extractShelfLifeRefrigerated(pageText),
@@ -470,8 +584,56 @@ function parsePdfPageToRecipe(
     source_updated_at: extractUpdatedDate(pageText),
     source_file_name: fileName,
     source_page_number: pageNumber,
+    video_url: extractVideoUrl(pageText),
     ingredients,
+    scales: extractScales(pageText),
   };
+}
+
+async function saveScales(
+  supabase: any,
+  technicalSheetId: string,
+  scales: TechnicalSheetScaleInput[] | undefined
+) {
+  if (!scales?.length) return;
+
+  for (const scale of scales) {
+    const { data: createdScale, error: scaleError } = await supabase
+      .from("technical_sheet_scales")
+      .insert({
+        technical_sheet_id: technicalSheetId,
+        scale_label: scale.scale_label,
+        yield_description: scale.yield_description,
+        net_weight: scale.net_weight,
+        sort_order: scale.sort_order,
+      })
+      .select("id")
+      .single();
+
+    if (scaleError || !createdScale) {
+      console.error("Erro ao salvar escala da ficha:", scaleError);
+      throw new Error("Não foi possível salvar as escalas da ficha técnica.");
+    }
+
+    if (scale.ingredients?.length) {
+      const payload = scale.ingredients.map((item, index) => ({
+        technical_sheet_scale_id: createdScale.id,
+        ingredient_name: item.ingredient_name.trim(),
+        amount: item.amount,
+        unit: normalizeUnit(item.unit, "G"),
+        sort_order: item.sort_order ?? index,
+      }));
+
+      const { error: scaleIngredientsError } = await supabase
+        .from("technical_sheet_scale_ingredients")
+        .insert(payload);
+
+      if (scaleIngredientsError) {
+        console.error("Erro ao salvar ingredientes da escala:", scaleIngredientsError);
+        throw new Error("Não foi possível salvar os ingredientes das escalas.");
+      }
+    }
+  }
 }
 
 export async function uploadTechnicalSheetImageAction(formData: FormData) {
@@ -557,7 +719,13 @@ export async function listTechnicalSheets() {
       preparation_method,
       image_url,
       image_path,
+      difficulty_level,
       temperature_celsius,
+      cooking_time_minutes,
+      cooking_factor_grams,
+      correction_factor_grams,
+      yield_label,
+      portion_weight_unit,
       storage_instructions,
       shelf_life_frozen,
       shelf_life_refrigerated,
@@ -567,6 +735,7 @@ export async function listTechnicalSheets() {
       import_origin,
       source_file_name,
       source_page_number,
+      video_url,
       created_by,
       created_at,
       updated_at,
@@ -586,6 +755,24 @@ export async function listTechnicalSheets() {
         final_cost,
         sort_order,
         created_at
+      ),
+      scales:technical_sheet_scales (
+        id,
+        technical_sheet_id,
+        scale_label,
+        yield_description,
+        net_weight,
+        sort_order,
+        created_at,
+        ingredients:technical_sheet_scale_ingredients (
+          id,
+          technical_sheet_scale_id,
+          ingredient_name,
+          amount,
+          unit,
+          sort_order,
+          created_at
+        )
       )
     `)
     .eq("establishment_id", establishmentId)
@@ -654,7 +841,13 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
       preparation_method: input.preparation_method?.trim() || null,
       image_url: input.image_url?.trim() || null,
       image_path: input.image_path?.trim() || null,
+      difficulty_level: input.difficulty_level?.trim() || null,
       temperature_celsius: input.temperature_celsius ?? null,
+      cooking_time_minutes: input.cooking_time_minutes ?? null,
+      cooking_factor_grams: input.cooking_factor_grams ?? null,
+      correction_factor_grams: input.correction_factor_grams ?? null,
+      yield_label: input.yield_label?.trim() || null,
+      portion_weight_unit: normalizeUnit(input.portion_weight_unit, "G"),
       storage_instructions: input.storage_instructions?.trim() || null,
       shelf_life_frozen: input.shelf_life_frozen?.trim() || null,
       shelf_life_refrigerated: input.shelf_life_refrigerated?.trim() || null,
@@ -664,6 +857,7 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
       import_origin: input.import_origin?.trim() || null,
       source_file_name: input.source_file_name?.trim() || null,
       source_page_number: input.source_page_number ?? null,
+      video_url: input.video_url?.trim() || null,
       created_by: userId,
     })
     .select("id")
@@ -679,10 +873,10 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
     product_id: ingredient.product_id || null,
     ingredient_name: ingredient.ingredient_name.trim(),
     usage_quantity: ingredient.usage_quantity,
-    usage_unit: ingredient.usage_unit.trim().toUpperCase(),
+    usage_unit: normalizeUnit(ingredient.usage_unit, "G"),
     purchase_price: ingredient.purchase_price,
     purchase_quantity: ingredient.purchase_quantity,
-    purchase_unit: ingredient.purchase_unit.trim().toUpperCase(),
+    purchase_unit: normalizeUnit(ingredient.purchase_unit, "G"),
     correction_factor: ingredient.correction_factor,
     cooking_factor: ingredient.cooking_factor,
     base_unit_cost: ingredient.base_unit_cost,
@@ -695,12 +889,11 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
     .insert(ingredientsPayload);
 
   if (ingredientsError) {
-    console.error(
-      "Erro ao criar ingredientes da ficha técnica:",
-      ingredientsError
-    );
+    console.error("Erro ao criar ingredientes da ficha técnica:", ingredientsError);
     throw new Error("Ficha criada, mas houve erro ao salvar os ingredientes.");
   }
+
+  await saveScales(supabase, sheet.id, input.scales);
 
   revalidatePath("/dashboard/fichas-tecnicas");
   return sheet;
@@ -748,7 +941,13 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
       preparation_method: input.preparation_method?.trim() || null,
       image_url: input.image_url?.trim() || null,
       image_path: newImagePath,
+      difficulty_level: input.difficulty_level?.trim() || null,
       temperature_celsius: input.temperature_celsius ?? null,
+      cooking_time_minutes: input.cooking_time_minutes ?? null,
+      cooking_factor_grams: input.cooking_factor_grams ?? null,
+      correction_factor_grams: input.correction_factor_grams ?? null,
+      yield_label: input.yield_label?.trim() || null,
+      portion_weight_unit: normalizeUnit(input.portion_weight_unit, "G"),
       storage_instructions: input.storage_instructions?.trim() || null,
       shelf_life_frozen: input.shelf_life_frozen?.trim() || null,
       shelf_life_refrigerated: input.shelf_life_refrigerated?.trim() || null,
@@ -758,6 +957,7 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
       import_origin: input.import_origin?.trim() || null,
       source_file_name: input.source_file_name?.trim() || null,
       source_page_number: input.source_page_number ?? null,
+      video_url: input.video_url?.trim() || null,
     })
     .eq("id", input.id)
     .eq("establishment_id", establishmentId);
@@ -773,10 +973,7 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
       .remove([currentImagePath]);
 
     if (removeOldImageError) {
-      console.error(
-        "Erro ao remover imagem antiga da ficha:",
-        removeOldImageError
-      );
+      console.error("Erro ao remover imagem antiga da ficha:", removeOldImageError);
     }
   }
 
@@ -795,10 +992,10 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
     product_id: ingredient.product_id || null,
     ingredient_name: ingredient.ingredient_name.trim(),
     usage_quantity: ingredient.usage_quantity,
-    usage_unit: ingredient.usage_unit.trim().toUpperCase(),
+    usage_unit: normalizeUnit(ingredient.usage_unit, "G"),
     purchase_price: ingredient.purchase_price,
     purchase_quantity: ingredient.purchase_quantity,
-    purchase_unit: ingredient.purchase_unit.trim().toUpperCase(),
+    purchase_unit: normalizeUnit(ingredient.purchase_unit, "G"),
     correction_factor: ingredient.correction_factor,
     cooking_factor: ingredient.cooking_factor,
     base_unit_cost: ingredient.base_unit_cost,
@@ -817,6 +1014,27 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
     );
   }
 
+  const { data: existingScales } = await supabase
+    .from("technical_sheet_scales")
+    .select("id")
+    .eq("technical_sheet_id", input.id);
+
+  if (existingScales?.length) {
+    const scaleIds = existingScales.map((s: any) => s.id);
+
+    await supabase
+      .from("technical_sheet_scale_ingredients")
+      .delete()
+      .in("technical_sheet_scale_id", scaleIds);
+
+    await supabase
+      .from("technical_sheet_scales")
+      .delete()
+      .eq("technical_sheet_id", input.id);
+  }
+
+  await saveScales(supabase, input.id, input.scales);
+
   revalidatePath("/dashboard/fichas-tecnicas");
 }
 
@@ -833,10 +1051,7 @@ export async function deleteTechnicalSheet(id: string) {
     .single();
 
   if (currentError) {
-    console.error(
-      "Erro ao buscar imagem da ficha antes de excluir:",
-      currentError
-    );
+    console.error("Erro ao buscar imagem da ficha antes de excluir:", currentError);
   }
 
   const { error } = await supabase
@@ -857,10 +1072,7 @@ export async function deleteTechnicalSheet(id: string) {
       .remove([imagePath]);
 
     if (removeImageError) {
-      console.error(
-        "Erro ao excluir imagem da ficha técnica:",
-        removeImageError
-      );
+      console.error("Erro ao excluir imagem da ficha técnica:", removeImageError);
     }
   }
 
@@ -920,7 +1132,13 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
         preparation_method: recipe.preparation_method || null,
         image_url: null,
         image_path: null,
+        difficulty_level: recipe.difficulty_level,
         temperature_celsius: recipe.temperature_celsius,
+        cooking_time_minutes: recipe.cooking_time_minutes,
+        cooking_factor_grams: recipe.cooking_factor_grams,
+        correction_factor_grams: recipe.correction_factor_grams,
+        yield_label: recipe.yield_label,
+        portion_weight_unit: normalizeUnit(recipe.portion_weight_unit, "G"),
         storage_instructions: recipe.storage_instructions,
         shelf_life_frozen: recipe.shelf_life_frozen,
         shelf_life_refrigerated: recipe.shelf_life_refrigerated,
@@ -930,6 +1148,7 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
         import_origin: "pdf_canva",
         source_file_name: recipe.source_file_name,
         source_page_number: recipe.source_page_number,
+        video_url: recipe.video_url,
         created_by: userId,
       })
       .select("id, name")
@@ -946,10 +1165,10 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
         product_id: null,
         ingredient_name: ingredient.ingredient_name.trim(),
         usage_quantity: ingredient.usage_quantity,
-        usage_unit: ingredient.usage_unit.trim().toUpperCase(),
+        usage_unit: normalizeUnit(ingredient.usage_unit, "G"),
         purchase_price: 0,
         purchase_quantity: ingredient.purchase_quantity || 1,
-        purchase_unit: ingredient.purchase_unit.trim().toUpperCase(),
+        purchase_unit: normalizeUnit(ingredient.purchase_unit, "G"),
         correction_factor: ingredient.correction_factor || 1,
         cooking_factor: ingredient.cooking_factor || 1,
         base_unit_cost: 0,
@@ -968,6 +1187,8 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
         );
       }
     }
+
+    await saveScales(supabase, sheet.id, recipe.scales);
 
     created.push({
       id: sheet.id,

@@ -121,98 +121,64 @@ function parseBrazilianDateToIso(value: string | null | undefined) {
 
 function normalizeSpaces(value: string) {
   return value
-    .replace(/[ \t]+/g, " ")
     .replace(/\u00A0/g, " ")
+    .replace(/[ \t]+/g, " ")
     .replace(/\s+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-function isNumericHeavyLine(line: string) {
-  const clean = line.trim();
-  if (!clean) return false;
-  return /^[0-9.,º°xX ()A-Za-z-]+$/.test(clean) && /\d/.test(clean);
-}
+function shouldIgnoreLine(line: string) {
+  const upper = line.toUpperCase().trim();
 
-function shouldIgnoreIngredientLine(line: string) {
-  const upper = line.toUpperCase();
-  if (!upper.trim()) return true;
-  if (/^\d+X(\s+\d+X)*$/.test(upper)) return true;
-  if (
-    upper.includes("ASSADEIRAS") ||
-    upper.includes(" PAC") ||
-    upper.includes(" BSN") ||
-    upper.includes("PESO LÍQUIDO") ||
-    upper.includes("INGREDIENTES") ||
-    upper.includes("MODO DE PREPARO") ||
-    upper.includes("TEMPO") ||
-    upper.includes("TEMPERATURA") ||
-    upper.includes("FATOR") ||
-    upper.includes("RENDIMENTO") ||
-    upper.includes("PESO DA PORÇÃO") ||
-    upper.includes("GRAU DE DIFICULDADE") ||
-    upper.includes("ATUALIZADA EM") ||
-    upper.includes("ARMAZENAMENTO") ||
-    upper.includes("ALERGÊNICOS") ||
-    upper.includes("CONTÉM")
-  ) {
-    return true;
-  }
-  return false;
-}
+  if (!upper) return true;
 
-function inferUsageUnit(name: string) {
-  const upper = name.toUpperCase();
-  if (
-    upper.includes("OVO") &&
-    (upper.includes("UNI") || upper.includes("UNID"))
-  ) {
-    return "UN";
-  }
-  return "G";
+  const ignoredFragments = [
+    "INGREDIENTES",
+    "MODO DE PREPARO",
+    "ATUALIZADA EM",
+    "FICOU COM DÚVIDAS",
+    "ENTRE EM CONTATO",
+    "IVAN ESCOBAR",
+    "CONFEITEIRO CHEFE",
+    "ARMAZENAMENTO",
+    "ALERGÊNICOS",
+    "CONTÉM",
+    "GRAU DE DIFICULDADE",
+    "TEMPERATURA",
+    "TEMPO DE PREP",
+    "TEMPO COCÇÃO",
+    "FATOR COCÇÃO",
+    "FATOR CORREÇÃO",
+    "RENDIMENTO",
+    "PESO DA PORÇÃO",
+    "PESO LÍQUIDO",
+  ];
+
+  return ignoredFragments.some((fragment) => upper.includes(fragment));
 }
 
 function extractTitle(pageText: string) {
   const lines = normalizeSpaces(pageText)
     .split("\n")
-    .map((l) => l.trim())
+    .map((line) => line.trim())
     .filter(Boolean);
 
-  const idxIngredientes = lines.findIndex((l) =>
-    l.toUpperCase().includes("INGREDIENTES")
+  const ingredientIndex = lines.findIndex((line) =>
+    line.toUpperCase().includes("INGREDIENTES")
   );
 
-  if (idxIngredientes > 0) {
-    for (let i = idxIngredientes - 1; i >= 0; i--) {
+  if (ingredientIndex > 0) {
+    for (let i = ingredientIndex - 1; i >= 0; i--) {
       const line = lines[i];
-      const upper = line.toUpperCase();
-
-      if (
-        upper.includes("MODO DE PREPARO") ||
-        upper.includes("ATUALIZADA EM") ||
-        upper.includes("ARMAZENAMENTO") ||
-        upper.includes("ALERGÊNICOS") ||
-        upper.includes("CONTÉM") ||
-        upper.includes("IVAN ESCOBAR") ||
-        upper.includes("CONFEITEIRO CHEFE")
-      ) {
-        continue;
-      }
-
-      if (/[A-Za-zÀ-ÿ]/.test(line) && line.length >= 3) {
+      if (!shouldIgnoreLine(line) && /[A-Za-zÀ-ÿ]/.test(line)) {
         return line.trim();
       }
     }
   }
 
   for (const line of lines) {
-    const upper = line.toUpperCase();
-    if (
-      !shouldIgnoreIngredientLine(line) &&
-      !upper.includes("IVAN ESCOBAR") &&
-      !upper.includes("CONFEITEIRO CHEFE") &&
-      !upper.includes("ENTRE EM CONTATO")
-    ) {
+    if (!shouldIgnoreLine(line) && /[A-Za-zÀ-ÿ]/.test(line)) {
       return line.trim();
     }
   }
@@ -226,18 +192,23 @@ function extractTemperature(pageText: string) {
 }
 
 function extractPrepTime(pageText: string) {
-  const tempMatch = pageText.match(/(\d{1,3})\s*º\s*(\d{1,4})/);
-  if (tempMatch) return toNumber(tempMatch[2], 0);
+  const match =
+    pageText.match(/TEM\s*PO\s*DE\s*PREP\.[\s\S]{0,50}?(\d{1,4})/i) ||
+    pageText.match(/(\d{1,3})\s*º\s*(\d{1,4})\s*Minutos/i);
 
-  const match = pageText.match(/TEM\s*PO\s*DE\s*PREP\.[\s\S]{0,60}?(\d{1,4})/i);
-  return match ? toNumber(match[1], 0) : 0;
+  if (!match) return 0;
+
+  return match[2] ? toNumber(match[2], 0) : toNumber(match[1], 0);
 }
 
 function extractPortionWeight(pageText: string) {
-  const all = [...pageText.matchAll(/(\d+(?:[.,]\d+)?)\s*(GRAMAS|KILO|KG)\b/gi)];
-  if (!all.length) return 0;
+  const matches = [
+    ...pageText.matchAll(/(\d+(?:[.,]\d+)?)\s*(GRAMAS|G|KILO|KG)\b/gi),
+  ];
 
-  const last = all[all.length - 1];
+  if (!matches.length) return 0;
+
+  const last = matches[matches.length - 1];
   const value = toNumber(last[1], 0);
   const unit = String(last[2] ?? "").toUpperCase();
 
@@ -249,23 +220,17 @@ function extractPortionWeight(pageText: string) {
 }
 
 function extractYieldPortions(pageText: string) {
-  const lines = normalizeSpaces(pageText)
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
+  const candidates = [
+    pageText.match(/\b(\d+)\s+Pacotes?\b/i),
+    pageText.match(/\b(\d+)\s+PAC\b/i),
+    pageText.match(/\b(\d+)\s+Bisnaga\b/i),
+    pageText.match(/\b(\d+)\s+BSN\b/i),
+    pageText.match(/\b(\d+)\s+assadeiras?\b/i),
+  ].filter(Boolean) as RegExpMatchArray[];
 
-  const targetLine = lines.find(
-    (line) =>
-      /\b\d+\s+(PACOTES?|PAC|BISNAGA|BSN|KILO|KG|ASSADEIRAS?)\b/i.test(line) &&
-      !/^\d+X/.test(line)
-  );
+  if (!candidates.length) return 1;
 
-  if (targetLine) {
-    const m = targetLine.match(/\b(\d+)\b/);
-    if (m) return toNumber(m[1], 1);
-  }
-
-  return 1;
+  return toNumber(candidates[0][1], 1);
 }
 
 function extractUpdatedDate(pageText: string) {
@@ -282,6 +247,7 @@ function extractShelfLifeFrozen(pageText: string) {
   const match =
     pageText.match(/Congelamento:\s*(.+)/i) ||
     pageText.match(/Congelado\s*:\s*(.+)/i);
+
   return match ? match[1].trim() : null;
 }
 
@@ -294,20 +260,20 @@ function extractShelfLifeRoomTemp(pageText: string) {
   const match =
     pageText.match(/Temperatura Ambiente:\s*(.+)/i) ||
     pageText.match(/Temp\.\s*Ambiente:\s*(.+)/i);
+
   return match ? match[1].trim() : null;
 }
 
 function extractAllergens(pageText: string) {
-  const text = normalizeSpaces(pageText);
-  const containsIdx = text.search(/Cont[eé]m:/i);
-  if (containsIdx >= 0) {
-    const slice = text.slice(containsIdx);
-    const line = slice.split("\n")[0];
-    return line.replace(/Cont[eé]m:\s*/i, "").trim() || null;
+  const normalized = normalizeSpaces(pageText);
+
+  if (/N[ÃA]O CONT[ÉE]M/i.test(normalized)) {
+    return "NÃO CONTÉM";
   }
 
-  if (/N[ÃA]O CONT[ÉE]M/i.test(text)) {
-    return "NÃO CONTÉM";
+  const containsMatch = normalized.match(/Cont[eé]m:\s*(.+)/i);
+  if (containsMatch?.[1]) {
+    return containsMatch[1].trim();
   }
 
   return null;
@@ -316,76 +282,128 @@ function extractAllergens(pageText: string) {
 function extractPreparationMethod(pageText: string) {
   const normalized = normalizeSpaces(pageText);
 
-  const regex =
-    /Modo de Preparo:\s*([\s\S]*?)(?:Armazenamento:|Atualizada em:|Alergênicos|Cont[eé]m:|Ficou com dúvidas|Confeiteiro Chefe)/i;
+  const match = normalized.match(
+    /Modo de Preparo:\s*([\s\S]*?)(?:Armazenamento:|Atualizada em:|Alerg[eê]nicos|Cont[eé]m:|Ficou com dúvidas|Confeiteiro Chefe)/i
+  );
 
-  const match = normalized.match(regex);
-  if (match?.[1]) {
-    return match[1].trim();
+  return match?.[1]?.trim() || "";
+}
+
+function inferUsageUnit(name: string) {
+  const upper = name.toUpperCase();
+
+  if (
+    upper.includes("OVO") &&
+    (upper.includes("UNI") || upper.includes("UNID"))
+  ) {
+    return "UN";
   }
 
-  return "";
+  return "G";
+}
+
+function isIngredientValueLine(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+
+  const hasDigits = /\d/.test(trimmed);
+  const mostlyNumbers = /^[0-9.,\sXxA-Za-zº°()-]+$/.test(trimmed);
+
+  return hasDigits && mostlyNumbers;
 }
 
 function extractIngredients(pageText: string): TechnicalSheetIngredientInput[] {
   const lines = normalizeSpaces(pageText)
     .split("\n")
-    .map((l) => l.trim())
+    .map((line) => line.trim())
     .filter(Boolean);
 
-  const pesoIndex = lines.findIndex((l) =>
-    l.toUpperCase().includes("PESO LÍQUIDO")
-  );
-
-  const beforePeso = pesoIndex >= 0 ? lines.slice(0, pesoIndex) : lines;
   const ingredients: TechnicalSheetIngredientInput[] = [];
 
-  let i = 0;
-  while (i < beforePeso.length) {
-    const current = beforePeso[i];
+  let ingredientsStart = lines.findIndex((line) =>
+    line.toUpperCase().includes("INGREDIENTES")
+  );
 
-    if (shouldIgnoreIngredientLine(current)) {
+  if (ingredientsStart < 0) return ingredients;
+
+  ingredientsStart += 1;
+
+  let ingredientsEnd = lines.findIndex((line, idx) => {
+    if (idx <= ingredientsStart) return false;
+    return (
+      line.toUpperCase().includes("PESO LÍQUIDO") ||
+      line.toUpperCase().includes("MODO DE PREPARO")
+    );
+  });
+
+  if (ingredientsEnd < 0) {
+    ingredientsEnd = lines.length;
+  }
+
+  const block = lines.slice(ingredientsStart, ingredientsEnd);
+
+  let i = 0;
+  while (i < block.length) {
+    const current = block[i];
+
+    if (shouldIgnoreLine(current)) {
       i++;
       continue;
     }
 
-    const upper = current.toUpperCase();
-    if (upper.includes("MODO DE PREPARO")) break;
+    if (/^\d+X(\s+\d+X)*$/i.test(current)) {
+      i++;
+      continue;
+    }
+
+    if (
+      current.toUpperCase().includes("PAC") ||
+      current.toUpperCase().includes("BSN") ||
+      current.toUpperCase().includes("ASSADEIRA")
+    ) {
+      i++;
+      continue;
+    }
 
     const nameParts: string[] = [];
-    while (i < beforePeso.length && !isNumericHeavyLine(beforePeso[i])) {
-      if (!shouldIgnoreIngredientLine(beforePeso[i])) {
-        nameParts.push(beforePeso[i].trim());
+
+    while (i < block.length && !isIngredientValueLine(block[i])) {
+      const line = block[i].trim();
+      if (!shouldIgnoreLine(line)) {
+        nameParts.push(line);
       }
       i++;
     }
 
-    if (!nameParts.length) {
+    if (!nameParts.length || i >= block.length) {
       i++;
       continue;
     }
 
-    const valuesLine = beforePeso[i] ?? "";
-    const nums = valuesLine.match(/\d+(?:[.,]\d+)?/g) ?? [];
-    const usageQuantity = nums.length ? toNumber(nums[0], 0) : 0;
+    const valueLine = block[i];
+    const numbers = valueLine.match(/\d+(?:[.,]\d+)?/g) ?? [];
+    const usageQuantity = numbers.length ? toNumber(numbers[0], 0) : 0;
 
     const ingredientName = nameParts.join(" ").replace(/\s+/g, " ").trim();
-    const usageUnit = inferUsageUnit(ingredientName);
 
-    ingredients.push({
-      product_id: null,
-      ingredient_name: ingredientName,
-      usage_quantity: usageQuantity,
-      usage_unit: usageUnit,
-      purchase_price: 0,
-      purchase_quantity: 1,
-      purchase_unit: usageUnit,
-      correction_factor: 1,
-      cooking_factor: 1,
-      base_unit_cost: 0,
-      final_cost: 0,
-      sort_order: ingredients.length,
-    });
+    if (ingredientName) {
+      const usageUnit = inferUsageUnit(ingredientName);
+
+      ingredients.push({
+        product_id: null,
+        ingredient_name: ingredientName,
+        usage_quantity: usageQuantity,
+        usage_unit: usageUnit,
+        purchase_price: 0,
+        purchase_quantity: 1,
+        purchase_unit: usageUnit,
+        correction_factor: 1,
+        cooking_factor: 1,
+        base_unit_cost: 0,
+        final_cost: 0,
+        sort_order: ingredients.length,
+      });
+    }
 
     i++;
   }
@@ -411,6 +429,7 @@ async function extractPdfPagesText(file: File) {
   for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
     const page = await doc.getPage(pageNum);
     const textContent = await page.getTextContent();
+
     const text = textContent.items
       .map((item: any) => ("str" in item ? item.str : ""))
       .join("\n");
@@ -754,7 +773,10 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
       .remove([currentImagePath]);
 
     if (removeOldImageError) {
-      console.error("Erro ao remover imagem antiga da ficha:", removeOldImageError);
+      console.error(
+        "Erro ao remover imagem antiga da ficha:",
+        removeOldImageError
+      );
     }
   }
 
@@ -811,7 +833,10 @@ export async function deleteTechnicalSheet(id: string) {
     .single();
 
   if (currentError) {
-    console.error("Erro ao buscar imagem da ficha antes de excluir:", currentError);
+    console.error(
+      "Erro ao buscar imagem da ficha antes de excluir:",
+      currentError
+    );
   }
 
   const { error } = await supabase
@@ -832,7 +857,10 @@ export async function deleteTechnicalSheet(id: string) {
       .remove([imagePath]);
 
     if (removeImageError) {
-      console.error("Erro ao excluir imagem da ficha técnica:", removeImageError);
+      console.error(
+        "Erro ao excluir imagem da ficha técnica:",
+        removeImageError
+      );
     }
   }
 
@@ -858,9 +886,11 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
     throw new Error("O arquivo enviado precisa ser um PDF.");
   }
 
-  const defaultCategory = String(categoryEntry ?? "Importado PDF").trim() || "Importado PDF";
+  const defaultCategory =
+    String(categoryEntry ?? "Importado PDF").trim() || "Importado PDF";
 
   const pages = await extractPdfPagesText(file);
+
   const recipes = pages
     .map((pageText, index) =>
       parsePdfPageToRecipe(pageText, index + 1, file.name, defaultCategory)

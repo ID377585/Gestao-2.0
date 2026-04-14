@@ -33,6 +33,7 @@ import {
   createTechnicalSheet,
   deleteTechnicalSheet,
   deleteTechnicalSheetImageAction,
+  importTechnicalSheetsFromPdfAction,
   listTechnicalSheets,
   updateTechnicalSheet,
   uploadTechnicalSheetImageAction,
@@ -76,6 +77,18 @@ type FichaTecnica = {
   modoPreparo: string;
   imageUrl: string | null;
   imagePath: string | null;
+
+  temperatureCelsius: number | null;
+  storageInstructions: string | null;
+  shelfLifeFrozen: string | null;
+  shelfLifeRefrigerated: string | null;
+  shelfLifeRoomTemp: string | null;
+  allergens: string | null;
+  sourceUpdatedAt: string | null;
+  importOrigin: string | null;
+  sourceFileName: string | null;
+  sourcePageNumber: number | null;
+
   ingredientes: Ingrediente[];
   createdAt: string;
   updatedAt: string;
@@ -99,7 +112,7 @@ function formatCurrency(value: number) {
   }).format(value || 0);
 }
 
-function formatDate(value?: string) {
+function formatDate(value?: string | null) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
@@ -188,6 +201,30 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
     modoPreparo: String(raw.preparation_method ?? ""),
     imageUrl: raw.image_url ? String(raw.image_url) : null,
     imagePath: raw.image_path ? String(raw.image_path) : null,
+
+    temperatureCelsius:
+      raw.temperature_celsius !== null && raw.temperature_celsius !== undefined
+        ? Number(raw.temperature_celsius)
+        : null,
+    storageInstructions: raw.storage_instructions
+      ? String(raw.storage_instructions)
+      : null,
+    shelfLifeFrozen: raw.shelf_life_frozen ? String(raw.shelf_life_frozen) : null,
+    shelfLifeRefrigerated: raw.shelf_life_refrigerated
+      ? String(raw.shelf_life_refrigerated)
+      : null,
+    shelfLifeRoomTemp: raw.shelf_life_room_temp
+      ? String(raw.shelf_life_room_temp)
+      : null,
+    allergens: raw.allergens ? String(raw.allergens) : null,
+    sourceUpdatedAt: raw.source_updated_at ? String(raw.source_updated_at) : null,
+    importOrigin: raw.import_origin ? String(raw.import_origin) : null,
+    sourceFileName: raw.source_file_name ? String(raw.source_file_name) : null,
+    sourcePageNumber:
+      raw.source_page_number !== null && raw.source_page_number !== undefined
+        ? Number(raw.source_page_number)
+        : null,
+
     createdAt: String(raw.created_at ?? ""),
     updatedAt: String(raw.updated_at ?? ""),
     ingredientes: Array.isArray(raw.ingredients)
@@ -230,6 +267,18 @@ function toActionPayload(
     preparation_method: ficha.modoPreparo,
     image_url: ficha.imageUrl || null,
     image_path: ficha.imagePath || null,
+
+    temperature_celsius: ficha.temperatureCelsius,
+    storage_instructions: ficha.storageInstructions,
+    shelf_life_frozen: ficha.shelfLifeFrozen,
+    shelf_life_refrigerated: ficha.shelfLifeRefrigerated,
+    shelf_life_room_temp: ficha.shelfLifeRoomTemp,
+    allergens: ficha.allergens,
+    source_updated_at: ficha.sourceUpdatedAt,
+    import_origin: ficha.importOrigin,
+    source_file_name: ficha.sourceFileName,
+    source_page_number: ficha.sourcePageNumber,
+
     ingredients: ficha.ingredientes.map((item, index) => ({
       product_id: item.productId,
       ingredient_name: item.nome,
@@ -438,7 +487,9 @@ function buildPrintHtml(
     </div>
     <div class="box">
       <div class="label">Atualizado em</div>
-      <div class="value" style="font-size:14px;">${formatDate(ficha.updatedAt)}</div>
+      <div class="value" style="font-size:14px;">${formatDate(
+        ficha.sourceUpdatedAt || ficha.updatedAt
+      )}</div>
     </div>
   </div>
 
@@ -561,7 +612,7 @@ function RecipeViewer({
               <Badge variant="secondary">{ficha.categoria || "Sem categoria"}</Badge>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              Última atualização: {formatDate(ficha.updatedAt)}
+              Última atualização: {formatDate(ficha.sourceUpdatedAt || ficha.updatedAt)}
             </p>
           </div>
 
@@ -630,6 +681,63 @@ function RecipeViewer({
           </div>
         </div>
 
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Temperatura</p>
+            <p className="mt-1 text-lg font-semibold">
+              {ficha.temperatureCelsius !== null ? `${ficha.temperatureCelsius} ºC` : "—"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Armazenamento</p>
+            <p className="mt-1 text-lg font-semibold">
+              {ficha.storageInstructions || "—"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Atualizada em</p>
+            <p className="mt-1 text-lg font-semibold">
+              {ficha.sourceUpdatedAt ? formatDate(ficha.sourceUpdatedAt) : "—"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Validade congelado</p>
+            <p className="mt-1 text-lg font-semibold">
+              {ficha.shelfLifeFrozen || "—"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Validade refrigerado</p>
+            <p className="mt-1 text-lg font-semibold">
+              {ficha.shelfLifeRefrigerated || "—"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-sm text-muted-foreground">Validade ambiente</p>
+            <p className="mt-1 text-lg font-semibold">
+              {ficha.shelfLifeRoomTemp || "—"}
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border p-4">
+          <p className="text-sm text-muted-foreground">Alergênicos</p>
+          <p className="mt-1 text-base font-semibold">{ficha.allergens || "—"}</p>
+
+          {ficha.importOrigin ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Importado via {ficha.importOrigin}
+              {ficha.sourceFileName ? ` • arquivo: ${ficha.sourceFileName}` : ""}
+              {ficha.sourcePageNumber ? ` • página: ${ficha.sourcePageNumber}` : ""}
+            </p>
+          ) : null}
+        </div>
+
         <div className="rounded-xl border p-4">
           <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -652,7 +760,9 @@ function RecipeViewer({
                 type="number"
                 min={1}
                 value={desiredServings}
-                onChange={(e) => setDesiredServings(Math.max(1, toNumber(e.target.value, 1)))}
+                onChange={(e) =>
+                  setDesiredServings(Math.max(1, toNumber(e.target.value, 1)))
+                }
               />
               <Button
                 type="button"
@@ -773,6 +883,7 @@ export default function FichasTecnicasPage() {
   const [showNovaFicha, setShowNovaFicha] = useState(false);
   const [showEditarFicha, setShowEditarFicha] = useState(false);
   const [showFullscreenViewer, setShowFullscreenViewer] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [fichaEditando, setFichaEditando] = useState<FichaTecnica | null>(null);
 
   const [viewerTab, setViewerTab] = useState<ViewerTab>("ingredientes");
@@ -804,8 +915,13 @@ export default function FichasTecnicasPage() {
   const [draftFCorrecao, setDraftFCorrecao] = useState<number>(1);
   const [draftFCoccao, setDraftFCoccao] = useState<number>(1);
 
+  const [importingPdf, setImportingPdf] = useState(false);
+  const [importDefaultCategory, setImportDefaultCategory] = useState("Importado PDF");
+  const [importPdfFileName, setImportPdfFileName] = useState("");
+
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
   const editImageInputRef = useRef<HTMLInputElement | null>(null);
+  const importPdfInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadData = async () => {
     try {
@@ -842,9 +958,7 @@ export default function FichasTecnicasPage() {
       setFichaSelecionada((prev) => {
         if (!fichasNormalizadas.length) return null;
         if (!prev) return fichasNormalizadas[0];
-        return (
-          fichasNormalizadas.find((f) => f.id === prev.id) ?? fichasNormalizadas[0]
-        );
+        return fichasNormalizadas.find((f) => f.id === prev.id) ?? fichasNormalizadas[0];
       });
     } catch (err) {
       console.error("Erro ao carregar fichas técnicas:", err);
@@ -860,10 +974,10 @@ export default function FichasTecnicasPage() {
   }, []);
 
   useEffect(() => {
-  if (fichaSelecionada) {
-    setDesiredServings(Math.max(1, fichaSelecionada.rendimento || 1));
-  }
-}, [fichaSelecionada]);
+    if (fichaSelecionada) {
+      setDesiredServings(Math.max(1, fichaSelecionada.rendimento || 1));
+    }
+  }, [fichaSelecionada]);
 
   const categoriasDisponiveis = useMemo(() => {
     const unique = Array.from(
@@ -1056,67 +1170,101 @@ export default function FichasTecnicasPage() {
     }
   };
 
-const handleNewImageSelected = async (
-  event: React.ChangeEvent<HTMLInputElement>
-) => {
-  const file = event.target.files?.[0];
-  if (!file) return;
+  const handleNewImageSelected = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  try {
-    setUploadingImage(true);
+    try {
+      setUploadingImage(true);
 
-    const formData = new FormData();
-    formData.append("file", file);
+      const formData = new FormData();
+      formData.append("file", file);
 
-    const result = await uploadTechnicalSheetImageAction(formData);
-    setImageUrl(result.imageUrl);
-    setImagePath(result.imagePath);
-  } catch (error: any) {
-    console.error(error);
-    alert(error?.message ?? "Erro ao enviar imagem.");
-  } finally {
-    setUploadingImage(false);
-    event.target.value = "";
-  }
-};
+      const result = await uploadTechnicalSheetImageAction(formData);
+      setImageUrl(result.imageUrl);
+      setImagePath(result.imagePath);
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.message ?? "Erro ao enviar imagem.");
+    } finally {
+      setUploadingImage(false);
+      event.target.value = "";
+    }
+  };
 
   const handleEditImageSelected = async (
-  event: React.ChangeEvent<HTMLInputElement>
-) => {
-  const file = event.target.files?.[0];
-  if (!file || !fichaEditando) return;
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file || !fichaEditando) return;
 
-  try {
-    setUploadingImage(true);
+    try {
+      setUploadingImage(true);
 
-    const oldImagePath = fichaEditando.imagePath;
+      const oldImagePath = fichaEditando.imagePath;
 
-    const formData = new FormData();
-    formData.append("file", file);
+      const formData = new FormData();
+      formData.append("file", file);
 
-    const result = await uploadTechnicalSheetImageAction(formData);
+      const result = await uploadTechnicalSheetImageAction(formData);
 
-    if (oldImagePath) {
-      await deleteTechnicalSheetImageAction(oldImagePath);
+      if (oldImagePath) {
+        await deleteTechnicalSheetImageAction(oldImagePath);
+      }
+
+      setFichaEditando((prev) =>
+        prev
+          ? {
+              ...prev,
+              imageUrl: result.imageUrl,
+              imagePath: result.imagePath,
+            }
+          : prev
+      );
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.message ?? "Erro ao enviar imagem.");
+    } finally {
+      setUploadingImage(false);
+      event.target.value = "";
     }
+  };
 
-    setFichaEditando((prev) =>
-      prev
-        ? {
-            ...prev,
-            imageUrl: result.imageUrl,
-            imagePath: result.imagePath,
-          }
-        : prev
-    );
-  } catch (error: any) {
-    console.error(error);
-    alert(error?.message ?? "Erro ao enviar imagem.");
-  } finally {
-    setUploadingImage(false);
-    event.target.value = "";
-  }
-};
+  const handleImportPdfSelected = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setImportingPdf(true);
+      setImportPdfFileName(file.name);
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("defaultCategory", importDefaultCategory);
+
+      const result = await importTechnicalSheetsFromPdfAction(formData);
+
+      alert(
+        `Importação concluída.\n\nReceitas criadas: ${result.importedCount}\n\n${result.recipes
+          .map((r: any) => `Página ${r.page}: ${r.name}`)
+          .join("\n")}`
+      );
+
+      setShowImportModal(false);
+      setImportPdfFileName("");
+      await loadData();
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.message ?? "Erro ao importar PDF.");
+    } finally {
+      setImportingPdf(false);
+      event.target.value = "";
+    }
+  };
 
   const salvarNovaFicha = () => {
     if (!nome.trim()) {
@@ -1154,6 +1302,18 @@ const handleNewImageSelected = async (
       modoPreparo: modoPreparo.trim(),
       imageUrl,
       imagePath,
+
+      temperatureCelsius: null,
+      storageInstructions: null,
+      shelfLifeFrozen: null,
+      shelfLifeRefrigerated: null,
+      shelfLifeRoomTemp: null,
+      allergens: null,
+      sourceUpdatedAt: null,
+      importOrigin: null,
+      sourceFileName: null,
+      sourcePageNumber: null,
+
       ingredientes,
     });
 
@@ -1201,6 +1361,18 @@ const handleNewImageSelected = async (
       modoPreparo: fichaEditando.modoPreparo,
       imageUrl: fichaEditando.imageUrl,
       imagePath: fichaEditando.imagePath,
+
+      temperatureCelsius: fichaEditando.temperatureCelsius,
+      storageInstructions: fichaEditando.storageInstructions,
+      shelfLifeFrozen: fichaEditando.shelfLifeFrozen,
+      shelfLifeRefrigerated: fichaEditando.shelfLifeRefrigerated,
+      shelfLifeRoomTemp: fichaEditando.shelfLifeRoomTemp,
+      allergens: fichaEditando.allergens,
+      sourceUpdatedAt: fichaEditando.sourceUpdatedAt,
+      importOrigin: fichaEditando.importOrigin,
+      sourceFileName: fichaEditando.sourceFileName,
+      sourcePageNumber: fichaEditando.sourcePageNumber,
+
       ingredientes: fichaEditando.ingredientes,
     });
 
@@ -1246,6 +1418,16 @@ const handleNewImageSelected = async (
       "rendimento",
       "peso_por_porcao",
       "tempo_preparo",
+      "temperatura_celsius",
+      "armazenamento",
+      "validade_congelado",
+      "validade_refrigerado",
+      "validade_ambiente",
+      "alergenicos",
+      "atualizada_em",
+      "import_origin",
+      "source_file_name",
+      "source_page_number",
       "custo_total",
       "custo_por_porcao",
       "preco_venda",
@@ -1266,6 +1448,16 @@ const handleNewImageSelected = async (
         escapeCsv(ficha.rendimento),
         escapeCsv(ficha.pesoPorcao),
         escapeCsv(ficha.tempoPreparo),
+        escapeCsv(ficha.temperatureCelsius ?? ""),
+        escapeCsv(ficha.storageInstructions ?? ""),
+        escapeCsv(ficha.shelfLifeFrozen ?? ""),
+        escapeCsv(ficha.shelfLifeRefrigerated ?? ""),
+        escapeCsv(ficha.shelfLifeRoomTemp ?? ""),
+        escapeCsv(ficha.allergens ?? ""),
+        escapeCsv(ficha.sourceUpdatedAt ?? ""),
+        escapeCsv(ficha.importOrigin ?? ""),
+        escapeCsv(ficha.sourceFileName ?? ""),
+        escapeCsv(ficha.sourcePageNumber ?? ""),
         escapeCsv(ficha.custoTotal.toFixed(2)),
         escapeCsv(ficha.custoPorPorcao.toFixed(2)),
         escapeCsv(ficha.precoVenda.toFixed(2)),
@@ -1330,6 +1522,14 @@ const handleNewImageSelected = async (
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={exportarRelatorioCustos}>
             📊 Relatório de Custos
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setShowImportModal(true)}
+          >
+            📥 Importar Ficha Técnica
           </Button>
 
           <Button type="button" onClick={() => setShowNovaFicha(true)}>
@@ -1564,6 +1764,71 @@ const handleNewImageSelected = async (
         </DialogContent>
       </Dialog>
 
+      <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
+        <DialogContent className="max-w-xl bg-white">
+          <DialogHeader>
+            <DialogTitle>Importar Ficha Técnica</DialogTitle>
+            <DialogDescription>
+              Envie um PDF do Canva. O sistema irá ler página por página e criar uma ficha separada para cada receita encontrada.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="import-category">Categoria padrão</Label>
+              <Input
+                id="import-category"
+                value={importDefaultCategory}
+                onChange={(e) => setImportDefaultCategory(e.target.value)}
+                placeholder="Ex.: Sobremesas importadas"
+              />
+            </div>
+
+            <div className="rounded-lg border border-dashed p-4">
+              <p className="text-sm text-muted-foreground">
+                PDF selecionado: {importPdfFileName || "nenhum arquivo"}
+              </p>
+
+              <input
+                ref={importPdfInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                onChange={handleImportPdfSelected}
+              />
+
+              <div className="mt-3 flex gap-2">
+                <Button
+                  type="button"
+                  onClick={() => importPdfInputRef.current?.click()}
+                  disabled={importingPdf}
+                >
+                  {importingPdf ? "Importando..." : "Selecionar PDF"}
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowImportModal(false);
+                    setImportPdfFileName("");
+                  }}
+                  disabled={importingPdf}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-md bg-slate-50 p-3 text-sm text-muted-foreground">
+              Campos importados nesta primeira versão: nome, modo de preparo,
+              ingredientes base, rendimento, peso por porção, tempo de preparo,
+              temperatura, armazenamento, validade, alergênicos e data de atualização.
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {showEditarFicha && fichaEditando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-white p-6">
@@ -1653,6 +1918,93 @@ const handleNewImageSelected = async (
                   onChange={(e) =>
                     setFichaEditando((prev) =>
                       prev ? { ...prev, margemLucro: toNumber(e.target.value, 0) } : prev
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Temperatura (ºC)</Label>
+                <Input
+                  type="number"
+                  value={fichaEditando.temperatureCelsius ?? ""}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            temperatureCelsius:
+                              e.target.value === ""
+                                ? null
+                                : toNumber(e.target.value, 0),
+                          }
+                        : prev
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Armazenamento</Label>
+                <Input
+                  value={fichaEditando.storageInstructions ?? ""}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev
+                        ? { ...prev, storageInstructions: e.target.value || null }
+                        : prev
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Validade congelado</Label>
+                <Input
+                  value={fichaEditando.shelfLifeFrozen ?? ""}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev ? { ...prev, shelfLifeFrozen: e.target.value || null } : prev
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Validade refrigerado</Label>
+                <Input
+                  value={fichaEditando.shelfLifeRefrigerated ?? ""}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev
+                        ? { ...prev, shelfLifeRefrigerated: e.target.value || null }
+                        : prev
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Validade ambiente</Label>
+                <Input
+                  value={fichaEditando.shelfLifeRoomTemp ?? ""}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev
+                        ? { ...prev, shelfLifeRoomTemp: e.target.value || null }
+                        : prev
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Alergênicos</Label>
+                <Input
+                  value={fichaEditando.allergens ?? ""}
+                  onChange={(e) =>
+                    setFichaEditando((prev) =>
+                      prev ? { ...prev, allergens: e.target.value || null } : prev
                     )
                   }
                 />

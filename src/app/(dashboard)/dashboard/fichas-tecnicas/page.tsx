@@ -437,23 +437,47 @@ function buildPrintHtml(
 
   const metadataHtml = `
     <div class="grid">
-      <div class="box"><div class="label">Temperatura</div><div class="value">${ficha.temperatureCelsius !== null ? `${ficha.temperatureCelsius} ºC` : "—"}</div></div>
-      <div class="box"><div class="label">Tempo de cocção</div><div class="value">${ficha.cookingTimeMinutes !== null ? `${ficha.cookingTimeMinutes} min` : "—"}</div></div>
-      <div class="box"><div class="label">Fator de cocção</div><div class="value">${ficha.cookingFactorGrams !== null ? `${ficha.cookingFactorGrams} g` : "—"}</div></div>
-      <div class="box"><div class="label">Fator de correção</div><div class="value">${ficha.correctionFactorGrams !== null ? `${ficha.correctionFactorGrams} g` : "—"}</div></div>
+      <div class="box"><div class="label">Temperatura</div><div class="value">${
+        ficha.temperatureCelsius !== null ? `${ficha.temperatureCelsius} ºC` : "—"
+      }</div></div>
+      <div class="box"><div class="label">Tempo de cocção</div><div class="value">${
+        ficha.cookingTimeMinutes !== null ? `${ficha.cookingTimeMinutes} min` : "—"
+      }</div></div>
+      <div class="box"><div class="label">Fator de cocção</div><div class="value">${
+        ficha.cookingFactorGrams !== null ? `${ficha.cookingFactorGrams} g` : "—"
+      }</div></div>
+      <div class="box"><div class="label">Fator de correção</div><div class="value">${
+        ficha.correctionFactorGrams !== null
+          ? `${ficha.correctionFactorGrams} g`
+          : "—"
+      }</div></div>
     </div>
 
     <div class="grid">
-      <div class="box"><div class="label">Dificuldade</div><div class="value">${ficha.difficultyLevel || "—"}</div></div>
-      <div class="box"><div class="label">Armazenamento</div><div class="value">${ficha.storageInstructions || "—"}</div></div>
-      <div class="box"><div class="label">Validade congelado</div><div class="value">${ficha.shelfLifeFrozen || "—"}</div></div>
-      <div class="box"><div class="label">Validade refrigerado</div><div class="value">${ficha.shelfLifeRefrigerated || "—"}</div></div>
+      <div class="box"><div class="label">Dificuldade</div><div class="value">${
+        ficha.difficultyLevel || "—"
+      }</div></div>
+      <div class="box"><div class="label">Armazenamento</div><div class="value">${
+        ficha.storageInstructions || "—"
+      }</div></div>
+      <div class="box"><div class="label">Validade congelado</div><div class="value">${
+        ficha.shelfLifeFrozen || "—"
+      }</div></div>
+      <div class="box"><div class="label">Validade refrigerado</div><div class="value">${
+        ficha.shelfLifeRefrigerated || "—"
+      }</div></div>
     </div>
 
     <div class="grid">
-      <div class="box"><div class="label">Validade ambiente</div><div class="value">${ficha.shelfLifeRoomTemp || "—"}</div></div>
-      <div class="box"><div class="label">Alergênicos</div><div class="value">${ficha.allergens || "—"}</div></div>
-      <div class="box"><div class="label">Yield label</div><div class="value">${ficha.yieldLabel || "—"}</div></div>
+      <div class="box"><div class="label">Validade ambiente</div><div class="value">${
+        ficha.shelfLifeRoomTemp || "—"
+      }</div></div>
+      <div class="box"><div class="label">Alergênicos</div><div class="value">${
+        ficha.allergens || "—"
+      }</div></div>
+      <div class="box"><div class="label">Yield label</div><div class="value">${
+        ficha.yieldLabel || "—"
+      }</div></div>
       <div class="box"><div class="label">Atualizado em</div><div class="value" style="font-size:14px;">${formatDate(
         ficha.sourceUpdatedAt || ficha.updatedAt
       )}</div></div>
@@ -1397,6 +1421,343 @@ function ScaleEditor({
   );
 }
 
+function IngredientEditor({
+  products,
+  ingredientes,
+  onChange,
+}: {
+  products: ProductOption[];
+  ingredientes: Ingrediente[];
+  onChange: (ingredientes: Ingrediente[]) => void;
+}) {
+  const [editandoIngredienteId, setEditandoIngredienteId] = useState<string | null>(null);
+  const [draftIngredienteId, setDraftIngredienteId] = useState("");
+  const [draftIngredienteNome, setDraftIngredienteNome] = useState("");
+  const [draftQuantidadeUso, setDraftQuantidadeUso] = useState<number>(0);
+  const [draftUnidadeUso, setDraftUnidadeUso] = useState("UN");
+  const [draftPrecoCompra, setDraftPrecoCompra] = useState<number>(0);
+  const [draftQuantidadeCompra, setDraftQuantidadeCompra] = useState<number>(1);
+  const [draftUnidadeCompra, setDraftUnidadeCompra] = useState("UN");
+  const [draftFCorrecao, setDraftFCorrecao] = useState<number>(1);
+  const [draftFCoccao, setDraftFCoccao] = useState<number>(1);
+
+  const previewIngrediente = useMemo(() => {
+    return calcularCustoIngrediente({
+      quantidadeUso: draftQuantidadeUso,
+      precoCompra: draftPrecoCompra,
+      quantidadeCompra: draftQuantidadeCompra,
+      fatorCorrecao: draftFCorrecao,
+      fatorCoccao: draftFCoccao,
+    });
+  }, [
+    draftQuantidadeUso,
+    draftPrecoCompra,
+    draftQuantidadeCompra,
+    draftFCorrecao,
+    draftFCoccao,
+  ]);
+
+  const resetDraftIngrediente = () => {
+    setEditandoIngredienteId(null);
+    setDraftIngredienteId("");
+    setDraftIngredienteNome("");
+    setDraftQuantidadeUso(0);
+    setDraftUnidadeUso("UN");
+    setDraftPrecoCompra(0);
+    setDraftQuantidadeCompra(1);
+    setDraftUnidadeCompra("UN");
+    setDraftFCorrecao(1);
+    setDraftFCoccao(1);
+  };
+
+  const onSelectProductIngredient = (productId: string) => {
+    setDraftIngredienteId(productId);
+
+    const p = products.find((item) => item.id === productId);
+    if (!p) return;
+
+    const unit = normalizeUnit(p.default_unit_label, "UN");
+
+    setDraftIngredienteNome(p.name);
+    setDraftUnidadeUso(unit);
+    setDraftUnidadeCompra(unit);
+    setDraftPrecoCompra(Number(p.price ?? 0));
+    setDraftQuantidadeCompra(1);
+  };
+
+  const salvarIngrediente = () => {
+    const quantidadeUso = toNumber(draftQuantidadeUso, 0);
+    const precoCompra = toNumber(draftPrecoCompra, 0);
+    const quantidadeCompra = toNumber(draftQuantidadeCompra, 0);
+    const fatorCorrecao = toNumber(draftFCorrecao, 1) || 1;
+    const fatorCoccao = toNumber(draftFCoccao, 1) || 1;
+
+    if (!draftIngredienteNome.trim()) {
+      alert("Selecione ou informe um ingrediente.");
+      return;
+    }
+
+    if (quantidadeUso <= 0) {
+      alert("Informe uma quantidade de uso válida.");
+      return;
+    }
+
+    if (quantidadeCompra <= 0) {
+      alert("Informe uma quantidade de compra válida.");
+      return;
+    }
+
+    const calculo = calcularCustoIngrediente({
+      quantidadeUso,
+      precoCompra,
+      quantidadeCompra,
+      fatorCorrecao,
+      fatorCoccao,
+    });
+
+    const payload: Ingrediente = {
+      id: editandoIngredienteId || uid(),
+      productId: draftIngredienteId || null,
+      nome: draftIngredienteNome.trim(),
+      quantidadeUso,
+      unidadeUso: normalizeUnit(draftUnidadeUso, "UN"),
+      precoCompra,
+      quantidadeCompra,
+      unidadeCompra: normalizeUnit(draftUnidadeCompra, "UN"),
+      custoUnitarioBase: calculo.custoUnitarioBase,
+      custoIngrediente: calculo.custoIngrediente,
+      fatorCorrecao,
+      fatorCoccao,
+    };
+
+    if (editandoIngredienteId) {
+      onChange(
+        ingredientes.map((item) => (item.id === editandoIngredienteId ? payload : item))
+      );
+    } else {
+      onChange([...ingredientes, payload]);
+    }
+
+    resetDraftIngrediente();
+  };
+
+  const editarIngrediente = (id: string) => {
+    const item = ingredientes.find((ing) => ing.id === id);
+    if (!item) return;
+
+    setEditandoIngredienteId(item.id);
+    setDraftIngredienteId(item.productId || "");
+    setDraftIngredienteNome(item.nome);
+    setDraftQuantidadeUso(item.quantidadeUso);
+    setDraftUnidadeUso(item.unidadeUso);
+    setDraftPrecoCompra(item.precoCompra);
+    setDraftQuantidadeCompra(item.quantidadeCompra);
+    setDraftUnidadeCompra(item.unidadeCompra);
+    setDraftFCorrecao(item.fatorCorrecao);
+    setDraftFCoccao(item.fatorCoccao);
+  };
+
+  const removerIngrediente = (id: string) => {
+    onChange(ingredientes.filter((item) => item.id !== id));
+    if (editandoIngredienteId === id) {
+      resetDraftIngrediente();
+    }
+  };
+
+  return (
+    <div>
+      <h4 className="mb-4 text-lg font-semibold">Ingredientes</h4>
+
+      <div className="space-y-4 rounded-lg border p-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+          <div className="md:col-span-3">
+            <Label>Produto cadastrado</Label>
+            <select
+              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={draftIngredienteId}
+              onChange={(e) => onSelectProductIngredient(e.target.value)}
+            >
+              <option value="">— Selecionar produto —</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="md:col-span-3">
+            <Label>Ingrediente</Label>
+            <Input
+              value={draftIngredienteNome}
+              onChange={(e) => setDraftIngredienteNome(e.target.value)}
+              placeholder="Nome do ingrediente"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <Label>Qtd de uso</Label>
+            <Input
+              type="number"
+              value={draftQuantidadeUso}
+              onChange={(e) => setDraftQuantidadeUso(toNumber(e.target.value, 0))}
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <Label>Unidade de uso</Label>
+            <Input
+              value={draftUnidadeUso}
+              onChange={(e) => setDraftUnidadeUso(normalizeUnit(e.target.value, "UN"))}
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <Label>Preço da compra</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={draftPrecoCompra}
+              onChange={(e) => setDraftPrecoCompra(toNumber(e.target.value, 0))}
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <Label>Qtd comprada</Label>
+            <Input
+              type="number"
+              step="0.001"
+              value={draftQuantidadeCompra}
+              onChange={(e) => setDraftQuantidadeCompra(toNumber(e.target.value, 1))}
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <Label>Unidade compra</Label>
+            <Input
+              value={draftUnidadeCompra}
+              onChange={(e) =>
+                setDraftUnidadeCompra(normalizeUnit(e.target.value, "UN"))
+              }
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <Label>F. Correção</Label>
+            <Input
+              type="number"
+              step="0.001"
+              value={draftFCorrecao}
+              onChange={(e) => setDraftFCorrecao(toNumber(e.target.value, 1))}
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <Label>F. Cocção</Label>
+            <Input
+              type="number"
+              step="0.001"
+              value={draftFCoccao}
+              onChange={(e) => setDraftFCoccao(toNumber(e.target.value, 1))}
+            />
+          </div>
+
+          <div className="md:col-span-4 flex items-end gap-2">
+            <Button type="button" className="w-full" onClick={salvarIngrediente}>
+              {editandoIngredienteId ? "Salvar ingrediente" : "Adicionar ingrediente"}
+            </Button>
+
+            {editandoIngredienteId ? (
+              <Button type="button" variant="outline" onClick={resetDraftIngrediente}>
+                Cancelar
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-slate-50 p-3 text-sm">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <p className="text-gray-600">Custo unitário base</p>
+              <p className="font-bold">
+                {formatCurrency(previewIngrediente.custoUnitarioBase)}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-600">Custo final do ingrediente</p>
+              <p className="font-bold text-red-600">
+                {formatCurrency(previewIngrediente.custoIngrediente)}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-600">Modo</p>
+              <p className="font-medium">
+                {editandoIngredienteId ? "Editando ingrediente" : "Novo ingrediente"}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {ingredientes.length === 0 ? (
+          <p className="text-sm text-gray-600">Nenhum ingrediente adicionado ainda.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Ingrediente</TableHead>
+                <TableHead>Uso</TableHead>
+                <TableHead>Compra</TableHead>
+                <TableHead>Preço compra</TableHead>
+                <TableHead>Custo unit.</TableHead>
+                <TableHead>Custo final</TableHead>
+                <TableHead>Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {ingredientes.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell>{item.nome}</TableCell>
+                  <TableCell>
+                    {item.quantidadeUso} {item.unidadeUso}
+                  </TableCell>
+                  <TableCell>
+                    {item.quantidadeCompra} {item.unidadeCompra}
+                  </TableCell>
+                  <TableCell>{formatCurrency(item.precoCompra)}</TableCell>
+                  <TableCell>{formatCurrency(item.custoUnitarioBase)}</TableCell>
+                  <TableCell className="font-medium text-red-600">
+                    {formatCurrency(item.custoIngrediente)}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => editarIngrediente(item.id)}
+                      >
+                        Editar
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => removerIngrediente(item.id)}
+                      >
+                        Remover
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function FichasTecnicasPage() {
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
@@ -1446,17 +1807,6 @@ export default function FichasTecnicasPage() {
   const [escalas, setEscalas] = useState<EscalaFicha[]>([]);
 
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
-  const [editandoIngredienteId, setEditandoIngredienteId] = useState<string | null>(null);
-
-  const [draftIngredienteId, setDraftIngredienteId] = useState("");
-  const [draftIngredienteNome, setDraftIngredienteNome] = useState("");
-  const [draftQuantidadeUso, setDraftQuantidadeUso] = useState<number>(0);
-  const [draftUnidadeUso, setDraftUnidadeUso] = useState("UN");
-  const [draftPrecoCompra, setDraftPrecoCompra] = useState<number>(0);
-  const [draftQuantidadeCompra, setDraftQuantidadeCompra] = useState<number>(1);
-  const [draftUnidadeCompra, setDraftUnidadeCompra] = useState("UN");
-  const [draftFCorrecao, setDraftFCorrecao] = useState<number>(1);
-  const [draftFCoccao, setDraftFCoccao] = useState<number>(1);
 
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
   const editImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -1581,35 +1931,6 @@ export default function FichasTecnicasPage() {
     );
   }, [fichasTecnicas]);
 
-  const previewIngrediente = useMemo(() => {
-    return calcularCustoIngrediente({
-      quantidadeUso: draftQuantidadeUso,
-      precoCompra: draftPrecoCompra,
-      quantidadeCompra: draftQuantidadeCompra,
-      fatorCorrecao: draftFCorrecao,
-      fatorCoccao: draftFCoccao,
-    });
-  }, [
-    draftQuantidadeUso,
-    draftPrecoCompra,
-    draftQuantidadeCompra,
-    draftFCorrecao,
-    draftFCoccao,
-  ]);
-
-  const resetDraftIngrediente = () => {
-    setEditandoIngredienteId(null);
-    setDraftIngredienteId("");
-    setDraftIngredienteNome("");
-    setDraftQuantidadeUso(0);
-    setDraftUnidadeUso("UN");
-    setDraftPrecoCompra(0);
-    setDraftQuantidadeCompra(1);
-    setDraftUnidadeCompra("UN");
-    setDraftFCorrecao(1);
-    setDraftFCoccao(1);
-  };
-
   const resetForm = () => {
     setNome("");
     setCategoria("");
@@ -1638,101 +1959,6 @@ export default function FichasTecnicasPage() {
     setEscalas([]);
 
     setIngredientes([]);
-    resetDraftIngrediente();
-  };
-
-  const onSelectProductIngredient = (productId: string) => {
-    setDraftIngredienteId(productId);
-
-    const p = products.find((item) => item.id === productId);
-    if (!p) return;
-
-    const unit = normalizeUnit(p.default_unit_label, "UN");
-
-    setDraftIngredienteNome(p.name);
-    setDraftUnidadeUso(unit);
-    setDraftUnidadeCompra(unit);
-    setDraftPrecoCompra(Number(p.price ?? 0));
-    setDraftQuantidadeCompra(1);
-  };
-
-  const salvarIngrediente = () => {
-    const quantidadeUso = toNumber(draftQuantidadeUso, 0);
-    const precoCompra = toNumber(draftPrecoCompra, 0);
-    const quantidadeCompra = toNumber(draftQuantidadeCompra, 0);
-    const fatorCorrecao = toNumber(draftFCorrecao, 1) || 1;
-    const fatorCoccao = toNumber(draftFCoccao, 1) || 1;
-
-    if (!draftIngredienteNome.trim()) {
-      alert("Selecione ou informe um ingrediente.");
-      return;
-    }
-
-    if (quantidadeUso <= 0) {
-      alert("Informe uma quantidade de uso válida.");
-      return;
-    }
-
-    if (quantidadeCompra <= 0) {
-      alert("Informe uma quantidade de compra válida.");
-      return;
-    }
-
-    const calculo = calcularCustoIngrediente({
-      quantidadeUso,
-      precoCompra,
-      quantidadeCompra,
-      fatorCorrecao,
-      fatorCoccao,
-    });
-
-    const payload: Ingrediente = {
-      id: editandoIngredienteId || uid(),
-      productId: draftIngredienteId || null,
-      nome: draftIngredienteNome.trim(),
-      quantidadeUso,
-      unidadeUso: normalizeUnit(draftUnidadeUso, "UN"),
-      precoCompra,
-      quantidadeCompra,
-      unidadeCompra: normalizeUnit(draftUnidadeCompra, "UN"),
-      custoUnitarioBase: calculo.custoUnitarioBase,
-      custoIngrediente: calculo.custoIngrediente,
-      fatorCorrecao,
-      fatorCoccao,
-    };
-
-    if (editandoIngredienteId) {
-      setIngredientes((prev) =>
-        prev.map((item) => (item.id === editandoIngredienteId ? payload : item))
-      );
-    } else {
-      setIngredientes((prev) => [...prev, payload]);
-    }
-
-    resetDraftIngrediente();
-  };
-
-  const editarIngrediente = (id: string) => {
-    const item = ingredientes.find((ing) => ing.id === id);
-    if (!item) return;
-
-    setEditandoIngredienteId(item.id);
-    setDraftIngredienteId(item.productId || "");
-    setDraftIngredienteNome(item.nome);
-    setDraftQuantidadeUso(item.quantidadeUso);
-    setDraftUnidadeUso(item.unidadeUso);
-    setDraftPrecoCompra(item.precoCompra);
-    setDraftQuantidadeCompra(item.quantidadeCompra);
-    setDraftUnidadeCompra(item.unidadeCompra);
-    setDraftFCorrecao(item.fatorCorrecao);
-    setDraftFCoccao(item.fatorCoccao);
-  };
-
-  const removerIngrediente = (id: string) => {
-    setIngredientes((prev) => prev.filter((item) => item.id !== id));
-    if (editandoIngredienteId === id) {
-      resetDraftIngrediente();
-    }
   };
 
   const handleNewImageSelected = async (
@@ -1924,6 +2150,26 @@ export default function FichasTecnicasPage() {
 
   const salvarEdicaoFicha = () => {
     if (!fichaEditando) return;
+
+    if (!fichaEditando.nome.trim()) {
+      alert("Informe o nome da receita.");
+      return;
+    }
+
+    if (!fichaEditando.categoria.trim()) {
+      alert("Informe a categoria.");
+      return;
+    }
+
+    if (fichaEditando.rendimento <= 0) {
+      alert("Informe um rendimento válido.");
+      return;
+    }
+
+    if (fichaEditando.ingredientes.length === 0) {
+      alert("Adicione pelo menos um ingrediente.");
+      return;
+    }
 
     const custos = calcularCustos(
       fichaEditando.ingredientes,
@@ -2751,7 +2997,7 @@ export default function FichasTecnicasPage() {
                   />
                 </div>
 
-                <div className="md:col-span-2 xl:col-span-4 space-y-3">
+                <div className="space-y-3 md:col-span-2 xl:col-span-4">
                   <Label>Imagem do prato</Label>
 
                   {fichaEditando.imageUrl ? (
@@ -2834,44 +3080,14 @@ export default function FichasTecnicasPage() {
                 </div>
               </div>
 
-              <div>
-                <h4 className="mb-4 text-lg font-semibold">Ingredientes</h4>
-
-                {fichaEditando.ingredientes.length === 0 ? (
-                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                    Nenhum ingrediente cadastrado.
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Ingrediente</TableHead>
-                        <TableHead>Uso</TableHead>
-                        <TableHead>Compra</TableHead>
-                        <TableHead>Preço compra</TableHead>
-                        <TableHead>Custo final</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {fichaEditando.ingredientes.map((item) => (
-                        <TableRow key={item.id}>
-                          <TableCell>{item.nome}</TableCell>
-                          <TableCell>
-                            {item.quantidadeUso} {item.unidadeUso}
-                          </TableCell>
-                          <TableCell>
-                            {item.quantidadeCompra} {item.unidadeCompra}
-                          </TableCell>
-                          <TableCell>{formatCurrency(item.precoCompra)}</TableCell>
-                          <TableCell className="font-medium text-red-600">
-                            {formatCurrency(item.custoIngrediente)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </div>
+              <IngredientEditor
+                key={fichaEditando.id}
+                products={products}
+                ingredientes={fichaEditando.ingredientes}
+                onChange={(next) =>
+                  setFichaEditando((prev) => (prev ? { ...prev, ingredientes: next } : prev))
+                }
+              />
 
               <ScaleEditor
                 scales={fichaEditando.escalas}
@@ -3218,218 +3434,12 @@ export default function FichasTecnicasPage() {
                 />
               </div>
 
-              <div>
-                <h4 className="mb-4 text-lg font-semibold">Ingredientes</h4>
-
-                <div className="space-y-4 rounded-lg border p-4">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                    <div className="md:col-span-3">
-                      <Label>Produto cadastrado</Label>
-                      <select
-                        className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={draftIngredienteId}
-                        onChange={(e) => onSelectProductIngredient(e.target.value)}
-                      >
-                        <option value="">— Selecionar produto —</option>
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="md:col-span-3">
-                      <Label>Ingrediente</Label>
-                      <Input
-                        value={draftIngredienteNome}
-                        onChange={(e) => setDraftIngredienteNome(e.target.value)}
-                        placeholder="Nome do ingrediente"
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <Label>Qtd de uso</Label>
-                      <Input
-                        type="number"
-                        value={draftQuantidadeUso}
-                        onChange={(e) =>
-                          setDraftQuantidadeUso(toNumber(e.target.value, 0))
-                        }
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <Label>Unidade de uso</Label>
-                      <Input
-                        value={draftUnidadeUso}
-                        onChange={(e) =>
-                          setDraftUnidadeUso(normalizeUnit(e.target.value, "UN"))
-                        }
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <Label>Preço da compra</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={draftPrecoCompra}
-                        onChange={(e) =>
-                          setDraftPrecoCompra(toNumber(e.target.value, 0))
-                        }
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <Label>Qtd comprada</Label>
-                      <Input
-                        type="number"
-                        step="0.001"
-                        value={draftQuantidadeCompra}
-                        onChange={(e) =>
-                          setDraftQuantidadeCompra(toNumber(e.target.value, 1))
-                        }
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <Label>Unidade compra</Label>
-                      <Input
-                        value={draftUnidadeCompra}
-                        onChange={(e) =>
-                          setDraftUnidadeCompra(normalizeUnit(e.target.value, "UN"))
-                        }
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <Label>F. Correção</Label>
-                      <Input
-                        type="number"
-                        step="0.001"
-                        value={draftFCorrecao}
-                        onChange={(e) =>
-                          setDraftFCorrecao(toNumber(e.target.value, 1))
-                        }
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <Label>F. Cocção</Label>
-                      <Input
-                        type="number"
-                        step="0.001"
-                        value={draftFCoccao}
-                        onChange={(e) =>
-                          setDraftFCoccao(toNumber(e.target.value, 1))
-                        }
-                      />
-                    </div>
-
-                    <div className="md:col-span-4 flex items-end gap-2">
-                      <Button
-                        type="button"
-                        className="w-full"
-                        onClick={salvarIngrediente}
-                      >
-                        {editandoIngredienteId ? "Salvar ingrediente" : "Adicionar ingrediente"}
-                      </Button>
-
-                      {editandoIngredienteId ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={resetDraftIngrediente}
-                        >
-                          Cancelar
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg bg-slate-50 p-3 text-sm">
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                      <div>
-                        <p className="text-gray-600">Custo unitário base</p>
-                        <p className="font-bold">
-                          {formatCurrency(previewIngrediente.custoUnitarioBase)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-gray-600">Custo final do ingrediente</p>
-                        <p className="font-bold text-red-600">
-                          {formatCurrency(previewIngrediente.custoIngrediente)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-gray-600">Modo</p>
-                        <p className="font-medium">
-                          {editandoIngredienteId ? "Editando ingrediente" : "Novo ingrediente"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {ingredientes.length === 0 ? (
-                    <p className="text-sm text-gray-600">
-                      Nenhum ingrediente adicionado ainda.
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Ingrediente</TableHead>
-                          <TableHead>Uso</TableHead>
-                          <TableHead>Compra</TableHead>
-                          <TableHead>Preço compra</TableHead>
-                          <TableHead>Custo unit.</TableHead>
-                          <TableHead>Custo final</TableHead>
-                          <TableHead>Ações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {ingredientes.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell>{item.nome}</TableCell>
-                            <TableCell>
-                              {item.quantidadeUso} {item.unidadeUso}
-                            </TableCell>
-                            <TableCell>
-                              {item.quantidadeCompra} {item.unidadeCompra}
-                            </TableCell>
-                            <TableCell>{formatCurrency(item.precoCompra)}</TableCell>
-                            <TableCell>{formatCurrency(item.custoUnitarioBase)}</TableCell>
-                            <TableCell className="font-medium text-red-600">
-                              {formatCurrency(item.custoIngrediente)}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => editarIngrediente(item.id)}
-                                >
-                                  Editar
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => removerIngrediente(item.id)}
-                                >
-                                  Remover
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </div>
-              </div>
+              <IngredientEditor
+                key="nova-ficha-ingredientes"
+                products={products}
+                ingredientes={ingredientes}
+                onChange={setIngredientes}
+              />
 
               <ScaleEditor scales={escalas} onChange={setEscalas} />
 

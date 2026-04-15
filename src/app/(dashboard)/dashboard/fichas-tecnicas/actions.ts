@@ -591,7 +591,9 @@ async function extractRawPdfText(file: File) {
   let pdfParse: any;
 
   try {
-    const pdfParseModule = await import("pdf-parse");
+    // Importa o parser interno para evitar o index do pacote,
+    // que tenta abrir um PDF de teste e quebra em bundle de produção.
+    const pdfParseModule = await import("pdf-parse/lib/pdf-parse.js");
     pdfParse = (pdfParseModule as any).default ?? pdfParseModule;
   } catch (error) {
     console.error("[importPDF] erro ao carregar pdf-parse", error);
@@ -1208,6 +1210,11 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
       !file.name.toLowerCase().endsWith(".pdf")
     ) {
       throw new Error("O arquivo enviado precisa ser um PDF.");
+    }
+
+    const maxPdfSizeInBytes = 8 * 1024 * 1024;
+    if (file.size > maxPdfSizeInBytes) {
+      throw new Error("O PDF deve ter no máximo 8MB.");
     }
 
     const defaultCategory =

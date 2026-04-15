@@ -51,7 +51,6 @@ export type TechnicalSheetInput = {
   preparation_method: string;
   image_url?: string | null;
   image_path?: string | null;
-
   difficulty_level?: string | null;
   temperature_celsius?: number | null;
   cooking_time_minutes?: number | null;
@@ -69,7 +68,6 @@ export type TechnicalSheetInput = {
   source_file_name?: string | null;
   source_page_number?: number | null;
   video_url?: string | null;
-
   ingredients: TechnicalSheetIngredientInput[];
   scales?: TechnicalSheetScaleInput[];
 };
@@ -124,7 +122,6 @@ type ImportTechnicalSheetsFromPdfResult =
       ok: false;
       error: string;
     };
-
 
 async function getContext() {
   const supabase = await createSupabaseServerClient();
@@ -210,11 +207,19 @@ function shouldIgnoreLine(line: string) {
     "TEMPERATURA",
     "TEMPO DE PREP",
     "TEMPO COCÇÃO",
+    "TEMPO COCCAO",
+    "TEMPO COC",
     "FATOR COCÇÃO",
+    "FATOR COCCAO",
+    "FATOR COC",
     "FATOR CORREÇÃO",
+    "FATOR CORRECAO",
+    "FATOR CORRE",
     "RENDIMENTO",
     "PESO DA PORÇÃO",
+    "PESO DA PORCAO",
     "PESO LÍQUIDO",
+    "PESO LIQUIDO",
     "ASSISTA O",
   ];
 
@@ -235,7 +240,10 @@ function isYieldOnlyLine(line: string) {
 
   if (!trimmed) return false;
   if (/^\d+(?:[.,]\d+)?$/.test(trimmed)) return true;
-  if (/^(ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA)$/i.test(trimmed)) {
+
+  if (
+    /^(ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA)$/i.test(trimmed)
+  ) {
     return true;
   }
 
@@ -249,12 +257,21 @@ function inferUsageUnit(name: string) {
 
   if (
     upper.includes("OVO") &&
-    (upper.includes("UNI") || upper.includes("UNID") || upper.includes("(1 UNID"))
+    (upper.includes("UNI") ||
+      upper.includes("UNID") ||
+      upper.includes("(1 UNID"))
   ) {
     return "UN";
   }
 
-  if (upper.includes("AGUA") || upper.includes("ÁGUA") || upper.includes("LICOR")) {
+  if (
+    upper.includes("AGUA") ||
+    upper.includes("ÁGUA") ||
+    upper.includes("LICOR") ||
+    upper.includes("LEITE") ||
+    upper.includes("ÓLEO") ||
+    upper.includes("OLEO")
+  ) {
     return "ML";
   }
 
@@ -289,7 +306,9 @@ function parseConcatenatedValues(
     return null;
   }
 
-  const factors = scaleLabels.map((label) => toNumber(label.replace(/X/gi, ""), 0));
+  const factors = scaleLabels.map((label) =>
+    toNumber(label.replace(/X/gi, ""), 0)
+  );
 
   if (factors.some((factor) => factor <= 0)) {
     return null;
@@ -331,7 +350,6 @@ function parseValuesLine(line: string, scaleLabels: string[]) {
   return null;
 }
 
-
 function extractTitle(pageText: string) {
   const lines = normalizeSpaces(pageText)
     .split("\n")
@@ -369,6 +387,7 @@ function extractTemperature(pageText: string) {
 function extractPrepTime(pageText: string) {
   const match =
     pageText.match(/TEM\s*PO\s*DE\s*PREP[\s\S]{0,50}?(\d{1,4})/i) ||
+    pageText.match(/TEMPO\s*DE\s*PREP[\s\S]{0,50}?(\d{1,4})/i) ||
     pageText.match(/(\d{1,3})\s*º\s*(\d{1,4})\s*Minutos/i);
 
   if (!match) return 0;
@@ -540,6 +559,7 @@ function parseScaleTable(pageText: string): ParsedScaleTable | null {
   if (scaleHeaderIndex < 0) return null;
 
   const scaleLabels = extractScaleLabels(lines[scaleHeaderIndex]);
+  if (!scaleLabels.length) return null;
 
   const yieldPieces: string[] = [];
   const ingredientRows: ParsedIngredientRow[] = [];
@@ -550,7 +570,7 @@ function parseScaleTable(pageText: string): ParsedScaleTable | null {
     const line = lines[i];
     const upper = line.toUpperCase();
 
-    if (upper.includes("PESO LÍQUIDO")) {
+    if (upper.includes("PESO LÍQUIDO") || upper.includes("PESO LIQUIDO")) {
       netWeights =
         parseValuesLine(line, scaleLabels) ??
         parseValuesLine(lines[i + 1] ?? "", scaleLabels) ??
@@ -564,10 +584,7 @@ function parseScaleTable(pageText: string): ParsedScaleTable | null {
     const valuesOnly = parseValuesLine(line, scaleLabels);
 
     if (valuesOnly && nameBuffer.length > 0) {
-      const ingredientName = nameBuffer
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
+      const ingredientName = nameBuffer.join(" ").replace(/\s+/g, " ").trim();
 
       nameBuffer.length = 0;
 
@@ -649,123 +666,26 @@ function extractIngredients(pageText: string): TechnicalSheetIngredientInput[] {
   }));
 }
 
-function parseScaleTable(pageText: string): ParsedScaleTable | null {
-  const lines = normalizeSpaces(pageText)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+function extractScales(pageText: string): TechnicalSheetScaleInput[] {
+  const table = parseScaleTable(pageText);
+  if (!table) return [];
 
-  const scaleHeaderIndex = lines.findIndex(isScaleHeaderLine);
-  if (scaleHeaderIndex < 0) return null;
-
-  const scaleLabels = extractScaleLabels(lines[scaleHeaderIndex]);
-
-  const yieldPieces: string[] = [];
-  const ingredientRows: ParsedIngredientRow[] = [];
-  const nameBuffer: string[] = [];
-  let netWeights: number[] = [];
-
-  for (let i = scaleHeaderIndex + 1; i < lines.length; i++) {
-    const line = lines[i];
-    const upper = line.toUpperCase();
-
-    if (upper.includes("PESO LÍQUIDO")) {
-      netWeights =
-        parseValuesLine(line, scaleLabels) ??
-        parseValuesLine(lines[i + 1] ?? "", scaleLabels) ??
-        [];
-      break;
-    }
-
-    if (shouldIgnoreLine(line)) continue;
-    if (isScaleHeaderLine(line)) continue;
-
-    const valuesOnly = parseValuesLine(line, scaleLabels);
-
-    if (valuesOnly && nameBuffer.length > 0) {
-      const ingredientName = nameBuffer
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      nameBuffer.length = 0;
-
-      if (!ingredientName) continue;
-
-      ingredientRows.push({
-        ingredient_name: ingredientName,
-        usage_unit: inferUsageUnit(ingredientName),
-        values: valuesOnly,
-      });
-
-      continue;
-    }
-
-    if (isYieldOnlyLine(line)) {
-      yieldPieces.push(line);
-      continue;
-    }
-
-    const parsedRow = splitIngredientRow(line);
-
-    if (parsedRow) {
-      const ingredientName = [nameBuffer.join(" "), parsedRow.name]
-        .filter(Boolean)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      nameBuffer.length = 0;
-
-      if (!ingredientName) continue;
-
-      ingredientRows.push({
-        ingredient_name: ingredientName,
-        usage_unit: inferUsageUnit(ingredientName),
-        values: parsedRow.values,
-      });
-
-      continue;
-    }
-
-    if (/^[A-Za-zÀ-ÿ().\-\/ ]+$/.test(line) || /[A-Za-zÀ-ÿ]/.test(line)) {
-      nameBuffer.push(line);
-    }
-  }
-
-  const joinedYieldText = yieldPieces.join(" ");
-  const yieldDescriptions = [
-    ...joinedYieldText.matchAll(
-      /(\d+(?:[.,]\d+)?)\s*(ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA)/gi
-    ),
-  ].map((match) => `${match[1]} ${match[2]}`.replace(/\s+/g, " ").trim());
-
-  return {
-    scaleLabels,
-    yieldDescriptions,
-    ingredientRows,
-    netWeights,
-  };
+  return table.scaleLabels.map((scaleLabel, scaleIndex) => ({
+    scale_label: scaleLabel,
+    yield_description:
+      table.yieldDescriptions[scaleIndex] ??
+      table.yieldDescriptions[0] ??
+      null,
+    net_weight: table.netWeights[scaleIndex] ?? null,
+    sort_order: scaleIndex,
+    ingredients: table.ingredientRows.map((row, ingredientIndex) => ({
+      ingredient_name: row.ingredient_name,
+      amount: row.values[scaleIndex] ?? 0,
+      unit: normalizeUnit(row.usage_unit, "G"),
+      sort_order: ingredientIndex,
+    })),
+  }));
 }
-
-function getFallbackYieldFromScales(scales: TechnicalSheetScaleInput[]) {
-  const firstYield = scales[0]?.yield_description ?? null;
-
-  if (!firstYield) {
-    return {
-      yieldPortions: 1,
-      yieldLabel: null as string | null,
-    };
-  }
-
-  const amountMatch = firstYield.match(/\d+(?:[.,]\d+)?/);
-
-  return {
-    yieldPortions: amountMatch ? Math.max(1, toNumber(amountMatch[0], 1)) : 1,
-    yieldLabel: firstYield,
-  };
-}
-
 
 function getFallbackYieldFromScales(scales: TechnicalSheetScaleInput[]) {
   const firstYield = scales[0]?.yield_description ?? null;
@@ -791,8 +711,6 @@ async function extractRawPdfText(file: File) {
   let pdfParse: any;
 
   try {
-    // Importa o parser interno para evitar o index do pacote,
-    // que tenta abrir um PDF de teste e quebra em bundle de produção.
     const pdfParseModule = await import("pdf-parse/lib/pdf-parse.js");
     pdfParse = (pdfParseModule as any).default ?? pdfParseModule;
   } catch (error) {
@@ -883,7 +801,6 @@ function parsePdfPageToRecipe(
   };
 }
 
-
 async function saveScales(
   supabase: any,
   technicalSheetId: string,
@@ -955,7 +872,9 @@ export async function uploadTechnicalSheetImageAction(formData: FormData) {
 
   const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
   const safeName = sanitizeFileName(file.name);
-  const filePath = `${establishmentId}/${userId}/${Date.now()}-${safeName || `imagem.${extension}`}`;
+  const filePath = `${establishmentId}/${userId}/${Date.now()}-${
+    safeName || `imagem.${extension}`
+  }`;
 
   const { error: uploadError } = await supabase.storage
     .from(TECHNICAL_SHEET_BUCKET)

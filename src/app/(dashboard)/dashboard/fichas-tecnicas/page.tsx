@@ -790,6 +790,7 @@ function RecipeViewer({
   onEdit,
   onPrint,
   onFullscreen,
+  onDelete,
 }: {
   ficha: FichaTecnica | null;
   desiredServings: number;
@@ -799,6 +800,7 @@ function RecipeViewer({
   onEdit: (ficha: FichaTecnica) => void;
   onPrint: (ficha: FichaTecnica) => void;
   onFullscreen: (ficha: FichaTecnica) => void;
+  onDelete: (ficha: FichaTecnica) => void;
 }) {
   if (!ficha) {
     return (
@@ -873,6 +875,9 @@ function RecipeViewer({
             </Button>
             <Button type="button" onClick={() => onFullscreen(ficha)}>
               ⛶ Tela cheia
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => onDelete(ficha)}>
+              🗑️ Excluir
             </Button>
           </div>
         </div>
@@ -1793,44 +1798,43 @@ export default function FichasTecnicasPage() {
   };
 
   const handleImportPdfSelected = async (
-  event: React.ChangeEvent<HTMLInputElement>
-) => {
-  const file = event.target.files?.[0];
-  if (!file) return;
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  try {
-    setImportingPdf(true);
-    setImportPdfFileName(file.name);
+    try {
+      setImportingPdf(true);
+      setImportPdfFileName(file.name);
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("defaultCategory", importDefaultCategory);
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("defaultCategory", importDefaultCategory);
 
-    const result = await importTechnicalSheetsFromPdfAction(formData);
+      const result = await importTechnicalSheetsFromPdfAction(formData);
 
-    if (!result.ok) {
-      alert(result.error);
-      return;
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
+
+      alert(
+        `Importação concluída.\n\nReceitas criadas: ${result.importedCount}\n\n${result.recipes
+          .map((r: any) => `Página ${r.page}: ${r.name}`)
+          .join("\n")}`
+      );
+
+      setShowImportModal(false);
+      setImportPdfFileName("");
+      await loadData();
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.message ?? "Erro ao importar PDF.");
+    } finally {
+      setImportingPdf(false);
+      event.target.value = "";
     }
-
-    alert(
-      `Importação concluída.\n\nReceitas criadas: ${result.importedCount}\n\n${result.recipes
-        .map((r: any) => `Página ${r.page}: ${r.name}`)
-        .join("\n")}`
-    );
-
-    setShowImportModal(false);
-    setImportPdfFileName("");
-    await loadData();
-  } catch (error: any) {
-    console.error(error);
-    alert(error?.message ?? "Erro ao importar PDF.");
-  } finally {
-    setImportingPdf(false);
-    event.target.value = "";
-  }
-};
-
+  };
 
   const salvarNovaFicha = () => {
     if (!nome.trim()) {
@@ -2339,6 +2343,7 @@ export default function FichasTecnicasPage() {
             setFichaSelecionada(ficha);
             setShowFullscreenViewer(true);
           }}
+          onDelete={(ficha) => excluirFicha(ficha.id)}
         />
       </div>
 
@@ -2365,6 +2370,10 @@ export default function FichasTecnicasPage() {
                 }}
                 onPrint={handleImprimirFicha}
                 onFullscreen={() => undefined}
+                onDelete={(ficha) => {
+                  setShowFullscreenViewer(false);
+                  excluirFicha(ficha.id);
+                }}
               />
             </div>
           </div>

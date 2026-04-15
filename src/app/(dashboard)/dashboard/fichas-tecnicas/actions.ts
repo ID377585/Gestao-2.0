@@ -114,6 +114,18 @@ type ParsedScaleTable = {
   netWeights: number[];
 };
 
+type ImportTechnicalSheetsFromPdfResult =
+  | {
+      ok: true;
+      importedCount: number;
+      recipes: Array<{ id: string; name: string; page: number | null }>;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+
 async function getContext() {
   const supabase = await createSupabaseServerClient();
   const { membership } = await getActiveMembershipOrRedirect();
@@ -210,7 +222,17 @@ function shouldIgnoreLine(line: string) {
 }
 
 function isScaleHeaderLine(line: string) {
-  return /^\d+X(?:\s+\d+X)+$/i.test(line.trim());
+  const trimmed = line.trim().toUpperCase();
+  return /^\d+X(?:\s+\d+X)+$/i.test(trimmed) || /^(?:\d+X)+$/i.test(trimmed);
+}
+
+function isScaleHeaderLine(line: string) {
+  const trimmed = line.trim().toUpperCase();
+  return /^\d+X(?:\s+\d+X)+$/i.test(trimmed) || /^(?:\d+X)+$/i.test(trimmed);
+}
+
+function extractScaleLabels(line: string) {
+  return (line.toUpperCase().match(/\d+X/g) ?? []).map((item) => item.trim());
 }
 
 function isYieldOnlyLine(line: string) {
@@ -262,6 +284,58 @@ function splitIngredientRow(line: string) {
 
   return { name, values };
 }
+
+function parseConcatenatedValues(
+  line: string,
+  scaleLabels: string[]
+): number[] | null {
+  const digitsOnly = line.replace(/\s+/g, "");
+  if (!/^\d+$/.test(digitsOnly) || scaleLabels.length === 0) {
+    return null;
+  }
+
+  const factors = scaleLabels.map((label) => toNumber(label.replace(/X/gi, ""), 0));
+
+  if (factors.some((factor) => factor <= 0)) {
+    return null;
+  }
+
+  for (let prefixLength = 1; prefixLength <= digitsOnly.length; prefixLength++) {
+    const baseRaw = digitsOnly.slice(0, prefixLength);
+    const baseValue = Number(baseRaw);
+
+    if (!Number.isFinite(baseValue) || baseValue <= 0) {
+      continue;
+    }
+
+    const values = factors.map((factor) => baseValue * factor);
+    const rebuilt = values.map((value) => String(value)).join("");
+
+    if (rebuilt === digitsOnly) {
+      return values;
+    }
+  }
+
+  return null;
+}
+
+function parseValuesLine(line: string, scaleLabels: string[]) {
+  const compactValues = parseConcatenatedValues(line, scaleLabels);
+  if (compactValues?.length === scaleLabels.length) {
+    return compactValues;
+  }
+
+  const numericValues = (line.match(/\d+(?:[.,]\d+)?/g) ?? []).map((value) =>
+    toNumber(value, 0)
+  );
+
+  if (numericValues.length === scaleLabels.length) {
+    return numericValues;
+  }
+
+  return null;
+}
+
 
 function extractTitle(pageText: string) {
   const lines = normalizeSpaces(pageText)
@@ -470,10 +544,7 @@ function parseScaleTable(pageText: string): ParsedScaleTable | null {
   const scaleHeaderIndex = lines.findIndex(isScaleHeaderLine);
   if (scaleHeaderIndex < 0) return null;
 
-  const scaleLabels = lines[scaleHeaderIndex]
-    .split(/\s+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+  const scaleLabels = extractScaleLabels(lines[scaleHeaderIndex]);
 
   const yieldPieces: string[] = [];
   const ingredientRows: ParsedIngredientRow[] = [];
@@ -485,14 +556,36 @@ function parseScaleTable(pageText: string): ParsedScaleTable | null {
     const upper = line.toUpperCase();
 
     if (upper.includes("PESO LÍQUIDO")) {
-      netWeights = (line.match(/\d+(?:[.,]\d+)?/g) ?? []).map((value) =>
-        toNumber(value, 0)
-      );
+      netWeights =
+        parseValuesLine(line, scaleLabels) ??
+        parseValuesLine(lines[i + 1] ?? "", scaleLabels) ??
+        [];
       break;
     }
 
     if (shouldIgnoreLine(line)) continue;
     if (isScaleHeaderLine(line)) continue;
+
+    const valuesOnly = parseValuesLine(line, scaleLabels);
+
+    if (valuesOnly && nameBuffer.length > 0) {
+      const ingredientName = nameBuffer
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      nameBuffer.length = 0;
+
+      if (!ingredientName) continue;
+
+      ingredientRows.push({
+        ingredient_name: ingredientName,
+        usage_unit: inferUsageUnit(ingredientName),
+        values: valuesOnly,
+      });
+
+      continue;
+    }
 
     if (isYieldOnlyLine(line)) {
       yieldPieces.push(line);
@@ -561,28 +654,140 @@ function extractIngredients(pageText: string): TechnicalSheetIngredientInput[] {
   }));
 }
 
-function extractScales(pageText: string): TechnicalSheetScaleInput[] {
-  const table = parseScaleTable(pageText);
-  if (!table) return [];
+function parseScaleTable(pageText: string): ParsedScaleTable | null {
+  const lines = normalizeSpaces(pageText)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 
-  return table.scaleLabels.map((label, scaleIndex) => ({
-    scale_label: label,
-    yield_description: table.yieldDescriptions[scaleIndex] ?? null,
-    net_weight:
-      table.netWeights[scaleIndex] !== undefined
-        ? table.netWeights[scaleIndex]
-        : null,
-    sort_order: scaleIndex,
-    ingredients: table.ingredientRows
-      .map((row, ingredientIndex) => ({
-        ingredient_name: row.ingredient_name,
-        amount:
-          row.values[scaleIndex] !== undefined ? row.values[scaleIndex] : 0,
-        unit: row.usage_unit,
-        sort_order: ingredientIndex,
-      }))
-      .filter((item) => item.amount > 0),
-  }));
+  const scaleHeaderIndex = lines.findIndex(isScaleHeaderLine);
+  if (scaleHeaderIndex < 0) return null;
+
+  const scaleLabels = extractScaleLabels(lines[scaleHeaderIndex]);
+
+  const yieldPieces: string[] = [];
+  const ingredientRows: ParsedIngredientRow[] = [];
+  const nameBuffer: string[] = [];
+  let netWeights: number[] = [];
+
+  for (let i = scaleHeaderIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    const upper = line.toUpperCase();
+
+    if (upper.includes("PESO LÍQUIDO")) {
+      netWeights =
+        parseValuesLine(line, scaleLabels) ??
+        parseValuesLine(lines[i + 1] ?? "", scaleLabels) ??
+        [];
+      break;
+    }
+
+    if (shouldIgnoreLine(line)) continue;
+    if (isScaleHeaderLine(line)) continue;
+
+    const valuesOnly = parseValuesLine(line, scaleLabels);
+
+    if (valuesOnly && nameBuffer.length > 0) {
+      const ingredientName = nameBuffer
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      nameBuffer.length = 0;
+
+      if (!ingredientName) continue;
+
+      ingredientRows.push({
+        ingredient_name: ingredientName,
+        usage_unit: inferUsageUnit(ingredientName),
+        values: valuesOnly,
+      });
+
+      continue;
+    }
+
+    if (isYieldOnlyLine(line)) {
+      yieldPieces.push(line);
+      continue;
+    }
+
+    const parsedRow = splitIngredientRow(line);
+
+    if (parsedRow) {
+      const ingredientName = [nameBuffer.join(" "), parsedRow.name]
+        .filter(Boolean)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      nameBuffer.length = 0;
+
+      if (!ingredientName) continue;
+
+      ingredientRows.push({
+        ingredient_name: ingredientName,
+        usage_unit: inferUsageUnit(ingredientName),
+        values: parsedRow.values,
+      });
+
+      continue;
+    }
+
+    if (/^[A-Za-zÀ-ÿ().\-\/ ]+$/.test(line) || /[A-Za-zÀ-ÿ]/.test(line)) {
+      nameBuffer.push(line);
+    }
+  }
+
+  const joinedYieldText = yieldPieces.join(" ");
+  const yieldDescriptions = [
+    ...joinedYieldText.matchAll(
+      /(\d+(?:[.,]\d+)?)\s*(ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA)/gi
+    ),
+  ].map((match) => `${match[1]} ${match[2]}`.replace(/\s+/g, " ").trim());
+
+  return {
+    scaleLabels,
+    yieldDescriptions,
+    ingredientRows,
+    netWeights,
+  };
+}
+
+function getFallbackYieldFromScales(scales: TechnicalSheetScaleInput[]) {
+  const firstYield = scales[0]?.yield_description ?? null;
+
+  if (!firstYield) {
+    return {
+      yieldPortions: 1,
+      yieldLabel: null as string | null,
+    };
+  }
+
+  const amountMatch = firstYield.match(/\d+(?:[.,]\d+)?/);
+
+  return {
+    yieldPortions: amountMatch ? Math.max(1, toNumber(amountMatch[0], 1)) : 1,
+    yieldLabel: firstYield,
+  };
+}
+
+
+function getFallbackYieldFromScales(scales: TechnicalSheetScaleInput[]) {
+  const firstYield = scales[0]?.yield_description ?? null;
+
+  if (!firstYield) {
+    return {
+      yieldPortions: 1,
+      yieldLabel: null as string | null,
+    };
+  }
+
+  const amountMatch = firstYield.match(/\d+(?:[.,]\d+)?/);
+
+  return {
+    yieldPortions: amountMatch ? Math.max(1, toNumber(amountMatch[0], 1)) : 1,
+    yieldLabel: firstYield,
+  };
 }
 
 async function extractRawPdfText(file: File) {
@@ -646,9 +851,10 @@ function parsePdfPageToRecipe(
   defaultCategory: string
 ): ImportedRecipe | null {
   const name = extractTitle(pageText);
-  const ingredients = extractIngredients(pageText);
   const preparationMethod = extractPreparationMethod(pageText);
   const scales = extractScales(pageText);
+  const ingredients = extractIngredients(pageText);
+  const fallbackYield = getFallbackYieldFromScales(scales);
 
   if (!name || !ingredients.length) {
     return null;
@@ -657,7 +863,7 @@ function parsePdfPageToRecipe(
   return {
     name,
     category: defaultCategory || "Importado PDF",
-    yield_portions: extractYieldPortions(pageText),
+    yield_portions: extractYieldPortions(pageText) || fallbackYield.yieldPortions,
     portion_weight: extractPortionWeight(pageText),
     prep_time_minutes: extractPrepTime(pageText),
     preparation_method: preparationMethod,
@@ -666,7 +872,7 @@ function parsePdfPageToRecipe(
     cooking_time_minutes: extractCookingTime(pageText),
     cooking_factor_grams: extractCookingFactor(pageText),
     correction_factor_grams: extractCorrectionFactor(pageText),
-    yield_label: extractYieldLabel(pageText),
+    yield_label: extractYieldLabel(pageText) || fallbackYield.yieldLabel,
     portion_weight_unit: extractPortionWeightUnit(pageText),
     storage_instructions: extractStorage(pageText),
     shelf_life_frozen: extractShelfLifeFrozen(pageText),
@@ -681,6 +887,7 @@ function parsePdfPageToRecipe(
     scales,
   };
 }
+
 
 async function saveScales(
   supabase: any,
@@ -1192,7 +1399,9 @@ export async function deleteTechnicalSheet(id: string) {
   revalidatePath("/dashboard/fichas-tecnicas");
 }
 
-export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
+export async function importTechnicalSheetsFromPdfAction(
+  formData: FormData
+): Promise<ImportTechnicalSheetsFromPdfResult> {
   const { supabase, establishmentId, userId } = await getContext();
 
   try {
@@ -1200,7 +1409,10 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
     const categoryEntry = formData.get("defaultCategory");
 
     if (!(fileEntry instanceof File)) {
-      throw new Error("Envie um arquivo PDF.");
+      return {
+        ok: false,
+        error: "Envie um arquivo PDF.",
+      };
     }
 
     const file = fileEntry;
@@ -1209,12 +1421,18 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
       file.type !== "application/pdf" &&
       !file.name.toLowerCase().endsWith(".pdf")
     ) {
-      throw new Error("O arquivo enviado precisa ser um PDF.");
+      return {
+        ok: false,
+        error: "O arquivo enviado precisa ser um PDF.",
+      };
     }
 
     const maxPdfSizeInBytes = 8 * 1024 * 1024;
     if (file.size > maxPdfSizeInBytes) {
-      throw new Error("O PDF deve ter no máximo 8MB.");
+      return {
+        ok: false,
+        error: "O PDF deve ter no máximo 8MB.",
+      };
     }
 
     const defaultCategory =
@@ -1255,9 +1473,11 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
     const recipes = parsedPages.filter(Boolean) as ImportedRecipe[];
 
     if (!recipes.length) {
-      throw new Error(
-        "Não foi possível identificar receitas válidas no PDF. Tente um PDF com texto selecionável."
-      );
+      return {
+        ok: false,
+        error:
+          "Não foi possível identificar receitas válidas no PDF. Verifique se o arquivo segue o layout esperado da ficha técnica.",
+      };
     }
 
     const created: Array<{ id: string; name: string; page: number | null }> = [];
@@ -1303,7 +1523,10 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
 
       if (sheetError || !sheet) {
         console.error("[importPDF] erro ao criar ficha", sheetError, recipe);
-        throw new Error(`Falha ao criar a ficha "${recipe.name}".`);
+        return {
+          ok: false,
+          error: `Falha ao criar a ficha "${recipe.name}".`,
+        };
       }
 
       if (recipe.ingredients.length) {
@@ -1332,9 +1555,10 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
             "[importPDF] erro ao criar ingredientes",
             ingredientsError
           );
-          throw new Error(
-            `A ficha "${recipe.name}" foi criada, mas os ingredientes não foram salvos.`
-          );
+          return {
+            ok: false,
+            error: `A ficha "${recipe.name}" foi criada, mas os ingredientes não foram salvos.`,
+          };
         }
       }
 
@@ -1356,6 +1580,9 @@ export async function importTechnicalSheetsFromPdfAction(formData: FormData) {
     };
   } catch (error: any) {
     console.error("[importPDF] falha geral", error);
-    throw new Error(error?.message || "Erro ao importar PDF.");
+    return {
+      ok: false,
+      error: error?.message || "Erro ao importar PDF.",
+    };
   }
 }

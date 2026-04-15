@@ -1793,38 +1793,44 @@ export default function FichasTecnicasPage() {
   };
 
   const handleImportPdfSelected = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  event: React.ChangeEvent<HTMLInputElement>
+) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
 
-    try {
-      setImportingPdf(true);
-      setImportPdfFileName(file.name);
+  try {
+    setImportingPdf(true);
+    setImportPdfFileName(file.name);
 
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("defaultCategory", importDefaultCategory);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("defaultCategory", importDefaultCategory);
 
-      const result = await importTechnicalSheetsFromPdfAction(formData);
+    const result = await importTechnicalSheetsFromPdfAction(formData);
 
-      alert(
-        `Importação concluída.\n\nReceitas criadas: ${result.importedCount}\n\n${result.recipes
-          .map((r: any) => `Página ${r.page}: ${r.name}`)
-          .join("\n")}`
-      );
-
-      setShowImportModal(false);
-      setImportPdfFileName("");
-      await loadData();
-    } catch (error: any) {
-      console.error(error);
-      alert(error?.message ?? "Erro ao importar PDF.");
-    } finally {
-      setImportingPdf(false);
-      event.target.value = "";
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
-  };
+
+    alert(
+      `Importação concluída.\n\nReceitas criadas: ${result.importedCount}\n\n${result.recipes
+        .map((r: any) => `Página ${r.page}: ${r.name}`)
+        .join("\n")}`
+    );
+
+    setShowImportModal(false);
+    setImportPdfFileName("");
+    await loadData();
+  } catch (error: any) {
+    console.error(error);
+    alert(error?.message ?? "Erro ao importar PDF.");
+  } finally {
+    setImportingPdf(false);
+    event.target.value = "";
+  }
+};
+
 
   const salvarNovaFicha = () => {
     if (!nome.trim()) {

@@ -226,11 +226,6 @@ function isScaleHeaderLine(line: string) {
   return /^\d+X(?:\s+\d+X)+$/i.test(trimmed) || /^(?:\d+X)+$/i.test(trimmed);
 }
 
-function isScaleHeaderLine(line: string) {
-  const trimmed = line.trim().toUpperCase();
-  return /^\d+X(?:\s+\d+X)+$/i.test(trimmed) || /^(?:\d+X)+$/i.test(trimmed);
-}
-
 function extractScaleLabels(line: string) {
   return (line.toUpperCase().match(/\d+X/g) ?? []).map((item) => item.trim());
 }

@@ -566,7 +566,11 @@ export default async function UsuariosPage({
                         </p>
                       </div>
 
-                      <Button type="submit" variant="destructive" className="w-full">
+                      <Button
+                        type="submit"
+                        variant="destructive"
+                        className="w-full bg-red-600 text-white hover:bg-red-700"
+                      >
                         Excluir usuário
                       </Button>
                     </form>

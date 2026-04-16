@@ -896,49 +896,50 @@ function RecipeViewer({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {ficha.videoUrl ? (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  window.open(ficha.videoUrl || "", "_blank", "noopener,noreferrer")
-                }
-              >
-                ▶️ Vídeo
-              </Button>
-            ) : null}
+  {ficha.videoUrl ? (
+    <Button
+      type="button"
+      variant="outline"
+      onClick={() =>
+        window.open(ficha.videoUrl || "", "_blank", "noopener,noreferrer")
+      }
+    >
+      ▶️ Vídeo
+    </Button>
+  ) : null}
 
-            <Button type="button" variant="outline" onClick={() => onEdit(ficha)}>
-              ✏️ Editar
-            </Button>
-            <Button type="button" variant="outline" onClick={() => onPrint(ficha)}>
-              🖨️ Imprimir
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onExportPdf(ficha)}
-            >
-              📄 Exportar PDF
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onDuplicate(ficha)}
-            >
-              📑 Duplicar
-            </Button>
-            <Button type="button" onClick={() => onFullscreen(ficha)}>
-              ⛶ Tela cheia
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => onDelete(ficha)}
-            >
-              🗑️ Excluir
-            </Button>
-          </div>
+  <Button type="button" variant="outline" onClick={() => onEdit(ficha)}>
+    ✏️ Editar
+  </Button>
+  <Button type="button" variant="outline" onClick={() => onPrint(ficha)}>
+    🖨️ Imprimir
+  </Button>
+  <Button
+    type="button"
+    variant="outline"
+    onClick={() => onExportPdf(ficha)}
+  >
+    📄 Exportar PDF
+  </Button>
+  <Button
+    type="button"
+    variant="outline"
+    onClick={() => onDuplicate(ficha)}
+  >
+    📑 Duplicar
+  </Button>
+  <Button type="button" onClick={() => onFullscreen(ficha)}>
+    ⛶ Tela cheia
+  </Button>
+  <Button
+    type="button"
+    variant="destructive"
+    className="bg-red-600 text-white hover:bg-red-700"
+    onClick={() => onDelete(ficha)}
+  >
+    🗑️ Excluir
+  </Button>
+</div>
         </div>
       </div>
 

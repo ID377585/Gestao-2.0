@@ -48,9 +48,26 @@ export function Sidebar({ className }: SidebarProps) {
           isDesktop ? "min-h-screen" : ""
         )}
       >
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200 px-4 dark:border-slate-800">
-          <div className="flex min-w-0 items-center">
-            <GestifyMark size={40} compact={variant === "desktop" && collapsed} />
+        <div
+          className={cn(
+            "relative flex h-16 shrink-0 items-center border-b border-gray-200 px-4 dark:border-slate-800",
+            isDesktop
+              ? collapsed
+                ? "justify-center"
+                : "justify-start"
+              : "justify-between"
+          )}
+        >
+          <div
+            className={cn(
+              "flex min-w-0 items-center transition-all",
+              isDesktop && collapsed ? "justify-center" : ""
+            )}
+          >
+            <GestifyMark
+              size={40}
+              compact={variant === "desktop" && collapsed}
+            />
           </div>
 
           {isDesktop ? (
@@ -58,8 +75,9 @@ export function Sidebar({ className }: SidebarProps) {
               variant="ghost"
               size="icon"
               onClick={() => setCollapsed(!collapsed)}
-              className="h-8 w-8 text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+              className="absolute right-2 top-1/2 h-8 w-8 -translate-y-1/2 text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100"
               aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
+              title={collapsed ? "Expandir menu" : "Recolher menu"}
             >
               {collapsed ? (
                 <ChevronRight className="h-4 w-4" />
@@ -94,17 +112,32 @@ export function Sidebar({ className }: SidebarProps) {
                 const Icon = item.icon;
 
                 return (
-                  <Link key={item.href} href={item.href} onClick={() => onNavigate?.()}>
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => onNavigate?.()}
+                  >
                     <Button
                       variant="ghost"
                       className={cn(
                         "h-12 w-full justify-start gap-3 rounded-xl border transition-colors",
-                        variant === "desktop" ? (collapsed ? "px-3" : "px-4") : "px-4",
+                        variant === "desktop"
+                          ? collapsed
+                            ? "px-3"
+                            : "px-4"
+                          : "px-4",
                         active
                           ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-800"
-                          : "border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                          : "border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+                        variant === "desktop" && collapsed
+                          ? "justify-center"
+                          : "justify-start"
                       )}
-                      title={variant === "desktop" && collapsed ? item.label : undefined}
+                      title={
+                        variant === "desktop" && collapsed
+                          ? item.label
+                          : undefined
+                      }
                     >
                       <Icon className="h-4 w-4 shrink-0" />
                       {(variant === "mobile" || !collapsed) && (
@@ -132,17 +165,32 @@ export function Sidebar({ className }: SidebarProps) {
                 const Icon = item.icon;
 
                 return (
-                  <Link key={item.href} href={item.href} onClick={() => onNavigate?.()}>
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => onNavigate?.()}
+                  >
                     <Button
                       variant="ghost"
                       className={cn(
                         "h-12 w-full justify-start gap-3 rounded-xl border transition-colors",
-                        variant === "desktop" ? (collapsed ? "px-3" : "px-4") : "px-4",
+                        variant === "desktop"
+                          ? collapsed
+                            ? "px-3"
+                            : "px-4"
+                          : "px-4",
                         active
                           ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-800"
-                          : "border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                          : "border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+                        variant === "desktop" && collapsed
+                          ? "justify-center"
+                          : "justify-start"
                       )}
-                      title={variant === "desktop" && collapsed ? item.label : undefined}
+                      title={
+                        variant === "desktop" && collapsed
+                          ? item.label
+                          : undefined
+                      }
                     >
                       <Icon className="h-4 w-4 shrink-0" />
                       {(variant === "mobile" || !collapsed) && (
@@ -177,7 +225,10 @@ export function Sidebar({ className }: SidebarProps) {
             side="left"
             className="w-[300px] overflow-y-auto border-r border-gray-200 bg-white p-0 dark:border-slate-800 dark:bg-slate-950"
           >
-            <SidebarContent variant="mobile" onNavigate={() => setMobileOpen(false)} />
+            <SidebarContent
+              variant="mobile"
+              onNavigate={() => setMobileOpen(false)}
+            />
           </SheetContent>
         </Sheet>
       </div>

@@ -884,12 +884,12 @@ async function duplicateTechnicalSheetImage(
     )}`;
 
     const { error: uploadError } = await supabase.storage
-  .from(TECHNICAL_SHEET_BUCKET)
-  .upload(filePath, file, {
-    cacheControl: "3600",
-    upsert: false,
-    contentType: file.type,
-  });
+      .from(TECHNICAL_SHEET_BUCKET)
+      .upload(duplicatedPath, fileData, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: fileData.type || "image/jpeg",
+      });
 
     if (uploadError) {
       console.error("Erro ao subir imagem duplicada da ficha:", uploadError);
@@ -942,7 +942,7 @@ export async function uploadTechnicalSheetImageAction(formData: FormData) {
     safeName || `imagem.${extension}`
   }`;
 
-  const { error: uploadError } = await supabase
+  const { error: uploadError } = await supabase.storage
     .from(TECHNICAL_SHEET_BUCKET)
     .upload(filePath, file, {
       cacheControl: "3600",

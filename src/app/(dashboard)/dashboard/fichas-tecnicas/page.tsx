@@ -1,7 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -45,9 +52,14 @@ import { exportTechnicalSheetPdf } from "./pdf-export";
 type ProductOption = {
   id: string;
   name: string;
+  sku?: string | null;
   price?: number | null;
+  standard_cost?: number | null;
   default_unit_label?: string | null;
   sector_category?: string | null;
+  category?: string | null;
+  package_qty?: number | null;
+  qty_per_package?: string | null;
 };
 
 type Ingrediente = {
@@ -216,6 +228,49 @@ function calcularCustoIngrediente(input: {
     custoIngrediente: Number(custoIngrediente.toFixed(2)),
   };
 }
+
+function getProductLinkedSnapshot(product?: ProductOption | null) {
+  const unidadeBase = normalizeUnit(product?.default_unit_label, "UN");
+  const precoBase = toNumber(product?.standard_cost ?? product?.price, 0);
+  const quantidadeBase = toNumber(product?.package_qty, 0);
+
+  return {
+    unidadeBase,
+    precoCompra: precoBase > 0 ? Number(precoBase.toFixed(2)) : 0,
+    quantidadeCompra:
+      quantidadeBase > 0 ? Number(quantidadeBase.toFixed(3)) : 1,
+  };
+}
+
+function syncIngredienteWithProduct(
+  ingrediente: Ingrediente,
+  product?: ProductOption | null
+): Ingrediente {
+  if (!product) return ingrediente;
+
+  const snapshot = getProductLinkedSnapshot(product);
+
+  const calculo = calcularCustoIngrediente({
+    quantidadeUso: ingrediente.quantidadeUso,
+    precoCompra: snapshot.precoCompra,
+    quantidadeCompra: snapshot.quantidadeCompra,
+    fatorCorrecao: ingrediente.fatorCorrecao,
+    fatorCoccao: ingrediente.fatorCoccao,
+  });
+
+  return {
+    ...ingrediente,
+    productId: product.id,
+    nome: product.name || ingrediente.nome,
+    unidadeUso: snapshot.unidadeBase,
+    precoCompra: snapshot.precoCompra,
+    quantidadeCompra: snapshot.quantidadeCompra,
+    unidadeCompra: snapshot.unidadeBase,
+    custoUnitarioBase: calculo.custoUnitarioBase,
+    custoIngrediente: calculo.custoIngrediente,
+  };
+}
+
 
 function normalizeFichaFromDb(raw: any): FichaTecnica {
   return {
@@ -1505,6 +1560,10 @@ function IngredientEditor({
   const [draftFCorrecao, setDraftFCorrecao] = useState<number>(1);
   const [draftFCoccao, setDraftFCoccao] = useState<number>(1);
 
+  const productsById = useMemo(() => {
+    return new Map(products.map((product) => [product.id, product]));
+  }, [products]);
+
   const previewIngrediente = useMemo(() => {
     return calcularCustoIngrediente({
       quantidadeUso: draftQuantidadeUso,
@@ -1527,6 +1586,48 @@ function IngredientEditor({
     }
   }, [ingredientes.length]);
 
+  useEffect(() => {
+    if (!draftIngredienteId) return;
+
+    const selectedProduct = productsById.get(draftIngredienteId);
+    if (!selectedProduct) return;
+
+    const snapshot = getProductLinkedSnapshot(selectedProduct);
+
+    setDraftIngredienteNome(selectedProduct.name);
+    setDraftUnidadeUso(snapshot.unidadeBase);
+    setDraftUnidadeCompra(snapshot.unidadeBase);
+    setDraftPrecoCompra(snapshot.precoCompra);
+    setDraftQuantidadeCompra(snapshot.quantidadeCompra);
+  }, [draftIngredienteId, productsById]);
+
+  useEffect(() => {
+    if (!ingredientes.length || !products.length) return;
+
+    const synced = ingredientes.map((item) => {
+      if (!item.productId) return item;
+      const product = productsById.get(item.productId);
+      return syncIngredienteWithProduct(item, product ?? null);
+    });
+
+    const hasChanges = synced.some((item, index) => {
+      const current = ingredientes[index];
+      return (
+        current.nome !== item.nome ||
+        current.unidadeUso !== item.unidadeUso ||
+        current.precoCompra !== item.precoCompra ||
+        current.quantidadeCompra !== item.quantidadeCompra ||
+        current.unidadeCompra !== item.unidadeCompra ||
+        current.custoUnitarioBase !== item.custoUnitarioBase ||
+        current.custoIngrediente !== item.custoIngrediente
+      );
+    });
+
+    if (hasChanges) {
+      onChange(synced);
+    }
+  }, [ingredientes, onChange, products.length, productsById]);
+
   const resetDraftIngrediente = () => {
     setEditandoIngredienteId(null);
     setDraftIngredienteId("");
@@ -1548,26 +1649,55 @@ function IngredientEditor({
   const onSelectProductIngredient = (productId: string) => {
     setDraftIngredienteId(productId);
 
-    const p = products.find((item) => item.id === productId);
-    if (!p) return;
+    if (!productId) {
+      setDraftIngredienteNome("");
+      setDraftUnidadeUso("UN");
+      setDraftUnidadeCompra("UN");
+      setDraftPrecoCompra(0);
+      setDraftQuantidadeCompra(1);
+      return;
+    }
 
-    const unit = normalizeUnit(p.default_unit_label, "UN");
+    const product = productsById.get(productId);
+    if (!product) return;
 
-    setDraftIngredienteNome(p.name);
-    setDraftUnidadeUso(unit);
-    setDraftUnidadeCompra(unit);
-    setDraftPrecoCompra(Number(p.price ?? 0));
-    setDraftQuantidadeCompra(1);
+    const snapshot = getProductLinkedSnapshot(product);
+
+    setDraftIngredienteNome(product.name);
+    setDraftUnidadeUso(snapshot.unidadeBase);
+    setDraftUnidadeCompra(snapshot.unidadeBase);
+    setDraftPrecoCompra(snapshot.precoCompra);
+    setDraftQuantidadeCompra(snapshot.quantidadeCompra);
   };
 
   const salvarIngrediente = () => {
+    const selectedProduct = draftIngredienteId
+      ? productsById.get(draftIngredienteId) ?? null
+      : null;
+
+    const selectedSnapshot = selectedProduct
+      ? getProductLinkedSnapshot(selectedProduct)
+      : null;
+
     const quantidadeUso = toNumber(draftQuantidadeUso, 0);
-    const precoCompra = toNumber(draftPrecoCompra, 0);
-    const quantidadeCompra = toNumber(draftQuantidadeCompra, 0);
+    const precoCompra = selectedSnapshot
+      ? selectedSnapshot.precoCompra
+      : toNumber(draftPrecoCompra, 0);
+    const quantidadeCompra = selectedSnapshot
+      ? selectedSnapshot.quantidadeCompra
+      : toNumber(draftQuantidadeCompra, 0);
+    const unidadeUso = selectedSnapshot
+      ? selectedSnapshot.unidadeBase
+      : normalizeUnit(draftUnidadeUso, "UN");
+    const unidadeCompra = selectedSnapshot
+      ? selectedSnapshot.unidadeBase
+      : normalizeUnit(draftUnidadeCompra, "UN");
     const fatorCorrecao = toNumber(draftFCorrecao, 1) || 1;
     const fatorCoccao = toNumber(draftFCoccao, 1) || 1;
 
-    if (!draftIngredienteNome.trim()) {
+    const nomeIngrediente = selectedProduct?.name || draftIngredienteNome.trim();
+
+    if (!nomeIngrediente.trim()) {
       alert("Selecione ou informe um ingrediente.");
       return;
     }
@@ -1593,12 +1723,12 @@ function IngredientEditor({
     const payload: Ingrediente = {
       id: editandoIngredienteId || uid(),
       productId: draftIngredienteId || null,
-      nome: draftIngredienteNome.trim(),
+      nome: nomeIngrediente,
       quantidadeUso,
-      unidadeUso: normalizeUnit(draftUnidadeUso, "UN"),
+      unidadeUso,
       precoCompra,
       quantidadeCompra,
-      unidadeCompra: normalizeUnit(draftUnidadeCompra, "UN"),
+      unidadeCompra,
       custoUnitarioBase: calculo.custoUnitarioBase,
       custoIngrediente: calculo.custoIngrediente,
       fatorCorrecao,
@@ -1714,6 +1844,12 @@ function IngredientEditor({
                     </option>
                   ))}
                 </select>
+
+                {draftIngredienteId ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Produto vinculado: unidade, preço e qtd. comprada acompanham o cadastro de Produtos.
+                  </p>
+                ) : null}
               </div>
 
               <div className="md:col-span-3">
@@ -1729,6 +1865,7 @@ function IngredientEditor({
                 <Label>Qtd de uso</Label>
                 <Input
                   type="number"
+                  step="0.001"
                   value={draftQuantidadeUso}
                   onChange={(e) => setDraftQuantidadeUso(toNumber(e.target.value, 0))}
                 />
@@ -1904,6 +2041,7 @@ function IngredientEditor({
   );
 }
 export default function FichasTecnicasPage() {
+
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingFichas, setLoadingFichas] = useState(true);
@@ -1962,31 +2100,69 @@ export default function FichasTecnicasPage() {
   const [importDefaultCategory, setImportDefaultCategory] = useState("Importado PDF");
   const [importPdfFileName, setImportPdfFileName] = useState("");
 
-  const loadData = async () => {
+  const loadProductsCatalog = useCallback(async (showLoader = true) => {
+    try {
+      if (showLoader) {
+        setLoadingProducts(true);
+      }
+
+      const productsRes = await fetch("/api/products/catalog", {
+        cache: "no-store",
+      });
+
+      if (!productsRes.ok) {
+        setProducts([]);
+        return [];
+      }
+
+      const productsData = await productsRes.json();
+
+      const normalized = Array.isArray(productsData)
+        ? productsData.map((p: any) => ({
+            id: String(p.id),
+            name: String(p.name ?? ""),
+            sku: p.sku ? String(p.sku) : null,
+            price:
+              p.price !== null && p.price !== undefined ? Number(p.price) : 0,
+            standard_cost:
+              p.standard_cost !== null && p.standard_cost !== undefined
+                ? Number(p.standard_cost)
+                : null,
+            default_unit_label: p.default_unit_label ?? "UN",
+            sector_category: p.sector_category ?? p.category ?? "",
+            category: p.category ?? null,
+            package_qty:
+              p.package_qty !== null && p.package_qty !== undefined
+                ? Number(p.package_qty)
+                : 1,
+            qty_per_package: p.qty_per_package
+              ? String(p.qty_per_package)
+              : null,
+          }))
+        : [];
+
+      setProducts(normalized);
+      return normalized;
+    } catch (error) {
+      console.error("Erro ao carregar catálogo de produtos:", error);
+      setProducts([]);
+      return [];
+    } finally {
+      if (showLoader) {
+        setLoadingProducts(false);
+      }
+    }
+  }, []);
+
+  const loadData = useCallback(async () => {
     try {
       setLoadingProducts(true);
       setLoadingFichas(true);
 
-      const [productsRes, fichasRes] = await Promise.all([
-        fetch("/api/products", { cache: "no-store" }),
+      const [, fichasRes] = await Promise.all([
+        loadProductsCatalog(false),
         listTechnicalSheets(),
       ]);
-
-      if (productsRes.ok) {
-        const productsData = await productsRes.json();
-        const normalized = Array.isArray(productsData)
-          ? productsData.map((p: any) => ({
-              id: String(p.id),
-              name: String(p.name ?? ""),
-              price: Number(p.price ?? 0),
-              default_unit_label: p.default_unit_label ?? "UN",
-              sector_category: p.sector_category ?? p.category ?? "",
-            }))
-          : [];
-        setProducts(normalized);
-      } else {
-        setProducts([]);
-      }
 
       const fichasNormalizadas = Array.isArray(fichasRes)
         ? fichasRes.map(normalizeFichaFromDb)
@@ -1997,7 +2173,10 @@ export default function FichasTecnicasPage() {
       setFichaSelecionada((prev) => {
         if (!fichasNormalizadas.length) return null;
         if (!prev) return fichasNormalizadas[0];
-        return fichasNormalizadas.find((f) => f.id === prev.id) ?? fichasNormalizadas[0];
+        return (
+          fichasNormalizadas.find((f) => f.id === prev.id) ??
+          fichasNormalizadas[0]
+        );
       });
     } catch (err) {
       console.error("Erro ao carregar fichas técnicas:", err);
@@ -2006,11 +2185,19 @@ export default function FichasTecnicasPage() {
       setLoadingProducts(false);
       setLoadingFichas(false);
     }
-  };
+  }, [loadProductsCatalog]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      void loadProductsCatalog(false);
+    }, 30000);
+
+    return () => window.clearInterval(intervalId);
+  }, [loadProductsCatalog]);
 
   useEffect(() => {
     if (fichaSelecionada) {

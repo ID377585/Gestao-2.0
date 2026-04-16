@@ -1430,6 +1430,9 @@ function IngredientEditor({
   ingredientes: Ingrediente[];
   onChange: (ingredientes: Ingrediente[]) => void;
 }) {
+  const [showIngredientForm, setShowIngredientForm] = useState(
+    ingredientes.length === 0
+  );
   const [editandoIngredienteId, setEditandoIngredienteId] = useState<string | null>(null);
   const [draftIngredienteId, setDraftIngredienteId] = useState("");
   const [draftIngredienteNome, setDraftIngredienteNome] = useState("");
@@ -1457,6 +1460,12 @@ function IngredientEditor({
     draftFCoccao,
   ]);
 
+  useEffect(() => {
+    if (ingredientes.length === 0) {
+      setShowIngredientForm(true);
+    }
+  }, [ingredientes.length]);
+
   const resetDraftIngrediente = () => {
     setEditandoIngredienteId(null);
     setDraftIngredienteId("");
@@ -1468,6 +1477,11 @@ function IngredientEditor({
     setDraftUnidadeCompra("UN");
     setDraftFCorrecao(1);
     setDraftFCoccao(1);
+  };
+
+  const iniciarNovoIngrediente = () => {
+    resetDraftIngrediente();
+    setShowIngredientForm(true);
   };
 
   const onSelectProductIngredient = (productId: string) => {
@@ -1538,6 +1552,7 @@ function IngredientEditor({
       onChange([...ingredientes, payload]);
     }
 
+    setShowIngredientForm(true);
     resetDraftIngrediente();
   };
 
@@ -1545,6 +1560,7 @@ function IngredientEditor({
     const item = ingredientes.find((ing) => ing.id === id);
     if (!item) return;
 
+    setShowIngredientForm(true);
     setEditandoIngredienteId(item.id);
     setDraftIngredienteId(item.productId || "");
     setDraftIngredienteNome(item.nome);
@@ -1566,192 +1582,249 @@ function IngredientEditor({
 
   return (
     <div>
-      <h4 className="mb-4 text-lg font-semibold">Ingredientes</h4>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h4 className="text-lg font-semibold">Ingredientes</h4>
+          <p className="text-sm text-muted-foreground">
+            Adicione, edite ou remova ingredientes da ficha técnica.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={iniciarNovoIngrediente}>
+            {editandoIngredienteId ? "Novo ingrediente" : "Adicionar ingrediente"}
+          </Button>
+
+          {showIngredientForm && ingredientes.length > 0 && !editandoIngredienteId ? (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowIngredientForm(false)}
+            >
+              Ocultar formulário
+            </Button>
+          ) : null}
+        </div>
+      </div>
 
       <div className="space-y-4 rounded-lg border p-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-          <div className="md:col-span-3">
-            <Label>Produto cadastrado</Label>
-            <select
-              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={draftIngredienteId}
-              onChange={(e) => onSelectProductIngredient(e.target.value)}
-            >
-              <option value="">— Selecionar produto —</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        {showIngredientForm ? (
+          <div className="space-y-4 rounded-lg border border-dashed bg-slate-50/70 p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium">
+                  {editandoIngredienteId ? "Editando ingrediente" : "Novo ingrediente"}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Preencha os dados abaixo e salve para atualizar a ficha.
+                </p>
+              </div>
 
-          <div className="md:col-span-3">
-            <Label>Ingrediente</Label>
-            <Input
-              value={draftIngredienteNome}
-              onChange={(e) => setDraftIngredienteNome(e.target.value)}
-              placeholder="Nome do ingrediente"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <Label>Qtd de uso</Label>
-            <Input
-              type="number"
-              value={draftQuantidadeUso}
-              onChange={(e) => setDraftQuantidadeUso(toNumber(e.target.value, 0))}
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <Label>Unidade de uso</Label>
-            <Input
-              value={draftUnidadeUso}
-              onChange={(e) => setDraftUnidadeUso(normalizeUnit(e.target.value, "UN"))}
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <Label>Preço da compra</Label>
-            <Input
-              type="number"
-              step="0.01"
-              value={draftPrecoCompra}
-              onChange={(e) => setDraftPrecoCompra(toNumber(e.target.value, 0))}
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <Label>Qtd comprada</Label>
-            <Input
-              type="number"
-              step="0.001"
-              value={draftQuantidadeCompra}
-              onChange={(e) => setDraftQuantidadeCompra(toNumber(e.target.value, 1))}
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <Label>Unidade compra</Label>
-            <Input
-              value={draftUnidadeCompra}
-              onChange={(e) =>
-                setDraftUnidadeCompra(normalizeUnit(e.target.value, "UN"))
-              }
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <Label>F. Correção</Label>
-            <Input
-              type="number"
-              step="0.001"
-              value={draftFCorrecao}
-              onChange={(e) => setDraftFCorrecao(toNumber(e.target.value, 1))}
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <Label>F. Cocção</Label>
-            <Input
-              type="number"
-              step="0.001"
-              value={draftFCoccao}
-              onChange={(e) => setDraftFCoccao(toNumber(e.target.value, 1))}
-            />
-          </div>
-
-          <div className="md:col-span-4 flex items-end gap-2">
-            <Button type="button" className="w-full" onClick={salvarIngrediente}>
-              {editandoIngredienteId ? "Salvar ingrediente" : "Adicionar ingrediente"}
-            </Button>
-
-            {editandoIngredienteId ? (
-              <Button type="button" variant="outline" onClick={resetDraftIngrediente}>
-                Cancelar
-              </Button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="rounded-lg bg-slate-50 p-3 text-sm">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div>
-              <p className="text-gray-600">Custo unitário base</p>
-              <p className="font-bold">
-                {formatCurrency(previewIngrediente.custoUnitarioBase)}
-              </p>
+              {editandoIngredienteId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    resetDraftIngrediente();
+                    if (ingredientes.length > 0) {
+                      setShowIngredientForm(false);
+                    }
+                  }}
+                >
+                  Cancelar edição
+                </Button>
+              ) : null}
             </div>
-            <div>
-              <p className="text-gray-600">Custo final do ingrediente</p>
-              <p className="font-bold text-red-600">
-                {formatCurrency(previewIngrediente.custoIngrediente)}
-              </p>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+              <div className="md:col-span-3">
+                <Label>Produto cadastrado</Label>
+                <select
+                  className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={draftIngredienteId}
+                  onChange={(e) => onSelectProductIngredient(e.target.value)}
+                >
+                  <option value="">— Selecionar produto —</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-3">
+                <Label>Ingrediente</Label>
+                <Input
+                  value={draftIngredienteNome}
+                  onChange={(e) => setDraftIngredienteNome(e.target.value)}
+                  placeholder="Nome do ingrediente"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <Label>Qtd de uso</Label>
+                <Input
+                  type="number"
+                  value={draftQuantidadeUso}
+                  onChange={(e) => setDraftQuantidadeUso(toNumber(e.target.value, 0))}
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <Label>Unidade de uso</Label>
+                <Input
+                  value={draftUnidadeUso}
+                  onChange={(e) => setDraftUnidadeUso(normalizeUnit(e.target.value, "UN"))}
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <Label>Preço da compra</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={draftPrecoCompra}
+                  onChange={(e) => setDraftPrecoCompra(toNumber(e.target.value, 0))}
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <Label>Qtd comprada</Label>
+                <Input
+                  type="number"
+                  step="0.001"
+                  value={draftQuantidadeCompra}
+                  onChange={(e) => setDraftQuantidadeCompra(toNumber(e.target.value, 1))}
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <Label>Unidade compra</Label>
+                <Input
+                  value={draftUnidadeCompra}
+                  onChange={(e) =>
+                    setDraftUnidadeCompra(normalizeUnit(e.target.value, "UN"))
+                  }
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <Label>F. Correção</Label>
+                <Input
+                  type="number"
+                  step="0.001"
+                  value={draftFCorrecao}
+                  onChange={(e) => setDraftFCorrecao(toNumber(e.target.value, 1))}
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <Label>F. Cocção</Label>
+                <Input
+                  type="number"
+                  step="0.001"
+                  value={draftFCoccao}
+                  onChange={(e) => setDraftFCoccao(toNumber(e.target.value, 1))}
+                />
+              </div>
+
+              <div className="md:col-span-4 flex flex-wrap items-end gap-2">
+                <Button type="button" className="w-full sm:flex-1" onClick={salvarIngrediente}>
+                  {editandoIngredienteId ? "Salvar ingrediente" : "Adicionar ingrediente"}
+                </Button>
+
+                {!editandoIngredienteId && ingredientes.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowIngredientForm(false)}
+                  >
+                    Fechar
+                  </Button>
+                ) : null}
+              </div>
             </div>
-            <div>
-              <p className="text-gray-600">Modo</p>
-              <p className="font-medium">
-                {editandoIngredienteId ? "Editando ingrediente" : "Novo ingrediente"}
-              </p>
+
+            <div className="rounded-lg bg-white p-3 text-sm">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div>
+                  <p className="text-gray-600">Custo unitário base</p>
+                  <p className="font-bold">
+                    {formatCurrency(previewIngrediente.custoUnitarioBase)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-600">Custo final do ingrediente</p>
+                  <p className="font-bold text-red-600">
+                    {formatCurrency(previewIngrediente.custoIngrediente)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-600">Itens cadastrados</p>
+                  <p className="font-medium">{ingredientes.length}</p>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        ) : null}
 
         {ingredientes.length === 0 ? (
           <p className="text-sm text-gray-600">Nenhum ingrediente adicionado ainda.</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Ingrediente</TableHead>
-                <TableHead>Uso</TableHead>
-                <TableHead>Compra</TableHead>
-                <TableHead>Preço compra</TableHead>
-                <TableHead>Custo unit.</TableHead>
-                <TableHead>Custo final</TableHead>
-                <TableHead>Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {ingredientes.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>{item.nome}</TableCell>
-                  <TableCell>
-                    {item.quantidadeUso} {item.unidadeUso}
-                  </TableCell>
-                  <TableCell>
-                    {item.quantidadeCompra} {item.unidadeCompra}
-                  </TableCell>
-                  <TableCell>{formatCurrency(item.precoCompra)}</TableCell>
-                  <TableCell>{formatCurrency(item.custoUnitarioBase)}</TableCell>
-                  <TableCell className="font-medium text-red-600">
-                    {formatCurrency(item.custoIngrediente)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => editarIngrediente(item.id)}
-                      >
-                        Editar
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => removerIngrediente(item.id)}
-                      >
-                        Remover
-                      </Button>
-                    </div>
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table className="min-w-[920px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Ingrediente</TableHead>
+                  <TableHead>Uso</TableHead>
+                  <TableHead>Compra</TableHead>
+                  <TableHead>Preço compra</TableHead>
+                  <TableHead>Custo unit.</TableHead>
+                  <TableHead>Custo final</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {ingredientes.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>{item.nome}</TableCell>
+                    <TableCell>
+                      {item.quantidadeUso} {item.unidadeUso}
+                    </TableCell>
+                    <TableCell>
+                      {item.quantidadeCompra} {item.unidadeCompra}
+                    </TableCell>
+                    <TableCell>{formatCurrency(item.precoCompra)}</TableCell>
+                    <TableCell>{formatCurrency(item.custoUnitarioBase)}</TableCell>
+                    <TableCell className="font-medium text-red-600">
+                      {formatCurrency(item.custoIngrediente)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => editarIngrediente(item.id)}
+                        >
+                          Editar
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => removerIngrediente(item.id)}
+                        >
+                          Remover
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </div>
     </div>

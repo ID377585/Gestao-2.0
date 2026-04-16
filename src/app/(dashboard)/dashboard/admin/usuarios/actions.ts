@@ -20,6 +20,28 @@ export type Collaborator = {
   sector: string | null;
   is_active: boolean;
   created_at?: string | null;
+  last_sign_in_at?: string | null;
+};
+
+export type UserAuditAction =
+  | "create_user"
+  | "update_user"
+  | "reset_password"
+  | "deactivate_user"
+  | "reactivate_user"
+  | "delete_user";
+
+export type UserAccessAuditLog = {
+  id: string;
+  action: UserAuditAction | string;
+  created_at: string | null;
+  actor_user_id: string | null;
+  actor_name: string | null;
+  actor_email: string | null;
+  target_user_id: string | null;
+  target_name: string | null;
+  target_email: string | null;
+  details: Record<string, any> | null;
 };
 
 function getSupabaseAdmin() {
@@ -98,6 +120,116 @@ function normalizeRole(value: string): ProfileRole {
   return "producao";
 }
 
+async function getAuthUsersSnapshotMap(
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>
+) {
+  const emailById = new Map<string, string>();
+  const lastSignInById = new Map<string, string | null>();
+  const perPage = 200;
+
+  for (let page = 1; page <= 20; page++) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) {
+      console.error("Erro ao listar usuários do Auth:", error);
+      throw new Error("Erro ao listar usuários.");
+    }
+
+    const users = data?.users ?? [];
+
+    for (const u of users) {
+      if (u?.id) {
+        emailById.set(String(u.id), u.email ?? "");
+        lastSignInById.set(String(u.id), u.last_sign_in_at ?? null);
+      }
+    }
+
+    if (users.length < perPage) break;
+  }
+
+  return {
+    emailById,
+    lastSignInById,
+  };
+}
+
+async function writeUserAuditLog(params: {
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>;
+  establishmentId: string;
+  actorUserId: string | null;
+  targetUserId: string | null;
+  action: UserAuditAction;
+  details?: Record<string, any> | null;
+}) {
+  try {
+    const { error } = await params.supabaseAdmin.from("user_access_audit_logs").insert({
+      establishment_id: params.establishmentId,
+      actor_user_id: params.actorUserId,
+      target_user_id: params.targetUserId,
+      action: params.action,
+      details: params.details ?? {},
+    });
+
+    if (error) {
+      console.error("Erro ao gravar log de auditoria:", error);
+    }
+  } catch (error) {
+    console.error("Falha inesperada ao gravar log de auditoria:", error);
+  }
+}
+
+/**
+ * PATCH CIRÚRGICO:
+ * Mantém public.memberships sincronizada com establishment_memberships,
+ * sem alterar o restante do fluxo já validado.
+ */
+async function upsertPrimaryMembership(params: {
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>;
+  establishmentId: string;
+  userId: string;
+  role: ProfileRole;
+  is_active: boolean;
+}) {
+  const { error } = await params.supabaseAdmin
+    .from("memberships")
+    .upsert(
+      {
+        establishment_id: params.establishmentId,
+        user_id: params.userId,
+        role: params.role,
+        is_active: params.is_active,
+      },
+      { onConflict: "establishment_id,user_id" }
+    );
+
+  if (error) {
+    console.error("Erro ao sincronizar public.memberships:", error);
+    throw new Error(
+      "Acesso criado/atualizado parcialmente, mas falhou ao sincronizar a membership principal."
+    );
+  }
+}
+
+async function deletePrimaryMembership(params: {
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>;
+  establishmentId: string;
+  userId: string;
+}) {
+  const { error } = await params.supabaseAdmin
+    .from("memberships")
+    .delete()
+    .eq("establishment_id", params.establishmentId)
+    .eq("user_id", params.userId);
+
+  if (error) {
+    console.error("Erro ao remover public.memberships:", error);
+    throw new Error("Não foi possível remover o vínculo principal do usuário.");
+  }
+}
+
 export async function listCollaborators(): Promise<Collaborator[]> {
   const ctx = await getContextOrThrow();
   const supabaseAdmin = getSupabaseAdmin();
@@ -160,28 +292,7 @@ export async function listCollaborators(): Promise<Collaborator[]> {
     ])
   );
 
-  const emailById = new Map<string, string>();
-  const perPage = 200;
-
-  for (let page = 1; page <= 20; page++) {
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
-      page,
-      perPage,
-    });
-
-    if (error) {
-      console.error("Erro ao listar usuários do Auth:", error);
-      throw new Error("Erro ao listar usuários.");
-    }
-
-    for (const u of data.users) {
-      if (u?.id) {
-        emailById.set(String(u.id), u.email ?? "");
-      }
-    }
-
-    if (data.users.length < perPage) break;
-  }
+  const { emailById, lastSignInById } = await getAuthUsersSnapshotMap(supabaseAdmin);
 
   const result: Collaborator[] = userIds.map((userId) => {
     const membership = uniqueMemberships.get(userId);
@@ -195,11 +306,113 @@ export async function listCollaborators(): Promise<Collaborator[]> {
       sector: profile?.sector ?? null,
       is_active: Boolean(membership?.is_active ?? false),
       created_at: membership?.created_at ?? null,
+      last_sign_in_at: lastSignInById.get(userId) ?? null,
     };
   });
 
   result.sort((a, b) => a.full_name.localeCompare(b.full_name, "pt-BR"));
   return result;
+}
+
+export async function listUserAccessAuditLogs(
+  limit = 30
+): Promise<UserAccessAuditLog[]> {
+  const ctx = await getContextOrThrow();
+  const supabaseAdmin = getSupabaseAdmin();
+
+  try {
+    const { data: logs, error } = await supabaseAdmin
+      .from("user_access_audit_logs")
+      .select(
+        "id, actor_user_id, target_user_id, action, details, created_at, establishment_id"
+      )
+      .eq("establishment_id", ctx.establishment_id)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      const errorCode = String((error as any)?.code ?? "");
+
+      if (
+        errorCode === "42P01" ||
+        errorCode === "PGRST205" ||
+        errorCode === "PGRST204"
+      ) {
+        console.warn(
+          "Tabela de auditoria ainda não existe ou não está disponível no schema cache."
+        );
+        return [];
+      }
+
+      console.error("Erro ao listar logs de auditoria:", error);
+      return [];
+    }
+
+    const userIds = Array.from(
+      new Set(
+        (logs ?? [])
+          .flatMap((log: any) => [log.actor_user_id, log.target_user_id])
+          .filter(Boolean)
+          .map(String)
+      )
+    );
+
+    const profilesById = new Map<
+      string,
+      { full_name: string; role: string; sector: string | null }
+    >();
+
+    if (userIds.length > 0) {
+      const { data: profiles, error: profilesErr } = await supabaseAdmin
+        .from("profiles")
+        .select("id, full_name, role, sector")
+        .in("id", userIds);
+
+      if (profilesErr) {
+        console.error("Erro ao buscar profiles dos logs:", profilesErr);
+      } else {
+        for (const p of profiles ?? []) {
+          profilesById.set(String((p as any).id), {
+            full_name: String((p as any).full_name ?? ""),
+            role: String((p as any).role ?? ""),
+            sector: (p as any).sector ? String((p as any).sector) : null,
+          });
+        }
+      }
+    }
+
+    const { emailById } = await getAuthUsersSnapshotMap(supabaseAdmin);
+
+    return (logs ?? []).map((log: any) => {
+      const details = (log.details ?? {}) as Record<string, any>;
+      const actorId = log.actor_user_id ? String(log.actor_user_id) : null;
+      const targetId = log.target_user_id ? String(log.target_user_id) : null;
+
+      return {
+        id: String(log.id),
+        action: String(log.action),
+        created_at: log.created_at ? String(log.created_at) : null,
+        actor_user_id: actorId,
+        actor_name:
+          details.actor_name ??
+          (actorId ? profilesById.get(actorId)?.full_name ?? null : null),
+        actor_email:
+          details.actor_email ??
+          (actorId ? emailById.get(actorId) ?? null : null),
+        target_user_id: targetId,
+        target_name:
+          details.target_name ??
+          (targetId ? profilesById.get(targetId)?.full_name ?? null : null),
+        target_email:
+          details.target_email ??
+          (targetId ? emailById.get(targetId) ?? null : null),
+        details,
+      };
+    });
+  } catch (error) {
+    console.error("Falha inesperada ao listar logs de auditoria:", error);
+    return [];
+  }
 }
 
 export async function createCollaborator(formData: FormData) {
@@ -273,11 +486,34 @@ export async function createCollaborator(formData: FormData) {
     );
   }
 
+  await upsertPrimaryMembership({
+    supabaseAdmin,
+    establishmentId: ctx.establishment_id,
+    userId,
+    role,
+    is_active: true,
+  });
+
+  await writeUserAuditLog({
+    supabaseAdmin,
+    establishmentId: ctx.establishment_id,
+    actorUserId: ctx.userId,
+    targetUserId: userId,
+    action: "create_user",
+    details: {
+      actor_user_id: ctx.userId,
+      target_name: full_name,
+      target_email: email,
+      role,
+      sector,
+    },
+  });
+
   revalidatePath("/dashboard/admin/usuarios");
 }
 
 export async function updateCollaborator(formData: FormData) {
-  await getContextOrThrow();
+  const ctx = await getContextOrThrow();
   const supabaseAdmin = getSupabaseAdmin();
 
   const userId = String(formData.get("user_id") ?? "").trim();
@@ -290,6 +526,23 @@ export async function updateCollaborator(formData: FormData) {
 
   if (!userId || !full_name || !role || !establishmentId) {
     throw new Error("Dados obrigatórios do usuário não informados.");
+  }
+
+  const { data: beforeProfile } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name, role, sector")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const { data: beforeMembership } = await supabaseAdmin
+    .from("establishment_memberships")
+    .select("role, is_active")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (ctx.userId === userId && !is_active) {
+    throw new Error("Você não pode desativar seu próprio acesso.");
   }
 
   const { error: profileErr } = await supabaseAdmin
@@ -320,11 +573,41 @@ export async function updateCollaborator(formData: FormData) {
     throw new Error("Não foi possível atualizar o acesso do usuário.");
   }
 
+  await upsertPrimaryMembership({
+    supabaseAdmin,
+    establishmentId,
+    userId,
+    role,
+    is_active,
+  });
+
+  await writeUserAuditLog({
+    supabaseAdmin,
+    establishmentId,
+    actorUserId: ctx.userId,
+    targetUserId: userId,
+    action: "update_user",
+    details: {
+      before: {
+        full_name: beforeProfile?.full_name ?? null,
+        role: beforeMembership?.role ?? beforeProfile?.role ?? null,
+        sector: beforeProfile?.sector ?? null,
+        is_active: beforeMembership?.is_active ?? null,
+      },
+      after: {
+        full_name,
+        role,
+        sector,
+        is_active,
+      },
+    },
+  });
+
   revalidatePath("/dashboard/admin/usuarios");
 }
 
 export async function resetCollaboratorPassword(formData: FormData) {
-  await getContextOrThrow();
+  const ctx = await getContextOrThrow();
   const supabaseAdmin = getSupabaseAdmin();
 
   const userId = String(formData.get("user_id") ?? "").trim();
@@ -346,6 +629,207 @@ export async function resetCollaboratorPassword(formData: FormData) {
     console.error("Erro ao redefinir senha:", error);
     throw new Error(error.message ?? "Não foi possível redefinir a senha.");
   }
+
+  await writeUserAuditLog({
+    supabaseAdmin,
+    establishmentId: ctx.establishment_id,
+    actorUserId: ctx.userId,
+    targetUserId: userId,
+    action: "reset_password",
+    details: {},
+  });
+
+  revalidatePath("/dashboard/admin/usuarios");
+}
+
+export async function toggleCollaboratorStatus(formData: FormData) {
+  const ctx = await getContextOrThrow();
+  const supabaseAdmin = getSupabaseAdmin();
+
+  const userId = String(formData.get("user_id") ?? "").trim();
+  const establishmentId = String(formData.get("establishment_id") ?? "").trim();
+  const isActive = String(formData.get("is_active") ?? "").trim() === "true";
+
+  if (!userId || !establishmentId) {
+    throw new Error("Dados obrigatórios do usuário não informados.");
+  }
+
+  if (ctx.userId === userId && !isActive) {
+    throw new Error("Você não pode desativar seu próprio acesso.");
+  }
+
+  const { data: currentProfile } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const { data: currentMembership, error: currentMembershipErr } = await supabaseAdmin
+    .from("establishment_memberships")
+    .select("role, is_active")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (currentMembershipErr) {
+    console.error("Erro ao buscar membership atual:", currentMembershipErr);
+    throw new Error("Não foi possível consultar o acesso atual do usuário.");
+  }
+
+  const role = normalizeRole(String(currentMembership?.role ?? "producao"));
+
+  const { error } = await supabaseAdmin
+    .from("establishment_memberships")
+    .update({
+      is_active: isActive,
+    })
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", userId);
+
+  if (error) {
+    console.error("Erro ao alterar status do usuário:", error);
+    throw new Error("Não foi possível alterar o status do usuário.");
+  }
+
+  await upsertPrimaryMembership({
+    supabaseAdmin,
+    establishmentId,
+    userId,
+    role,
+    is_active: isActive,
+  });
+
+  await writeUserAuditLog({
+    supabaseAdmin,
+    establishmentId,
+    actorUserId: ctx.userId,
+    targetUserId: userId,
+    action: isActive ? "reactivate_user" : "deactivate_user",
+    details: {
+      target_name: currentProfile?.full_name ?? null,
+      is_active: isActive,
+    },
+  });
+
+  revalidatePath("/dashboard/admin/usuarios");
+}
+
+export async function deleteCollaborator(formData: FormData) {
+  const ctx = await getContextOrThrow();
+  const supabaseAdmin = getSupabaseAdmin();
+
+  const userId = String(formData.get("user_id") ?? "").trim();
+  const establishmentId = String(formData.get("establishment_id") ?? "").trim();
+
+  if (!userId || !establishmentId) {
+    throw new Error("Dados obrigatórios do usuário não informados.");
+  }
+
+  if (ctx.userId === userId) {
+    throw new Error("Você não pode excluir seu próprio usuário.");
+  }
+
+  const { data: targetProfile } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name, role, sector")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const { emailById } = await getAuthUsersSnapshotMap(supabaseAdmin);
+  const targetEmail = emailById.get(userId) ?? null;
+
+  const { error: membershipDeleteErr } = await supabaseAdmin
+    .from("establishment_memberships")
+    .delete()
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", userId);
+
+  if (membershipDeleteErr) {
+    console.error("Erro ao remover membership do usuário:", membershipDeleteErr);
+    throw new Error("Não foi possível excluir o acesso do usuário.");
+  }
+
+  await deletePrimaryMembership({
+    supabaseAdmin,
+    establishmentId,
+    userId,
+  });
+
+  const { count: remainingEstablishmentMemberships, error: countEstErr } =
+    await supabaseAdmin
+      .from("establishment_memberships")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId);
+
+  if (countEstErr) {
+    console.error(
+      "Erro ao contar vínculos restantes em establishment_memberships:",
+      countEstErr
+    );
+    throw new Error("Não foi possível concluir a exclusão do usuário.");
+  }
+
+  const { count: remainingPrimaryMemberships, error: countPrimaryErr } =
+    await supabaseAdmin
+      .from("memberships")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId);
+
+  if (countPrimaryErr) {
+    console.error(
+      "Erro ao contar vínculos restantes em public.memberships:",
+      countPrimaryErr
+    );
+    throw new Error("Não foi possível concluir a exclusão do usuário.");
+  }
+
+  const remainingMemberships = Math.max(
+    remainingEstablishmentMemberships ?? 0,
+    remainingPrimaryMemberships ?? 0
+  );
+
+  let authUserDeleted = false;
+
+  if (remainingMemberships === 0) {
+    const { error: profileDeleteErr } = await supabaseAdmin
+      .from("profiles")
+      .delete()
+      .eq("id", userId);
+
+    if (profileDeleteErr) {
+      console.error("Erro ao remover profile do usuário:", profileDeleteErr);
+      throw new Error("Não foi possível remover o perfil do usuário.");
+    }
+
+    const { error: authDeleteErr } = await supabaseAdmin.auth.admin.deleteUser(
+      userId,
+      true
+    );
+
+    if (authDeleteErr) {
+      console.error("Erro ao excluir usuário do Auth:", authDeleteErr);
+      throw new Error(
+        authDeleteErr.message ?? "Não foi possível excluir o usuário do Auth."
+      );
+    }
+
+    authUserDeleted = true;
+  }
+
+  await writeUserAuditLog({
+    supabaseAdmin,
+    establishmentId,
+    actorUserId: ctx.userId,
+    targetUserId: userId,
+    action: "delete_user",
+    details: {
+      target_name: targetProfile?.full_name ?? null,
+      target_email: targetEmail,
+      removed_from_establishment: true,
+      auth_user_deleted: authUserDeleted,
+      had_other_memberships: remainingMemberships > 0,
+    },
+  });
 
   revalidatePath("/dashboard/admin/usuarios");
 }

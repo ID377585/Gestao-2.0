@@ -206,8 +206,8 @@ function shouldIgnoreLine(line: string) {
     "GRAU DE DIFICULDADE",
     "TEMPERATURA",
     "TEMPO DE PREP",
-    "TEMPO COCÇÃO",
     "TEMPO COCCAO",
+    "TEMPO COCÇÃO",
     "TEMPO COC",
     "FATOR COCÇÃO",
     "FATOR COCCAO",
@@ -850,6 +850,72 @@ async function saveScales(
   }
 }
 
+async function duplicateTechnicalSheetImage(
+  supabase: any,
+  sourceImagePath: string | null | undefined,
+  establishmentId: string,
+  userId: string
+) {
+  if (!sourceImagePath?.trim()) {
+    return {
+      imageUrl: null as string | null,
+      imagePath: null as string | null,
+    };
+  }
+
+  try {
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from(TECHNICAL_SHEET_BUCKET)
+      .download(sourceImagePath);
+
+    if (downloadError || !fileData) {
+      console.error("Erro ao baixar imagem para duplicação:", downloadError);
+      return {
+        imageUrl: null,
+        imagePath: null,
+      };
+    }
+
+    const originalFileName =
+      sourceImagePath.split("/").pop() || `imagem-${Date.now()}.jpg`;
+
+    const duplicatedPath = `${establishmentId}/${userId}/${Date.now()}-copy-${sanitizeFileName(
+      originalFileName
+    )}`;
+
+    const { error: uploadError } = await supabase.storage
+  .from(TECHNICAL_SHEET_BUCKET)
+  .upload(filePath, file, {
+    cacheControl: "3600",
+    upsert: false,
+    contentType: file.type,
+  });
+
+    if (uploadError) {
+      console.error("Erro ao subir imagem duplicada da ficha:", uploadError);
+      return {
+        imageUrl: null,
+        imagePath: null,
+      };
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from(TECHNICAL_SHEET_BUCKET)
+      .getPublicUrl(duplicatedPath);
+
+    return {
+      imageUrl: publicUrlData.publicUrl,
+      imagePath: duplicatedPath,
+    };
+  } catch (error) {
+    console.error("Erro inesperado ao duplicar imagem da ficha:", error);
+    return {
+      imageUrl: null,
+      imagePath: null,
+    };
+  }
+}
+
 export async function uploadTechnicalSheetImageAction(formData: FormData) {
   const { supabase, establishmentId, userId } = await getContext();
 
@@ -876,7 +942,7 @@ export async function uploadTechnicalSheetImageAction(formData: FormData) {
     safeName || `imagem.${extension}`
   }`;
 
-  const { error: uploadError } = await supabase.storage
+  const { error: uploadError } = await supabase
     .from(TECHNICAL_SHEET_BUCKET)
     .upload(filePath, file, {
       cacheControl: "3600",
@@ -1264,6 +1330,216 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
   await saveScales(supabase, input.id, input.scales);
 
   revalidatePath("/dashboard/fichas-tecnicas");
+}
+
+export async function duplicateTechnicalSheetAction(technicalSheetId: string) {
+  const { supabase, establishmentId, userId } = await getContext();
+
+  if (!technicalSheetId) {
+    throw new Error("ID da ficha não informado.");
+  }
+
+  const { data: source, error: sourceError } = await supabase
+    .from("technical_sheets")
+    .select(`
+      id,
+      establishment_id,
+      name,
+      category,
+      yield_portions,
+      portion_weight,
+      prep_time_minutes,
+      profit_margin_percent,
+      sale_price,
+      total_cost,
+      cost_per_portion,
+      preparation_method,
+      image_url,
+      image_path,
+      difficulty_level,
+      temperature_celsius,
+      cooking_time_minutes,
+      cooking_factor_grams,
+      correction_factor_grams,
+      yield_label,
+      portion_weight_unit,
+      storage_instructions,
+      shelf_life_frozen,
+      shelf_life_refrigerated,
+      shelf_life_room_temp,
+      allergens,
+      source_updated_at,
+      import_origin,
+      source_file_name,
+      source_page_number,
+      video_url,
+      ingredients:technical_sheet_ingredients (
+        id,
+        technical_sheet_id,
+        product_id,
+        ingredient_name,
+        usage_quantity,
+        usage_unit,
+        purchase_price,
+        purchase_quantity,
+        purchase_unit,
+        correction_factor,
+        cooking_factor,
+        base_unit_cost,
+        final_cost,
+        sort_order,
+        created_at
+      ),
+      scales:technical_sheet_scales (
+        id,
+        technical_sheet_id,
+        scale_label,
+        yield_description,
+        net_weight,
+        sort_order,
+        created_at,
+        ingredients:technical_sheet_scale_ingredients (
+          id,
+          technical_sheet_scale_id,
+          ingredient_name,
+          amount,
+          unit,
+          sort_order,
+          created_at
+        )
+      )
+    `)
+    .eq("id", technicalSheetId)
+    .eq("establishment_id", establishmentId)
+    .single();
+
+  if (sourceError || !source) {
+    console.error("Erro ao buscar ficha para duplicação:", sourceError);
+    throw new Error("Ficha técnica não encontrada para duplicação.");
+  }
+
+  const duplicatedImage = await duplicateTechnicalSheetImage(
+    supabase,
+    (source as any).image_path as string | null,
+    establishmentId,
+    userId
+  );
+
+  const duplicatedName = `${String((source as any).name ?? "Ficha técnica").trim()} - Cópia`;
+
+  const { data: createdSheet, error: createdSheetError } = await supabase
+    .from("technical_sheets")
+    .insert({
+      establishment_id: establishmentId,
+      name: duplicatedName,
+      category: (source as any).category,
+      yield_portions: (source as any).yield_portions,
+      portion_weight: (source as any).portion_weight,
+      prep_time_minutes: (source as any).prep_time_minutes,
+      profit_margin_percent: (source as any).profit_margin_percent,
+      sale_price: (source as any).sale_price,
+      total_cost: (source as any).total_cost,
+      cost_per_portion: (source as any).cost_per_portion,
+      preparation_method: (source as any).preparation_method,
+      image_url: duplicatedImage.imageUrl,
+      image_path: duplicatedImage.imagePath,
+      difficulty_level: (source as any).difficulty_level,
+      temperature_celsius: (source as any).temperature_celsius,
+      cooking_time_minutes: (source as any).cooking_time_minutes,
+      cooking_factor_grams: (source as any).cooking_factor_grams,
+      correction_factor_grams: (source as any).correction_factor_grams,
+      yield_label: (source as any).yield_label,
+      portion_weight_unit: normalizeUnit((source as any).portion_weight_unit, "G"),
+      storage_instructions: (source as any).storage_instructions,
+      shelf_life_frozen: (source as any).shelf_life_frozen,
+      shelf_life_refrigerated: (source as any).shelf_life_refrigerated,
+      shelf_life_room_temp: (source as any).shelf_life_room_temp,
+      allergens: (source as any).allergens,
+      source_updated_at: (source as any).source_updated_at,
+      import_origin: (source as any).import_origin,
+      source_file_name: (source as any).source_file_name,
+      source_page_number: (source as any).source_page_number,
+      video_url: (source as any).video_url,
+      created_by: userId,
+    })
+    .select("id, name")
+    .single();
+
+  if (createdSheetError || !createdSheet) {
+    console.error("Erro ao criar ficha duplicada:", createdSheetError);
+    throw new Error("Não foi possível duplicar a ficha técnica.");
+  }
+
+  const sourceIngredients = Array.isArray((source as any).ingredients)
+    ? [...((source as any).ingredients as any[])].sort(
+        (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+      )
+    : [];
+
+  if (sourceIngredients.length > 0) {
+    const ingredientsPayload = sourceIngredients.map((ingredient, index) => ({
+      technical_sheet_id: createdSheet.id,
+      product_id: ingredient.product_id || null,
+      ingredient_name: String(ingredient.ingredient_name ?? "").trim(),
+      usage_quantity: ingredient.usage_quantity,
+      usage_unit: normalizeUnit(ingredient.usage_unit, "G"),
+      purchase_price: ingredient.purchase_price,
+      purchase_quantity: ingredient.purchase_quantity,
+      purchase_unit: normalizeUnit(ingredient.purchase_unit, "G"),
+      correction_factor: ingredient.correction_factor,
+      cooking_factor: ingredient.cooking_factor,
+      base_unit_cost: ingredient.base_unit_cost,
+      final_cost: ingredient.final_cost,
+      sort_order: ingredient.sort_order ?? index,
+    }));
+
+    const { error: ingredientsError } = await supabase
+      .from("technical_sheet_ingredients")
+      .insert(ingredientsPayload);
+
+    if (ingredientsError) {
+      console.error(
+        "Erro ao duplicar ingredientes da ficha técnica:",
+        ingredientsError
+      );
+      throw new Error(
+        "A ficha foi duplicada, mas houve erro ao copiar os ingredientes."
+      );
+    }
+  }
+
+  const sourceScales = Array.isArray((source as any).scales)
+    ? [...((source as any).scales as any[])].sort(
+        (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+      )
+    : [];
+
+  const scalesPayload: TechnicalSheetScaleInput[] = sourceScales.map(
+    (scale: any, scaleIndex: number) => ({
+      scale_label: String(scale.scale_label ?? "").trim(),
+      yield_description: scale.yield_description ?? null,
+      net_weight:
+        scale.net_weight !== null && scale.net_weight !== undefined
+          ? Number(scale.net_weight)
+          : null,
+      sort_order: scale.sort_order ?? scaleIndex,
+      ingredients: Array.isArray(scale.ingredients)
+        ? [...scale.ingredients]
+            .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+            .map((item: any, itemIndex: number) => ({
+              ingredient_name: String(item.ingredient_name ?? "").trim(),
+              amount: Number(item.amount ?? 0),
+              unit: normalizeUnit(item.unit, "G"),
+              sort_order: item.sort_order ?? itemIndex,
+            }))
+        : [],
+    })
+  );
+
+  await saveScales(supabase, createdSheet.id, scalesPayload);
+
+  revalidatePath("/dashboard/fichas-tecnicas");
+  return createdSheet;
 }
 
 export async function deleteTechnicalSheet(id: string) {

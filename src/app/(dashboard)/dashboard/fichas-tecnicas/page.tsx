@@ -33,12 +33,14 @@ import {
   createTechnicalSheet,
   deleteTechnicalSheet,
   deleteTechnicalSheetImageAction,
+  duplicateTechnicalSheetAction,
   importTechnicalSheetsFromPdfAction,
   listTechnicalSheets,
   updateTechnicalSheet,
   uploadTechnicalSheetImageAction,
   type TechnicalSheetInput,
 } from "./actions";
+import { exportTechnicalSheetPdf } from "./pdf-export";
 
 type ProductOption = {
   id: string;
@@ -241,7 +243,8 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
         ? Number(raw.cooking_time_minutes)
         : null,
     cookingFactorGrams:
-      raw.cooking_factor_grams !== null && raw.cooking_factor_grams !== undefined
+      raw.cooking_factor_grams !== null &&
+      raw.cooking_factor_grams !== undefined
         ? Number(raw.cooking_factor_grams)
         : null,
     correctionFactorGrams:
@@ -404,7 +407,9 @@ function escapeCsv(val: unknown) {
 function getScaledFicha(ficha: FichaTecnica, servings: number) {
   const safeServings = Math.max(1, toNumber(servings, 1));
   const factor =
-    ficha.rendimento > 0 ? Number((safeServings / ficha.rendimento).toFixed(4)) : 1;
+    ficha.rendimento > 0
+      ? Number((safeServings / ficha.rendimento).toFixed(4))
+      : 1;
 
   const ingredientesEscalados = ficha.ingredientes.map((item) => ({
     ...item,
@@ -813,6 +818,8 @@ function RecipeViewer({
   setCurrentTab,
   onEdit,
   onPrint,
+  onExportPdf,
+  onDuplicate,
   onFullscreen,
   onDelete,
 }: {
@@ -823,6 +830,8 @@ function RecipeViewer({
   setCurrentTab: (value: ViewerTab) => void;
   onEdit: (ficha: FichaTecnica) => void;
   onPrint: (ficha: FichaTecnica) => void;
+  onExportPdf: (ficha: FichaTecnica) => void;
+  onDuplicate: (ficha: FichaTecnica) => void;
   onFullscreen: (ficha: FichaTecnica) => void;
   onDelete: (ficha: FichaTecnica) => void;
 }) {
@@ -835,7 +844,8 @@ function RecipeViewer({
             <h3 className="text-lg font-semibold">Selecione uma ficha técnica</h3>
             <p className="mt-2 text-sm text-muted-foreground">
               Escolha uma ficha na lista para visualizar ingredientes, modo de preparo,
-              escalas, custos, vídeo, impressão, foto do prato e visualização em tela cheia.
+              escalas, custos, vídeo, impressão, exportação em PDF, duplicação,
+              foto do prato e visualização em tela cheia.
             </p>
           </div>
         </CardContent>
@@ -869,14 +879,19 @@ function RecipeViewer({
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-2xl font-bold text-gray-900">{ficha.nome}</h2>
+              <h2 className="truncate text-2xl font-bold text-gray-900">
+                {ficha.nome}
+              </h2>
               <Badge variant="secondary">{ficha.categoria || "Sem categoria"}</Badge>
               {ficha.difficultyLevel ? (
-                <Badge variant="outline">Dificuldade: {ficha.difficultyLevel}</Badge>
+                <Badge variant="outline">
+                  Dificuldade: {ficha.difficultyLevel}
+                </Badge>
               ) : null}
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              Última atualização: {formatDate(ficha.sourceUpdatedAt || ficha.updatedAt)}
+              Última atualização:{" "}
+              {formatDate(ficha.sourceUpdatedAt || ficha.updatedAt)}
             </p>
           </div>
 
@@ -885,7 +900,9 @@ function RecipeViewer({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => window.open(ficha.videoUrl || "", "_blank", "noopener,noreferrer")}
+                onClick={() =>
+                  window.open(ficha.videoUrl || "", "_blank", "noopener,noreferrer")
+                }
               >
                 ▶️ Vídeo
               </Button>
@@ -897,10 +914,28 @@ function RecipeViewer({
             <Button type="button" variant="outline" onClick={() => onPrint(ficha)}>
               🖨️ Imprimir
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onExportPdf(ficha)}
+            >
+              📄 Exportar PDF
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onDuplicate(ficha)}
+            >
+              📑 Duplicar
+            </Button>
             <Button type="button" onClick={() => onFullscreen(ficha)}>
               ⛶ Tela cheia
             </Button>
-            <Button type="button" variant="destructive" onClick={() => onDelete(ficha)}>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => onDelete(ficha)}
+            >
               🗑️ Excluir
             </Button>
           </div>
@@ -918,7 +953,9 @@ function RecipeViewer({
 
           <div className="rounded-xl border bg-slate-50 p-4">
             <p className="text-xs text-muted-foreground">Custo por porção</p>
-            <p className="mt-1 text-2xl font-bold">{formatCurrency(ficha.custoPorPorcao)}</p>
+            <p className="mt-1 text-2xl font-bold">
+              {formatCurrency(ficha.custoPorPorcao)}
+            </p>
           </div>
 
           <div className="rounded-xl border bg-slate-50 p-4">
@@ -967,21 +1004,27 @@ function RecipeViewer({
           <div className="rounded-xl border p-4">
             <p className="text-sm text-muted-foreground">Temperatura</p>
             <p className="mt-1 text-lg font-semibold">
-              {ficha.temperatureCelsius !== null ? `${ficha.temperatureCelsius} ºC` : "—"}
+              {ficha.temperatureCelsius !== null
+                ? `${ficha.temperatureCelsius} ºC`
+                : "—"}
             </p>
           </div>
 
           <div className="rounded-xl border p-4">
             <p className="text-sm text-muted-foreground">Tempo de cocção</p>
             <p className="mt-1 text-lg font-semibold">
-              {ficha.cookingTimeMinutes !== null ? `${ficha.cookingTimeMinutes} min` : "—"}
+              {ficha.cookingTimeMinutes !== null
+                ? `${ficha.cookingTimeMinutes} min`
+                : "—"}
             </p>
           </div>
 
           <div className="rounded-xl border p-4">
             <p className="text-sm text-muted-foreground">Fator de cocção</p>
             <p className="mt-1 text-lg font-semibold">
-              {ficha.cookingFactorGrams !== null ? `${ficha.cookingFactorGrams} g` : "—"}
+              {ficha.cookingFactorGrams !== null
+                ? `${ficha.cookingFactorGrams} g`
+                : "—"}
             </p>
           </div>
 
@@ -1025,7 +1068,9 @@ function RecipeViewer({
 
         <div className="rounded-xl border p-4">
           <p className="text-sm text-muted-foreground">Alergênicos</p>
-          <p className="mt-1 text-base font-semibold">{ficha.allergens || "—"}</p>
+          <p className="mt-1 text-base font-semibold">
+            {ficha.allergens || "—"}
+          </p>
 
           {ficha.importOrigin ? (
             <p className="mt-3 text-xs text-muted-foreground">
@@ -1141,22 +1186,32 @@ function RecipeViewer({
                 <TableBody>
                   {scaled.ingredientes.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={6}
+                        className="text-center text-muted-foreground"
+                      >
                         Nenhum ingrediente cadastrado.
                       </TableCell>
                     </TableRow>
                   ) : (
                     scaled.ingredientes.map((ingrediente) => (
                       <TableRow key={ingrediente.id}>
-                        <TableCell className="font-medium">{ingrediente.nome}</TableCell>
+                        <TableCell className="font-medium">
+                          {ingrediente.nome}
+                        </TableCell>
                         <TableCell>
                           {ingrediente.quantidadeUso} {ingrediente.unidadeUso}
                         </TableCell>
                         <TableCell>
-                          {ingrediente.quantidadeCompra} {ingrediente.unidadeCompra}
+                          {ingrediente.quantidadeCompra}{" "}
+                          {ingrediente.unidadeCompra}
                         </TableCell>
-                        <TableCell>{formatCurrency(ingrediente.precoCompra)}</TableCell>
-                        <TableCell>{formatCurrency(ingrediente.custoUnitarioBase)}</TableCell>
+                        <TableCell>
+                          {formatCurrency(ingrediente.precoCompra)}
+                        </TableCell>
+                        <TableCell>
+                          {formatCurrency(ingrediente.custoUnitarioBase)}
+                        </TableCell>
                         <TableCell className="font-medium text-red-600">
                           {formatCurrency(ingrediente.custoIngrediente)}
                         </TableCell>
@@ -1180,7 +1235,6 @@ function RecipeViewer({
     </Card>
   );
 }
-
 function ScaleEditor({
   scales,
   onChange,
@@ -1202,7 +1256,9 @@ function ScaleEditor({
   };
 
   const updateScale = (scaleId: string, patch: Partial<EscalaFicha>) => {
-    onChange(scales.map((scale) => (scale.id === scaleId ? { ...scale, ...patch } : scale)));
+    onChange(
+      scales.map((scale) => (scale.id === scaleId ? { ...scale, ...patch } : scale))
+    );
   };
 
   const removeScale = (scaleId: string) => {
@@ -1404,7 +1460,9 @@ function ScaleEditor({
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() => removeScaleIngredient(scale.id, ingredient.id)}
+                          onClick={() =>
+                            removeScaleIngredient(scale.id, ingredient.id)
+                          }
                         >
                           Remover
                         </Button>
@@ -1433,7 +1491,9 @@ function IngredientEditor({
   const [showIngredientForm, setShowIngredientForm] = useState(
     ingredientes.length === 0
   );
-  const [editandoIngredienteId, setEditandoIngredienteId] = useState<string | null>(null);
+  const [editandoIngredienteId, setEditandoIngredienteId] = useState<string | null>(
+    null
+  );
   const [draftIngredienteId, setDraftIngredienteId] = useState("");
   const [draftIngredienteNome, setDraftIngredienteNome] = useState("");
   const [draftQuantidadeUso, setDraftQuantidadeUso] = useState<number>(0);
@@ -1546,7 +1606,9 @@ function IngredientEditor({
 
     if (editandoIngredienteId) {
       onChange(
-        ingredientes.map((item) => (item.id === editandoIngredienteId ? payload : item))
+        ingredientes.map((item) =>
+          item.id === editandoIngredienteId ? payload : item
+        )
       );
     } else {
       onChange([...ingredientes, payload]);
@@ -1675,7 +1737,9 @@ function IngredientEditor({
                 <Label>Unidade de uso</Label>
                 <Input
                   value={draftUnidadeUso}
-                  onChange={(e) => setDraftUnidadeUso(normalizeUnit(e.target.value, "UN"))}
+                  onChange={(e) =>
+                    setDraftUnidadeUso(normalizeUnit(e.target.value, "UN"))
+                  }
                 />
               </div>
 
@@ -1695,7 +1759,9 @@ function IngredientEditor({
                   type="number"
                   step="0.001"
                   value={draftQuantidadeCompra}
-                  onChange={(e) => setDraftQuantidadeCompra(toNumber(e.target.value, 1))}
+                  onChange={(e) =>
+                    setDraftQuantidadeCompra(toNumber(e.target.value, 1))
+                  }
                 />
               </div>
 
@@ -1730,7 +1796,11 @@ function IngredientEditor({
               </div>
 
               <div className="md:col-span-4 flex flex-wrap items-end gap-2">
-                <Button type="button" className="w-full sm:flex-1" onClick={salvarIngrediente}>
+                <Button
+                  type="button"
+                  className="w-full sm:flex-1"
+                  onClick={salvarIngrediente}
+                >
                   {editandoIngredienteId ? "Salvar ingrediente" : "Adicionar ingrediente"}
                 </Button>
 
@@ -1770,7 +1840,9 @@ function IngredientEditor({
         ) : null}
 
         {ingredientes.length === 0 ? (
-          <p className="text-sm text-gray-600">Nenhum ingrediente adicionado ainda.</p>
+          <p className="text-sm text-gray-600">
+            Nenhum ingrediente adicionado ainda.
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <Table className="min-w-[920px]">
@@ -1830,13 +1902,13 @@ function IngredientEditor({
     </div>
   );
 }
-
 export default function FichasTecnicasPage() {
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingFichas, setLoadingFichas] = useState(true);
   const [isPending, startTransition] = useTransition();
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [exportingPdfId, setExportingPdfId] = useState<string | null>(null);
 
   const [fichasTecnicas, setFichasTecnicas] = useState<FichaTecnica[]>([]);
   const [fichaSelecionada, setFichaSelecionada] = useState<FichaTecnica | null>(null);
@@ -2173,8 +2245,10 @@ export default function FichasTecnicasPage() {
       imagePath,
 
       difficultyLevel: difficultyLevel.trim() || null,
-      temperatureCelsius: temperatureCelsius === "" ? null : toNumber(temperatureCelsius, 0),
-      cookingTimeMinutes: cookingTimeMinutes === "" ? null : toNumber(cookingTimeMinutes, 0),
+      temperatureCelsius:
+        temperatureCelsius === "" ? null : toNumber(temperatureCelsius, 0),
+      cookingTimeMinutes:
+        cookingTimeMinutes === "" ? null : toNumber(cookingTimeMinutes, 0),
       cookingFactorGrams:
         cookingFactorGrams === "" ? null : toNumber(cookingFactorGrams, 0),
       correctionFactorGrams:
@@ -2313,6 +2387,48 @@ export default function FichasTecnicasPage() {
         alert(err?.message ?? "Erro ao excluir ficha técnica.");
       }
     });
+  };
+
+  const duplicarFicha = (ficha: FichaTecnica) => {
+    startTransition(async () => {
+      try {
+        const created = await duplicateTechnicalSheetAction(ficha.id);
+        await loadData();
+
+        const fichasRes = await listTechnicalSheets();
+        const fichasNormalizadas = Array.isArray(fichasRes)
+          ? fichasRes.map(normalizeFichaFromDb)
+          : [];
+
+        setFichasTecnicas(fichasNormalizadas);
+
+        const duplicada =
+          fichasNormalizadas.find((item) => item.id === created.id) ?? null;
+
+        if (duplicada) {
+          setFichaSelecionada(duplicada);
+          setViewerTab("ingredientes");
+          setDesiredServings(Math.max(1, duplicada.rendimento || 1));
+        }
+
+        alert(`Ficha duplicada com sucesso: ${created.name}`);
+      } catch (err: any) {
+        console.error(err);
+        alert(err?.message ?? "Erro ao duplicar ficha técnica.");
+      }
+    });
+  };
+
+  const handleExportarPdf = async (ficha: FichaTecnica) => {
+    try {
+      setExportingPdfId(ficha.id);
+      await exportTechnicalSheetPdf(ficha, desiredServings);
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.message ?? "Erro ao exportar PDF da ficha técnica.");
+    } finally {
+      setExportingPdfId(null);
+    }
   };
 
   const exportarRelatorioCustos = () => {
@@ -2465,6 +2581,12 @@ export default function FichasTecnicasPage() {
           </Button>
         </div>
       </div>
+
+      {exportingPdfId ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+          Gerando PDF da ficha técnica...
+        </div>
+      ) : null}
 
       {(loadingProducts || loadingFichas) && (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800">
@@ -2658,6 +2780,8 @@ export default function FichasTecnicasPage() {
           setCurrentTab={setViewerTab}
           onEdit={handleEditarFicha}
           onPrint={handleImprimirFicha}
+          onExportPdf={handleExportarPdf}
+          onDuplicate={duplicarFicha}
           onFullscreen={(ficha) => {
             setFichaSelecionada(ficha);
             setShowFullscreenViewer(true);
@@ -2688,6 +2812,8 @@ export default function FichasTecnicasPage() {
                   handleEditarFicha(ficha);
                 }}
                 onPrint={handleImprimirFicha}
+                onExportPdf={handleExportarPdf}
+                onDuplicate={duplicarFicha}
                 onFullscreen={() => undefined}
                 onDelete={(ficha) => {
                   setShowFullscreenViewer(false);

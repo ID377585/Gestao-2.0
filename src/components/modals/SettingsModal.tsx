@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
   applyDarkMode,
+  fetchUserSettingsFromApi,
   getUserSettings,
-  saveUserSettings,
+  persistUserSettingsToApi,
   type UserSettings,
 } from "@/lib/user-settings";
 
@@ -17,6 +18,12 @@ interface SettingsModalProps {
   onSettingsChange?: (settings: UserSettings) => void;
 }
 
+const DEFAULT_SETTINGS: UserSettings = {
+  emailNotifications: true,
+  browserNotifications: true,
+  darkMode: false,
+};
+
 export function SettingsModal({
   open,
   onClose,
@@ -24,22 +31,46 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const { setTheme, resolvedTheme } = useTheme();
 
-  const [settings, setSettings] = useState<UserSettings>({
-    emailNotifications: true,
-    browserNotifications: true,
-    darkMode: false,
-  });
+  const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
+  const [loading, setLoading] = useState(false);
+  const [savingKey, setSavingKey] = useState<keyof UserSettings | null>(null);
 
   useEffect(() => {
     if (!open) return;
 
-    const saved = getUserSettings();
+    let mounted = true;
 
-    setSettings({
-      ...saved,
-      darkMode:
-        resolvedTheme === "dark" ? true : saved.darkMode,
-    });
+    void (async () => {
+      try {
+        setLoading(true);
+
+        const localSettings = getUserSettings();
+
+        if (!mounted) return;
+
+        setSettings({
+          ...localSettings,
+          darkMode: resolvedTheme === "dark" ? true : localSettings.darkMode,
+        });
+
+        const remoteSettings = await fetchUserSettingsFromApi();
+
+        if (!mounted) return;
+
+        setSettings({
+          ...remoteSettings,
+          darkMode: resolvedTheme === "dark" ? true : remoteSettings.darkMode,
+        });
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
   }, [open, resolvedTheme]);
 
   const updateSettings = async (
@@ -75,8 +106,22 @@ export function SettingsModal({
     }
 
     setSettings(next);
-    saveUserSettings(next);
     onSettingsChange?.(next);
+
+    try {
+      setSavingKey(key);
+      const persisted = await persistUserSettingsToApi(next);
+      setSettings(persisted);
+      onSettingsChange?.(persisted);
+
+      if (key === "darkMode") {
+        setTheme(persisted.darkMode ? "dark" : "light");
+      }
+    } catch (error) {
+      console.error("Erro ao salvar configurações:", error);
+    } finally {
+      setSavingKey(null);
+    }
   };
 
   if (!open) return null;
@@ -93,6 +138,12 @@ export function SettingsModal({
           </Button>
         </div>
 
+        <div className="mb-4 rounded-md bg-slate-50 p-3 text-xs text-muted-foreground dark:bg-slate-800/60">
+          {loading
+            ? "Carregando configurações..."
+            : "As alterações são salvas automaticamente para este usuário."}
+        </div>
+
         <div className="space-y-4">
           <div className="flex items-center justify-between rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
             <div>
@@ -105,8 +156,9 @@ export function SettingsModal({
             </div>
             <Switch
               checked={settings.emailNotifications}
+              disabled={loading || savingKey === "emailNotifications"}
               onCheckedChange={(checked) =>
-                updateSettings("emailNotifications", checked)
+                void updateSettings("emailNotifications", checked)
               }
             />
           </div>
@@ -122,8 +174,9 @@ export function SettingsModal({
             </div>
             <Switch
               checked={settings.browserNotifications}
+              disabled={loading || savingKey === "browserNotifications"}
               onCheckedChange={(checked) =>
-                updateSettings("browserNotifications", checked)
+                void updateSettings("browserNotifications", checked)
               }
             />
           </div>
@@ -139,8 +192,9 @@ export function SettingsModal({
             </div>
             <Switch
               checked={settings.darkMode}
+              disabled={loading || savingKey === "darkMode"}
               onCheckedChange={(checked) =>
-                updateSettings("darkMode", checked)
+                void updateSettings("darkMode", checked)
               }
             />
           </div>

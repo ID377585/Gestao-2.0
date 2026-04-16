@@ -7,43 +7,53 @@ export type UserSettings = {
 const STORAGE_KEY = "gestify-user-settings";
 const THEME_STORAGE_KEY = "gestify-theme";
 
-const defaultSettings: UserSettings = {
+export const DEFAULT_USER_SETTINGS: UserSettings = {
   emailNotifications: true,
   browserNotifications: true,
   darkMode: false,
 };
 
+function normalizeSettings(
+  parsed?: Partial<UserSettings> | null
+): UserSettings {
+  return {
+    emailNotifications:
+      parsed?.emailNotifications ?? DEFAULT_USER_SETTINGS.emailNotifications,
+    browserNotifications:
+      parsed?.browserNotifications ?? DEFAULT_USER_SETTINGS.browserNotifications,
+    darkMode: parsed?.darkMode ?? DEFAULT_USER_SETTINGS.darkMode,
+  };
+}
+
 export function getUserSettings(): UserSettings {
   if (typeof window === "undefined") {
-    return defaultSettings;
+    return DEFAULT_USER_SETTINGS;
   }
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
 
     if (!raw) {
-      return defaultSettings;
+      return DEFAULT_USER_SETTINGS;
     }
 
     const parsed = JSON.parse(raw) as Partial<UserSettings>;
-
-    return {
-      emailNotifications:
-        parsed.emailNotifications ?? defaultSettings.emailNotifications,
-      browserNotifications:
-        parsed.browserNotifications ?? defaultSettings.browserNotifications,
-      darkMode: parsed.darkMode ?? defaultSettings.darkMode,
-    };
+    return normalizeSettings(parsed);
   } catch {
-    return defaultSettings;
+    return DEFAULT_USER_SETTINGS;
   }
 }
 
 export function saveUserSettings(settings: UserSettings) {
   if (typeof window === "undefined") return;
 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-  localStorage.setItem(THEME_STORAGE_KEY, settings.darkMode ? "dark" : "light");
+  const normalized = normalizeSettings(settings);
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+  localStorage.setItem(
+    THEME_STORAGE_KEY,
+    normalized.darkMode ? "dark" : "light"
+  );
 }
 
 export function applyDarkMode(enabled: boolean) {
@@ -65,4 +75,74 @@ export function initializeTheme() {
 
   const settings = getUserSettings();
   applyDarkMode(settings.darkMode);
+}
+
+export async function fetchUserSettingsFromApi(): Promise<UserSettings> {
+  try {
+    const response = await fetch("/api/user/notification-preferences", {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      return getUserSettings();
+    }
+
+    const data = (await response.json()) as Partial<UserSettings>;
+    const merged = normalizeSettings(data);
+
+    saveUserSettings(merged);
+    applyDarkMode(merged.darkMode);
+
+    return merged;
+  } catch {
+    return getUserSettings();
+  }
+}
+
+export async function persistUserSettingsToApi(
+  settings: UserSettings
+): Promise<UserSettings> {
+  const normalized = normalizeSettings(settings);
+
+  saveUserSettings(normalized);
+  applyDarkMode(normalized.darkMode);
+
+  try {
+    const response = await fetch("/api/user/notification-preferences", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(normalized),
+    });
+
+    if (!response.ok) {
+      return normalized;
+    }
+
+    const data = (await response.json()) as Partial<UserSettings>;
+    const merged = normalizeSettings(data);
+
+    saveUserSettings(merged);
+    applyDarkMode(merged.darkMode);
+
+    return merged;
+  } catch {
+    return normalized;
+  }
+}
+
+export async function syncUserSettingsWithServer(): Promise<UserSettings> {
+  const local = getUserSettings();
+
+  try {
+    const remote = await fetchUserSettingsFromApi();
+    return normalizeSettings(remote);
+  } catch {
+    return local;
+  }
 }

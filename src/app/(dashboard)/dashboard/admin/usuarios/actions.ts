@@ -1,5 +1,6 @@
 "use server";
 
+import { dispatchCollaboratorCreatedOrUpdatedAlert } from "@/lib/alerts/domain-triggers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -509,6 +510,17 @@ export async function createCollaborator(formData: FormData) {
     },
   });
 
+  await dispatchCollaboratorCreatedOrUpdatedAlert({
+    establishmentId: ctx.establishment_id,
+    actorUserId: ctx.userId,
+    targetUserId: userId,
+    targetName: full_name,
+    targetEmail: email,
+    role,
+    sector,
+    mode: "created",
+  });
+
   revalidatePath("/dashboard/admin/usuarios");
 }
 
@@ -601,6 +613,20 @@ export async function updateCollaborator(formData: FormData) {
         is_active,
       },
     },
+  });
+
+  const { emailById } = await getAuthUsersSnapshotMap(supabaseAdmin);
+  const targetEmail = emailById.get(userId) ?? null;
+
+  await dispatchCollaboratorCreatedOrUpdatedAlert({
+    establishmentId,
+    actorUserId: ctx.userId,
+    targetUserId: userId,
+    targetName: full_name,
+    targetEmail,
+    role,
+    sector,
+    mode: "updated",
   });
 
   revalidatePath("/dashboard/admin/usuarios");

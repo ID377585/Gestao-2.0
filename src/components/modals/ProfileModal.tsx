@@ -8,8 +8,44 @@ interface ProfileModalProps {
   user: {
     name: string;
     email: string;
-    role?: string;
+    role?: string | null;
+    sector?: string | null;
+    establishmentId?: string | null;
+    lastSignInAt?: string | null;
   };
+}
+
+function getRoleLabel(role?: string | null) {
+  switch (String(role ?? "").trim()) {
+    case "admin":
+      return "Administrador";
+    case "operacao":
+      return "Operação";
+    case "producao":
+      return "Produção";
+    case "estoque":
+      return "Estoque";
+    case "fiscal":
+      return "Fiscal";
+    case "entrega":
+      return "Entrega";
+    case "cliente":
+      return "Cliente";
+    default:
+      return "Usuário";
+  }
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
 }
 
 export function ProfileModal({ open, onClose, user }: ProfileModalProps) {
@@ -47,7 +83,32 @@ export function ProfileModal({ open, onClose, user }: ProfileModalProps) {
               Perfil de acesso
             </div>
             <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
-              {user.role === "admin" ? "Administrador" : "Usuário"}
+              {getRoleLabel(user.role)}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
+            <div className="text-xs text-gray-500 dark:text-slate-400">Setor</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
+              {user.sector || "—"}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
+            <div className="text-xs text-gray-500 dark:text-slate-400">
+              Último acesso
+            </div>
+            <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
+              {formatDate(user.lastSignInAt)}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
+            <div className="text-xs text-gray-500 dark:text-slate-400">
+              Estabelecimento
+            </div>
+            <div className="text-sm font-medium text-gray-900 dark:text-slate-100 break-all">
+              {user.establishmentId || "—"}
             </div>
           </div>
         </div>

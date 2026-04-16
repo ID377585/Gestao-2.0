@@ -1,6 +1,7 @@
 // src/app/(dashboard)/dashboard/estoque/actions.ts
 "use server";
 
+import { dispatchLowStockAlertsForProducts } from "@/lib/alerts/domain-triggers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
@@ -539,7 +540,6 @@ export async function addInventoryItem(input: AddInventoryItemInput) {
 export async function finalizeInventory(sessionId: string) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  // Carrega sessão
   const { data: session, error: sessionError } = await supabase
     .from("inventory_sessions")
     .select("*")
@@ -560,12 +560,10 @@ export async function finalizeInventory(sessionId: string) {
     );
   }
 
-  // se já tiver finished_at, consideramos encerrada
   if ((session as any).finished_at) {
     throw new Error("Esta sessão de inventário já foi encerrada.");
   }
 
-  // Carrega itens da sessão
   const { data: items, error: itemsError } = await supabase
     .from("inventory_items")
     .select("id, product_id, counted_quantity, unit_label")
@@ -579,10 +577,6 @@ export async function finalizeInventory(sessionId: string) {
     throw new Error("Não foi possível carregar os itens do inventário.");
   }
 
-  /**
-   * ✅ Melhoria: consolida itens repetidos (product_id + unit_label)
-   * - Se por qualquer motivo houver duplicados, soma counted_quantity.
-   */
   const consolidated = new Map<
     string,
     { product_id: string; unit_label: string | null; counted_quantity: number }
@@ -604,12 +598,12 @@ export async function finalizeInventory(sessionId: string) {
       consolidated.set(key, {
         product_id,
         unit_label,
-        counted_quantity: normalizeNumber(existing.counted_quantity, 0) + counted_quantity,
+        counted_quantity:
+          normalizeNumber(existing.counted_quantity, 0) + counted_quantity,
       });
     }
   }
 
-  // Atualiza estoque para cada item contado
   for (const item of consolidated.values()) {
     const { error: updateError } = await supabase
       .from("stock_balances")
@@ -632,12 +626,10 @@ export async function finalizeInventory(sessionId: string) {
     }
   }
 
-  // Marca sessão como encerrada apenas com finished_at
   const { error: closeError } = await supabase
     .from("inventory_sessions")
     .update({
       finished_at: new Date().toISOString(),
-      // não mexemos em status aqui para evitar conflito com o ENUM
     })
     .eq("id", sessionId);
 
@@ -645,6 +637,14 @@ export async function finalizeInventory(sessionId: string) {
     console.error("Erro ao encerrar sessão de inventário:", closeError);
     throw new Error("Não foi possível encerrar o inventário.");
   }
+
+  await dispatchLowStockAlertsForProducts({
+    establishmentId,
+    productIds: Array.from(
+      new Set(Array.from(consolidated.values()).map((item) => item.product_id))
+    ),
+    source: "inventory_finalize",
+  });
 }
 
 // =======================================================
@@ -658,6 +658,18 @@ export async function updateStockThresholds(
   max: number
 ) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
+
+  const { data: balanceBefore, error: balanceError } = await supabase
+    .from("stock_balances")
+    .select("id, product_id")
+    .eq("id", balanceId)
+    .eq("establishment_id", establishmentId)
+    .maybeSingle();
+
+  if (balanceError || !balanceBefore) {
+    console.error("Erro ao localizar item de estoque:", balanceError);
+    throw new Error("Não foi possível localizar o item para atualizar limites.");
+  }
 
   const { error } = await supabase
     .from("stock_balances")
@@ -673,6 +685,12 @@ export async function updateStockThresholds(
     console.error("Erro ao atualizar limites de estoque:", error);
     throw new Error("Não foi possível atualizar Min/Méd/Máx do produto.");
   }
+
+  await dispatchLowStockAlertsForProducts({
+    establishmentId,
+    productIds: [String((balanceBefore as any).product_id)],
+    source: "threshold_update",
+  });
 }
 
 // =======================================================
@@ -730,18 +748,26 @@ export async function createStockMovementAction(
 ) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  // Força establishment do usuário logado (evita spoof via client)
   const payload: StockMovementInput = {
     establishment_id: establishmentId,
     product_id: (input as any).product_id,
-    // Normalize unit label to uppercase when creating movements (null-safe)
     unit_label: normalizeUnitLabel((input as any).unit_label) ?? "UN",
     qty_delta: (input as any).qty_delta,
     reason: (input as any).reason ?? "adjustment",
     source: (input as any).source ?? "server_action",
   };
 
-  return moveStock(supabase as any, payload);
+  const result = await moveStock(supabase as any, payload);
+
+  if ((payload as any).product_id) {
+    await dispatchLowStockAlertsForProducts({
+      establishmentId,
+      productIds: [String((payload as any).product_id)],
+      source: "stock_movement",
+    });
+  }
+
+  return result;
 }
 
 // =======================================================
@@ -756,10 +782,6 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
     return { ok: true, updated: 0 };
   }
 
-  /**
-   * ✅ Melhoria: consolida updates repetidos (balance_id ou product_id),
-   * último update "vence" — evita múltiplas queries desnecessárias.
-   */
   const consolidated = new Map<string, BulkStockMetaUpdateItem>();
 
   for (const it of items) {
@@ -782,17 +804,14 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
 
     const payload: any = {};
     if ("unit_label" in it) {
-      // Convert supplied unit labels to uppercase. When empty, interpret as null.
       payload.unit_label = normalizeUnitLabel(it.unit_label);
     }
     if ("location" in it) payload.location = it.location ?? null;
 
-    // ✅ Melhoria: mantém o comportamento atual (fallback 0), mas normaliza numérico
     if ("min_qty" in it) payload.min_qty = normalizeNumber(it.min_qty, 0);
     if ("med_qty" in it) payload.med_qty = normalizeNumber(it.med_qty, 0);
     if ("max_qty" in it) payload.max_qty = normalizeNumber(it.max_qty, 0);
 
-    // não atualiza se payload veio vazio
     if (Object.keys(payload).length === 0) continue;
 
     let q = supabase.from("stock_balances").update(payload).eq(
@@ -813,6 +832,23 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
     }
 
     updated += 1;
+  }
+
+  const touchedProductIds = Array.from(
+    new Set(
+      Array.from(consolidated.values())
+        .map((it) => (it as any).product_id)
+        .filter(Boolean)
+        .map(String)
+    )
+  );
+
+  if (touchedProductIds.length > 0) {
+    await dispatchLowStockAlertsForProducts({
+      establishmentId,
+      productIds: touchedProductIds,
+      source: "bulk_meta_update",
+    });
   }
 
   return { ok: true, updated };

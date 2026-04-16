@@ -8,6 +8,11 @@ import {
   type MembershipContext,
 } from "@/lib/auth/get-membership";
 
+import {
+  dispatchLowStockAlertsForProducts,
+  dispatchOrderLifecycleAlert,
+} from "@/lib/alerts/domain-triggers";
+
 export type Role =
   | "cliente"
   | "operacao"
@@ -243,7 +248,6 @@ export async function createOrderWithItems(
     (params.notes ?? "").trim() ||
     "Pedido criado via sistema (itens adicionados na criação)";
 
-  // 1) cria o pedido
   const { data: order, error: orderErr } = await supabase
     .from("orders")
     .insert({
@@ -260,7 +264,6 @@ export async function createOrderWithItems(
     throw new Error(orderErr?.message ?? "Erro ao criar pedido");
   }
 
-  // 2) cria itens, se houver (a tabela antiga continua sendo usada aqui)
   const rawValidItems =
     params.items?.filter(
       (it) =>
@@ -271,15 +274,14 @@ export async function createOrderWithItems(
         it.quantity > 0
     ) ?? [];
 
-  /**
-   * ✅ Melhoria: consolida itens repetidos (produto + unidade) somando as quantidades
-   * evita duplicidade por clique duplo/uso de UI etc.
-   */
-  const consolidated = new Map<string, { product_name: string; unit_label: string; quantity: number }>();
+  const consolidated = new Map<
+    string,
+    { product_name: string; unit_label: string; quantity: number }
+  >();
 
   for (const it of rawValidItems) {
     const product_name = it.product_name.trim();
-    const unit_label = it.unit_label.trim().toUpperCase(); // ✅ NORMALIZA unidade
+    const unit_label = it.unit_label.trim().toUpperCase();
     const quantity = Number(it.quantity);
 
     const key = `${product_name.toLowerCase().trim()}__${unit_label}`;
@@ -318,9 +320,18 @@ export async function createOrderWithItems(
     }
   }
 
-  // revalida lista e detalhe
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${order.id}`);
+
+  await dispatchOrderLifecycleAlert({
+    establishmentId,
+    orderId: String(order.id),
+    orderNumber: order.order_number ?? null,
+    title: "Novo pedido criado",
+    message: `O pedido #${order.order_number ?? "—"} foi criado e está aguardando aceite.`,
+    type: "info",
+    toStatus: "pedido_criado",
+  });
 
   return order as CreateOrderResult;
 }
@@ -356,7 +367,7 @@ export async function getOrderById(
     )
     .eq("id", orderId)
     .eq("establishment_id", establishmentId)
-    .maybeSingle(); // 👈 não explode se não achar
+    .maybeSingle();
 
   if (error) {
     console.error("getOrderById: erro ao buscar pedido:", {
@@ -407,7 +418,6 @@ export async function getOrderTimeline(
 
   const rows = (data ?? []) as OrderTimelineEvent[];
 
-  // ✅ Remove duplicados (caso UI ou query rode duas vezes)
   const seen = new Set<string>();
   const unique = rows.filter((ev) => {
     const key = [
@@ -455,7 +465,6 @@ export async function addOrderItem(data: {
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = getScopeId(ctx);
 
-  // garante que o pedido é do mesmo estabelecimento e ainda está em "pedido_criado"
   const { data: order, error: orderErr } = await supabase
     .from("orders")
     .select("id, status, establishment_id")
@@ -478,7 +487,6 @@ export async function addOrderItem(data: {
     establishment_id: establishmentId,
     product_name: data.product_name,
     quantity: data.quantity,
-    // ✅ NORMALIZA unidade
     unit_label: String(data.unit_label ?? "").trim().toUpperCase(),
   });
 
@@ -487,7 +495,6 @@ export async function addOrderItem(data: {
     throw new Error("Erro ao adicionar item ao pedido");
   }
 
-  // revalida lista e detalhe
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${data.order_id}`);
 
@@ -510,7 +517,6 @@ export async function acceptOrder(orderId: string): Promise<void> {
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = getScopeId(ctx);
 
-  // Permissões (mantém a regra antiga)
   if (!["admin", "operacao", "producao"].includes(ctx.role)) {
     throw new Error("Sem permissão para aceitar pedido.");
   }
@@ -527,7 +533,6 @@ export async function acceptOrder(orderId: string): Promise<void> {
     throw new Error("Só é possível aceitar pedidos com status 'pedido_criado'.");
   }
 
-  // 1) Itens do pedido (tabela antiga)
   const { data: lineItems, error: itemsErr } = await supabase
     .from("order_line_items")
     .select("id, product_name, quantity")
@@ -535,10 +540,6 @@ export async function acceptOrder(orderId: string): Promise<void> {
 
   if (itemsErr) throw new Error(itemsErr.message);
 
-  /**
-   * ✅ Melhoria: consolida itens repetidos por product_name (somando qty)
-   * evita duplicidade se o mesmo insumo foi adicionado mais de uma vez.
-   */
   const consolidatedLineItemsMap = new Map<
     string,
     { product_name: string; quantity: number }
@@ -565,10 +566,6 @@ export async function acceptOrder(orderId: string): Promise<void> {
 
   const safeLineItems = Array.from(consolidatedLineItemsMap.values());
 
-  // 2) ✅ Estoque atual (VIEW correta: current_stock) — sem depender de join na VIEW
-  //    - Busca products (id,name) do estabelecimento
-  //    - Busca current_stock (product_id, qty_balance) do estabelecimento
-  //    - Monta mapa por NOME do produto (normalizado)
   const { data: products, error: prodErr } = await supabase
     .from("products")
     .select("id, name")
@@ -608,18 +605,15 @@ export async function acceptOrder(orderId: string): Promise<void> {
     stockMap.set(pname, (stockMap.get(pname) ?? 0) + safeQty);
   }
 
-  // 3) Limpa itens antigos em order_items (para evitar duplicar se aceitar de novo)
   const { error: delErr } = await supabase
     .from("order_items")
     .delete()
     .eq("order_id", orderId);
 
   if (delErr && (delErr as any).code !== "PGRST116") {
-    // PGRST116 = "No rows found"; ignoramos esse caso
     console.warn("Erro ao limpar order_items antigos:", (delErr as any).message);
   }
 
-  // 4) Monta os itens para order_items com status de produção
   const orderItemsPayload =
     safeLineItems.length === 0
       ? []
@@ -634,12 +628,10 @@ export async function acceptOrder(orderId: string): Promise<void> {
           let missing = 0;
 
           if (orderQty > currentStock) {
-            // saldo insuficiente -> precisa produzir o faltante
             missing = orderQty - currentStock;
-            production_status = "pending"; // vai para card Pendentes
+            production_status = "pending";
           } else {
-            // saldo suficiente -> não precisa produzir
-            production_status = "done"; // já conta como Pós-preparo
+            production_status = "done";
           }
 
           return {
@@ -659,7 +651,6 @@ export async function acceptOrder(orderId: string): Promise<void> {
     if (insertErr) throw new Error(insertErr.message);
   }
 
-  // 5) Avança status do pedido via RPC (timeline + RLS)
   const { error: rpcErr } = await supabase.rpc("advance_order_status", {
     p_order_id: orderId,
     p_to_status: "aceitou_pedido",
@@ -668,7 +659,6 @@ export async function acceptOrder(orderId: string): Promise<void> {
 
   if (rpcErr) throw normalizePgError(rpcErr);
 
-  // 6) Metadados de aceite
   const { error: metaErr } = await supabase
     .from("orders")
     .update({
@@ -683,6 +673,17 @@ export async function acceptOrder(orderId: string): Promise<void> {
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${orderId}`);
   revalidatePath("/dashboard/producao");
+
+  await dispatchOrderLifecycleAlert({
+    establishmentId,
+    orderId,
+    orderNumber: order.order_number ?? null,
+    title: "Pedido aceito",
+    message: `O pedido #${order.order_number ?? "—"} foi aceito e entrou no fluxo operacional.`,
+    type: "success",
+    fromStatus: "pedido_criado",
+    toStatus: "aceitou_pedido",
+  });
 }
 
 /**
@@ -692,7 +693,8 @@ export async function acceptOrder(orderId: string): Promise<void> {
  */
 export async function advanceOrder(orderId: string): Promise<void> {
   const supabase = await createSupabaseServerClient();
-  await getActiveMembershipOrRedirect(); // só pra garantir sessão + membership
+  const ctx = await getActiveMembershipOrRedirect();
+  const establishmentId = getScopeId(ctx);
 
   const order = await getOrderById(orderId);
 
@@ -715,6 +717,17 @@ export async function advanceOrder(orderId: string): Promise<void> {
 
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${orderId}`);
+
+  await dispatchOrderLifecycleAlert({
+    establishmentId,
+    orderId,
+    orderNumber: order.order_number ?? null,
+    title: "Status do pedido avançado",
+    message: `O pedido #${order.order_number ?? "—"} avançou de ${order.status} para ${next}.`,
+    type: "info",
+    fromStatus: order.status,
+    toStatus: next,
+  });
 }
 
 /**
@@ -750,7 +763,6 @@ export async function cancelOrder(
   const trimmed = reason.trim();
   if (!trimmed) throw new Error("Informe o motivo do cancelamento.");
 
-  // 1) status + timeline via RPC
   const { error: rpcErr } = await supabase.rpc("cancel_order", {
     p_order_id: orderId,
     p_reason: trimmed,
@@ -758,7 +770,6 @@ export async function cancelOrder(
 
   if (rpcErr) throw normalizePgError(rpcErr);
 
-  // 2) metadados (sem mudar status)
   const { error: metaErr } = await supabase
     .from("orders")
     .update({
@@ -773,6 +784,17 @@ export async function cancelOrder(
 
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${orderId}`);
+
+  await dispatchOrderLifecycleAlert({
+    establishmentId,
+    orderId,
+    orderNumber: order.order_number ?? null,
+    title: "Pedido cancelado",
+    message: `O pedido #${order.order_number ?? "—"} foi cancelado. Motivo: ${trimmed}`,
+    type: "error",
+    fromStatus: order.status,
+    toStatus: "cancelado",
+  });
 }
 
 /**
@@ -808,7 +830,6 @@ export async function reopenOrder(
 
   const trimmed = (note ?? "").trim();
 
-  // 1) status + timeline via RPC
   const { error: rpcErr } = await supabase.rpc("reopen_order", {
     p_order_id: orderId,
     p_note: trimmed ? `Reaberto: ${trimmed}` : "Pedido reaberto",
@@ -816,7 +837,6 @@ export async function reopenOrder(
 
   if (rpcErr) throw normalizePgError(rpcErr);
 
-  // 2) metadados (sem mudar status)
   const { error: metaErr } = await supabase
     .from("orders")
     .update({
@@ -830,6 +850,17 @@ export async function reopenOrder(
 
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${orderId}`);
+
+  await dispatchOrderLifecycleAlert({
+    establishmentId,
+    orderId,
+    orderNumber: order.order_number ?? null,
+    title: "Pedido reaberto",
+    message: `O pedido #${order.order_number ?? "—"} foi reaberto e voltou ao fluxo.`,
+    type: "warning",
+    fromStatus: "cancelado",
+    toStatus: "aceitou_pedido",
+  });
 }
 
 /* ===========================================================
@@ -846,7 +877,6 @@ export async function getOrderCollectedSummary(
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = getScopeId(ctx);
 
-  // Garante que o pedido pertence ao mesmo estabelecimento
   const { data: order, error: orderErr } = await supabase
     .from("orders")
     .select("id, establishment_id")
@@ -858,7 +888,6 @@ export async function getOrderCollectedSummary(
     throw new Error("Pedido não encontrado ou fora do seu estabelecimento.");
   }
 
-  // Agora trazemos também o custo padrão do produto (standard_cost)
   const { data: links, error: linksErr } = await supabase
     .from("order_items_labels")
     .select(
@@ -914,16 +943,15 @@ export async function getOrderCollectedSummary(
     const qtyRaw = Number(row.qty_used ?? 0);
     const qty = Number.isFinite(qtyRaw) ? qtyRaw : 0;
 
-    // custo padrão vindo de products (por unidade da unidade padrão)
     const standardCostRaw = prod?.standard_cost;
     const standardCost =
       typeof standardCostRaw === "number"
         ? standardCostRaw
         : standardCostRaw !== null && standardCostRaw !== undefined
-        ? Number(standardCostRaw)
-        : null;
+          ? Number(standardCostRaw)
+          : null;
 
-    const safeUnit = String(labelUnit ?? "").trim().toUpperCase(); // ✅ NORMALIZA unidade no agrupamento
+    const safeUnit = String(labelUnit ?? "").trim().toUpperCase();
 
     const key =
       productName.toLowerCase().trim() + "|" + safeUnit.toLowerCase().trim();
@@ -931,8 +959,6 @@ export async function getOrderCollectedSummary(
     const existing = groups.get(key);
 
     if (!existing) {
-      // Por enquanto assumimos que a unidade da etiqueta = unidade de custo padrão.
-      // Se depois precisarmos converter (KG ↔ G, etc.), a gente liga no conversion_factor.
       const unitCost = standardCost;
       const totalCost = unitCost !== null ? unitCost * qty : null;
 
@@ -994,13 +1020,12 @@ function extractLabelCodeFromQr(raw: string): string {
   const cleaned = String(raw || "").trim();
   if (!cleaned) return "";
 
-  // tentativa de JSON: ex. {"v":1,"lt":"IE-FA-...","p":"Farinha de trigo",...}
   try {
     const obj = JSON.parse(cleaned) as any;
     const rawCode =
       obj.label_code ||
       obj.labelCode ||
-      obj.lt || // nosso caso principal
+      obj.lt ||
       obj.code ||
       obj.lc;
 
@@ -1011,7 +1036,6 @@ function extractLabelCodeFromQr(raw: string): string {
     // se não for JSON, seguimos com o texto puro
   }
 
-  // fallback: usamos o texto inteiro como código
   return cleaned;
 }
 
@@ -1043,7 +1067,6 @@ export async function linkLabelToOrder(
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = getScopeId(ctx);
 
-  // Permissão básica (estoque / operação / produção / admin)
   if (!["admin", "operacao", "estoque", "producao"].includes(ctx.role)) {
     throw new Error("Sem permissão para vincular etiqueta ao pedido.");
   }
@@ -1053,7 +1076,6 @@ export async function linkLabelToOrder(
     throw new Error("Not authenticated");
   }
 
-  // 0) Garante que o pedido é do mesmo estabelecimento
   const { data: order, error: orderErr } = await supabase
     .from("orders")
     .select("id, establishment_id, order_number")
@@ -1065,14 +1087,11 @@ export async function linkLabelToOrder(
     throw new Error("Pedido não encontrado ou fora do seu estabelecimento.");
   }
 
-  // 🔹 extrai o código real da etiqueta a partir do texto do QR
   const finalLabelCode = extractLabelCodeFromQr(labelCode);
   if (!finalLabelCode) {
     throw new Error("Código de etiqueta inválido (QR vazio).");
   }
 
-  // 1) Buscar etiqueta pelo label_code
-  // ✅ Melhoria: traz também products(name) para o match por nome funcionar sempre
   const { data: label, error: labelError } = await supabase
     .from("inventory_labels")
     .select(
@@ -1091,7 +1110,6 @@ export async function linkLabelToOrder(
     throw new Error("Etiqueta não encontrada ou fora do seu estabelecimento.");
   }
 
-  // status permitido: available / ACTIVE (pra compatibilizar com registros antigos)
   const status = (label as any).status as string;
   if (!["available", "ACTIVE"].includes(status)) {
     throw new Error("Etiqueta já utilizada ou cancelada.");
@@ -1117,7 +1135,6 @@ export async function linkLabelToOrder(
     );
   }
 
-  // 2) Localizar item do pedido compatível com o produto da etiqueta (se existir)
   const productNameFromLabel =
     ((label as any).products?.name as string | undefined) ?? null;
 
@@ -1135,7 +1152,6 @@ export async function linkLabelToOrder(
         ) ?? null
       : null;
 
-  // 3) Criar movimento de estoque (OUT_ORDER)
   const { data: movement, error: movError } = await supabase
     .from("inventory_movements")
     .insert({
@@ -1146,7 +1162,6 @@ export async function linkLabelToOrder(
       movement_type: "OUT_ORDER",
       direction: "OUT",
       qty,
-      // ✅ NORMALIZA unidade na gravação do movimento
       unit_label: String((label as any).unit_label ?? "").trim().toUpperCase(),
       details: {
         label_code: (label as any).label_code,
@@ -1162,7 +1177,6 @@ export async function linkLabelToOrder(
     throw new Error("Erro ao registrar movimento de estoque.");
   }
 
-  // 4) Registrar vínculo Pedido x Etiqueta
   const { error: linkError } = await supabase
     .from("order_items_labels")
     .insert({
@@ -1170,7 +1184,6 @@ export async function linkLabelToOrder(
       order_item_id: matchingItem?.id ?? null,
       label_id: (label as any).id,
       qty_used: qty,
-      // ✅ NORMALIZA unidade no vínculo
       unit_label: String((label as any).unit_label ?? "").trim().toUpperCase(),
     });
 
@@ -1178,7 +1191,6 @@ export async function linkLabelToOrder(
     throw new Error("Erro ao vincular etiqueta ao pedido.");
   }
 
-  // 5) Atualizar etiqueta (used_qty + status)
   const newUsed = usedQty + qty;
   const newStatus = newUsed >= totalQty ? "used" : "available";
 
@@ -1194,12 +1206,18 @@ export async function linkLabelToOrder(
     throw new Error("Erro ao atualizar status da etiqueta.");
   }
 
-  // 6) Revalidar tela do pedido (e lista, por segurança)
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${orderId}`);
 
-  // 7) Gerar resumo atualizado da coleta para esse pedido
   const collectedSummary = await getOrderCollectedSummary(orderId);
+
+  if ((label as any).product_id) {
+    await dispatchLowStockAlertsForProducts({
+      establishmentId,
+      productIds: [String((label as any).product_id)],
+      source: "order_separation",
+    });
+  }
 
   return {
     ok: true,
@@ -1234,7 +1252,6 @@ export async function getOrderBillingDraft(
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = getScopeId(ctx);
 
-  // garante que o pedido é do mesmo estabelecimento
   const { data: order, error: orderErr } = await supabase
     .from("orders")
     .select("id")
@@ -1282,17 +1299,16 @@ export async function getOrderBillingDraft(
  */
 export async function saveOrderBillingDraft(input: {
   orderId: string;
-  subtotal: number; // custo base (ex.: collectedSummary.total_cost)
-  markupPercent: number; // markup digitado pelo usuário
-  totalWithMarkup: number; // valor final sugerido (sem frete ou com frete, conforme sua regra)
-  freightValue?: number | null; // valor do frete (opcional)
-  carrierId?: string | null; // id da transportadora (opcional)
+  subtotal: number;
+  markupPercent: number;
+  totalWithMarkup: number;
+  freightValue?: number | null;
+  carrierId?: string | null;
 }) {
   const supabase = await createSupabaseServerClient();
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = getScopeId(ctx);
 
-  // garante que o pedido é do mesmo estabelecimento
   const { data: order, error: orderErr } = await supabase
     .from("orders")
     .select("id, status")
@@ -1304,7 +1320,6 @@ export async function saveOrderBillingDraft(input: {
     throw new Error("Pedido não encontrado ou fora do seu estabelecimento.");
   }
 
-  // opcional: só permitir salvar rascunho em em_faturamento
   if (order.status !== "em_faturamento") {
     throw new Error(
       "Rascunho de pré-nota só pode ser salvo quando o pedido estiver em faturamento."
@@ -1336,7 +1351,6 @@ export async function saveOrderBillingDraft(input: {
     throw new Error("Erro ao salvar rascunho de pré-nota.");
   }
 
-  // revalida a página do pedido para refletir qualquer mudança
   revalidatePath(`/dashboard/pedidos/${input.orderId}`);
 
   return { ok: true };

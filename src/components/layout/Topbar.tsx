@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
   HelpCircle,
@@ -29,7 +29,7 @@ import { HelpModal } from "@/components/modals/HelpModal";
 
 import { SidebarMobile } from "@/components/layout/SidebarMobile";
 
-import { clearSession, getUser, type AppUser } from "@/lib/auth/session";
+import { clearSession } from "@/lib/auth/session";
 import {
   markAllNotificationsAsRead,
   markNotificationAsRead,
@@ -37,8 +37,8 @@ import {
   type AppNotification,
 } from "@/lib/notifications";
 import {
-  applyDarkMode,
   getUserSettings,
+  syncUserSettingsWithServer,
   type UserSettings,
 } from "@/lib/user-settings";
 
@@ -46,9 +46,16 @@ interface TopbarProps {
   className?: string;
 }
 
-type SessionUserExtended = AppUser & {
-  id?: string;
-  uid?: string;
+type TopbarUser = {
+  id: string;
+  email: string;
+  name: string;
+  role?: string;
+  avatar?: string | null;
+  sector?: string | null;
+  establishmentId?: string | null;
+  isActive?: boolean;
+  lastSignInAt?: string | null;
 };
 
 function formatDate(value?: AppNotification["createdAt"]) {
@@ -69,8 +76,42 @@ function formatDate(value?: AppNotification["createdAt"]) {
   }
 }
 
+function getRoleLabel(role?: string | null) {
+  switch (String(role ?? "").trim()) {
+    case "admin":
+      return "Administrador";
+    case "operacao":
+      return "Operação";
+    case "producao":
+      return "Produção";
+    case "estoque":
+      return "Estoque";
+    case "fiscal":
+      return "Fiscal";
+    case "entrega":
+      return "Entrega";
+    case "cliente":
+      return "Cliente";
+    default:
+      return "Usuário";
+  }
+}
+
+function getInitials(name?: string | null) {
+  const safeName = String(name ?? "").trim();
+  if (!safeName) return "U";
+
+  return safeName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((item) => item[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
 export function Topbar({ className }: TopbarProps) {
-  const [user, setUser] = useState<SessionUserExtended | null>(null);
+  const [user, setUser] = useState<TopbarUser | null>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
 
   const [showPerfil, setShowPerfil] = useState(false);
   const [showConfiguracoes, setShowConfiguracoes] = useState(false);
@@ -85,18 +126,55 @@ export function Topbar({ className }: TopbarProps) {
 
   const previousIdsRef = useRef<string[]>([]);
 
-  useEffect(() => {
-    const currentUser = getUser() as SessionUserExtended | null;
-    setUser(currentUser);
+  const fetchCurrentUser = useCallback(async () => {
+    try {
+      setLoadingUser(true);
 
-    const savedSettings = getUserSettings();
-    setSettings(savedSettings);
-    applyDarkMode(savedSettings.darkMode);
+      const response = await fetch("/api/user/me", {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        setUser(null);
+        return;
+      }
+
+      const data = (await response.json()) as TopbarUser;
+      setUser(data);
+    } catch (error) {
+      console.error("Erro ao carregar usuário do Topbar:", error);
+      setUser(null);
+    } finally {
+      setLoadingUser(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void fetchCurrentUser();
+
+    void (async () => {
+      const synced = await syncUserSettingsWithServer();
+      setSettings(synced);
+    })();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async () => {
+      await fetchCurrentUser();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [fetchCurrentUser]);
 
   const userNotificationId = useMemo(() => {
     if (!user) return null;
-    return user.id || user.uid || user.email || null;
+    return user.id || user.email || null;
   }, [user]);
 
   useEffect(() => {
@@ -175,11 +253,14 @@ export function Topbar({ className }: TopbarProps) {
   };
 
   const handleLogout = async () => {
-  setUserMenuOpen(false);
-  await supabase.auth.signOut(); // encerra a sessão autenticada do Supabase
-  clearSession();                // remove cookie e dados locais da aplicação
-  window.location.assign("/login");
-};
+    try {
+      setUserMenuOpen(false);
+      await supabase.auth.signOut();
+    } finally {
+      clearSession();
+      window.location.assign("/login");
+    }
+  };
 
   const dropdownBaseClasses =
     "z-50 rounded-md border border-gray-200 bg-white text-gray-900 shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100";
@@ -254,7 +335,11 @@ export function Topbar({ className }: TopbarProps) {
                         onSelect={(event) => {
                           event.preventDefault();
                           if (!n.lida) {
-                            handleMarkAsRead(n.id);
+                            void handleMarkAsRead(n.id);
+                          }
+
+                          if (n.href) {
+                            window.location.assign(n.href);
                           }
                         }}
                       >
@@ -306,14 +391,11 @@ export function Topbar({ className }: TopbarProps) {
                 >
                   <Avatar className="h-10 w-10">
                     <AvatarImage
-                      src={user?.avatar}
+                      src={user?.avatar ?? undefined}
                       alt={user?.name ?? "Usuário"}
                     />
                     <AvatarFallback>
-                      {(user?.name ?? "U")
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")}
+                      {getInitials(user?.name ?? "U")}
                     </AvatarFallback>
                   </Avatar>
                 </button>
@@ -322,21 +404,28 @@ export function Topbar({ className }: TopbarProps) {
               <DropdownMenuContent
                 align="end"
                 sideOffset={8}
-                className={`w-64 ${dropdownBaseClasses}`}
+                className={`w-72 ${dropdownBaseClasses}`}
               >
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col gap-1">
                     <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-                      {user?.name ?? "Usuário"}
+                      {loadingUser ? "Carregando..." : user?.name ?? "Usuário"}
                     </span>
                     <span className="text-xs text-gray-600 dark:text-slate-400">
                       {user?.email ?? ""}
                     </span>
-                    <Badge variant="secondary" className="mt-1 w-fit">
-                      {(user?.role ?? "user") === "admin"
-                        ? "Administrador"
-                        : "Usuário"}
-                    </Badge>
+
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      <Badge variant="secondary" className="w-fit">
+                        {getRoleLabel(user?.role)}
+                      </Badge>
+
+                      {user?.sector ? (
+                        <Badge variant="outline" className="w-fit">
+                          {user.sector}
+                        </Badge>
+                      ) : null}
+                    </div>
                   </div>
                 </DropdownMenuLabel>
 
@@ -380,7 +469,7 @@ export function Topbar({ className }: TopbarProps) {
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
-                    handleLogout();
+                    void handleLogout();
                   }}
                   className="text-red-600 focus:bg-gray-50 focus:text-red-600 dark:text-red-400 dark:focus:bg-slate-800 dark:focus:text-red-400"
                 >
@@ -408,6 +497,9 @@ export function Topbar({ className }: TopbarProps) {
           name: user?.name ?? "Usuário",
           email: user?.email ?? "",
           role: user?.role,
+          sector: user?.sector ?? null,
+          establishmentId: user?.establishmentId ?? null,
+          lastSignInAt: user?.lastSignInAt ?? null,
         }}
       />
 

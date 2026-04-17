@@ -179,6 +179,10 @@ export const menuItemsBySection = menuSectionOrder
   }))
   .filter((section) => section.items.length > 0);
 
+export const principalMenuItems = menuItems.filter(
+  (item) => item.section !== "administracao"
+);
+
 export const administracaoMenuItems = menuItems.filter(
   (item) => item.section === "administracao"
 );

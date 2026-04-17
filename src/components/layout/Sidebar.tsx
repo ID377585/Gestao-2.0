@@ -1,16 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { GestifyMark } from "@/components/brand/GestifyMark";
-import { menuItemsBySection } from "@/components/layout/menu-items";
+import {
+  menuSections,
+  type MenuSectionConfig,
+  type MenuSectionKey,
+  type MenuSubItem,
+} from "@/components/layout/menu-items";
 
 interface SidebarProps {
   className?: string;
@@ -18,71 +23,216 @@ interface SidebarProps {
 
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
+
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [desktopHovered, setDesktopHovered] = useState(false);
+  const [previewSectionKey, setPreviewSectionKey] =
+    useState<MenuSectionKey | null>(null);
+
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(href + "/");
 
+  const currentSectionKey = useMemo(() => {
+    return (
+      menuSections.find((section) =>
+        section.items.some((item) => isActive(item.href))
+      )?.key ?? menuSections[0]?.key ?? null
+    );
+  }, [pathname]);
+
+  const displayedSectionKey = previewSectionKey ?? currentSectionKey;
+  const displayedSection = useMemo(
+    () =>
+      menuSections.find((section) => section.key === displayedSectionKey) ??
+      null,
+    [displayedSectionKey]
+  );
+
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const scheduleClose = () => {
+    clearCloseTimer();
+
+    closeTimerRef.current = setTimeout(() => {
+      setDesktopHovered(false);
+      setPreviewSectionKey(null);
+    }, 140);
+  };
+
+  const openDesktopMenu = () => {
+    clearCloseTimer();
+    setDesktopHovered(true);
+    setPreviewSectionKey(currentSectionKey ?? menuSections[0]?.key ?? null);
+  };
+
+  const keepDesktopMenuOpen = () => {
+    clearCloseTimer();
+    setDesktopHovered(true);
+  };
+
+  const handleSectionEnter = (sectionKey: MenuSectionKey) => {
+    clearCloseTimer();
+    setDesktopHovered(true);
+    setPreviewSectionKey(sectionKey);
+  };
+
+  const handleDesktopNavigate = () => {
+    clearCloseTimer();
+    setDesktopHovered(false);
+    setPreviewSectionKey(null);
+  };
+
   useEffect(() => {
     const root = document.documentElement;
-    root.style.setProperty("--sidebar-w", collapsed ? "5rem" : "18rem");
-  }, [collapsed]);
+    root.style.setProperty("--sidebar-w", desktopHovered ? "15rem" : "5rem");
+  }, [desktopHovered]);
 
-  function SidebarContent({
-    variant,
-    onNavigate,
-  }: {
-    variant: "desktop" | "mobile";
-    onNavigate?: () => void;
-  }) {
+  useEffect(() => {
+    setMobileOpen(false);
+    setDesktopHovered(false);
+    setPreviewSectionKey(null);
+    clearCloseTimer();
+  }, [pathname]);
+
+  useEffect(() => {
+    return () => {
+      clearCloseTimer();
+    };
+  }, []);
+
+  function renderSubItem(
+    item: MenuSubItem,
+    variant: "desktop" | "mobile",
+    index = 0
+  ) {
+    const active = isActive(item.href);
+    const Icon = item.icon;
+
+    return (
+      <div
+        key={item.href}
+        className={cn(
+          "transition-all duration-200 ease-out",
+          variant === "desktop" && desktopHovered
+            ? "translate-x-0 opacity-100"
+            : "translate-x-1 opacity-100"
+        )}
+        style={
+          variant === "desktop"
+            ? { transitionDelay: `${index * 35}ms` }
+            : undefined
+        }
+      >
+        <Link
+          href={item.href}
+          onClick={() => {
+            if (variant === "mobile") {
+              setMobileOpen(false);
+              return;
+            }
+
+            handleDesktopNavigate();
+          }}
+        >
+          <Button
+            variant="ghost"
+            className={cn(
+              "h-12 w-full justify-start gap-3 rounded-xl border px-4 transition-all duration-200",
+              active
+                ? "border-blue-200 bg-blue-50 text-blue-700 shadow-sm hover:bg-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-800"
+                : "border-transparent text-gray-700 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            )}
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            <span className="text-sm font-medium">{item.label}</span>
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  function renderSectionButton(
+    section: MenuSectionConfig,
+    variant: "desktop" | "mobile"
+  ) {
+    const Icon = section.icon;
+    const hasActiveChild = section.items.some((item) => isActive(item.href));
+    const isDesktop = variant === "desktop";
+    const isPreviewed = displayedSectionKey === section.key;
+
+    return (
+      <button
+        type="button"
+        className={cn(
+          "group flex h-12 w-full items-center rounded-xl border transition-all duration-200",
+          isDesktop
+            ? desktopHovered
+              ? "justify-start gap-3 px-4"
+              : "justify-center px-3"
+            : "justify-start gap-3 px-4",
+          hasActiveChild || isPreviewed
+            ? "border-blue-200 bg-blue-50 text-blue-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            : "border-transparent text-gray-700 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+        )}
+        aria-label={section.label}
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+
+        <span
+          className={cn(
+            "overflow-hidden whitespace-nowrap text-sm font-medium transition-all duration-200 ease-out",
+            isDesktop
+              ? desktopHovered
+                ? "max-w-[160px] translate-x-0 opacity-100"
+                : "max-w-0 -translate-x-1 opacity-0"
+              : "max-w-[160px] translate-x-0 opacity-100"
+          )}
+        >
+          {section.label}
+        </span>
+      </button>
+    );
+  }
+
+  function SidebarContent({ variant }: { variant: "desktop" | "mobile" }) {
     const isDesktop = variant === "desktop";
 
     return (
       <div
         className={cn(
           "flex h-full flex-col bg-white text-gray-900 dark:bg-slate-950 dark:text-slate-100",
-          isDesktop ? "min-h-screen" : ""
+          isDesktop
+            ? "min-h-screen w-[var(--sidebar-w)] border-r border-gray-200 transition-[width] duration-200 ease-out dark:border-slate-800"
+            : "w-full"
         )}
       >
         <div
           className={cn(
-            "relative flex h-16 shrink-0 items-center border-b border-gray-200 px-4 dark:border-slate-800",
+            "flex h-16 shrink-0 items-center border-b border-gray-200 px-4 dark:border-slate-800",
             isDesktop
-              ? collapsed
-                ? "justify-center"
-                : "justify-start"
+              ? desktopHovered
+                ? "justify-start"
+                : "justify-center"
               : "justify-between"
           )}
         >
           <div
             className={cn(
-              "flex min-w-0 items-center transition-all",
-              isDesktop && collapsed ? "justify-center" : ""
+              "flex min-w-0 items-center transition-all duration-200",
+              isDesktop && !desktopHovered ? "justify-center" : ""
             )}
           >
-            <GestifyMark
-              size={40}
-              compact={variant === "desktop" && collapsed}
-            />
+            <GestifyMark size={40} compact={isDesktop && !desktopHovered} />
           </div>
 
-          {isDesktop ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setCollapsed(!collapsed)}
-              className="absolute right-2 top-1/2 h-8 w-8 -translate-y-1/2 text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-              aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
-              title={collapsed ? "Expandir menu" : "Recolher menu"}
-            >
-              {collapsed ? (
-                <ChevronRight className="h-4 w-4" />
-              ) : (
-                <ChevronLeft className="h-4 w-4" />
-              )}
-            </Button>
-          ) : (
+          {!isDesktop && (
             <Button
               variant="ghost"
               size="icon"
@@ -96,58 +246,29 @@ export function Sidebar({ className }: SidebarProps) {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          <div className="space-y-5">
-            {menuItemsBySection.map((section, sectionIndex) => (
-              <div key={section.key} className="space-y-3">
-                {(variant === "mobile" || !collapsed) && (
-                  <h3 className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                    {section.label}
-                  </h3>
+          <div className="space-y-3">
+            {menuSections.map((section, index) => (
+              <div
+                key={section.key}
+                className="space-y-2"
+                onMouseEnter={() => {
+                  if (isDesktop) handleSectionEnter(section.key);
+                }}
+                onFocusCapture={() => {
+                  if (isDesktop) handleSectionEnter(section.key);
+                }}
+              >
+                {renderSectionButton(section, variant)}
+
+                {!isDesktop && (
+                  <div className="space-y-2 pl-3">
+                    {section.items.map((item, itemIndex) =>
+                      renderSubItem(item, "mobile", itemIndex)
+                    )}
+                  </div>
                 )}
 
-                <div className="space-y-2">
-                  {section.items.map((item) => {
-                    const active = isActive(item.href);
-                    const Icon = item.icon;
-
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        onClick={() => onNavigate?.()}
-                      >
-                        <Button
-                          variant="ghost"
-                          className={cn(
-                            "h-12 w-full gap-3 rounded-xl border transition-colors",
-                            variant === "desktop"
-                              ? collapsed
-                                ? "justify-center px-3"
-                                : "justify-start px-4"
-                              : "justify-start px-4",
-                            active
-                              ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-800"
-                              : "border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                          )}
-                          title={
-                            variant === "desktop" && collapsed
-                              ? item.label
-                              : undefined
-                          }
-                        >
-                          <Icon className="h-4 w-4 shrink-0" />
-                          {(variant === "mobile" || !collapsed) && (
-                            <span className="text-sm font-medium">
-                              {item.label}
-                            </span>
-                          )}
-                        </Button>
-                      </Link>
-                    );
-                  })}
-                </div>
-
-                {sectionIndex < menuItemsBySection.length - 1 && (
+                {index < menuSections.length - 1 && (
                   <div className="pt-2">
                     <Separator className="bg-gray-200 dark:bg-slate-800" />
                   </div>
@@ -178,16 +299,54 @@ export function Sidebar({ className }: SidebarProps) {
             side="left"
             className="w-[300px] overflow-y-auto border-r border-gray-200 bg-white p-0 dark:border-slate-800 dark:bg-slate-950"
           >
-            <SidebarContent
-              variant="mobile"
-              onNavigate={() => setMobileOpen(false)}
-            />
+            <SidebarContent variant="mobile" />
           </SheetContent>
         </Sheet>
       </div>
 
-      <div className={cn("hidden h-full w-full flex-col md:flex", className)}>
-        <SidebarContent variant="desktop" />
+      <div
+        className={cn("relative hidden md:block", className)}
+        onMouseEnter={openDesktopMenu}
+        onMouseLeave={scheduleClose}
+      >
+        <div className="relative z-20">
+          <SidebarContent variant="desktop" />
+        </div>
+
+        {desktopHovered && displayedSection && (
+          <>
+            <div
+              className="absolute z-20"
+              style={{
+                top: "5rem",
+                left: "calc(var(--sidebar-w) - 0.25rem)",
+                width: "1.25rem",
+                height: "calc(100% - 5rem)",
+              }}
+              onMouseEnter={keepDesktopMenuOpen}
+              onMouseLeave={scheduleClose}
+            />
+
+            <div
+              className="absolute top-0 z-30"
+              style={{ left: "calc(var(--sidebar-w) - 0.35rem)" }}
+              onMouseEnter={keepDesktopMenuOpen}
+              onMouseLeave={scheduleClose}
+            >
+              <div className="ml-2 mt-20 w-80 rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+                <div className="px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                  {displayedSection.label}
+                </div>
+
+                <div className="space-y-2">
+                  {displayedSection.items.map((item, index) =>
+                    renderSubItem(item, "desktop", index)
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </>
   );

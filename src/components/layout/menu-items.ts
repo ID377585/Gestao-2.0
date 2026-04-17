@@ -1,27 +1,27 @@
 import {
-  ClipboardList,
-  Factory,
-  BarChart3,
-  Package,
-  FileInput,
-  Boxes,
-  Box,
-  FileText,
-  Tag,
-  History,
   AlertTriangle,
   ArrowLeftRight,
   BadgeDollarSign,
-  Users,
-  Truck,
-  Receipt,
+  BarChart3,
+  Box,
+  Boxes,
   Building2,
+  ClipboardList,
+  Factory,
+  FileInput,
   FilePlus2,
+  FileText,
+  History,
+  Package,
+  Receipt,
   ShoppingCart,
+  Tag,
+  Truck,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 
-export type MenuSection =
+export type MenuSectionKey =
   | "operacao"
   | "estoque"
   | "engenharia"
@@ -29,160 +29,192 @@ export type MenuSection =
   | "financeiro"
   | "administracao";
 
-export type MenuItem = {
+export type MenuSubItem = {
   label: string;
   href: string;
   icon: LucideIcon;
-  section: MenuSection;
 };
 
 export type MenuSectionConfig = {
-  key: MenuSection;
+  key: MenuSectionKey;
   label: string;
+  icon: LucideIcon;
+  items: MenuSubItem[];
 };
 
-export const menuSectionOrder: MenuSectionConfig[] = [
-  { key: "operacao", label: "Operação" },
-  { key: "estoque", label: "Estoque" },
-  { key: "engenharia", label: "Engenharia" },
-  { key: "compras", label: "Compras" },
-  { key: "financeiro", label: "Financeiro" },
-  { key: "administracao", label: "Administração" },
-];
+export type MenuItem = MenuSubItem & {
+  section: MenuSectionKey;
+};
 
-export const menuItems: MenuItem[] = [
+export const menuSections: MenuSectionConfig[] = [
   {
-    label: "Pedidos",
-    href: "/dashboard/pedidos",
+    key: "operacao",
+    label: "Operação",
     icon: ClipboardList,
-    section: "operacao",
+    items: [
+      {
+        label: "Pedidos",
+        href: "/dashboard/pedidos",
+        icon: ClipboardList,
+      },
+      {
+        label: "Produção",
+        href: "/dashboard/producao",
+        icon: Factory,
+      },
+      {
+        label: "Produtividade",
+        href: "/dashboard/produtividade",
+        icon: BarChart3,
+      },
+      {
+        label: "Histórico",
+        href: "/dashboard/historico-pedidos",
+        icon: History,
+      },
+    ],
   },
   {
-    label: "Produção",
-    href: "/dashboard/producao",
-    icon: Factory,
-    section: "operacao",
-  },
-  {
-    label: "Produtividade",
-    href: "/dashboard/produtividade",
-    icon: BarChart3,
-    section: "operacao",
-  },
-  {
-    label: "Histórico",
-    href: "/dashboard/historico-pedidos",
-    icon: History,
-    section: "operacao",
-  },
-
-  {
+    key: "estoque",
     label: "Estoque",
-    href: "/dashboard/estoque",
     icon: Package,
-    section: "estoque",
+    items: [
+      {
+        label: "Estoque",
+        href: "/dashboard/estoque",
+        icon: Package,
+      },
+      {
+        label: "Entradas",
+        href: "/dashboard/entradas",
+        icon: FileInput,
+      },
+      {
+        label: "Inventário",
+        href: "/dashboard/inventario",
+        icon: Boxes,
+      },
+      {
+        label: "Produtos",
+        href: "/dashboard/produtos",
+        icon: Box,
+      },
+      {
+        label: "Transferências",
+        href: "/dashboard/transferencias",
+        icon: ArrowLeftRight,
+      },
+      {
+        label: "Perdas",
+        href: "/dashboard/perdas",
+        icon: AlertTriangle,
+      },
+    ],
   },
   {
-    label: "Entradas",
-    href: "/dashboard/entradas",
-    icon: FileInput,
-    section: "estoque",
-  },
-  {
-    label: "Inventário",
-    href: "/dashboard/inventario",
-    icon: Boxes,
-    section: "estoque",
-  },
-  {
-    label: "Produtos",
-    href: "/dashboard/produtos",
-    icon: Box,
-    section: "estoque",
-  },
-  {
-    label: "Transferências",
-    href: "/dashboard/transferencias",
-    icon: ArrowLeftRight,
-    section: "estoque",
-  },
-  {
-    label: "Perdas",
-    href: "/dashboard/perdas",
-    icon: AlertTriangle,
-    section: "estoque",
-  },
-
-  {
-    label: "Fichas Técnicas",
-    href: "/dashboard/fichas-tecnicas",
+    key: "engenharia",
+    label: "Engenharia",
     icon: FileText,
-    section: "engenharia",
+    items: [
+      {
+        label: "Fichas Técnicas",
+        href: "/dashboard/fichas-tecnicas",
+        icon: FileText,
+      },
+      {
+        label: "Etiquetas",
+        href: "/dashboard/etiquetas",
+        icon: Tag,
+      },
+    ],
   },
   {
-    label: "Etiquetas",
-    href: "/dashboard/etiquetas",
-    icon: Tag,
-    section: "engenharia",
-  },
-
-  {
-    label: "Fornecedores",
-    href: "/compras/fornecedores",
-    icon: Building2,
-    section: "compras",
-  },
-  {
-    label: "Solicitações",
-    href: "/compras/solicitacoes",
-    icon: FilePlus2,
-    section: "compras",
-  },
-  {
+    key: "compras",
     label: "Compras",
-    href: "/compras/pedidos",
     icon: ShoppingCart,
-    section: "compras",
+    items: [
+      {
+        label: "Fornecedores",
+        href: "/compras/fornecedores",
+        icon: Building2,
+      },
+      {
+        label: "Solicitações",
+        href: "/compras/solicitacoes",
+        icon: FilePlus2,
+      },
+      {
+        label: "Compras",
+        href: "/compras/pedidos",
+        icon: ShoppingCart,
+      },
+      {
+        label: "Recebimentos",
+        href: "/compras/recebimentos",
+        icon: Truck,
+      },
+    ],
   },
   {
-    label: "Recebimentos",
-    href: "/compras/recebimentos",
-    icon: Truck,
-    section: "compras",
-  },
-
-  {
-    label: "Contas a Pagar",
-    href: "/financeiro/contas-a-pagar",
-    icon: Receipt,
-    section: "financeiro",
-  },
-  {
-    label: "Controladoria",
-    href: "/dashboard/controladoria",
+    key: "financeiro",
+    label: "Financeiro",
     icon: BadgeDollarSign,
-    section: "financeiro",
+    items: [
+      {
+        label: "Contas a Pagar",
+        href: "/financeiro/contas-a-pagar",
+        icon: Receipt,
+      },
+      {
+        label: "Controladoria",
+        href: "/dashboard/controladoria",
+        icon: BadgeDollarSign,
+      },
+    ],
   },
-
   {
-    label: "Usuários",
-    href: "/dashboard/admin/usuarios",
+    key: "administracao",
+    label: "Administração",
     icon: Users,
-    section: "administracao",
+    items: [
+      {
+        label: "Usuários",
+        href: "/dashboard/admin/usuarios",
+        icon: Users,
+      },
+    ],
   },
 ];
 
-export const menuItemsBySection = menuSectionOrder
-  .map((section) => ({
-    ...section,
-    items: menuItems.filter((item) => item.section === section.key),
+export const menuSectionOrder = menuSections.map(({ key, label, icon }) => ({
+  key,
+  label,
+  icon,
+}));
+
+export const menuItemsBySection = menuSections;
+
+export const menuItems: MenuItem[] = menuSections.flatMap((section) =>
+  section.items.map((item) => ({
+    ...item,
+    section: section.key,
   }))
-  .filter((section) => section.items.length > 0);
-
-export const principalMenuItems = menuItems.filter(
-  (item) => item.section !== "administracao"
 );
 
-export const administracaoMenuItems = menuItems.filter(
-  (item) => item.section === "administracao"
-);
+export const principalMenuItems = menuSections
+  .filter((section) => section.key !== "administracao")
+  .flatMap((section) =>
+    section.items.map((item) => ({
+      ...item,
+      section: section.key,
+    }))
+  );
+
+export const administracaoMenuItems = menuSections
+  .filter((section) => section.key === "administracao")
+  .flatMap((section) =>
+    section.items.map((item) => ({
+      ...item,
+      section: section.key,
+    }))
+  );

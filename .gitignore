@@ -61,3 +61,6 @@ Thumbs.db
 *.bak
 next.config.ts.bak
 .vercel
+
+Gestao-2.0/
+tsconfig.tsbuildinfo

@@ -1374,6 +1374,15 @@ export async function listCarriers(): Promise<Carrier[]> {
     .order("name", { ascending: true });
 
   if (error) {
+    const code = (error as any)?.code;
+
+    if (code === "PGRST205") {
+      console.warn(
+        "listCarriers: tabela public.carriers não existe ainda; retornando lista vazia."
+      );
+      return [];
+    }
+
     console.error("listCarriers erro:", error);
     throw new Error("Erro ao carregar transportadoras.");
   }

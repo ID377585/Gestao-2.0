@@ -16,6 +16,8 @@ import {
   Users,
   Truck,
   Receipt,
+  Building2,
+  FilePlus2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -102,8 +104,20 @@ export const menuItems: MenuItem[] = [
     section: "principal",
   },
   {
-    label: "Compras",
+    label: "Fornecedores",
     href: "/compras/fornecedores",
+    icon: Building2,
+    section: "principal",
+  },
+  {
+    label: "Solicitações",
+    href: "/compras/solicitacoes",
+    icon: FilePlus2,
+    section: "principal",
+  },
+  {
+    label: "Compras",
+    href: "/compras/pedidos",
     icon: ShoppingCart,
     section: "principal",
   },

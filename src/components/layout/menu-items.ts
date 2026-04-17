@@ -14,6 +14,8 @@ import {
   ArrowLeftRight,
   BadgeDollarSign,
   Users,
+  Truck,
+  Receipt,
   type LucideIcon,
 } from "lucide-react";
 
@@ -100,9 +102,21 @@ export const menuItems: MenuItem[] = [
     section: "principal",
   },
   {
-    label: "Hub de Dados",
-    href: "/dashboard/compras",
+    label: "Compras",
+    href: "/compras/fornecedores",
     icon: ShoppingCart,
+    section: "principal",
+  },
+  {
+    label: "Recebimentos",
+    href: "/compras/recebimentos",
+    icon: Truck,
+    section: "principal",
+  },
+  {
+    label: "Contas a Pagar",
+    href: "/financeiro/contas-a-pagar",
+    icon: Receipt,
     section: "principal",
   },
   {

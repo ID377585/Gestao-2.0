@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -17,6 +16,8 @@ import {
 } from "../pedidos/actions";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { DashboardPageHeader } from "@/components/dashboard/DashboardPageHeader";
+import { DashboardStatGrid } from "@/components/dashboard/DashboardStatGrid";
 
 // mesmos rótulos usados na tela de detalhes
 const STATUS_LABEL: Record<string, string> = {
@@ -85,12 +86,10 @@ function renderProductionItemInfo(
 ) {
   return (
     <div className="space-y-1 text-xs">
-      {/* Produto — qtd un */}
-      <p className="font-medium text-sm">
+      <p className="text-sm font-medium">
         {item.product_name} — {item.order_qty} {item.default_unit_label}
       </p>
 
-      {/* Mensagem de contexto por coluna */}
       <p className="text-[11px] text-muted-foreground">
         {columnId === "pendentes" && "Aguardando início do preparo"}
         {columnId === "preparo" && "Em preparo pela produção"}
@@ -98,7 +97,6 @@ function renderProductionItemInfo(
           "Produção concluída, aguardando próxima etapa do pedido"}
       </p>
 
-      {/* Faltam produzir X (quando fizer sentido) */}
       {item.production_missing_qty !== null &&
         item.production_missing_qty > 0 && (
           <p className="text-[11px] text-amber-600">
@@ -114,14 +112,6 @@ function renderProductionItemInfo(
 
 /**
  * Quadro de Produção por ITEM
- *
- * - Pendentes:
- *    - production_status = 'pending'
- *    - e pedido em status 'aceitou_pedido'
- * - Em preparo:
- *    - production_status = 'in_progress'
- * - Pós-preparo:
- *    - production_status = 'done'
  */
 const PRODUCTION_COLUMNS: {
   id: "pendentes" | "preparo" | "pos_preparo";
@@ -149,10 +139,6 @@ const PRODUCTION_COLUMNS: {
   },
 ];
 
-/**
- * Busca os itens da view kds_production_view
- * usando o client de servidor (anon key).
- */
 async function getKdsProductionItems(): Promise<KdsItem[]> {
   const supabase = await createSupabaseServerClient();
 
@@ -183,9 +169,6 @@ async function getKdsProductionItems(): Promise<KdsItem[]> {
   return (data ?? []) as KdsItem[];
 }
 
-/**
- * Lista colaboradores da tabela kds_collaborators
- */
 async function listKdsCollaboratorsServer(): Promise<KdsCollaborator[]> {
   const supabase = await createSupabaseServerClient();
 
@@ -202,9 +185,6 @@ async function listKdsCollaboratorsServer(): Promise<KdsCollaborator[]> {
   return (data ?? []) as KdsCollaborator[];
 }
 
-/**
- * Define o colaborador responsável por um item de produção
- */
 async function assignProductionCollaboratorServer(
   orderItemId: string,
   userId: string
@@ -224,10 +204,6 @@ async function assignProductionCollaboratorServer(
   revalidatePath("/dashboard/producao");
 }
 
-/**
- * Avança o status de produção de um item:
- * pending -> in_progress -> done
- */
 async function advanceProductionStatusServer(orderItemId: string) {
   const supabase = await createSupabaseServerClient();
 
@@ -264,10 +240,6 @@ async function advanceProductionStatusServer(orderItemId: string) {
   revalidatePath("/dashboard/producao");
 }
 
-/**
- * Avança o PEDIDO para em_separacao
- * (o frontend só mostra o botão se todos itens estiverem done/no_production_needed)
- */
 async function moveOrderToNextStageFromProductionServer(orderId: string) {
   const supabase = await createSupabaseServerClient();
 
@@ -285,7 +257,6 @@ async function moveOrderToNextStageFromProductionServer(orderId: string) {
 }
 
 export default async function ProducaoPage() {
-  // membership + pedidos + itens de produção (view) + colaboradores
   const [membership, orders, productionItems, collaborators] =
     await Promise.all([
       getMyMembership(),
@@ -306,7 +277,6 @@ export default async function ProducaoPage() {
   );
   const canAdvanceOrders = ["admin", "operacao"].includes(role ?? "cliente");
 
-  // helper para achar o nome bonitinho do colaborador
   function getCollaboratorLabel(userId: string | null): string | null {
     if (!userId) return null;
     const collab = collaboratorOptions.find((c) => c.id === userId);
@@ -327,7 +297,6 @@ export default async function ProducaoPage() {
     );
   }
 
-  // agregados simples para cards de resumo (por pedido)
   const pendentes = orders.filter((o) => o.status === "aceitou_pedido");
   const emPreparo = orders.filter((o) => o.status === "em_preparo");
   const posPreparo = orders.filter((o) =>
@@ -336,11 +305,6 @@ export default async function ProducaoPage() {
   const finalizadosHoje = orders.filter((o) => o.status === "entregue");
   const cancelados = orders.filter((o) => o.status === "cancelado");
 
-  // ------------------------------------------------------
-  // Agrupar itens de produção por pedido para saber
-  // se o PEDIDO PAI pode ser avançado para em_separacao
-  // (todos os itens done / no_production_needed)
-  // ------------------------------------------------------
   const itemsByOrderId: Record<string, KdsItem[]> = {};
   for (const item of productionItems) {
     const key = String(item.order_id);
@@ -359,100 +323,65 @@ export default async function ProducaoPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-  <div className="min-w-0">
-    <h1 className="text-3xl font-bold text-gray-900 leading-tight">
-      Produção - KDS
-    </h1>
-    <p className="text-gray-600">
-      Kitchen Display System - visão de produção por status do pedido.
-    </p>
-    <p className="mt-1 text-xs text-muted-foreground">
-      Papel atual: <strong>{role ?? "—"}</strong>
-    </p>
-  </div>
+      <DashboardPageHeader
+        title="Produção - KDS"
+        description="Kitchen Display System - visão de produção por status do pedido."
+        actions={
+          <form
+            action={async () => {
+              "use server";
+              revalidatePath("/dashboard/producao");
+            }}
+            className="w-full sm:w-auto"
+          >
+            <Button variant="outline" type="submit" className="w-full sm:w-auto">
+              <span className="mr-2">🔄</span>
+              Atualizar
+            </Button>
+          </form>
+        }
+      >
+        <p className="text-xs text-muted-foreground">
+          Papel atual: <strong>{role ?? "—"}</strong>
+        </p>
+      </DashboardPageHeader>
 
-  <div className="flex flex-wrap gap-2 sm:justify-end">
-    <form
-      action={async () => {
-        "use server";
-        revalidatePath("/dashboard/producao");
-      }}
-      className="w-full sm:w-auto"
-    >
-      <Button variant="outline" type="submit" className="w-full sm:w-auto">
-        <span className="mr-2">🔄</span>
-        Atualizar
-      </Button>
-    </form>
-  </div>
-</div>
+      <DashboardStatGrid
+        columnsClassName="grid-cols-2 md:grid-cols-5"
+        items={[
+          {
+            title: "Pendentes",
+            value: pendentes.length,
+            description: "Aceitos, aguardando preparo",
+            icon: <span className="text-xl">⏳</span>,
+          },
+          {
+            title: "Em Preparo",
+            value: emPreparo.length,
+            description: "Em produção agora",
+            icon: <span className="text-xl">👨‍🍳</span>,
+          },
+          {
+            title: "Pós-preparo",
+            value: posPreparo.length,
+            description: "Separação / faturamento / transporte",
+            icon: <span className="text-xl">📦</span>,
+          },
+          {
+            title: "Entregues",
+            value: finalizadosHoje.length,
+            description: "Pedidos concluídos",
+            icon: <span className="text-xl">✅</span>,
+          },
+          {
+            title: "Cancelados",
+            value: cancelados.length,
+            description: "Fora do fluxo",
+            icon: <span className="text-xl">🛑</span>,
+          },
+        ]}
+      />
 
-
-      {/* Stats Cards (por pedido) */}
-<div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-5">
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-      <CardTitle className="text-sm font-medium">Pendentes</CardTitle>
-      <span className="text-xl">⏳</span>
-    </CardHeader>
-    <CardContent className="pt-0">
-      <div className="text-xl font-bold">{pendentes.length}</div>
-      <p className="text-xs text-muted-foreground">
-        Aceitos, aguardando preparo
-      </p>
-    </CardContent>
-  </Card>
-
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-      <CardTitle className="text-sm font-medium">Em Preparo</CardTitle>
-      <span className="text-xl">👨‍🍳</span>
-    </CardHeader>
-    <CardContent className="pt-0">
-      <div className="text-xl font-bold">{emPreparo.length}</div>
-      <p className="text-xs text-muted-foreground">Em produção agora</p>
-    </CardContent>
-  </Card>
-
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-      <CardTitle className="text-sm font-medium">Pós-preparo</CardTitle>
-      <span className="text-xl">📦</span>
-    </CardHeader>
-    <CardContent className="pt-0">
-      <div className="text-xl font-bold">{posPreparo.length}</div>
-      <p className="text-xs text-muted-foreground">
-        Separação / faturamento / transporte
-      </p>
-    </CardContent>
-  </Card>
-
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-      <CardTitle className="text-sm font-medium">Entregues</CardTitle>
-      <span className="text-xl">✅</span>
-    </CardHeader>
-    <CardContent className="pt-0">
-      <div className="text-xl font-bold">{finalizadosHoje.length}</div>
-      <p className="text-xs text-muted-foreground">Pedidos concluídos</p>
-    </CardContent>
-  </Card>
-
-  <Card className="col-span-2 md:col-span-1">
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-      <CardTitle className="text-sm font-medium">Cancelados</CardTitle>
-      <span className="text-xl">🛑</span>
-    </CardHeader>
-    <CardContent className="pt-0">
-      <div className="text-xl font-bold">{cancelados.length}</div>
-      <p className="text-xs text-muted-foreground">Fora do fluxo</p>
-    </CardContent>
-  </Card>
-</div>
-
-      {/* KDS / Board de Produção (por ITEM) */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {PRODUCTION_COLUMNS.map((column) => {
           const itemsForColumn = productionItems.filter((i: KdsItem) => {
@@ -460,7 +389,6 @@ export default async function ProducaoPage() {
               i.production_status
             );
 
-            // Regra extra: Pendentes só com pedido aceito
             if (column.id === "pendentes") {
               return matchesStatus && i.order_status === "aceitou_pedido";
             }
@@ -468,15 +396,16 @@ export default async function ProducaoPage() {
             return matchesStatus;
           });
 
-          // Para evitar mostrar o botão "Avançar pedido" várias vezes
-          // para o mesmo pedido na coluna Pós-preparo
           const renderedAdvanceButtonForOrder = new Set<string>();
 
           return (
-            <div key={column.id} className="rounded-lg border bg-white">
-              <div className="border-b p-4">
+            <div
+              key={column.id}
+              className="rounded-xl border bg-white dark:border-slate-800 dark:bg-slate-950"
+            >
+              <div className="border-b p-4 dark:border-slate-800">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-gray-900">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
                     {column.title}
                   </h2>
                   <Badge variant="secondary">{itemsForColumn.length}</Badge>
@@ -490,7 +419,7 @@ export default async function ProducaoPage() {
 
               <div className="max-h-[600px] space-y-4 overflow-y-auto p-4">
                 {itemsForColumn.length === 0 ? (
-                  <div className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
+                  <div className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground dark:border-slate-700">
                     Nenhum pedido nesta etapa.
                   </div>
                 ) : (
@@ -499,7 +428,6 @@ export default async function ProducaoPage() {
                       item.production_assigned_to ?? null
                     );
 
-                    // Lógica do botão de avançar pedido (apenas em Pós-preparo)
                     let showAdvanceOrderButton = false;
                     if (column.id === "pos_preparo" && canAdvanceOrders) {
                       const orderIdKey = String(item.order_id);
@@ -516,7 +444,7 @@ export default async function ProducaoPage() {
                     return (
                       <Card
                         key={item.order_item_id}
-                        className="border-l-4 border-l-gray-300"
+                        className="border-l-4 border-l-gray-300 dark:border-slate-800"
                       >
                         <CardHeader className="pb-2">
                           <div className="flex items-center justify-between">
@@ -537,17 +465,14 @@ export default async function ProducaoPage() {
 
                         <CardContent className="pt-0">
                           <div className="space-y-2 text-xs">
-                            {/* 🔹 Infos principais do item (produto, qtd, contexto, faltante) */}
                             {renderProductionItemInfo(item, column.id)}
 
-                            {/* Responsável em qualquer coluna (se houver) */}
                             {collaboratorLabel && (
-                              <div className="text-[11px] text-gray-600">
+                              <div className="text-[11px] text-gray-600 dark:text-slate-400">
                                 Responsável: {collaboratorLabel}
                               </div>
                             )}
 
-                            {/* Campo de colaborador apenas em Pendentes */}
                             {column.id === "pendentes" &&
                               canAssignCollaborator && (
                                 <form
@@ -572,7 +497,7 @@ export default async function ProducaoPage() {
                                     defaultValue={
                                       item.production_assigned_to ?? ""
                                     }
-                                    className="h-8 w-full rounded-md border px-2 text-[11px]"
+                                    className="h-8 w-full rounded-md border px-2 text-[11px] dark:border-slate-700 dark:bg-slate-950"
                                   >
                                     <option value="">Selecionar...</option>
                                     {collaboratorOptions.map((user) => (
@@ -595,7 +520,6 @@ export default async function ProducaoPage() {
                                 </form>
                               )}
 
-                            {/* Botão Avançar status para Pendentes e Em preparo */}
                             {canChangeStatus &&
                               (column.id === "pendentes" ||
                                 column.id === "preparo") && (
@@ -618,7 +542,6 @@ export default async function ProducaoPage() {
                                 </form>
                               )}
 
-                            {/* Mensagem em Pós-preparo + Botão para avançar PEDIDO */}
                             {column.id === "pos_preparo" && (
                               <>
                                 <p className="mt-2 text-[11px] text-emerald-600">
@@ -655,6 +578,10 @@ export default async function ProducaoPage() {
                               >
                                 Ver detalhe do pedido
                               </a>
+                            </div>
+
+                            <div className="text-[11px] text-muted-foreground">
+                              Atualizado em: {formatDateTime(new Date().toISOString())}
                             </div>
                           </div>
                         </CardContent>

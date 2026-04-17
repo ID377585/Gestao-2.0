@@ -7,9 +7,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -40,6 +37,10 @@ import {
   type BulkStockMetaUpdateItem,
 } from "./actions";
 
+import { DashboardPageHeader } from "@/components/dashboard/DashboardPageHeader";
+import { DashboardStatGrid } from "@/components/dashboard/DashboardStatGrid";
+import { DashboardTableShell } from "@/components/dashboard/DashboardTableShell";
+
 // ===== Tipagens auxiliares =====
 
 type StockRow = {
@@ -54,7 +55,6 @@ type StockRow = {
     id: string;
     name: string;
     price: number | null;
-    // alinhado com tabela products
     sku?: string | null;
     default_unit_label?: string | null;
   } | null;
@@ -83,7 +83,6 @@ type ProductOption = {
   id: string;
   name: string;
   default_unit_label: string | null;
-  // opcional: já deixa pronto pro futuro
   sku?: string | null;
 };
 
@@ -130,7 +129,6 @@ function detectDelimiter(headerLine: string) {
   return semis > commas ? ";" : ",";
 }
 
-// parser simples com suporte básico a aspas
 function splitCsvLine(line: string, delimiter: string) {
   const out: string[] = [];
   let cur = "";
@@ -140,7 +138,6 @@ function splitCsvLine(line: string, delimiter: string) {
     const ch = line[i];
 
     if (ch === '"') {
-      // "" dentro de aspas vira "
       const next = line[i + 1];
       if (inQuotes && next === '"') {
         cur += '"';
@@ -182,19 +179,15 @@ function escapeCsv(val: any) {
 export default function EstoquePage() {
   const { toast } = useToast();
 
-  // ===== Estado principal de estoque =====
   const [stock, setStock] = useState<StockRow[]>([]);
   const [loadingStock, setLoadingStock] = useState(true);
 
-  // drafts de Min/Méd/Máx por linha
   const [thresholdDrafts, setThresholdDrafts] = useState<ThresholdDrafts>({});
   const [savingThresholdRowId, setSavingThresholdRowId] =
     useState<string | null>(null);
 
-  // ===== Produtos (tabela products) para o inventário =====
   const [products, setProducts] = useState<ProductOption[]>([]);
 
-  // ===== Inventário =====
   const [inventoryModalOpen, setInventoryModalOpen] = useState(false);
   const [inventorySession, setInventorySession] =
     useState<InventorySession | null>(null);
@@ -203,20 +196,16 @@ export default function EstoquePage() {
   const [savingItem, setSavingItem] = useState(false);
   const [finalizingInventory, setFinalizingInventory] = useState(false);
 
-  // Data do último inventário encerrado (para mostrar em "Estoque Atual")
   const [lastInventoryDate, setLastInventoryDate] = useState<string | null>(
     null
   );
 
-  // Upload CSV
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingCsv, setUploadingCsv] = useState(false);
 
-  // Form do inventário
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [countedQuantity, setCountedQuantity] = useState<string>("");
 
-  // ===== Carrega estoque atual =====
   const loadStock = async () => {
     setLoadingStock(true);
     try {
@@ -234,7 +223,6 @@ export default function EstoquePage() {
     }
   };
 
-  // Helper para formatar datas (pt-BR)
   const formatDateTime = (value: string | Date | null | undefined) => {
     if (!value) return "";
     const date = typeof value === "string" ? new Date(value) : value;
@@ -245,20 +233,15 @@ export default function EstoquePage() {
     }).format(date);
   };
 
-  // 🚀 Bootstrap inicial: carrega produtos + estoque, cria saldos iniciais se necessário
-  // e descobre a data do último inventário encerrado
   useEffect(() => {
     const bootstrap = async () => {
       try {
-        // 1) Carrega produtos da tabela products
         const prods = (await listProductsForInventory()) as ProductOption[];
         setProducts(prods ?? []);
 
-        // 2) Verifica se já existe saldo em stock_balances
         const current = (await listCurrentStock()) as StockRow[];
 
         if (!current || current.length === 0) {
-          // Cria saldos iniciais a partir de products (quantidade 0)
           try {
             await seedInitialStockFromProducts();
           } catch (seedErr: any) {
@@ -266,14 +249,11 @@ export default function EstoquePage() {
           }
         }
 
-        // 3) Carrega estoque atual para exibir tabela e KPIs
         await loadStock();
 
-        // 4) Carrega última sessão de inventário encerrada
         try {
           const lastClosed = await getLastClosedInventorySession();
           if (lastClosed) {
-            // usa finished_at; se não tiver, cai para started_at
             const date =
               (lastClosed as any).finished_at ??
               (lastClosed as any).started_at ??
@@ -284,7 +264,6 @@ export default function EstoquePage() {
           }
         } catch (err) {
           console.error("Erro ao buscar último inventário encerrado:", err);
-          // não quebra a tela, só não mostra a data
         }
       } catch (e: any) {
         console.error(e);
@@ -300,7 +279,6 @@ export default function EstoquePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sempre que o estoque muda, atualizamos os drafts de Min/Méd/Máx
   useEffect(() => {
     const drafts: ThresholdDrafts = {};
     stock.forEach((row) => {
@@ -322,7 +300,6 @@ export default function EstoquePage() {
     setThresholdDrafts(drafts);
   }, [stock]);
 
-  // ===== Ordenação: Crítico no topo + A→Z por produto =====
   const sortedStock = useMemo(() => {
     const rank: Record<StatusEstoque, number> = {
       critico: 0,
@@ -345,13 +322,10 @@ export default function EstoquePage() {
       });
       if (cmp !== 0) return cmp;
 
-      // fallback estável
       return String(a.id).localeCompare(String(b.id));
     });
   }, [stock]);
 
-  // ===== Métricas / KPIs =====
-  // se quiser, pode trocar para distinct product_id no futuro
   const totalItens = stock.length;
 
   const valorTotal = useMemo(() => {
@@ -377,18 +351,15 @@ export default function EstoquePage() {
       currency: "BRL",
     }).format(value);
 
-  // ===== Inventário: abrir / carregar sessão =====
   const openInventoryModal = async () => {
     setLoadingInventory(true);
     try {
-      // tenta obter sessão em andamento
       const existing = await getInventorySessionWithItems();
 
       if (existing) {
         setInventorySession(existing.session as InventorySession);
         setInventoryItems(existing.items as InventoryItem[]);
       } else {
-        // se não existe, cria uma nova
         const created = (await startInventorySession()) as InventorySession;
         setInventorySession(created);
         setInventoryItems([]);
@@ -413,7 +384,6 @@ export default function EstoquePage() {
     setCountedQuantity("");
   };
 
-  // ===== Inventário: adicionar item contado =====
   const handleAddInventoryItem = async () => {
     if (!inventorySession) {
       toast({
@@ -447,7 +417,6 @@ export default function EstoquePage() {
     const stockRow = stock.find((s) => s.product?.id === selectedProductId);
     const unitLabelFromStock = stockRow?.unit_label ?? null;
     const productMeta = products.find((p) => p.id === selectedProductId);
-    // Normalize and default to "UN" if undefined, always uppercase
     const unitLabel = String(
       unitLabelFromStock ?? productMeta?.default_unit_label ?? "UN"
     ).toUpperCase();
@@ -462,7 +431,6 @@ export default function EstoquePage() {
         unit_label: unitLabel,
       });
 
-      // recarrega itens da sessão
       const refreshed = await getInventorySessionWithItems();
       if (refreshed) {
         setInventorySession(refreshed.session as InventorySession);
@@ -488,7 +456,6 @@ export default function EstoquePage() {
     }
   };
 
-  // ===== Inventário: finalizar sessão =====
   const handleFinalizeInventory = async () => {
     if (!inventorySession) return;
 
@@ -504,7 +471,6 @@ export default function EstoquePage() {
       setFinalizingInventory(true);
       await finalizeInventory(inventorySession.id);
 
-      // guarda a data da contagem (se tiver started_at, usa; senão, agora)
       const sessionDate = inventorySession.started_at ?? new Date().toISOString();
       setLastInventoryDate(sessionDate);
 
@@ -514,7 +480,6 @@ export default function EstoquePage() {
           "Os saldos de estoque foram atualizados com base nas contagens.",
       });
 
-      // fecha modal e recarrega estoque atual
       closeInventoryModal();
       await loadStock();
     } catch (e: any) {
@@ -538,16 +503,13 @@ export default function EstoquePage() {
     selectedProductRow?.product?.default_unit_label ??
     productMeta?.default_unit_label ??
     "";
-  // Normalize selected unit to uppercase for display
   const selectedUnit = rawSelectedUnit
     ? rawSelectedUnit.toString().toUpperCase()
     : "";
 
-  // data que será exibida no modal (sempre somente leitura)
   const inventoryDateDisplay =
     inventorySession?.started_at ?? new Date().toISOString();
 
-  // ===== Handlers de edição Min/Méd/Máx =====
   const handleThresholdChange = (
     balanceId: string,
     field: "min" | "med" | "max",
@@ -570,7 +532,6 @@ export default function EstoquePage() {
     const med = Number(draft.med || "0");
     const max = Number(draft.max || "0");
 
-    // nada pra salvar se estiver tudo igual a zero e já era zero
     const row = stock.find((s) => s.id === balanceId);
     if (
       row &&
@@ -602,11 +563,9 @@ export default function EstoquePage() {
     }
   };
 
-  // ===== Export CSV =====
   const buildCsvRows = (rows: StockRow[]) => {
     return rows.map((row) => {
       const status = getStatusFromRow(row);
-      // Normalize unit to uppercase with fallback "UN"
       const unit = String(
         row.unit_label ?? row.product?.default_unit_label ?? "UN"
       ).toUpperCase();
@@ -646,7 +605,6 @@ export default function EstoquePage() {
       "total",
     ];
 
-    // CSV pt-BR costuma abrir melhor no Excel com ';'
     const delimiter = ";";
 
     const lines: string[] = [];
@@ -657,7 +615,7 @@ export default function EstoquePage() {
       lines.push(line);
     }
 
-    const csvContent = "\uFEFF" + lines.join("\n"); // BOM p/ Excel
+    const csvContent = "\uFEFF" + lines.join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
 
@@ -681,7 +639,6 @@ export default function EstoquePage() {
     downloadCsv("estoque_atual_geral.csv", sortedStock);
   };
 
-  // ===== Upload CSV (metadados: unidade/local/min/med/max) =====
   const handleClickUpload = () => {
     fileInputRef.current?.click();
   };
@@ -701,7 +658,6 @@ export default function EstoquePage() {
     const delimiter = detectDelimiter(linesRaw[0]);
     const headerCells = splitCsvLine(linesRaw[0], delimiter).map(normalizeHeader);
 
-    // Mapeia colunas aceitas (flexível)
     const colIndex = (nameVariants: string[]) => {
       for (const v of nameVariants) {
         const idx = headerCells.indexOf(normalizeHeader(v));
@@ -722,7 +678,6 @@ export default function EstoquePage() {
 
     const updates: BulkStockMetaUpdateItem[] = [];
 
-    // Índices auxiliares para casar produto
     const byProductId = new Map<string, StockRow>();
     const bySku = new Map<string, StockRow>();
     const byName = new Map<string, StockRow>();
@@ -749,7 +704,6 @@ export default function EstoquePage() {
       const rawNome =
         idxProduto >= 0 ? String(cells[idxProduto] ?? "").trim() : "";
 
-      // tenta casar com estoque atual
       let matched: StockRow | undefined;
 
       if (rawProductId) matched = byProductId.get(rawProductId);
@@ -763,13 +717,11 @@ export default function EstoquePage() {
         (matched?.product?.id ? String(matched.product.id) : "");
 
       if (!balance_id && !product_id) {
-        // não achou como aplicar
         continue;
       }
 
       let unit_label = "";
       if (idxUnidade >= 0) {
-        // uppercase unit label from CSV
         unit_label = String(cells[idxUnidade] ?? "").trim().toUpperCase();
       }
       const location =
@@ -784,7 +736,6 @@ export default function EstoquePage() {
         product_id: product_id || undefined,
       };
 
-      // Só envia campos que existem no CSV (ou vieram preenchidos)
       if (idxUnidade >= 0) payload.unit_label = unit_label || null;
       if (idxLocal >= 0) payload.location = location || null;
       if (idxMin >= 0) payload.min_qty = min_qty ?? 0;
@@ -824,7 +775,6 @@ export default function EstoquePage() {
           "Atualizamos Min/Méd/Máx, Local e Unidade em Estoque Atual. (O saldo exibido vem de movimentos/inventário.)",
       });
 
-      // recarrega
       await loadStock();
     } catch (e: any) {
       console.error(e);
@@ -835,99 +785,62 @@ export default function EstoquePage() {
       });
     } finally {
       setUploadingCsv(false);
-      // permite escolher o mesmo arquivo de novo
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-<div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-  <div className="min-w-0">
-    <h1 className="text-3xl font-bold text-gray-900 leading-tight">Estoque</h1>
-    <p className="text-gray-600">Controle de estoque atual e inventário</p>
-  </div>
+      <DashboardPageHeader
+        title="Estoque"
+        description="Controle de estoque atual, inventário, exportações e atualização de metadados."
+      >
+        <p className="text-xs text-muted-foreground">
+          {lastInventoryDate
+            ? `Último inventário encerrado em ${formatDateTime(lastInventoryDate)}`
+            : "Nenhum inventário encerrado ainda."}
+        </p>
+      </DashboardPageHeader>
 
-  {/* ✅ Botões do topo removidos conforme solicitado */}
-  <div />
-</div>
+      <DashboardStatGrid
+        items={[
+          {
+            title: "Total de Itens",
+            value: loadingStock ? "…" : totalItens,
+            description: "Produtos cadastrados",
+            icon: <span className="text-xl">📦</span>,
+          },
+          {
+            title: "Valor Total",
+            value: loadingStock ? "R$ 0,00" : formatCurrency(valorTotal),
+            description: "Valor do estoque",
+            icon: <span className="text-xl">💰</span>,
+          },
+          {
+            title: "Críticos",
+            value: loadingStock ? "…" : totalCriticos,
+            description: "Abaixo do mínimo",
+            icon: <span className="text-xl">🚨</span>,
+            valueClassName: "text-red-600",
+          },
+          {
+            title: "Baixos",
+            value: loadingStock ? "…" : totalBaixos,
+            description: "Próximos ao mínimo",
+            icon: <span className="text-xl">⚠️</span>,
+            valueClassName: "text-yellow-600",
+          },
+        ]}
+      />
 
-
-      {/* KPIs */}
-<div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-      <CardTitle className="text-sm font-medium">Total de Itens</CardTitle>
-      <span className="text-xl">📦</span>
-    </CardHeader>
-    <CardContent className="pt-0">
-      <div className="text-xl font-bold">{loadingStock ? "…" : totalItens}</div>
-      <p className="text-xs text-muted-foreground">Produtos cadastrados</p>
-    </CardContent>
-  </Card>
-
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-      <CardTitle className="text-sm font-medium">Valor Total</CardTitle>
-      <span className="text-xl">💰</span>
-    </CardHeader>
-    <CardContent className="pt-0">
-      <div className="text-xl font-bold">
-        {loadingStock ? "R$ 0,00" : formatCurrency(valorTotal)}
-      </div>
-      <p className="text-xs text-muted-foreground">Valor do estoque</p>
-    </CardContent>
-  </Card>
-
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-      <CardTitle className="text-sm font-medium">Críticos</CardTitle>
-      <span className="text-xl">🚨</span>
-    </CardHeader>
-    <CardContent className="pt-0">
-      <div className="text-xl font-bold text-red-600">
-        {loadingStock ? "…" : totalCriticos}
-      </div>
-      <p className="text-xs text-muted-foreground">Abaixo do mínimo</p>
-    </CardContent>
-  </Card>
-
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-      <CardTitle className="text-sm font-medium">Baixos</CardTitle>
-      <span className="text-xl">⚠️</span>
-    </CardHeader>
-    <CardContent className="pt-0">
-      <div className="text-xl font-bold text-yellow-600">
-        {loadingStock ? "…" : totalBaixos}
-      </div>
-      <p className="text-xs text-muted-foreground">Próximos ao mínimo</p>
-    </CardContent>
-  </Card>
-</div>
-
-
-      {/* Tabela Estoque Atual */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-baseline justify-between gap-2">
-            <div>
-              <CardTitle>Estoque Atual</CardTitle>
-              <CardDescription>Valores após o último inventário</CardDescription>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-muted-foreground whitespace-nowrap">
-                {lastInventoryDate
-                  ? `Último inventário em ${formatDateTime(lastInventoryDate)}`
-                  : "Nenhum inventário encerrado ainda."}
-              </p>
-            </div>
-          </div>
-
-          {/* ✅ Ações: Inventário + Export + Upload */}
-          <div className="flex flex-wrap gap-2 pt-3">
+      <DashboardTableShell
+        title="Estoque Atual"
+        description="Valores após o último inventário."
+        toolbar={
+          <>
+            <Button onClick={openInventoryModal} disabled={loadingInventory}>
+              {loadingInventory ? "Abrindo..." : "Inventário"}
+            </Button>
 
             <Button
               variant="outline"
@@ -959,183 +872,173 @@ export default function EstoquePage() {
               className="hidden"
               onChange={(e) => handleFileSelected(e.target.files?.[0] ?? null)}
             />
-          </div>
-        </CardHeader>
+          </>
+        }
+        empty={!loadingStock && sortedStock.length === 0}
+        emptyState={
+          <p className="text-sm text-muted-foreground">
+            Nenhum item de estoque cadastrado ainda.
+          </p>
+        }
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Produto</TableHead>
+              <TableHead>Qtd</TableHead>
+              <TableHead>Min/Méd/Máx</TableHead>
+              <TableHead>Valor Unit.</TableHead>
+              <TableHead>Total</TableHead>
+              <TableHead>Local</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
 
-        <CardContent>
-          <Table>
-            <TableHeader>
+          <TableBody>
+            {loadingStock ? (
               <TableRow>
-                <TableHead>Produto</TableHead>
-                <TableHead>Qtd</TableHead>
-                <TableHead>Min/Méd/Máx</TableHead>
-                <TableHead>Valor Unit.</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>Local</TableHead>
-                <TableHead>Status</TableHead>
+                <TableCell
+                  colSpan={7}
+                  className="text-sm text-muted-foreground"
+                >
+                  Carregando...
+                </TableCell>
               </TableRow>
-            </TableHeader>
+            ) : (
+              sortedStock.map((row) => {
+                const status = getStatusFromRow(row);
+                const badgeCfg = statusConfig[status];
 
-            <TableBody>
-              {loadingStock ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={7}
-                    className="text-sm text-muted-foreground"
-                  >
-                    Carregando...
-                  </TableCell>
-                </TableRow>
-              ) : sortedStock.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={7}
-                    className="text-sm text-muted-foreground"
-                  >
-                    Nenhum item de estoque cadastrado ainda.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                sortedStock.map((row) => {
-                  const status = getStatusFromRow(row);
-                  const badgeCfg = statusConfig[status];
+                const unit = String(
+                  row.unit_label ?? row.product?.default_unit_label ?? "UN"
+                ).toUpperCase();
+                const price = row.product?.price ?? 0;
 
-                  // Normalize unit for display with fallback "UN"
-                  const unit = String(
-                    row.unit_label ?? row.product?.default_unit_label ?? "UN"
-                  ).toUpperCase();
-                  const price = row.product?.price ?? 0;
+                const qtyRounded =
+                  Math.round(((row.quantity ?? 0) + Number.EPSILON) * 1000) /
+                  1000;
 
-                  // ✅ arredonda a quantidade para uso no total e na exibição
-                  const qtyRounded =
-                    Math.round(((row.quantity ?? 0) + Number.EPSILON) * 1000) /
-                    1000;
+                const draft = thresholdDrafts[row.id] ?? {
+                  min:
+                    row.min_qty !== null && row.min_qty !== undefined
+                      ? String(row.min_qty)
+                      : "",
+                  med:
+                    row.med_qty !== null && row.med_qty !== undefined
+                      ? String(row.med_qty)
+                      : "",
+                  max:
+                    row.max_qty !== null && row.max_qty !== undefined
+                      ? String(row.max_qty)
+                      : "",
+                };
 
-                  const draft = thresholdDrafts[row.id] ?? {
-                    min:
-                      row.min_qty !== null && row.min_qty !== undefined
-                        ? String(row.min_qty)
-                        : "",
-                    med:
-                      row.med_qty !== null && row.med_qty !== undefined
-                        ? String(row.med_qty)
-                        : "",
-                    max:
-                      row.max_qty !== null && row.max_qty !== undefined
-                        ? String(row.max_qty)
-                        : "",
-                  };
+                const disabled = savingThresholdRowId === row.id;
 
-                  const disabled = savingThresholdRowId === row.id;
+                return (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-medium">
+                      <div className="flex flex-col">
+                        <span>{row.product?.name ?? "—"}</span>
+                        {row.product?.sku && (
+                          <span className="text-xs text-muted-foreground">
+                            SKU: {row.product.sku}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
 
-                  return (
-                    <TableRow key={row.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex flex-col">
-                          <span>{row.product?.name ?? "—"}</span>
-                          {row.product?.sku && (
-                            <span className="text-xs text-muted-foreground">
-                              SKU: {row.product.sku}
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
+                    <TableCell>
+                      {formatQty3(qtyRounded)} {unit}
+                    </TableCell>
 
-                      <TableCell>
-                        {formatQty3(qtyRounded)} {unit}
-                      </TableCell>
-
-                      <TableCell className="text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Input
-                            type="number"
-                            className="h-7 w-16 text-xs"
-                            value={draft.min}
-                            disabled={disabled}
-                            onChange={(e) =>
-                              handleThresholdChange(
-                                row.id,
-                                "min",
-                                e.target.value
-                              )
+                    <TableCell className="text-xs text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="number"
+                          className="h-7 w-16 text-xs"
+                          value={draft.min}
+                          disabled={disabled}
+                          onChange={(e) =>
+                            handleThresholdChange(
+                              row.id,
+                              "min",
+                              e.target.value
+                            )
+                          }
+                          onBlur={() => handleThresholdBlur(row.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              (e.currentTarget as HTMLInputElement).blur();
                             }
-                            onBlur={() => handleThresholdBlur(row.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                (e.currentTarget as HTMLInputElement).blur();
-                              }
-                            }}
-                          />
-                          <span className="text-[10px] text-gray-400">/</span>
-                          <Input
-                            type="number"
-                            className="h-7 w-16 text-xs"
-                            value={draft.med}
-                            disabled={disabled}
-                            onChange={(e) =>
-                              handleThresholdChange(
-                                row.id,
-                                "med",
-                                e.target.value
-                              )
+                          }}
+                        />
+                        <span className="text-[10px] text-gray-400">/</span>
+                        <Input
+                          type="number"
+                          className="h-7 w-16 text-xs"
+                          value={draft.med}
+                          disabled={disabled}
+                          onChange={(e) =>
+                            handleThresholdChange(
+                              row.id,
+                              "med",
+                              e.target.value
+                            )
+                          }
+                          onBlur={() => handleThresholdBlur(row.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              (e.currentTarget as HTMLInputElement).blur();
                             }
-                            onBlur={() => handleThresholdBlur(row.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                (e.currentTarget as HTMLInputElement).blur();
-                              }
-                            }}
-                          />
-                          <span className="text-[10px] text-gray-400">/</span>
-                          <Input
-                            type="number"
-                            className="h-7 w-16 text-xs"
-                            value={draft.max}
-                            disabled={disabled}
-                            onChange={(e) =>
-                              handleThresholdChange(
-                                row.id,
-                                "max",
-                                e.target.value
-                              )
+                          }}
+                        />
+                        <span className="text-[10px] text-gray-400">/</span>
+                        <Input
+                          type="number"
+                          className="h-7 w-16 text-xs"
+                          value={draft.max}
+                          disabled={disabled}
+                          onChange={(e) =>
+                            handleThresholdChange(
+                              row.id,
+                              "max",
+                              e.target.value
+                            )
+                          }
+                          onBlur={() => handleThresholdBlur(row.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              (e.currentTarget as HTMLInputElement).blur();
                             }
-                            onBlur={() => handleThresholdBlur(row.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                (e.currentTarget as HTMLInputElement).blur();
-                              }
-                            }}
-                          />
-                        </div>
-                      </TableCell>
+                          }}
+                        />
+                      </div>
+                    </TableCell>
 
-                      <TableCell>{formatCurrency(price)}</TableCell>
+                    <TableCell>{formatCurrency(price)}</TableCell>
 
-                      <TableCell>
-                        {formatCurrency(price * qtyRounded)}
-                      </TableCell>
+                    <TableCell>{formatCurrency(price * qtyRounded)}</TableCell>
 
-                      <TableCell>{row.location ?? "—"}</TableCell>
+                    <TableCell>{row.location ?? "—"}</TableCell>
 
-                      <TableCell>
-                        <Badge className={badgeCfg.badgeClass}>
-                          {badgeCfg.label}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                    <TableCell>
+                      <Badge className={badgeCfg.badgeClass}>
+                        {badgeCfg.label}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </DashboardTableShell>
 
-      {/* Modal de Inventário */}
       {inventoryModalOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-3xl max-h-[80vh] overflow-y-auto shadow-lg">
-            <div className="flex justify-between items-center mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="max-h-[80vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white p-6 shadow-lg dark:bg-slate-950">
+            <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Inventário em Andamento</h3>
               <Button variant="ghost" onClick={closeInventoryModal}>
                 ✕
@@ -1148,14 +1051,13 @@ export default function EstoquePage() {
               </p>
             ) : (
               <div className="space-y-4">
-                <div className="bg-blue-50 border border-blue-100 p-3 rounded-md text-sm text-blue-800">
+                <div className="rounded-md border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                   Inventário iniciado! Adicione os itens contados abaixo. Ao
                   encerrar o inventário, os saldos de estoque serão atualizados
                   com estas quantidades.
                 </div>
 
-                {/* Data do inventário (somente leitura) */}
-                <div className="flex justify-between text-xs text-gray-600">
+                <div className="flex justify-between text-xs text-gray-600 dark:text-slate-400">
                   <span>
                     Data do inventário:{" "}
                     <span className="font-medium">
@@ -1164,13 +1066,12 @@ export default function EstoquePage() {
                   </span>
                 </div>
 
-                {/* Form de contagem */}
-                <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr] gap-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr_1fr]">
                   <div className="flex flex-col gap-1">
                     <Label htmlFor="produto">Produto</Label>
                     <select
                       id="produto"
-                      className="border rounded-md px-2 py-2 text-sm"
+                      className="rounded-md border px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
                       value={selectedProductId}
                       onChange={(e) => setSelectedProductId(e.target.value)}
                     >
@@ -1207,18 +1108,16 @@ export default function EstoquePage() {
                   </div>
                 </div>
 
-                {/* Botão ADICIONAR ITEM mais destacado */}
                 <Button
-                  className="w-full mt-2 bg-emerald-600 text-white hover:bg-emerald-700 font-semibold shadow-sm"
+                  className="mt-2 w-full bg-emerald-600 font-semibold text-white shadow-sm hover:bg-emerald-700"
                   onClick={handleAddInventoryItem}
                   disabled={savingItem}
                 >
                   {savingItem ? "Salvando..." : "Adicionar Item"}
                 </Button>
 
-                {/* Lista de itens contados */}
-                <div className="border-t pt-4">
-                  <h4 className="font-medium mb-2">
+                <div className="border-t pt-4 dark:border-slate-800">
+                  <h4 className="mb-2 font-medium">
                     Itens Contados ({inventoryItems.length})
                   </h4>
 
@@ -1250,7 +1149,6 @@ export default function EstoquePage() {
                   )}
                 </div>
 
-                {/* Botões do rodapé */}
                 <div className="flex justify-end gap-2 pt-2">
                   <Button variant="outline" onClick={closeInventoryModal}>
                     Fechar

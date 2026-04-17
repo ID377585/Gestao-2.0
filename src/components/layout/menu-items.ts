@@ -9,7 +9,6 @@ import {
   FileText,
   Tag,
   History,
-  ShoppingCart,
   AlertTriangle,
   ArrowLeftRight,
   BadgeDollarSign,
@@ -18,10 +17,17 @@ import {
   Receipt,
   Building2,
   FilePlus2,
+  ShoppingCart,
   type LucideIcon,
 } from "lucide-react";
 
-export type MenuSection = "principal" | "administracao";
+export type MenuSection =
+  | "operacao"
+  | "estoque"
+  | "engenharia"
+  | "compras"
+  | "financeiro"
+  | "administracao";
 
 export type MenuItem = {
   label: string;
@@ -30,115 +36,134 @@ export type MenuItem = {
   section: MenuSection;
 };
 
+export type MenuSectionConfig = {
+  key: MenuSection;
+  label: string;
+};
+
+export const menuSectionOrder: MenuSectionConfig[] = [
+  { key: "operacao", label: "Operação" },
+  { key: "estoque", label: "Estoque" },
+  { key: "engenharia", label: "Engenharia" },
+  { key: "compras", label: "Compras" },
+  { key: "financeiro", label: "Financeiro" },
+  { key: "administracao", label: "Administração" },
+];
+
 export const menuItems: MenuItem[] = [
   {
     label: "Pedidos",
     href: "/dashboard/pedidos",
     icon: ClipboardList,
-    section: "principal",
+    section: "operacao",
   },
   {
     label: "Produção",
     href: "/dashboard/producao",
     icon: Factory,
-    section: "principal",
+    section: "operacao",
   },
   {
     label: "Produtividade",
     href: "/dashboard/produtividade",
     icon: BarChart3,
-    section: "principal",
-  },
-  {
-    label: "Estoque",
-    href: "/dashboard/estoque",
-    icon: Package,
-    section: "principal",
-  },
-  {
-    label: "Entradas",
-    href: "/dashboard/entradas",
-    icon: FileInput,
-    section: "principal",
-  },
-  {
-    label: "Inventário",
-    href: "/dashboard/inventario",
-    icon: Boxes,
-    section: "principal",
-  },
-  {
-    label: "Produtos",
-    href: "/dashboard/produtos",
-    icon: Box,
-    section: "principal",
-  },
-  {
-    label: "Fichas Técnicas",
-    href: "/dashboard/fichas-tecnicas",
-    icon: FileText,
-    section: "principal",
-  },
-  {
-    label: "Etiquetas",
-    href: "/dashboard/etiquetas",
-    icon: Tag,
-    section: "principal",
+    section: "operacao",
   },
   {
     label: "Histórico",
     href: "/dashboard/historico-pedidos",
     icon: History,
-    section: "principal",
+    section: "operacao",
+  },
+
+  {
+    label: "Estoque",
+    href: "/dashboard/estoque",
+    icon: Package,
+    section: "estoque",
   },
   {
-    label: "Perdas",
-    href: "/dashboard/perdas",
-    icon: AlertTriangle,
-    section: "principal",
+    label: "Entradas",
+    href: "/dashboard/entradas",
+    icon: FileInput,
+    section: "estoque",
+  },
+  {
+    label: "Inventário",
+    href: "/dashboard/inventario",
+    icon: Boxes,
+    section: "estoque",
+  },
+  {
+    label: "Produtos",
+    href: "/dashboard/produtos",
+    icon: Box,
+    section: "estoque",
   },
   {
     label: "Transferências",
     href: "/dashboard/transferencias",
     icon: ArrowLeftRight,
-    section: "principal",
+    section: "estoque",
   },
+  {
+    label: "Perdas",
+    href: "/dashboard/perdas",
+    icon: AlertTriangle,
+    section: "estoque",
+  },
+
+  {
+    label: "Fichas Técnicas",
+    href: "/dashboard/fichas-tecnicas",
+    icon: FileText,
+    section: "engenharia",
+  },
+  {
+    label: "Etiquetas",
+    href: "/dashboard/etiquetas",
+    icon: Tag,
+    section: "engenharia",
+  },
+
   {
     label: "Fornecedores",
     href: "/compras/fornecedores",
     icon: Building2,
-    section: "principal",
+    section: "compras",
   },
   {
     label: "Solicitações",
     href: "/compras/solicitacoes",
     icon: FilePlus2,
-    section: "principal",
+    section: "compras",
   },
   {
     label: "Compras",
     href: "/compras/pedidos",
     icon: ShoppingCart,
-    section: "principal",
+    section: "compras",
   },
   {
     label: "Recebimentos",
     href: "/compras/recebimentos",
     icon: Truck,
-    section: "principal",
+    section: "compras",
   },
+
   {
     label: "Contas a Pagar",
     href: "/financeiro/contas-a-pagar",
     icon: Receipt,
-    section: "principal",
+    section: "financeiro",
   },
   {
     label: "Controladoria",
     href: "/dashboard/controladoria",
     icon: BadgeDollarSign,
-    section: "principal",
+    section: "financeiro",
   },
+
   {
     label: "Usuários",
     href: "/dashboard/admin/usuarios",
@@ -147,9 +172,12 @@ export const menuItems: MenuItem[] = [
   },
 ];
 
-export const principalMenuItems = menuItems.filter(
-  (item) => item.section === "principal"
-);
+export const menuItemsBySection = menuSectionOrder
+  .map((section) => ({
+    ...section,
+    items: menuItems.filter((item) => item.section === section.key),
+  }))
+  .filter((section) => section.items.length > 0);
 
 export const administracaoMenuItems = menuItems.filter(
   (item) => item.section === "administracao"

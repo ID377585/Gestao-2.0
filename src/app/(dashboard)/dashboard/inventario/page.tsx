@@ -42,7 +42,6 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 const QrScanner = dynamic(
   () =>
     import("@yudiel/react-qr-scanner").then((mod) => {
-      // a lib exporta { Scanner }
       return mod.Scanner;
     }),
   { ssr: false }
@@ -53,7 +52,7 @@ const QrScanner = dynamic(
 ========================= */
 
 type InventarioItem = {
-  key: string; // chave única (produto + qtd + umd + (opcional) lote)
+  key: string;
   payload: any;
   scannedAt: string;
 };
@@ -83,7 +82,6 @@ type ProductOption = {
 };
 
 const HISTORY_KEY = "gestao2_inventario_history";
-// 🔥 Inventário ativo (em andamento) – persiste mesmo se sair da tela
 const ACTIVE_KEY = "gestao2_inventario_atual";
 
 const formatDate = (dateString: string) => {
@@ -96,10 +94,6 @@ const formatDateTime = (dateString: string) => {
   return new Date(dateString).toLocaleString("pt-BR");
 };
 
-/**
- * Tenta interpretar o texto do QR como JSON.
- * Se não for JSON válido, retorna null.
- */
 const parseQrPayload = (raw: string) => {
   const cleaned = String(raw || "").trim();
   if (!cleaned) return null;
@@ -112,25 +106,14 @@ const parseQrPayload = (raw: string) => {
   }
 };
 
-/**
- * Gera uma chave única para evitar que o mesmo item
- * seja contado mais de uma vez no mesmo inventário.
- *
- * Para etiquetas, a chave inclui também o lote (lt),
- * garantindo que cada etiqueta só conte 1x.
- */
 const makeInventarioKey = (payload: any) => {
   const p = String(payload?.p || payload?.ins || payload?.insumo || "");
   const q = String(payload?.q || payload?.qtd || "");
   const u = String(payload?.u || payload?.umd || "");
-  const lt = String(payload?.lt || ""); // se tiver lote, entra na chave
+  const lt = String(payload?.lt || "");
   return `${p}__${q}__${u}__${lt}`;
 };
 
-/**
- * Constrói um resumo da contagem:
- * soma quantidades por produto + unidade e agrega lotes lidos.
- */
 const buildResumoFromItens = (
   itens: InventarioItem[]
 ): InventarioResumoItem[] => {
@@ -167,19 +150,13 @@ const buildResumoFromItens = (
   );
 };
 
-/**
- * Extrai texto retornado pelo Scanner (@yudiel/react-qr-scanner),
- * independente se vem como string, array ou objetos com rawValue.
- */
 const extractTextFromScannerResult = (result: any): string | null => {
   if (!result) return null;
 
-  // string simples
   if (typeof result === "string") {
     return result.trim();
   }
 
-  // array (vários resultados)
   if (Array.isArray(result) && result.length > 0) {
     const first = result[0];
     if (typeof first === "string") return first.trim();
@@ -188,7 +165,6 @@ const extractTextFromScannerResult = (result: any): string | null => {
     }
   }
 
-  // objeto único com rawValue
   if (typeof result === "object" && "rawValue" in result) {
     const value = (result as any).rawValue;
     if (typeof value === "string") return value.trim();
@@ -213,39 +189,28 @@ export default function InventarioPage() {
 
   const [entryMode, setEntryMode] = useState<EntryMode>("qr");
 
-  // Modal do scanner de câmera
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
 
-  // ✅ NOVO: Bloqueio de limpeza com senha admin
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const [adminPassword, setAdminPassword] = useState("");
   const [adminUnlocked, setAdminUnlocked] = useState(false);
 
-  /**
-   * ✅ Senha de Admin (local)
-   * Observação: ideal é mover para validação no backend futuramente.
-   */
   const ADMIN_PASSWORD = "123456";
 
-  // Campos para INSUMOS (lançamento manual)
   const [manualProduto, setManualProduto] = useState("");
   const [manualQtd, setManualQtd] = useState("");
   const [manualUmd, setManualUmd] = useState("");
 
-  // Produtos vindos da tabela products (Supabase)
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<ProductOption[]>([]);
   const [isProductListOpen, setIsProductListOpen] = useState(false);
 
-  // Resumo da última contagem (lado cliente)
   const [ultimoResumo, setUltimoResumo] = useState<InventarioResumoItem[] | null>(
     null
   );
 
-  // Histórico de inventários (localStorage por enquanto)
   const [historico, setHistorico] = useState<InventarioHistorico[]>([]);
 
-  // Resultado da aplicação no backend (Supabase)
   const [applyResult, setApplyResult] = useState<InventoryApplyResult | null>(
     null
   );
@@ -397,7 +362,6 @@ export default function InventarioPage() {
   const showToast = (msg: string) => {
     setToastMsg(msg);
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    // deixa 5 segundos para leitura tranquila
     toastTimerRef.current = window.setTimeout(() => {
       setToastMsg("");
     }, 5000);
@@ -423,7 +387,6 @@ export default function InventarioPage() {
     setUltimoResumo(null);
     setApplyResult(null);
 
-    // ✅ ao iniciar inventário, trava a limpeza até senha admin
     setAdminUnlocked(false);
     setAdminPassword("");
     setAdminDialogOpen(false);
@@ -462,9 +425,6 @@ export default function InventarioPage() {
     setInventarioItens(newItens);
   };
 
-  /**
-   * Chamado quando o scanner de câmera lê um QR
-   */
   const handleQrDetected = (rawText: string) => {
     if (!inventarioAtivo) {
       showToast("Inicie um inventário primeiro.");
@@ -474,7 +434,7 @@ export default function InventarioPage() {
     const text = String(rawText || "").trim();
     if (!text) return;
 
-    setQrInput(text); // só para exibir o último lido no campo
+    setQrInput(text);
 
     const payload = parseQrPayload(text);
     if (!payload) {
@@ -485,9 +445,6 @@ export default function InventarioPage() {
     registrarLeituraInventario(payload);
   };
 
-  /**
-   * Fallback: se algum leitor colar texto e der Enter
-   */
   const handleQrSubmit = () => {
     if (!inventarioAtivo) {
       showToast("Inicie um inventário primeiro.");
@@ -521,7 +478,6 @@ export default function InventarioPage() {
       p: manualProduto.trim(),
       q: qtdNum,
       u: manualUmd.trim(),
-      // Não há lote nem data de vencimento aqui
       lt: null,
       dv: null,
       source: "manual",
@@ -529,18 +485,15 @@ export default function InventarioPage() {
 
     registrarLeituraInventario(payload);
 
-    // Mantém produto/unidade, só zera quantidade
     setManualQtd("");
   };
 
-  // ✅ NOVO: confirmação da senha admin para liberar "Limpar Itens"
   const handleAdminConfirm = () => {
     const ok = adminPassword === ADMIN_PASSWORD;
 
     if (!ok) {
       showToast("Senha de Admin incorreta.");
       setAdminPassword("");
-      // mantém o dialog aberto pra tentar de novo
       setTimeout(() => adminPassRef.current?.focus(), 50);
       return;
     }
@@ -557,7 +510,6 @@ export default function InventarioPage() {
   };
 
   const limparItensInventarioAtual = () => {
-    // ✅ Se inventário está ativo e ainda não desbloqueou, pede senha
     if (inventarioAtivo && !adminUnlocked) {
       setAdminDialogOpen(true);
       setTimeout(() => adminPassRef.current?.focus(), 50);
@@ -568,9 +520,6 @@ export default function InventarioPage() {
     setInventarioScannedKeys({});
     setUltimoResumo(null);
     setApplyResult(null);
-
-    // ✅ opcional: volta a travar após limpar (mantive DESLIGADO para não atrapalhar)
-    // setAdminUnlocked(false);
 
     showToast("Itens do inventário atual foram limpos.");
   };
@@ -592,7 +541,6 @@ export default function InventarioPage() {
       showToast("Inventário finalizado! Aplicando ajustes no estoque...");
     }
 
-    // Salva no histórico local (lado client)
     const histItem: InventarioHistorico = {
       id: inventarioId || `inv-${Date.now()}`,
       startedAt: inventarioStartedAt || endedAt,
@@ -603,7 +551,6 @@ export default function InventarioPage() {
 
     setHistorico((prev) => [histItem, ...prev]);
 
-    // ✅ Envia o resumo para o backend aplicar no estoque (transição)
     const payload: InventoryResumoInput[] = resumo.map((r) => ({
       produto: r.produto,
       unidade: r.unidade,
@@ -630,7 +577,6 @@ export default function InventarioPage() {
       }
     });
 
-    // Limpa estado do inventário atual
     setInventarioAtivo(false);
     setInventarioId("");
     setInventarioStartedAt("");
@@ -641,7 +587,6 @@ export default function InventarioPage() {
     setManualQtd("");
     setManualUmd("");
 
-    // ✅ ao finalizar, volta a travar para o próximo inventário
     setAdminUnlocked(false);
     setAdminPassword("");
     setAdminDialogOpen(false);
@@ -687,13 +632,13 @@ export default function InventarioPage() {
     <div className="space-y-6">
       {/* ✅ Toast flutuante centralizado (desktop e mobile) */}
       {toastMsg && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
-          <div className="w-[90%] max-w-md rounded-lg bg-red-600 text-white px-4 py-3 shadow-xl text-sm sm:text-base font-semibold break-words flex items-start gap-3 pointer-events-auto">
+        <div className="pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center px-4">
+          <div className="pointer-events-auto flex w-full max-w-md items-start gap-3 break-words rounded-lg bg-red-600 px-4 py-3 text-sm font-semibold text-white shadow-xl sm:text-base">
             <span className="flex-1">{toastMsg}</span>
             <button
               type="button"
               onClick={() => setToastMsg("")}
-              className="ml-2 text-white/80 hover:text-white text-lg leading-none"
+              className="ml-2 text-lg leading-none text-white/80 hover:text-white"
               aria-label="Fechar aviso"
             >
               ×
@@ -703,10 +648,12 @@ export default function InventarioPage() {
       )}
 
       {/* Header da página */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Inventário</h1>
-          <p className="text-gray-600">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <h1 className="text-2xl font-bold leading-tight text-gray-900 sm:text-3xl">
+            Inventário
+          </h1>
+          <p className="max-w-prose text-sm text-gray-600 sm:text-base">
             Contagem de estoque via leitura de QR Code das etiquetas e
             lançamento de insumos, com ajuste automático do Estoque Atual.
           </p>
@@ -719,13 +666,15 @@ export default function InventarioPage() {
           <CardTitle>Inventário / Contagem</CardTitle>
           <CardDescription>
             Inicie um inventário, leia os QR Codes das etiquetas ou lance
+            insumos manualmente.
           </CardDescription>
         </CardHeader>
+
         <CardContent className="space-y-6">
           {/* Controles principais */}
-          <div className="flex flex-wrap gap-3 items-center">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             {!inventarioAtivo ? (
-              <Button onClick={iniciarInventario}>
+              <Button onClick={iniciarInventario} className="w-full sm:w-auto">
                 ▶️ Iniciar Inventário
               </Button>
             ) : (
@@ -733,8 +682,7 @@ export default function InventarioPage() {
                 <Button
                   onClick={finalizarInventario}
                   disabled={isApplying}
-                  // 🔴 Força fundo vermelho e texto branco
-                  className="bg-red-600 text-white hover:bg-red-700"
+                  className="w-full bg-red-600 text-white hover:bg-red-700 sm:w-auto"
                 >
                   {isApplying
                     ? "Aplicando ajustes..."
@@ -745,6 +693,7 @@ export default function InventarioPage() {
                   variant="outline"
                   onClick={limparItensInventarioAtual}
                   disabled={isApplying}
+                  className="w-full sm:w-auto"
                   title={
                     inventarioAtivo && !adminUnlocked
                       ? "Requer senha de Admin"
@@ -754,9 +703,8 @@ export default function InventarioPage() {
                   🧹 Limpar Itens
                 </Button>
 
-                {/* ✅ Opcional: indicador visual de desbloqueio */}
                 {adminUnlocked && (
-                  <span className="text-xs text-emerald-700 font-semibold">
+                  <span className="text-xs font-semibold text-emerald-700">
                     Admin liberado ✅
                   </span>
                 )}
@@ -779,33 +727,38 @@ export default function InventarioPage() {
           {/* Seletor de modo de entrada */}
           <div className="space-y-2">
             <Label>Modo de entrada</Label>
-            <div className="inline-flex rounded-md border overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setEntryMode("insumo")}
-                className={`px-4 py-2 text-sm font-medium ${
-                  entryMode === "insumo"
-                    ? "bg-gray-900 text-white"
-                    : "bg-white text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                1️⃣ Insumos (produtos primários)
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEntryMode("qr");
-                  setTimeout(() => qrInputRef.current?.focus(), 50);
-                }}
-                className={`px-4 py-2 text-sm font-medium border-l ${
-                  entryMode === "qr"
-                    ? "bg-gray-900 text-white"
-                    : "bg-white text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                2️⃣ Ler QR das Etiquetas
-              </button>
+
+            <div className="overflow-hidden rounded-md border">
+              <div className="flex flex-col sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => setEntryMode("insumo")}
+                  className={`w-full px-4 py-2 text-left text-sm font-medium transition-colors sm:text-center ${
+                    entryMode === "insumo"
+                      ? "bg-gray-900 text-white"
+                      : "bg-white text-gray-700 hover:bg-gray-100"
+                  }`}
+                >
+                  1️⃣ Insumos (produtos primários)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEntryMode("qr");
+                    setTimeout(() => qrInputRef.current?.focus(), 50);
+                  }}
+                  className={`w-full border-t px-4 py-2 text-left text-sm font-medium transition-colors sm:border-l sm:border-t-0 sm:text-center ${
+                    entryMode === "qr"
+                      ? "bg-gray-900 text-white"
+                      : "bg-white text-gray-700 hover:bg-gray-100"
+                  }`}
+                >
+                  2️⃣ Ler QR das Etiquetas
+                </button>
+              </div>
             </div>
+
             <p className="text-xs text-muted-foreground">
               Você pode alternar entre os modos a qualquer momento durante o
               inventário.
@@ -814,16 +767,17 @@ export default function InventarioPage() {
 
           {/* Formulários de entrada */}
           {entryMode === "insumo" ? (
-            // =========================
-            //  MODO: INSUMOS
-            // =========================
-            <div className="space-y-3 border rounded-md p-4 bg-slate-50/60">
-              <div className="text-sm font-semibold mb-1">
+            <div className="space-y-3 rounded-md border bg-slate-50/60 p-4">
+              <div className="mb-1 text-sm font-semibold">
                 Lançamento de Insumos (produtos primários)
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:items-end">
                 {/* Campo Produto / Insumo com autocomplete */}
-                <div className="md:col-span-2 relative" ref={productFieldRef}>
+                <div
+                  className="relative sm:col-span-2 xl:col-span-2"
+                  ref={productFieldRef}
+                >
                   <Label>Produto / Insumo</Label>
                   <Input
                     value={manualProduto}
@@ -833,8 +787,9 @@ export default function InventarioPage() {
                     disabled={!inventarioAtivo || isApplying}
                     autoComplete="off"
                   />
+
                   {isProductListOpen && (
-                    <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-white shadow-lg text-sm">
+                    <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-white text-sm shadow-lg">
                       {filteredProducts.length === 0 ? (
                         <div className="px-3 py-2 text-xs text-muted-foreground">
                           Nenhum produto encontrado.
@@ -844,12 +799,12 @@ export default function InventarioPage() {
                           <button
                             key={p.id}
                             type="button"
-                            className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-100"
+                            className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:bg-slate-100"
                             onClick={() => handleSelectProduct(p)}
                           >
-                            <span>{p.name}</span>
+                            <span className="min-w-0 truncate">{p.name}</span>
                             {p.default_unit_label && (
-                              <span className="ml-2 text-xs text-muted-foreground">
+                              <span className="ml-2 shrink-0 text-xs text-muted-foreground">
                                 {p.default_unit_label}
                               </span>
                             )}
@@ -859,6 +814,7 @@ export default function InventarioPage() {
                     </div>
                   )}
                 </div>
+
                 <div>
                   <Label>Quantidade</Label>
                   <Input
@@ -868,6 +824,7 @@ export default function InventarioPage() {
                     disabled={!inventarioAtivo || isApplying}
                   />
                 </div>
+
                 <div>
                   <Label>Unidade</Label>
                   <Input
@@ -878,26 +835,25 @@ export default function InventarioPage() {
                   />
                 </div>
               </div>
-              <div className="flex justify-end">
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <Button
                   onClick={handleManualSubmit}
                   disabled={!inventarioAtivo || isApplying}
-                  className="mt-2"
+                  className="w-full sm:mt-2 sm:w-auto"
                 >
                   ➕ Adicionar ao Inventário
                 </Button>
               </div>
             </div>
           ) : (
-            // =========================
-            //  MODO: QR CODE (CÂMERA)
-            // =========================
-            <div className="space-y-3 border rounded-md p-4 bg-slate-50/60">
-              <div className="text-sm font-semibold mb-1">
+            <div className="space-y-3 rounded-md border bg-slate-50/60 p-4">
+              <div className="mb-1 text-sm font-semibold">
                 Leitura de QR Code das Etiquetas
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                <div className="md:col-span-2">
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 xl:items-end">
+                <div className="sm:col-span-2 xl:col-span-2">
                   <Label>Último QR lido</Label>
                   <Input
                     ref={qrInputRef}
@@ -925,6 +881,19 @@ export default function InventarioPage() {
                   </Button>
                 </div>
               </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleQrSubmit}
+                  disabled={!inventarioAtivo || isApplying || !qrInput.trim()}
+                  className="w-full sm:w-auto"
+                >
+                  Confirmar último QR lido
+                </Button>
+              </div>
+
               <p className="text-xs text-muted-foreground">
                 Clique em &quot;Ler QR com a Câmera&quot; e aponte o dispositivo
                 para o QR Code das etiquetas geradas na tela de Etiquetas.
@@ -940,8 +909,8 @@ export default function InventarioPage() {
 
           {/* Tabela com os itens lidos no inventário atual */}
           {inventarioItens.length > 0 && (
-            <div className="max-h-[320px] overflow-auto border rounded">
-              <Table>
+            <div className="overflow-x-auto rounded border">
+              <Table className="min-w-[760px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Produto</TableHead>
@@ -986,8 +955,7 @@ export default function InventarioPage() {
         </CardContent>
       </Card>
 
-      
-            {/* ✅ NOVO: Modal Senha Admin para limpar itens */}
+      {/* ✅ Modal Senha Admin para limpar itens */}
       <Dialog
         open={adminDialogOpen}
         onOpenChange={(open) => {
@@ -999,7 +967,7 @@ export default function InventarioPage() {
           }
         }}
       >
-        <DialogContent className="max-w-sm bg-white text-gray-900 border shadow-2xl">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-sm rounded-2xl border bg-white p-4 text-gray-900 shadow-2xl sm:p-6">
           <DialogHeader>
             <DialogTitle>Senha de Admin</DialogTitle>
           </DialogHeader>
@@ -1027,7 +995,7 @@ export default function InventarioPage() {
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-1">
+            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
               <Button variant="outline" onClick={handleAdminClose}>
                 Cancelar
               </Button>
@@ -1044,33 +1012,38 @@ export default function InventarioPage() {
 
       {/* Modal do Scanner de QR Code */}
       <Dialog open={isQrModalOpen} onOpenChange={setIsQrModalOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-md rounded-2xl p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Ler QR Code da Etiqueta</DialogTitle>
           </DialogHeader>
+
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
               Aponte a câmera para o QR Code impresso na etiqueta. Assim que a
               leitura for concluída, o item será lançado neste inventário.
             </p>
-            <div className="rounded-md overflow-hidden border bg-black/80">
-              <QrScanner
-                constraints={{
-                  facingMode: "environment",
-                }}
-                formats={["qr_code"]}
-                onScan={(result: any) => {
-                  const text = extractTextFromScannerResult(result);
-                  if (!text) return;
-                  handleQrDetected(text);
-                  setIsQrModalOpen(false);
-                }}
-                onError={(error: any) => {
-                  console.error("Erro no scanner de QR:", error);
-                  showToast("Erro ao acessar a câmera ou ler o QR.");
-                }}
-              />
+
+            <div className="overflow-hidden rounded-md border bg-black/80">
+              <div className="aspect-square max-h-[65dvh] w-full">
+                <QrScanner
+                  constraints={{
+                    facingMode: "environment",
+                  }}
+                  formats={["qr_code"]}
+                  onScan={(result: any) => {
+                    const text = extractTextFromScannerResult(result);
+                    if (!text) return;
+                    handleQrDetected(text);
+                    setIsQrModalOpen(false);
+                  }}
+                  onError={(error: any) => {
+                    console.error("Erro no scanner de QR:", error);
+                    showToast("Erro ao acessar a câmera ou ler o QR.");
+                  }}
+                />
+              </div>
             </div>
+
             <Button
               type="button"
               variant="outline"
@@ -1095,8 +1068,8 @@ export default function InventarioPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="max-h-[260px] overflow-auto border rounded">
-              <Table>
+            <div className="overflow-x-auto rounded border">
+              <Table className="min-w-[720px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Produto</TableHead>
@@ -1141,14 +1114,15 @@ export default function InventarioPage() {
               )}
             </CardDescription>
           </CardHeader>
+
           <CardContent>
             {applyResult.items.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Nenhum item foi processado.
               </p>
             ) : (
-              <div className="max-h-[260px] overflow-auto border rounded">
-                <Table>
+              <div className="overflow-x-auto rounded border">
+                <Table className="min-w-[860px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Produto</TableHead>
@@ -1172,9 +1146,9 @@ export default function InventarioPage() {
                         <TableCell
                           className={
                             it.diff > 0
-                              ? "text-green-600 font-semibold"
+                              ? "font-semibold text-green-600"
                               : it.diff < 0
-                              ? "text-red-600 font-semibold"
+                              ? "font-semibold text-red-600"
                               : "text-gray-600"
                           }
                         >
@@ -1183,8 +1157,8 @@ export default function InventarioPage() {
                         <TableCell
                           className={
                             it.status === "ok"
-                              ? "text-green-700 font-semibold"
-                              : "text-red-700 font-semibold"
+                              ? "font-semibold text-green-700"
+                              : "font-semibold text-red-700"
                           }
                         >
                           {it.status === "ok" ? "OK" : "Problema"}
@@ -1214,8 +1188,8 @@ export default function InventarioPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="max-h-[260px] overflow-auto border rounded">
-              <Table>
+            <div className="overflow-x-auto rounded border">
+              <Table className="min-w-[720px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>ID</TableHead>
@@ -1256,11 +1230,10 @@ export default function InventarioPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <p className="text-sm text-muted-foreground">
-            
-          </p>
-          <Link href="/dashboard/inventario/historico">
-            <Button variant="outline" size="sm">
+          <p className="text-sm text-muted-foreground"></p>
+
+          <Link href="/dashboard/inventario/historico" className="w-full md:w-auto">
+            <Button variant="outline" size="sm" className="w-full md:w-auto">
               Ver histórico completo →
             </Button>
           </Link>

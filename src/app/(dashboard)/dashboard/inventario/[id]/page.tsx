@@ -31,7 +31,6 @@ type InventoryCount = {
   establishment_id: string;
 };
 
-// ✅ JOIN do Supabase pode vir como objeto OU array (dependendo do select/relacionamento)
 type ProductJoin =
   | { name: string | null }
   | { name: string | null }[]
@@ -56,14 +55,12 @@ const formatNumber = (value: number | null) => {
   return String(value);
 };
 
-// ✅ pega o nome independente de vir objeto ou array
 function getProductName(products: ProductJoin): string {
   if (!products) return "(sem nome)";
   if (Array.isArray(products)) return products[0]?.name ?? "(sem nome)";
   return products.name ?? "(sem nome)";
 }
 
-// pequena função util para combinar classes
 function cn(...classes: (string | false | null | undefined)[]) {
   return classes.filter(Boolean).join(" ");
 }
@@ -80,7 +77,6 @@ export default async function InventoryDetailsPage({
 
   const supabase = await createSupabaseServerClient();
 
-  // 1) Cabeçalho do inventário
   const { data: count, error: countError } = await supabase
     .from("inventory_counts")
     .select("id, started_at, ended_at, created_at, notes, establishment_id")
@@ -97,7 +93,6 @@ export default async function InventoryDetailsPage({
 
   const countRow = count as InventoryCount;
 
-  // 2) Itens do inventário + nome do produto
   const { data: items, error: itemsError } = await supabase
     .from("inventory_count_items")
     .select(
@@ -119,7 +114,6 @@ export default async function InventoryDetailsPage({
     console.error("Erro ao carregar inventory_count_items:", itemsError);
   }
 
-  // ✅ normaliza para o TS entender sempre a mesma estrutura
   const rows: InventoryItemRow[] = ((items ?? []) as any[]).map((r) => ({
     id: r.id,
     unit_label: r.unit_label ?? null,
@@ -139,29 +133,28 @@ export default async function InventoryDetailsPage({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="break-all text-2xl font-bold leading-tight text-gray-900 sm:text-3xl">
             Inventário #{inventoryId}
           </h1>
-          <p className="text-gray-600">
+          <p className="max-w-prose text-sm text-gray-600 sm:text-base">
             Detalhes da contagem, estoque anterior e ajustes gerados.
           </p>
         </div>
 
-        <div className="flex gap-2">
-          <Link href="/dashboard/inventario/historico">
-            <Button variant="outline" size="sm">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <Link href="/dashboard/inventario/historico" className="w-full sm:w-auto">
+            <Button variant="outline" size="sm" className="w-full sm:w-auto">
               ← Voltar ao histórico
             </Button>
           </Link>
 
-          {/* Export CSV (abre no Excel) */}
           <a
             href={`/dashboard/inventario/${inventoryId}/export`}
-            className="inline-flex"
+            className="w-full sm:inline-flex sm:w-auto"
           >
-            <Button variant="secondary" size="sm">
+            <Button variant="secondary" size="sm" className="w-full sm:w-auto">
               Exportar CSV (Excel)
             </Button>
           </a>
@@ -176,17 +169,20 @@ export default async function InventoryDetailsPage({
             Dados gerais da contagem e visão rápida das divergências.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+
+        <CardContent className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-3">
           <div>
             <div className="text-xs text-muted-foreground">Iniciado em</div>
             <div className="font-medium">
               {formatDateTime(countRow.started_at ?? countRow.created_at)}
             </div>
           </div>
+
           <div>
             <div className="text-xs text-muted-foreground">Finalizado em</div>
             <div className="font-medium">{formatDateTime(countRow.ended_at)}</div>
           </div>
+
           <div>
             <div className="text-xs text-muted-foreground">Itens lançados</div>
             <div className="font-medium">{totalItems}</div>
@@ -198,15 +194,17 @@ export default async function InventoryDetailsPage({
             </div>
             <div className="font-medium">{itemsComDiferenca}</div>
           </div>
+
           <div>
             <div className="text-xs text-muted-foreground">
               Soma absoluta das diferenças
             </div>
             <div className="font-medium">{totalDiffAbs}</div>
           </div>
+
           <div>
             <div className="text-xs text-muted-foreground">Observações</div>
-            <div className="font-medium text-xs">
+            <div className="font-medium text-xs break-words">
               {countRow.notes?.trim() || "-"}
             </div>
           </div>
@@ -221,73 +219,79 @@ export default async function InventoryDetailsPage({
             Estoque anterior, quantidade contada e diferença por produto/unidade.
           </CardDescription>
         </CardHeader>
+
         <CardContent>
           {rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nenhum item registrado para este inventário.
             </p>
           ) : (
-            <div className="max-h-[520px] overflow-auto border rounded">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Produto</TableHead>
-                    <TableHead>Un.</TableHead>
-                    <TableHead className="text-right">Estoque antes</TableHead>
-                    <TableHead className="text-right">Contado</TableHead>
-                    <TableHead className="text-right">Diferença</TableHead>
-                    <TableHead>Ajuste</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r) => {
-                    const diff = r.diff_qty ?? 0;
-                    const hasDiff = diff !== 0;
+            <div className="overflow-x-auto rounded-md border">
+              <div className="max-h-[70dvh] overflow-auto">
+                <Table className="min-w-[980px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Produto</TableHead>
+                      <TableHead>Un.</TableHead>
+                      <TableHead className="text-right">Estoque antes</TableHead>
+                      <TableHead className="text-right">Contado</TableHead>
+                      <TableHead className="text-right">Diferença</TableHead>
+                      <TableHead>Ajuste</TableHead>
+                    </TableRow>
+                  </TableHeader>
 
-                    const diffColor =
-                      diff > 0
-                        ? "text-green-700"
-                        : diff < 0
-                        ? "text-red-700"
-                        : "text-gray-700";
+                  <TableBody>
+                    {rows.map((r) => {
+                      const diff = r.diff_qty ?? 0;
+                      const hasDiff = diff !== 0;
 
-                    const badgeClasses =
-                      diff > 0
-                        ? "inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800"
-                        : diff < 0
-                        ? "inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
-                        : "inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-800";
+                      const diffColor =
+                        diff > 0
+                          ? "text-green-700"
+                          : diff < 0
+                          ? "text-red-700"
+                          : "text-gray-700";
 
-                    const ajusteLabel =
-                      diff > 0
-                        ? "Ajuste de entrada"
-                        : diff < 0
-                        ? "Ajuste de saída"
-                        : "Sem ajuste";
+                      const badgeClasses =
+                        diff > 0
+                          ? "inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800"
+                          : diff < 0
+                          ? "inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
+                          : "inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-800";
 
-                    return (
-                      <TableRow key={r.id}>
-                        <TableCell className="font-medium">
-                          {getProductName(r.products)}
-                        </TableCell>
-                        <TableCell>{r.unit_label ?? "-"}</TableCell>
-                        <TableCell className="text-right">
-                          {formatNumber(r.current_stock_before)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatNumber(r.counted_qty)}
-                        </TableCell>
-                        <TableCell className={cn("text-right font-semibold", diffColor)}>
-                          {hasDiff ? formatNumber(diff) : "0"}
-                        </TableCell>
-                        <TableCell>
-                          <span className={badgeClasses}>{ajusteLabel}</span>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                      const ajusteLabel =
+                        diff > 0
+                          ? "Ajuste de entrada"
+                          : diff < 0
+                          ? "Ajuste de saída"
+                          : "Sem ajuste";
+
+                      return (
+                        <TableRow key={r.id}>
+                          <TableCell className="font-medium">
+                            {getProductName(r.products)}
+                          </TableCell>
+                          <TableCell>{r.unit_label ?? "-"}</TableCell>
+                          <TableCell className="text-right">
+                            {formatNumber(r.current_stock_before)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatNumber(r.counted_qty)}
+                          </TableCell>
+                          <TableCell
+                            className={cn("text-right font-semibold", diffColor)}
+                          >
+                            {hasDiff ? formatNumber(diff) : "0"}
+                          </TableCell>
+                          <TableCell>
+                            <span className={badgeClasses}>{ajusteLabel}</span>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>

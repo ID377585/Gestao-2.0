@@ -60,8 +60,6 @@ type InventoryCountRowRaw = {
   establishment: EstablishmentJoin | EstablishmentJoin[] | null;
 };
 
-// ✅ IMPORTANTE: não amarre em colunas específicas de preço aqui.
-// Vamos usar product:products(*) e procurar o campo no JS.
 type ProductJoin = Record<string, any>;
 type ProductJoinRaw = ProductJoin | ProductJoin[] | null | undefined;
 
@@ -76,7 +74,6 @@ type InventoryCountItem = {
   current: number | null;
   diff: number | null;
 
-  // ✅ NOVO
   unit_price: number | null;
   line_total: number | null;
 
@@ -118,7 +115,6 @@ function prettyRole(role: string) {
   return role ? role : "-";
 }
 
-// ✅ tenta achar o primeiro número válido dentre várias chaves possíveis
 function pickFirstNumber(obj: any, keys: string[]): number | null {
   if (!obj) return null;
   for (const k of keys) {
@@ -143,7 +139,6 @@ export default function InventarioDetalhePage({
   const [headerErrorMsg, setHeaderErrorMsg] = useState<string | null>(null);
   const [itemsErrorMsg, setItemsErrorMsg] = useState<string | null>(null);
 
-  // ✅ label amigável do usuário (ex.: "Admin" / "Ivan" / etc)
   const [createdByLabel, setCreatedByLabel] = useState<string>("-");
   const [isLoadingUserLabel, setIsLoadingUserLabel] = useState(false);
 
@@ -158,7 +153,6 @@ export default function InventarioDetalhePage({
       try {
         const supabase = createSupabaseBrowserClient();
 
-        // 1) Cabeçalho do inventário
         const { data: countData, error: countError } = await supabase
           .from("inventory_counts")
           .select(
@@ -208,8 +202,6 @@ export default function InventarioDetalhePage({
 
           setCount(normalized);
 
-          // ✅ 1.1) Buscar label amigável do usuário via SUA ROTA SERVER
-          // Isso evita RLS no client ao ler memberships.
           if (normalized.created_by && normalized.establishment?.id) {
             setIsLoadingUserLabel(true);
 
@@ -235,7 +227,6 @@ export default function InventarioDetalhePage({
               console.warn("[Inventário Detalhe] Falha ao chamar user-label:", e);
             }
 
-            // ✅ fallback: se não veio nada útil, tenta auth (somente se for o usuário logado)
             if (!resolvedLabel || resolvedLabel === "-") {
               const { data: authData } = await supabase.auth.getUser();
               const u = authData?.user ?? null;
@@ -259,9 +250,6 @@ export default function InventarioDetalhePage({
           }
         }
 
-        // 2) Itens do inventário + join products
-        // ✅ NÃO selecione colunas de preço que podem não existir.
-        // Use products(*) e depois procure o campo no JS.
         const { data: itemsData, error: itemsError } = await supabase
           .from("inventory_count_items")
           .select(
@@ -309,8 +297,6 @@ export default function InventarioDetalhePage({
             const counted =
               row.counted_qty == null ? null : Number(row.counted_qty);
 
-            // ✅ tenta achar o primeiro preço/custo existente no seu schema
-            // (se souber o nome exato depois, me diga e eu deixo 100% certeiro)
             const unit_price = pickFirstNumber(product, [
               "unit_cost",
               "cost_price",
@@ -372,7 +358,6 @@ export default function InventarioDetalhePage({
   const establishmentName = count?.establishment?.name ?? "-";
   const createdByUserId = count?.created_by ?? "-";
 
-  // ✅ total geral em tempo real
   const totalValue = useMemo(() => {
     return (items ?? []).reduce((sum, it) => {
       const v =
@@ -384,32 +369,42 @@ export default function InventarioDetalhePage({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold leading-tight text-gray-900 sm:text-3xl">
             Detalhes do Inventário
           </h1>
-          <p className="text-gray-600">
+          <p className="max-w-prose text-sm text-gray-600 sm:text-base">
             Visualize a contagem por produto e as diferenças em relação ao estoque
             antes da aplicação.
           </p>
         </div>
 
-        <div className="flex gap-2">
-          <Link href="/dashboard/inventario/historico">
-            <Button variant="outline" size="sm">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <Link href="/dashboard/inventario/historico" className="w-full sm:w-auto">
+            <Button variant="outline" size="sm" className="w-full sm:w-auto">
               ← Voltar ao histórico
             </Button>
           </Link>
 
-          {/* Exportar CSV */}
-          <Button asChild variant="outline" size="sm" disabled={!params.id}>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            disabled={!params.id}
+            className="w-full sm:w-auto"
+          >
             <a href={`/api/export/products/inventory-count/${params.id}`}>
               Exportar (CSV)
             </a>
           </Button>
 
-          <Button variant="outline" size="sm" onClick={handleRecarregar}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRecarregar}
+            className="w-full sm:w-auto"
+          >
             Recarregar
           </Button>
         </div>
@@ -421,74 +416,73 @@ export default function InventarioDetalhePage({
           <CardTitle>Resumo da contagem</CardTitle>
           <CardDescription>
             Informações gerais do inventário{" "}
-            <span className="font-mono text-xs break-all">{params.id}</span>
+            <span className="break-all font-mono text-xs">{params.id}</span>
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="space-y-1 text-sm">
+        <CardContent>
           {isLoading ? (
             <p className="text-sm text-muted-foreground">
               Carregando detalhes do inventário...
             </p>
           ) : headerErrorMsg ? (
-            <p className="text-sm text-red-600 font-semibold">{headerErrorMsg}</p>
+            <p className="text-sm font-semibold text-red-600">{headerErrorMsg}</p>
           ) : !count ? (
             <p className="text-sm text-muted-foreground">
               Inventário não encontrado.
             </p>
           ) : (
-            <>
-              <p>
-                <span className="font-semibold">ID:</span>{" "}
-                <span className="font-mono text-xs break-all">{count.id}</span>
-              </p>
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 xl:grid-cols-3">
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">ID</div>
+                <div className="break-all font-mono text-xs">{count.id}</div>
+              </div>
 
-              <p>
-                <span className="font-semibold">Criado em:</span>{" "}
-                {formatDateTime(count.created_at)}
-              </p>
-              <p>
-                <span className="font-semibold">Iniciado em:</span>{" "}
-                {formatDateTime(count.started_at)}
-              </p>
-              <p>
-                <span className="font-semibold">Finalizado em:</span>{" "}
-                {formatDateTime(count.finished_at)}
-              </p>
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">Criado em</div>
+                <div className="font-medium">{formatDateTime(count.created_at)}</div>
+              </div>
 
-              <p>
-                <span className="font-semibold">Estabelecimento:</span>{" "}
-                {establishmentName}
-              </p>
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">Iniciado em</div>
+                <div className="font-medium">{formatDateTime(count.started_at)}</div>
+              </div>
 
-              {/* Usuário com label + UUID */}
-              <p>
-                <span className="font-semibold">Usuário:</span>{" "}
-                {isLoadingUserLabel ? (
-                  <span className="text-muted-foreground">carregando…</span>
-                ) : (
-                  <span className="font-semibold">{createdByLabel}</span>
-                )}{" "}
-                <span className="font-mono text-xs break-all text-muted-foreground">
-                  ({createdByUserId})
-                </span>
-              </p>
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">Finalizado em</div>
+                <div className="font-medium">{formatDateTime(count.finished_at)}</div>
+              </div>
 
-              <p>
-                <span className="font-semibold">Itens lançados:</span>{" "}
-                {count.total_items ?? 0}
-              </p>
-              <p>
-                <span className="font-semibold">Produtos distintos:</span>{" "}
-                {count.total_products ?? 0}
-              </p>
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">Estabelecimento</div>
+                <div className="font-medium break-words">{establishmentName}</div>
+              </div>
 
-              {/* ✅ NOVO: valor total em tempo real */}
-              <p>
-                <span className="font-semibold">Valor total contado:</span>{" "}
-                <span className="font-semibold">{formatMoney(totalValue)}</span>
-              </p>
-            </>
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">Usuário</div>
+                <div className="font-medium">
+                  {isLoadingUserLabel ? "carregando…" : createdByLabel}
+                </div>
+                <div className="break-all font-mono text-[10px] text-muted-foreground">
+                  {createdByUserId}
+                </div>
+              </div>
+
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">Itens lançados</div>
+                <div className="font-medium">{count.total_items ?? 0}</div>
+              </div>
+
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">Produtos distintos</div>
+                <div className="font-medium">{count.total_products ?? 0}</div>
+              </div>
+
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">Valor total contado</div>
+                <div className="font-semibold">{formatMoney(totalValue)}</div>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -508,87 +502,86 @@ export default function InventarioDetalhePage({
               Carregando itens do inventário...
             </p>
           ) : itemsErrorMsg ? (
-            <p className="text-sm text-red-600 font-semibold">{itemsErrorMsg}</p>
+            <p className="text-sm font-semibold text-red-600">{itemsErrorMsg}</p>
           ) : items.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nenhum item registrado para este inventário.
             </p>
           ) : (
-            <div className="max-h-[520px] overflow-auto border rounded">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Produto</TableHead>
-                    <TableHead>Un.</TableHead>
-                    <TableHead>Contado</TableHead>
-
-                    {/* ✅ NOVO: preço unit logo após "Contado" */}
-                    <TableHead>Preço unit.</TableHead>
-
-                    <TableHead>Estoque Antes</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Mensagem</TableHead>
-                    <TableHead>Usuário</TableHead>
-                    <TableHead>Estabelecimento</TableHead>
-
-                    {/* ✅ total do item */}
-                    <TableHead>Total</TableHead>
-                  </TableRow>
-                </TableHeader>
-
-                <TableBody>
-                  {items.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-mono text-xs">
-                        {item.sku ?? "-"}
-                      </TableCell>
-
-                      <TableCell className="font-medium">
-                        {item.product_name ?? "-"}
-                      </TableCell>
-
-                      <TableCell>{item.unit_label ?? "-"}</TableCell>
-                      <TableCell>{item.counted ?? 0}</TableCell>
-
-                      <TableCell className="text-xs">
-                        {item.unit_price == null ? "-" : formatMoney(item.unit_price)}
-                      </TableCell>
-
-                      <TableCell>{item.current ?? 0}</TableCell>
-
-                      <TableCell
-                        className={
-                          item.status === "ajuste_para_mais"
-                            ? "text-green-700 font-semibold"
-                            : item.status === "ajuste_para_menos"
-                            ? "text-red-700 font-semibold"
-                            : "text-gray-700"
-                        }
-                      >
-                        {item.status ?? "-"}
-                      </TableCell>
-
-                      <TableCell className="text-xs">
-                        {item.message ?? "-"}
-                      </TableCell>
-
-                      <TableCell className="text-xs">
-                        <div className="font-semibold">{createdByLabel}</div>
-                        <div className="font-mono text-[10px] text-muted-foreground break-all">
-                          {createdByUserId}
-                        </div>
-                      </TableCell>
-
-                      <TableCell className="text-xs">{establishmentName}</TableCell>
-
-                      <TableCell className="text-xs font-semibold">
-                        {item.line_total == null ? "-" : formatMoney(item.line_total)}
-                      </TableCell>
+            <div className="overflow-x-auto rounded-md border">
+              <div className="max-h-[70dvh] overflow-auto">
+                <Table className="min-w-[1320px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Produto</TableHead>
+                      <TableHead>Un.</TableHead>
+                      <TableHead>Contado</TableHead>
+                      <TableHead>Preço unit.</TableHead>
+                      <TableHead>Estoque Antes</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Mensagem</TableHead>
+                      <TableHead>Usuário</TableHead>
+                      <TableHead>Estabelecimento</TableHead>
+                      <TableHead>Total</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+
+                  <TableBody>
+                    {items.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-mono text-xs">
+                          {item.sku ?? "-"}
+                        </TableCell>
+
+                        <TableCell className="font-medium">
+                          {item.product_name ?? "-"}
+                        </TableCell>
+
+                        <TableCell>{item.unit_label ?? "-"}</TableCell>
+                        <TableCell>{item.counted ?? 0}</TableCell>
+
+                        <TableCell className="text-xs">
+                          {item.unit_price == null ? "-" : formatMoney(item.unit_price)}
+                        </TableCell>
+
+                        <TableCell>{item.current ?? 0}</TableCell>
+
+                        <TableCell
+                          className={
+                            item.status === "ajuste_para_mais"
+                              ? "font-semibold text-green-700"
+                              : item.status === "ajuste_para_menos"
+                              ? "font-semibold text-red-700"
+                              : "text-gray-700"
+                          }
+                        >
+                          {item.status ?? "-"}
+                        </TableCell>
+
+                        <TableCell className="max-w-[260px] break-words text-xs">
+                          {item.message ?? "-"}
+                        </TableCell>
+
+                        <TableCell className="text-xs">
+                          <div className="font-semibold">{createdByLabel}</div>
+                          <div className="break-all font-mono text-[10px] text-muted-foreground">
+                            {createdByUserId}
+                          </div>
+                        </TableCell>
+
+                        <TableCell className="max-w-[220px] break-words text-xs">
+                          {establishmentName}
+                        </TableCell>
+
+                        <TableCell className="text-xs font-semibold">
+                          {item.line_total == null ? "-" : formatMoney(item.line_total)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>

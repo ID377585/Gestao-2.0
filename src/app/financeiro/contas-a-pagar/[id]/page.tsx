@@ -22,8 +22,6 @@ import type {
   FinancialCategory,
 } from "@/types/compras";
 
-const { createFinancialHistoryEntryWithUser } = useFinancialHistory();
-
 function statusClass(status: AccountPayable["statusPagamento"]) {
   switch (status) {
     case "pendente":
@@ -58,6 +56,7 @@ export default function ContaAPagarDetalhePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const payableId = params.id;
+  const { createFinancialHistoryEntryWithUser } = useFinancialHistory();
   const [item, setItem] = useState<AccountPayable | null>(null);
   const [categories, setCategories] = useState<FinancialCategory[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
@@ -554,9 +553,11 @@ await createFinancialHistoryEntryWithUser({
             </div>
           </div>
         </div>
+
+        {item && (
+          <FinancialHistoryCard financeType="pagar" financeId={item.id} />
+        )}
       </div>
     </div>
   );
 }
-
-<FinancialHistoryCard financeType="pagar" financeId={item.id} />

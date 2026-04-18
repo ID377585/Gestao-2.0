@@ -13,15 +13,12 @@ import { useFinancialHistory } from "@/hooks/use-financial-history";
 import FinancialHistoryCard from "@/lib/financeiro/financial-history-card";
 import { listBankAccounts } from "@/lib/financeiro/bank-accounts";
 import { getBankStatusMap } from "@/lib/financeiro/reconciliation-status";
-import type { BankAccount } from "@/types/compras";
 import { listFinancialCategories } from "@/lib/financeiro/financial-categories";
 import type {
   AccountReceivable,
   BankAccount,
   FinancialCategory,
 } from "@/types/compras";
-
-const { createFinancialHistoryEntryWithUser } = useFinancialHistory();
 
 function statusClass(status: AccountReceivable["statusRecebimento"]) {
   switch (status) {
@@ -56,9 +53,8 @@ function statusLabel(status: AccountReceivable["statusRecebimento"]) {
 export default function ContaAReceberDetalhePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-
   const receivableId = params.id;
-
+  const { createFinancialHistoryEntryWithUser } = useFinancialHistory();
   const [item, setItem] = useState<AccountReceivable | null>(null);
   const [categories, setCategories] = useState<FinancialCategory[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
@@ -530,9 +526,11 @@ await createFinancialHistoryEntryWithUser({
             </div>
           </div>
         </div>
+
+        {item && (
+          <FinancialHistoryCard financeType="receber" financeId={item.id} />
+        )}
       </div>
     </div>
   );
 }
-
-<FinancialHistoryCard financeType="receber" financeId={item.id} />

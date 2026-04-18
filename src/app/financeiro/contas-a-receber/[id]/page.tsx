@@ -10,7 +10,7 @@ import {
   updateAccountReceivableDetails,
 } from "@/lib/financeiro/accounts-receivable";
 import { useFinancialHistory } from "@/hooks/use-financial-history";
-import FinancialHistoryCard from "@/components/financeiro/financial-history-card";
+import FinancialHistoryCard from "@/lib/financeiro/financial-history-card";
 import { listBankAccounts } from "@/lib/financeiro/bank-accounts";
 import { getBankStatusMap } from "@/lib/financeiro/reconciliation-status";
 import type { BankAccount } from "@/types/compras";

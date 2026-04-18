@@ -1,6 +1,6 @@
 "use client";
 
-import FinancialHistoryCard from "@/components/financeiro/financial-history-card";  
+import FinancialHistoryCard from "@/lib/financeiro/financial-history-card";  
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {

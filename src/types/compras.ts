@@ -285,7 +285,6 @@ export interface AccountPayable {
   formaPagamento?: string;
   bankAccountId?: string;
   bankAccountName?: string;
-  formaPagamento?: string;
   numeroDocumento?: string;
   categoriaId?: string;
   categoria?: string;
@@ -329,7 +328,6 @@ export interface AccountReceivable {
   formaRecebimento?: string;
   bankAccountId?: string;
   bankAccountName?: string;
-  formaRecebimento?: string;
   observacoes?: string;
   categoriaId?: string;
   categoria?: string;

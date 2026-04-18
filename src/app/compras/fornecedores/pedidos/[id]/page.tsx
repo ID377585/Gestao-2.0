@@ -15,7 +15,6 @@ import {
   getPurchaseRequestById,
   listPurchaseRequestItems,
 } from "@/lib/compras/requests";
-import { buildReceiptResponsible } from "@/lib/compras/receipt-session";
 import type {
   GoodsReceipt,
   PurchaseOrder,
@@ -197,12 +196,10 @@ export default function PedidoDetalhePage() {
       setStartingReceipt(true);
       setError("");
 
-      const { responsavelId, responsavelNome } = await buildReceiptResponsible();
-
       const receiptId = await createReceiptFromOrder({
         purchaseOrderId: order.id,
-        responsavelId,
-        responsavelNome,
+        responsavelId: "admin",
+        responsavelNome: "Administrador",
         observacoes: `Recebimento iniciado a partir do pedido ${order.numero}`,
       });
 

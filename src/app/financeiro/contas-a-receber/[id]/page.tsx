@@ -1,34 +1,33 @@
 "use client";
 
-import FinancialHistoryCard from "@/components/financeiro/financial-history-card";  
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  cancelAccountPayable,
-  getAccountPayableById,
-  markAccountPayableAsPaid,
-  markAccountPayableAsPending,
-  updateAccountPayableDetails,
-} from "@/lib/financeiro/accounts-payable";
+  cancelAccountReceivable,
+  getAccountReceivableById,
+  markAccountReceivableAsPending,
+  markAccountReceivableAsReceived,
+  updateAccountReceivableDetails,
+} from "@/lib/financeiro/accounts-receivable";
 import { useFinancialHistory } from "@/hooks/use-financial-history";
+import FinancialHistoryCard from "@/components/financeiro/financial-history-card";
 import { listBankAccounts } from "@/lib/financeiro/bank-accounts";
-import { listCostCenters } from "@/lib/financeiro/cost-centers";
-import { listFinancialCategories } from "@/lib/financeiro/financial-categories";
 import { getBankStatusMap } from "@/lib/financeiro/reconciliation-status";
+import type { BankAccount } from "@/types/compras";
+import { listFinancialCategories } from "@/lib/financeiro/financial-categories";
 import type {
-  AccountPayable,
+  AccountReceivable,
   BankAccount,
-  CostCenter,
   FinancialCategory,
 } from "@/types/compras";
 
 const { createFinancialHistoryEntryWithUser } = useFinancialHistory();
 
-function statusClass(status: AccountPayable["statusPagamento"]) {
+function statusClass(status: AccountReceivable["statusRecebimento"]) {
   switch (status) {
     case "pendente":
       return "bg-yellow-100 text-yellow-800";
-    case "pago":
+    case "recebido":
       return "bg-green-100 text-green-800";
     case "vencido":
       return "bg-red-100 text-red-800";
@@ -39,12 +38,12 @@ function statusClass(status: AccountPayable["statusPagamento"]) {
   }
 }
 
-function statusLabel(status: AccountPayable["statusPagamento"]) {
+function statusLabel(status: AccountReceivable["statusRecebimento"]) {
   switch (status) {
     case "pendente":
       return "Pendente";
-    case "pago":
-      return "Pago";
+    case "recebido":
+      return "Recebido";
     case "vencido":
       return "Vencido";
     case "cancelado":
@@ -54,70 +53,68 @@ function statusLabel(status: AccountPayable["statusPagamento"]) {
   }
 }
 
-export default function ContaAPagarDetalhePage() {
+export default function ContaAReceberDetalhePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const payableId = params.id;
-  const [item, setItem] = useState<AccountPayable | null>(null);
+
+  const receivableId = params.id;
+
+  const [item, setItem] = useState<AccountReceivable | null>(null);
   const [categories, setCategories] = useState<FinancialCategory[]>([]);
-  const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-  const [bankStatus, setBankStatus] = useState<{
-    bankConciliated: boolean;
-    bankAccountName: string;
-    matchedAt: string;
-  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [dataPagamento, setDataPagamento] = useState(
+
+  const [dataRecebimento, setDataRecebimento] = useState(
     new Date().toISOString().slice(0, 10)
   );
-  const [formaPagamento, setFormaPagamento] = useState("");
+  const [formaRecebimento, setFormaRecebimento] = useState("");
   const [bankAccountId, setBankAccountId] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [descricao, setDescricao] = useState("");
   const [vencimento, setVencimento] = useState("");
-  const [numeroDocumento, setNumeroDocumento] = useState("");
   const [categoriaId, setCategoriaId] = useState("");
-  const [centroCustoId, setCentroCustoId] = useState("");
+
+  const [bankStatus, setBankStatus] = useState<{
+  bankConciliated: boolean;
+  bankAccountName: string;
+  matchedAt: string;
+} | null>(null);
 
   async function loadData() {
     try {
       setLoading(true);
       setError("");
 
-      const [data, allCategories, allCostCenters, allBankAccounts, bankMap] =
-        await Promise.all([
-          getAccountPayableById(payableId),
-          listFinancialCategories(),
-          listCostCenters(),
-          listBankAccounts(),
-          getBankStatusMap({ financeType: "pagar" }),
+      const [data, allCategories, allBankAccounts, bankMap] = await Promise.all([
+        getAccountReceivableById(receivableId),
+        listFinancialCategories(),
+        listBankAccounts(),
+        getBankStatusMap({ financeType: "receber" }),
         ]);
 
       if (!data) {
-        setError("Conta a pagar não encontrada.");
+        setError("Conta a receber não encontrada.");
         setLoading(false);
         return;
       }
 
       setItem(data);
       setCategories(
-        allCategories.filter((entry) => entry.ativo && entry.tipo !== "receita")
+        allCategories.filter((entry) => entry.ativo && entry.tipo === "receita")
       );
-      setCostCenters(allCostCenters.filter((entry) => entry.ativo));
       setBankAccounts(allBankAccounts.filter((entry) => entry.ativo));
       setBankStatus(bankMap.get(data.id) ?? null);
       setObservacoes(data.observacoes ?? "");
-      setDataPagamento(data.dataPagamento || new Date().toISOString().slice(0, 10));
-      setFormaPagamento(data.formaPagamento ?? "");
+      setFormaRecebimento(data.formaRecebimento ?? "");
       setBankAccountId(data.bankAccountId ?? "");
+      setCategoriaId(data.categoriaId ?? "");
       setDescricao(data.descricao ?? "");
       setVencimento(data.vencimento ?? "");
-      setNumeroDocumento(data.numeroDocumento ?? "");
-      setCategoriaId(data.categoriaId ?? "");
-      setCentroCustoId(data.centroCustoId ?? "");
+      setDataRecebimento(
+        data.dataRecebimento || new Date().toISOString().slice(0, 10)
+      );
     } catch (err) {
       console.error(err);
       setError("Não foi possível carregar a conta.");
@@ -130,25 +127,21 @@ export default function ContaAPagarDetalhePage() {
     if (!item) return;
 
     const category = categories.find((entry) => entry.id === categoriaId);
-    const costCenter = costCenters.find((entry) => entry.id === centroCustoId);
 
     try {
       setSaving(true);
       setError("");
 
-      await updateAccountPayableDetails({
+      await updateAccountReceivableDetails({
         id: item.id,
         descricao,
         vencimento,
-        numeroDocumento,
         categoriaId: category?.id ?? "",
         categoria: category
           ? [category.grupo, category.categoria, category.subcategoria]
               .filter(Boolean)
               .join(" / ")
           : "",
-        centroCustoId: costCenter?.id ?? "",
-        centroCusto: costCenter?.nome ?? "",
         observacoes,
       });
 
@@ -161,17 +154,16 @@ export default function ContaAPagarDetalhePage() {
       setSaving(false);
     }
 
-await createFinancialHistoryEntryWithUser({
-  financeType: "pagar",
+    await createFinancialHistoryEntryWithUser({
+  financeType: "receber",
   financeId: item.id,
   action: "editado",
-  title: "Conta a pagar editada",
+  title: "Conta a receber editada",
   description: descricao,
 });
-
   }
 
-  async function handleMarkAsPaid() {
+  async function handleReceive() {
     if (!item) return;
 
     const selectedBankAccount = bankAccounts.find(
@@ -182,10 +174,10 @@ await createFinancialHistoryEntryWithUser({
       setSaving(true);
       setError("");
 
-      await markAccountPayableAsPaid({
+      await markAccountReceivableAsReceived({
         id: item.id,
-        dataPagamento,
-        formaPagamento,
+        dataRecebimento,
+        formaRecebimento,
         bankAccountId: selectedBankAccount?.id ?? "",
         bankAccountName: selectedBankAccount
           ? `${selectedBankAccount.banco} - ${selectedBankAccount.nomeConta}`
@@ -194,34 +186,34 @@ await createFinancialHistoryEntryWithUser({
       });
 
       await loadData();
-      alert("Conta marcada como paga.");
+      alert("Conta marcada como recebida.");
     } catch (err) {
       console.error(err);
-      setError("Não foi possível marcar a conta como paga.");
+      setError("Não foi possível registrar o recebimento.");
     } finally {
       setSaving(false);
     }
-
-    await createFinancialHistoryEntryWithUser({
-  financeType: "pagar",
+await createFinancialHistoryEntryWithUser({
+  financeType: "receber",
   financeId: item.id,
-  action: "pago",
-  title: "Conta marcada como paga",
-  description: formaPagamento,
+  action: "recebido",
+  title: "Conta marcada como recebida",
+  description: formaRecebimento,
   bankAccountName: selectedBankAccount
     ? `${selectedBankAccount.banco} - ${selectedBankAccount.nomeConta}`
     : "",
 });
+
   }
 
-  async function handleMarkAsPending() {
+  async function handlePending() {
     if (!item) return;
 
     try {
       setSaving(true);
       setError("");
 
-      await markAccountPayableAsPending({
+      await markAccountReceivableAsPending({
         id: item.id,
         observacoes,
       });
@@ -236,25 +228,26 @@ await createFinancialHistoryEntryWithUser({
     }
 
 await createFinancialHistoryEntryWithUser({
-  financeType: "pagar",
+  financeType: "receber",
   financeId: item.id,
   action: "pendente",
   title: "Conta retornou para pendente",
   description: observacoes,
 });
+
   }
 
   async function handleCancel() {
     if (!item) return;
 
-    const confirmed = confirm("Deseja cancelar esta conta a pagar?");
+    const confirmed = confirm("Deseja cancelar esta conta a receber?");
     if (!confirmed) return;
 
     try {
       setSaving(true);
       setError("");
 
-      await cancelAccountPayable({
+      await cancelAccountReceivable({
         id: item.id,
         observacoes,
       });
@@ -269,19 +262,20 @@ await createFinancialHistoryEntryWithUser({
     }
 
 await createFinancialHistoryEntryWithUser({
-  financeType: "pagar",
+  financeType: "receber",
   financeId: item.id,
   action: "cancelado",
-  title: "Conta a pagar cancelada",
+  title: "Conta a receber cancelada",
   description: observacoes,
 });
+
   }
 
   useEffect(() => {
-    if (payableId) {
+    if (receivableId) {
       loadData();
     }
-  }, [payableId]);
+  }, [receivableId]);
 
   if (loading) {
     return (
@@ -295,10 +289,10 @@ await createFinancialHistoryEntryWithUser({
     return (
       <div className="space-y-4 p-6">
         <p className="text-sm text-red-600">
-          {error || "Conta a pagar não encontrada."}
+          {error || "Conta a receber não encontrada."}
         </p>
         <button
-          onClick={() => router.push("/financeiro/contas-a-pagar")}
+          onClick={() => router.push("/financeiro/contas-a-receber")}
           className="rounded-xl border px-4 py-2 text-sm font-medium"
         >
           Voltar
@@ -308,47 +302,21 @@ await createFinancialHistoryEntryWithUser({
   }
 
   return (
+    
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Conta a pagar</h1>
+          <h1 className="text-2xl font-bold">Conta a receber</h1>
           <p className="text-sm text-gray-500">{item.descricao}</p>
         </div>
 
         <span
           className={`rounded-full px-3 py-1 text-sm font-medium ${statusClass(
-            item.statusPagamento
+            item.statusRecebimento
           )}`}
         >
-          {statusLabel(item.statusPagamento)}
+          {statusLabel(item.statusRecebimento)}
         </span>
-      </div>
-
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="rounded-xl border p-4">
-            <div className="text-sm text-gray-500">Conta bancária</div>
-            <div className="mt-1 font-semibold">
-              {bankStatus?.bankAccountName || item.bankAccountName || "-"}
-            </div>
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <div className="text-sm text-gray-500">Status bancário</div>
-            <div className="mt-1 font-semibold">
-              {bankStatus?.bankConciliated ? "Conciliado" : "Não conciliado"}
-            </div>
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <div className="text-sm text-gray-500">Data da conciliação</div>
-            <div className="mt-1 font-semibold">
-              {bankStatus?.matchedAt
-                ? new Date(bankStatus.matchedAt).toLocaleDateString("pt-BR")
-                : "-"}
-            </div>
-          </div>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -357,9 +325,9 @@ await createFinancialHistoryEntryWithUser({
 
           <div className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium">Fornecedor</label>
+              <label className="mb-1 block text-sm font-medium">Cliente</label>
               <input
-                value={item.supplierName}
+                value={item.customerName}
                 disabled
                 className="w-full rounded-xl border bg-gray-50 px-3 py-2 outline-none"
               />
@@ -393,15 +361,6 @@ await createFinancialHistoryEntryWithUser({
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">Número do documento</label>
-              <input
-                value={numeroDocumento}
-                onChange={(e) => setNumeroDocumento(e.target.value)}
-                className="w-full rounded-xl border px-3 py-2 outline-none"
-              />
-            </div>
-
-            <div>
               <label className="mb-1 block text-sm font-medium">Vencimento</label>
               <input
                 type="date"
@@ -429,20 +388,31 @@ await createFinancialHistoryEntryWithUser({
               </select>
             </div>
 
-            <div>
-              <label className="mb-1 block text-sm font-medium">Centro de custo</label>
-              <select
-                value={centroCustoId}
-                onChange={(e) => setCentroCustoId(e.target.value)}
-                className="w-full rounded-xl border px-3 py-2 outline-none"
-              >
-                <option value="">Selecione</option>
-                {costCenters.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.nome}
-                  </option>
-                ))}
-              </select>
+            <div className="rounded-2xl border bg-white p-4 shadow-sm">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="rounded-xl border p-4">
+                <div className="text-sm text-gray-500">Conta bancária</div>
+                <div className="mt-1 font-semibold">
+                    {bankStatus?.bankAccountName || item.bankAccountName || "-"}
+                </div>
+                </div>
+
+                <div className="rounded-xl border p-4">
+                <div className="text-sm text-gray-500">Status bancário</div>
+                <div className="mt-1 font-semibold">
+                    {bankStatus?.bankConciliated ? "Conciliado" : "Não conciliado"}
+                </div>
+                </div>
+
+                <div className="rounded-xl border p-4">
+                <div className="text-sm text-gray-500">Data da conciliação</div>
+                <div className="mt-1 font-semibold">
+                    {bankStatus?.matchedAt
+                    ? new Date(bankStatus.matchedAt).toLocaleDateString("pt-BR")
+                    : "-"}
+                </div>
+                </div>
+            </div>
             </div>
 
             <div>
@@ -469,22 +439,26 @@ await createFinancialHistoryEntryWithUser({
 
           <div className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium">Data de pagamento</label>
+              <label className="mb-1 block text-sm font-medium">
+                Data de recebimento
+              </label>
               <input
                 type="date"
-                value={dataPagamento}
-                onChange={(e) => setDataPagamento(e.target.value)}
+                value={dataRecebimento}
+                onChange={(e) => setDataRecebimento(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2 outline-none"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">Forma de pagamento</label>
+              <label className="mb-1 block text-sm font-medium">
+                Forma de recebimento
+              </label>
               <input
-                value={formaPagamento}
-                onChange={(e) => setFormaPagamento(e.target.value)}
+                value={formaRecebimento}
+                onChange={(e) => setFormaRecebimento(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2 outline-none"
-                placeholder="Ex.: Pix, boleto, TED, dinheiro"
+                placeholder="Ex.: Pix, dinheiro, cartão, transferência"
               />
             </div>
 
@@ -505,7 +479,9 @@ await createFinancialHistoryEntryWithUser({
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">Observações</label>
+              <label className="mb-1 block text-sm font-medium">
+                Observações
+              </label>
               <textarea
                 value={observacoes}
                 onChange={(e) => setObservacoes(e.target.value)}
@@ -520,16 +496,16 @@ await createFinancialHistoryEntryWithUser({
               <button
                 type="button"
                 disabled={saving}
-                onClick={handleMarkAsPaid}
+                onClick={handleReceive}
                 className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
               >
-                {saving ? "Salvando..." : "Marcar como pago"}
+                {saving ? "Salvando..." : "Marcar como recebido"}
               </button>
 
               <button
                 type="button"
                 disabled={saving}
-                onClick={handleMarkAsPending}
+                onClick={handlePending}
                 className="rounded-xl border px-4 py-2 text-sm font-medium"
               >
                 Voltar para pendente
@@ -546,7 +522,7 @@ await createFinancialHistoryEntryWithUser({
 
               <button
                 type="button"
-                onClick={() => router.push("/financeiro/contas-a-pagar")}
+                onClick={() => router.push("/financeiro/contas-a-receber")}
                 className="rounded-xl border px-4 py-2 text-sm font-medium"
               >
                 Voltar
@@ -559,4 +535,4 @@ await createFinancialHistoryEntryWithUser({
   );
 }
 
-<FinancialHistoryCard financeType="pagar" financeId={item.id} />
+<FinancialHistoryCard financeType="receber" financeId={item.id} />

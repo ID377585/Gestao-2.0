@@ -268,11 +268,12 @@ export interface FinalizeGoodsReceiptResult {
 export type PayableStatus =
   | "pendente"
   | "pago"
-  | "vencido";
+  | "vencido"
+  | "cancelado";
 
 export interface AccountPayable {
   id: string;
-  origem: "compra";
+  origem: "compra" | "recebimento" | "manual";
   origemId: string;
   supplierId: string;
   supplierName: string;
@@ -281,6 +282,15 @@ export interface AccountPayable {
   vencimento: string;
   statusPagamento: PayableStatus;
   dataPagamento?: string;
+  formaPagamento?: string;
+  bankAccountId?: string;
+  bankAccountName?: string;
+  formaPagamento?: string;
+  numeroDocumento?: string;
+  categoriaId?: string;
+  categoria?: string;
+  centroCustoId?: string;
+  centroCusto?: string;
   observacoes?: string;
   createdAt: string;
   updatedAt: string;
@@ -289,10 +299,160 @@ export interface AccountPayable {
 export interface UpdateAccountPayableStatusInput {
   statusPagamento: PayableStatus;
   dataPagamento?: string;
+  formaPagamento?: string;
   observacoes?: string;
 }
 
 export interface AccountPayableFilters {
   status?: PayableStatus | "todos";
   supplierId?: string;
+  origem?: "compra" | "recebimento" | "manual" | "todos";
+}
+
+export type ReceivableStatus =
+  | "pendente"
+  | "recebido"
+  | "vencido"
+  | "cancelado";
+
+export interface AccountReceivable {
+  id: string;
+  origem: "pedido" | "manual";
+  origemId: string;
+  customerId: string;
+  customerName: string;
+  descricao: string;
+  valor: number;
+  vencimento: string;
+  statusRecebimento: ReceivableStatus;
+  dataRecebimento?: string;
+  formaRecebimento?: string;
+  bankAccountId?: string;
+  bankAccountName?: string;
+  formaRecebimento?: string;
+  observacoes?: string;
+  categoriaId?: string;
+  categoria?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateAccountReceivableStatusInput {
+  statusRecebimento: ReceivableStatus;
+  dataRecebimento?: string;
+  formaRecebimento?: string;
+  observacoes?: string;
+}
+
+export interface AccountReceivableFilters {
+  status?: ReceivableStatus | "todos";
+  customerId?: string;
+}
+
+export type FinancialAccountType = "receita" | "despesa" | "custo";
+
+export interface FinancialCategory {
+  id: string;
+  codigo: string;
+  grupo: string;
+  categoria: string;
+  subcategoria?: string;
+  tipo: FinancialAccountType;
+  ativo: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateFinancialCategoryInput {
+  codigo: string;
+  grupo: string;
+  categoria: string;
+  subcategoria?: string;
+  tipo: FinancialAccountType;
+  ativo?: boolean;
+}
+
+export interface CostCenter {
+  id: string;
+  codigo: string;
+  nome: string;
+  descricao?: string;
+  ativo: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCostCenterInput {
+  codigo: string;
+  nome: string;
+  descricao?: string;
+  ativo?: boolean;
+}
+
+export type BankAccountType = "corrente" | "poupanca" | "caixa";
+
+export interface BankAccount {
+  id: string;
+  banco: string;
+  nomeConta: string;
+  agencia?: string;
+  numeroConta?: string;
+  tipo: BankAccountType;
+  saldoInicial: number;
+  ativo: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateBankAccountInput {
+  banco: string;
+  nomeConta: string;
+  agencia?: string;
+  numeroConta?: string;
+  tipo: BankAccountType;
+  saldoInicial?: number;
+  ativo?: boolean;
+}
+
+export interface BankReconciliationEntry {
+  id: string;
+  bankAccountId: string;
+  bankAccountName: string;
+  data: string;
+  descricao: string;
+  tipo: "entrada" | "saida";
+  valor: number;
+  origem: "manual" | "financeiro";
+  origemId?: string;
+  conciliado: boolean;
+  matchedFinanceType?: "pagar" | "receber";
+  matchedFinanceId?: string;
+  matchedFinanceLabel?: string;
+  matchedAt?: string;
+  observacoes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type FinancialHistoryAction =
+  | "criado"
+  | "editado"
+  | "pago"
+  | "recebido"
+  | "cancelado"
+  | "pendente"
+  | "conciliado_banco"
+  | "desconciliado_banco";
+
+export interface FinancialHistoryEntry {
+  id: string;
+  financeType: "pagar" | "receber";
+  financeId: string;
+  action: FinancialHistoryAction;
+  title: string;
+  description?: string;
+  bankAccountName?: string;
+  reconciliationEntryId?: string;
+  createdAt: string;
+  createdBy?: string;
 }

@@ -160,17 +160,67 @@ export const menuSections: MenuSectionConfig[] = [
     label: "Financeiro",
     icon: BadgeDollarSign,
     items: [
-      {
-        label: "Contas a Pagar",
-        href: "/financeiro/contas-a-pagar",
-        icon: Receipt,
-      },
-      {
-        label: "Controladoria",
-        href: "/dashboard/controladoria",
-        icon: BadgeDollarSign,
-      },
-    ],
+  {
+    label: "Dashboard",
+    href: "/financeiro",
+    icon: BarChart3,
+  },
+  {
+    label: "Contas a Pagar",
+    href: "/financeiro/contas-a-pagar",
+    icon: Receipt,
+  },
+  {
+    label: "Contas a Receber",
+    href: "/financeiro/contas-a-receber",
+    icon: BadgeDollarSign,
+  },
+  {
+    label: "Fluxo de Caixa",
+    href: "/financeiro/fluxo-de-caixa",
+    icon: BarChart3,
+  },
+  {
+    label: "Dashboard Bancário",
+    href: "/financeiro/dashboard-bancario",
+    icon: Building2,
+  },
+  {
+    label: "Contas Bancárias",
+    href: "/financeiro/contas-bancarias",
+    icon: Building2,
+  },
+  {
+    label: "Conciliação Bancária",
+    href: "/financeiro/conciliacao-bancaria",
+    icon: ArrowLeftRight,
+  },
+  {
+    label: "Plano de Contas",
+    href: "/financeiro/plano-de-contas",
+    icon: FileText,
+  },
+  {
+    label: "Centros de Custo",
+    href: "/financeiro/centros-de-custo",
+    icon: Building2,
+  },
+  {
+    label: "Relatórios",
+    href: "/financeiro/relatorios",
+    icon: FileText,
+  },
+  {
+  label: "Auditoria Financeira",
+  href: "/financeiro/auditoria",
+  icon: FileText,
+},
+  {
+    label: "Controladoria",
+    href: "/dashboard/controladoria",
+    icon: BadgeDollarSign,
+  },
+],
   },
   {
     key: "administracao",

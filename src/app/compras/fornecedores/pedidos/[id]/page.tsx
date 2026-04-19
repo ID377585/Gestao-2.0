@@ -25,8 +25,6 @@ import type {
   PurchaseRequestItem,
 } from "@/types/compras";
 
-const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
-
 function orderStatusLabel(status: PurchaseOrder["status"]) {
   switch (status) {
     case "aberto":
@@ -126,26 +124,22 @@ function receiptStatusClass(status: GoodsReceipt["status"]) {
 }
 
 export default function PedidoDetalhePage() {
+  const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
   const params = useParams<{ id: string }>();
   const router = useRouter();
-
   const orderId = params.id;
-
   const [order, setOrder] = useState<PurchaseOrder | null>(null);
   const [orderItems, setOrderItems] = useState<PurchaseOrderItem[]>([]);
   const [request, setRequest] = useState<PurchaseRequest | null>(null);
   const [requestItems, setRequestItems] = useState<PurchaseRequestItem[]>([]);
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
-
   const [loading, setLoading] = useState(true);
   const [startingReceipt, setStartingReceipt] = useState(false);
   const [error, setError] = useState("");
-
   const canStartReceipt = useMemo(() => {
     if (!order) return false;
     return ["aberto", "enviado", "parcial"].includes(order.status);
   }, [order]);
-
   const totalItems = useMemo(() => {
     return orderItems.reduce((acc, item) => acc + Number(item.quantidade), 0);
   }, [orderItems]);

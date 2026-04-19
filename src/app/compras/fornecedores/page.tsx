@@ -1,11 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePurchaseHistory } from "@/hooks/use-purchase-history";
 import { listSuppliers, toggleSupplierStatus } from "@/lib/compras/suppliers";
 import type { Supplier } from "@/types/compras";
 
 export default function FornecedoresPage() {
+  const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

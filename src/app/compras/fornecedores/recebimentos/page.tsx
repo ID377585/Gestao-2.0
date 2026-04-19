@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { listPurchaseOrders } from "@/lib/compras/orders";
+import { buildReceiptResponsible } from "@/lib/compras/receipt-session";
+import { usePurchaseHistory } from "@/hooks/use-purchase-history";
 import {
   createReceiptFromOrder,
   listGoodsReceipts,
@@ -40,21 +42,35 @@ function statusClass(status: GoodsReceipt["status"]) {
   }
 }
 
+const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
+
 export default function RecebimentosPage() {
   const router = useRouter();
-
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
-
   const [form, setForm] = useState({
-    purchaseOrderId: "",
-    responsavelId: "admin",
-    responsavelNome: "",
-    observacoes: "",
-  });
+  purchaseOrderId: "",
+  responsavelId: "",
+  responsavelNome: "",
+  observacoes: "",
+});
+
+useEffect(() => {
+  async function loadResponsible() {
+    const responsible = await buildReceiptResponsible();
+
+    setForm((prev) => ({
+      ...prev,
+      responsavelId: responsible.responsavelId,
+      responsavelNome: prev.responsavelNome || responsible.responsavelNome,
+    }));
+  }
+
+  loadResponsible();
+}, []);
 
   const availableOrders = useMemo(() => {
     return orders.filter((item) =>
@@ -105,6 +121,16 @@ export default function RecebimentosPage() {
         responsavelNome: form.responsavelNome,
         observacoes: form.observacoes,
       });
+
+      await createPurchaseHistoryEntryWithUser({
+  entityType: "recebimento",
+  entityId: receiptId,
+  action: "recebimento_iniciado",
+  title: "Recebimento iniciado manualmente",
+  description: `Pedido ${form.purchaseOrderId}`,
+  relatedEntityType: "pedido",
+  relatedEntityId: form.purchaseOrderId,
+});
 
       router.push(`/compras/recebimentos/${receiptId}`);
     } catch (err) {

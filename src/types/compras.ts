@@ -454,3 +454,94 @@ export interface FinancialHistoryEntry {
   createdAt: string;
   createdBy?: string;
 }
+
+export type PurchaseHistoryEntityType =
+  | "solicitacao"
+  | "pedido"
+  | "recebimento";
+
+export type PurchaseHistoryAction =
+  | "solicitacao_criada"
+  | "solicitacao_status_alterado"
+  | "pedido_criado"
+  | "solicitacao_convertida"
+  | "recebimento_iniciado"
+  | "recebimento_finalizado";
+
+export interface PurchaseHistoryEntry {
+  id: string;
+  entityType: PurchaseHistoryEntityType;
+  entityId: string;
+  action: PurchaseHistoryAction;
+  title: string;
+  description?: string;
+  relatedEntityType?: PurchaseHistoryEntityType;
+  relatedEntityId?: string;
+  createdAt: string;
+  createdBy?: string;
+}
+
+export interface PurchaseAlertActionItem {
+  id: string;
+  alertId: string;
+  alertType:
+    | "fornecedor_critico"
+    | "fornecedor_divergencia"
+    | "fornecedor_sem_compra"
+    | "pedido_atrasado";
+  title: string;
+  description: string;
+  severity: "alta" | "media" | "baixa";
+  supplierId?: string;
+  supplierName?: string;
+  purchaseOrderId?: string;
+  purchaseOrderNumber?: string;
+  status: "pendente" | "tratado";
+  observacaoTratativa?: string;
+  treatedAt?: string;
+  treatedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupplierActionPlanItem {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  title: string;
+  description?: string;
+  category: "comercial" | "operacional" | "financeiro" | "qualidade";
+  status: "pendente" | "em_andamento" | "concluido" | "cancelado";
+  priority: "alta" | "media" | "baixa";
+  dueDate?: string;
+  assignedTo?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupplierContactHistoryItem {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  contactType: "ligacao" | "whatsapp" | "email" | "reuniao" | "visita";
+  subject: string;
+  notes?: string;
+  contactDate: string;
+  nextFollowUpDate?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupplierScoreReviewItem {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  scheduledDate: string;
+  notes?: string;
+  status: "agendada" | "realizada" | "cancelada";
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}

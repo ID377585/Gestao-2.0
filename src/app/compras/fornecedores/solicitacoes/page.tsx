@@ -6,7 +6,9 @@ import {
   listPurchaseRequests,
   updatePurchaseRequestStatus,
 } from "@/lib/compras/requests";
+import { buildCreatedByLabel, getCurrentUserInfo } from "@/lib/auth/current-user";
 import type { PurchaseRequest, PurchaseRequestStatus } from "@/types/compras";
+import { usePurchaseHistory } from "@/hooks/use-purchase-history";
 
 function statusLabel(status: PurchaseRequestStatus) {
   switch (status) {
@@ -87,12 +89,28 @@ export default function SolicitacoesPage() {
     }
   }
 
+  const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
+
   async function handleStatusChange(
     id: string,
     status: PurchaseRequestStatus
   ) {
     try {
-      await updatePurchaseRequestStatus(id, status);
+      const currentUser = await getCurrentUserInfo();
+
+      await updatePurchaseRequestStatus(id, status, {
+        userId: currentUser?.id ?? "",
+        userName: buildCreatedByLabel(currentUser),
+      });
+
+      await createPurchaseHistoryEntryWithUser({
+  entityType: "solicitacao",
+  entityId: id,
+  action: "solicitacao_status_alterado",
+  title: "Status da solicitação alterado",
+  description: `Novo status: ${status}`,
+});
+
       await loadData();
     } catch (err) {
       console.error(err);
@@ -173,29 +191,36 @@ export default function SolicitacoesPage() {
                     </td>
                     <td className="px-4 py-3">
                       {item.dataSolicitacao
-                        ? new Date(item.dataSolicitacao).toLocaleDateString(
-                            "pt-BR"
-                          )
+                        ? new Date(item.dataSolicitacao).toLocaleDateString("pt-BR")
                         : "-"}
                     </td>
                     <td className="px-4 py-3">
-                      <select
-                        value={item.status}
-                        onChange={(e) =>
-                          handleStatusChange(
-                            item.id,
-                            e.target.value as PurchaseRequestStatus
-                          )
-                        }
-                        className="rounded-lg border px-2 py-1 text-xs"
-                      >
-                        <option value="pendente">Pendente</option>
-                        <option value="em_cotacao">Em cotação</option>
-                        <option value="aprovada">Aprovada</option>
-                        <option value="rejeitada">Rejeitada</option>
-                        <option value="convertida">Convertida</option>
-                      </select>
-                    </td>
+  <div className="flex gap-2">
+    <Link
+      href={`/compras/solicitacoes/${item.id}`}
+      className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
+    >
+      Abrir
+    </Link>
+
+    <select
+      value={item.status}
+      onChange={(e) =>
+        handleStatusChange(
+          item.id,
+          e.target.value as PurchaseRequestStatus
+        )
+      }
+      className="rounded-lg border px-2 py-1 text-xs"
+    >
+      <option value="pendente">Pendente</option>
+      <option value="em_cotacao">Em cotação</option>
+      <option value="aprovada">Aprovada</option>
+      <option value="rejeitada">Rejeitada</option>
+      <option value="convertida">Convertida</option>
+    </select>
+  </div>
+</td>
                   </tr>
                 ))}
               </tbody>

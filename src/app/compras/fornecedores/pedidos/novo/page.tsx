@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { listSuppliers } from "@/lib/compras/suppliers";
+import { usePurchaseHistory } from "@/hooks/use-purchase-history";
 import {
   createOrderFromRequest,
   createPurchaseOrder,
@@ -11,6 +12,7 @@ import {
   listPurchaseRequests,
   listPurchaseRequestItems,
 } from "@/lib/compras/requests";
+import { buildCreatedByLabel, getCurrentUserInfo } from "@/lib/auth/current-user";
 import type {
   CreatePurchaseOrderItemInput,
   PurchaseRequest,
@@ -21,6 +23,8 @@ import type {
 type FormItem = CreatePurchaseOrderItemInput & {
   localId: string;
 };
+
+const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
 
 function createEmptyItem(): FormItem {
   return {
@@ -49,8 +53,8 @@ export default function NovoPedidoPage() {
     previsaoEntrega: "",
     vencimento: "",
     observacoes: "",
-    createdBy: "admin",
-    createdByName: "Administrador",
+    createdBy: "",
+    createdByName: "",
   });
 
   const [items, setItems] = useState<FormItem[]>([createEmptyItem()]);
@@ -69,9 +73,10 @@ export default function NovoPedidoPage() {
 
   async function loadInitialData() {
     try {
-      const [suppliersData, requestsData] = await Promise.all([
+      const [suppliersData, requestsData, currentUser] = await Promise.all([
         listSuppliers(),
         listPurchaseRequests(),
+        getCurrentUserInfo(),
       ]);
 
       setSuppliers(suppliersData.filter((item) => item.ativo));
@@ -80,6 +85,12 @@ export default function NovoPedidoPage() {
           (item) => item.status !== "convertida" && item.status !== "rejeitada"
         )
       );
+
+      setForm((prev) => ({
+        ...prev,
+        createdBy: currentUser?.id ?? "",
+        createdByName: buildCreatedByLabel(currentUser),
+      }));
     } catch (err) {
       console.error(err);
       setError("Não foi possível carregar os dados iniciais.");
@@ -172,81 +183,111 @@ export default function NovoPedidoPage() {
       setSaving(true);
       setError("");
 
-      if (form.requestId) {
-        const itemPrices = items.map((item) => ({
-          productId: item.productId,
-          produtoNome: item.produtoNome,
-          unidade: item.unidade,
-          valorUnitario: Number(item.valorUnitario),
-          desconto: Number(item.desconto ?? 0),
-          observacao: item.observacao ?? "",
-        }));
+      let createdOrderId = "";
 
-        if (itemPrices.some((item) => item.valorUnitario <= 0)) {
-          setError("Informe o valor unitário de todos os itens da solicitação.");
-          setSaving(false);
-          return;
-        }
+if (form.requestId) {
+  const itemPrices = items.map((item) => ({
+    productId: item.productId,
+    produtoNome: item.produtoNome,
+    unidade: item.unidade,
+    valorUnitario: Number(item.valorUnitario),
+    desconto: Number(item.desconto ?? 0),
+    observacao: item.observacao ?? "",
+  }));
 
-        await createOrderFromRequest({
-          requestId: form.requestId,
-          supplierId: form.supplierId,
-          supplierName: selectedSupplier?.razaoSocial ?? "",
-          previsaoEntrega: form.previsaoEntrega,
-          vencimento: form.vencimento,
-          observacoes: form.observacoes,
-          createdBy: form.createdBy,
-          createdByName: form.createdByName,
-          itemPrices,
-        });
-      } else {
-        const sanitizedItems = items.map((item) => ({
-          productId: item.productId?.trim() ?? "",
-          produtoNome: item.produtoNome.trim(),
-          unidade: item.unidade.trim(),
-          quantidade: Number(item.quantidade),
-          valorUnitario: Number(item.valorUnitario),
-          desconto: Number(item.desconto ?? 0),
-          observacao: item.observacao?.trim() ?? "",
-        }));
+  if (itemPrices.some((item) => item.valorUnitario <= 0)) {
+    setError("Informe o valor unitário de todos os itens da solicitação.");
+    setSaving(false);
+    return;
+  }
 
-        if (sanitizedItems.some((item) => !item.produtoNome)) {
-          setError("Todos os itens precisam ter nome.");
-          setSaving(false);
-          return;
-        }
+  createdOrderId = await createOrderFromRequest({
+    requestId: form.requestId,
+    supplierId: form.supplierId,
+    supplierName: selectedSupplier?.razaoSocial ?? "",
+    previsaoEntrega: form.previsaoEntrega,
+    vencimento: form.vencimento,
+    observacoes: form.observacoes,
+    createdBy: form.createdBy || "unknown",
+    createdByName: form.createdByName || "Usuário não identificado",
+    itemPrices,
+  });
 
-        if (sanitizedItems.some((item) => !item.unidade)) {
-          setError("Todos os itens precisam ter unidade.");
-          setSaving(false);
-          return;
-        }
+  await createPurchaseHistoryEntryWithUser({
+    entityType: "pedido",
+    entityId: createdOrderId,
+    action: "pedido_criado",
+    title: "Pedido criado a partir de solicitação",
+    description: `${selectedSupplier?.razaoSocial ?? ""}`,
+    relatedEntityType: "solicitacao",
+    relatedEntityId: form.requestId,
+  });
 
-        if (sanitizedItems.some((item) => item.quantidade <= 0)) {
-          setError("Todos os itens precisam ter quantidade maior que zero.");
-          setSaving(false);
-          return;
-        }
+  await createPurchaseHistoryEntryWithUser({
+    entityType: "solicitacao",
+    entityId: form.requestId,
+    action: "solicitacao_convertida",
+    title: "Solicitação convertida em pedido",
+    description: `Pedido ${createdOrderId}`,
+    relatedEntityType: "pedido",
+    relatedEntityId: createdOrderId,
+  });
+} else {
+  const sanitizedItems = items.map((item) => ({
+    productId: item.productId?.trim() ?? "",
+    produtoNome: item.produtoNome.trim(),
+    unidade: item.unidade.trim(),
+    quantidade: Number(item.quantidade),
+    valorUnitario: Number(item.valorUnitario),
+    desconto: Number(item.desconto ?? 0),
+    observacao: item.observacao?.trim() ?? "",
+  }));
 
-        if (sanitizedItems.some((item) => item.valorUnitario <= 0)) {
-          setError("Todos os itens precisam ter valor unitário maior que zero.");
-          setSaving(false);
-          return;
-        }
+  if (sanitizedItems.some((item) => !item.produtoNome)) {
+    setError("Todos os itens precisam ter nome.");
+    setSaving(false);
+    return;
+  }
 
-        await createPurchaseOrder({
-          supplierId: form.supplierId,
-          supplierName: selectedSupplier?.razaoSocial ?? "",
-          previsaoEntrega: form.previsaoEntrega,
-          vencimento: form.vencimento,
-          observacoes: form.observacoes,
-          createdBy: form.createdBy,
-          createdByName: form.createdByName,
-          items: sanitizedItems,
-        });
-      }
+  if (sanitizedItems.some((item) => !item.unidade)) {
+    setError("Todos os itens precisam ter unidade.");
+    setSaving(false);
+    return;
+  }
 
-      router.push("/compras/pedidos");
+  if (sanitizedItems.some((item) => item.quantidade <= 0)) {
+    setError("Todos os itens precisam ter quantidade maior que zero.");
+    setSaving(false);
+    return;
+  }
+
+  if (sanitizedItems.some((item) => item.valorUnitario <= 0)) {
+    setError("Todos os itens precisam ter valor unitário maior que zero.");
+    setSaving(false);
+    return;
+  }
+
+  createdOrderId = await createPurchaseOrder({
+    supplierId: form.supplierId,
+    supplierName: selectedSupplier?.razaoSocial ?? "",
+    previsaoEntrega: form.previsaoEntrega,
+    vencimento: form.vencimento,
+    observacoes: form.observacoes,
+    createdBy: form.createdBy || "unknown",
+    createdByName: form.createdByName || "Usuário não identificado",
+    items: sanitizedItems,
+  });
+
+  await createPurchaseHistoryEntryWithUser({
+    entityType: "pedido",
+    entityId: createdOrderId,
+    action: "pedido_criado",
+    title: "Pedido de compra criado",
+    description: `${selectedSupplier?.razaoSocial ?? ""}`,
+  });
+}
+
+router.push("/compras/pedidos");
     } catch (err) {
       console.error(err);
       setError("Não foi possível salvar o pedido.");
@@ -274,6 +315,10 @@ export default function NovoPedidoPage() {
         onSubmit={handleSubmit}
         className="space-y-6 rounded-2xl border bg-white p-6 shadow-sm"
       >
+        <div className="rounded-xl border bg-gray-50 p-4 text-sm text-gray-600">
+          Pedido será criado por: <strong>{form.createdByName || "Usuário não identificado"}</strong>
+        </div>
+
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label className="mb-1 block text-sm font-medium">Fornecedor *</label>

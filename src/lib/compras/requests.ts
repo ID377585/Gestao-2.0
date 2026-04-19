@@ -1,3 +1,5 @@
+"use client";
+
 import {
   collection,
   doc,
@@ -148,12 +150,18 @@ export async function listPurchaseRequestItems(
 
 export async function updatePurchaseRequestStatus(
   id: string,
-  status: PurchaseRequestStatus
+  status: PurchaseRequestStatus,
+  actor?: {
+    userId?: string;
+    userName?: string;
+  }
 ): Promise<void> {
   const ref = doc(db, COLLECTION_NAME, id);
 
   await updateDoc(ref, {
     status,
     updatedAt: serverTimestamp(),
+    updatedBy: actor?.userId ?? "",
+    updatedByName: actor?.userName ?? "",
   });
 }

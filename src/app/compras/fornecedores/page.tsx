@@ -48,12 +48,21 @@ export default function FornecedoresPage() {
           </p>
         </div>
 
-        <Link
-          href="/compras/fornecedores/novo"
-          className="inline-flex items-center justify-center rounded-xl bg-black px-4 py-2 text-sm font-medium text-white"
-        >
-          Novo fornecedor
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/compras/fornecedores/dashboard"
+            className="inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-medium hover:bg-gray-50"
+          >
+            Dashboard fornecedores
+          </Link>
+
+          <Link
+            href="/compras/fornecedores/novo"
+            className="inline-flex items-center justify-center rounded-xl bg-black px-4 py-2 text-sm font-medium text-white"
+          >
+            Novo fornecedor
+          </Link>
+        </div>
       </div>
 
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -104,13 +113,29 @@ export default function FornecedoresPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleToggleStatus(item)}
-                        className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
-                      >
-                        {item.ativo ? "Inativar" : "Ativar"}
-                      </button>
-                    </td>
+                        <div className="flex flex-wrap gap-2">
+                          <Link
+                            href={`/compras/fornecedores/${item.id}`}
+                            className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
+                          >
+                            Abrir
+                          </Link>
+
+                          <Link
+                            href={`/compras/fornecedores/${item.id}/plano-de-acao`}
+                            className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
+                          >
+                            Plano de ação
+                          </Link>
+
+                          <button
+                            onClick={() => handleToggleStatus(item)}
+                            className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
+                          >
+                            {item.ativo ? "Inativar" : "Ativar"}
+                          </button>
+                        </div>
+                      </td>
                   </tr>
                 ))}
               </tbody>

@@ -271,7 +271,6 @@ function syncIngredienteWithProduct(
   };
 }
 
-
 function normalizeFichaFromDb(raw: any): FichaTecnica {
   return {
     id: String(raw.id),
@@ -898,9 +897,9 @@ function RecipeViewer({
             <div className="mb-3 text-4xl">📄</div>
             <h3 className="text-lg font-semibold">Selecione uma ficha técnica</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Escolha uma ficha na lista para visualizar ingredientes, modo de preparo,
-              escalas, custos, vídeo, impressão, exportação em PDF, duplicação,
-              foto do prato e visualização em tela cheia.
+              Escolha uma ficha na grade abaixo para visualizar ingredientes, modo de
+              preparo, escalas, custos, vídeo, impressão, exportação em PDF,
+              duplicação, foto do prato e visualização em tela cheia.
             </p>
           </div>
         </CardContent>
@@ -951,50 +950,50 @@ function RecipeViewer({
           </div>
 
           <div className="flex flex-wrap gap-2">
-  {ficha.videoUrl ? (
-    <Button
-      type="button"
-      variant="outline"
-      onClick={() =>
-        window.open(ficha.videoUrl || "", "_blank", "noopener,noreferrer")
-      }
-    >
-      ▶️ Vídeo
-    </Button>
-  ) : null}
+            {ficha.videoUrl ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  window.open(ficha.videoUrl || "", "_blank", "noopener,noreferrer")
+                }
+              >
+                ▶️ Vídeo
+              </Button>
+            ) : null}
 
-  <Button type="button" variant="outline" onClick={() => onEdit(ficha)}>
-    ✏️ Editar
-  </Button>
-  <Button type="button" variant="outline" onClick={() => onPrint(ficha)}>
-    🖨️ Imprimir
-  </Button>
-  <Button
-    type="button"
-    variant="outline"
-    onClick={() => onExportPdf(ficha)}
-  >
-    📄 Exportar PDF
-  </Button>
-  <Button
-    type="button"
-    variant="outline"
-    onClick={() => onDuplicate(ficha)}
-  >
-    📑 Duplicar
-  </Button>
-  <Button type="button" onClick={() => onFullscreen(ficha)}>
-    ⛶ Tela cheia
-  </Button>
-  <Button
-    type="button"
-    variant="destructive"
-    className="bg-red-600 text-white hover:bg-red-700"
-    onClick={() => onDelete(ficha)}
-  >
-    🗑️ Excluir
-  </Button>
-</div>
+            <Button type="button" variant="outline" onClick={() => onEdit(ficha)}>
+              ✏️ Editar
+            </Button>
+            <Button type="button" variant="outline" onClick={() => onPrint(ficha)}>
+              🖨️ Imprimir
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onExportPdf(ficha)}
+            >
+              📄 Exportar PDF
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onDuplicate(ficha)}
+            >
+              📑 Duplicar
+            </Button>
+            <Button type="button" onClick={() => onFullscreen(ficha)}>
+              ⛶ Tela cheia
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="bg-red-600 text-white hover:bg-red-700"
+              onClick={() => onDelete(ficha)}
+            >
+              🗑️ Excluir
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -1290,8 +1289,7 @@ function RecipeViewer({
       </CardContent>
     </Card>
   );
-}
-function ScaleEditor({
+}function ScaleEditor({
   scales,
   onChange,
 }: {
@@ -2040,8 +2038,8 @@ function IngredientEditor({
     </div>
   );
 }
-export default function FichasTecnicasPage() {
 
+export default function FichasTecnicasPage() {
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingFichas, setLoadingFichas] = useState(true);
@@ -2051,6 +2049,7 @@ export default function FichasTecnicasPage() {
 
   const [fichasTecnicas, setFichasTecnicas] = useState<FichaTecnica[]>([]);
   const [fichaSelecionada, setFichaSelecionada] = useState<FichaTecnica | null>(null);
+  const [showFichaDetalhe, setShowFichaDetalhe] = useState(false);
 
   const [showNovaFicha, setShowNovaFicha] = useState(false);
   const [showEditarFicha, setShowEditarFicha] = useState(false);
@@ -2095,6 +2094,7 @@ export default function FichasTecnicasPage() {
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
   const editImageInputRef = useRef<HTMLInputElement | null>(null);
   const importPdfInputRef = useRef<HTMLInputElement | null>(null);
+  const viewerRef = useRef<HTMLDivElement | null>(null);
 
   const [importingPdf, setImportingPdf] = useState(false);
   const [importDefaultCategory, setImportDefaultCategory] = useState("Importado PDF");
@@ -2264,6 +2264,20 @@ export default function FichasTecnicasPage() {
     );
   }, [fichasTecnicas]);
 
+  const handleSelecionarFicha = useCallback((ficha: FichaTecnica) => {
+    setFichaSelecionada(ficha);
+    setViewerTab("ingredientes");
+    setDesiredServings(Math.max(1, ficha.rendimento || 1));
+    setShowFichaDetalhe(true);
+
+    window.requestAnimationFrame(() => {
+      viewerRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, []);
+
   const resetForm = () => {
     setNome("");
     setCategoria("");
@@ -2293,8 +2307,7 @@ export default function FichasTecnicasPage() {
 
     setIngredientes([]);
   };
-
-  const handleNewImageSelected = async (
+    const handleNewImageSelected = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = event.target.files?.[0];
@@ -2568,7 +2581,13 @@ export default function FichasTecnicasPage() {
     startTransition(async () => {
       try {
         await deleteTechnicalSheet(id);
+
         setFichaSelecionada((prev) => (prev?.id === id ? null : prev));
+
+        if (fichaSelecionada?.id === id) {
+          setShowFichaDetalhe(false);
+        }
+
         await loadData();
       } catch (err: any) {
         console.error(err);
@@ -2594,9 +2613,7 @@ export default function FichasTecnicasPage() {
           fichasNormalizadas.find((item) => item.id === created.id) ?? null;
 
         if (duplicada) {
-          setFichaSelecionada(duplicada);
-          setViewerTab("ingredientes");
-          setDesiredServings(Math.max(1, duplicada.rendimento || 1));
+          handleSelecionarFicha(duplicada);
         }
 
         alert(`Ficha duplicada com sucesso: ${created.name}`);
@@ -2732,15 +2749,16 @@ export default function FichasTecnicasPage() {
   useEffect(() => {
     if (!fichasFiltradas.length) {
       setFichaSelecionada(null);
+      setShowFichaDetalhe(false);
       return;
     }
 
     if (!fichaSelecionadaFiltrada) {
       setFichaSelecionada(fichasFiltradas[0]);
+      setShowFichaDetalhe(false);
     }
   }, [fichasFiltradas, fichaSelecionadaFiltrada]);
-
-  return (
+    return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
@@ -2835,18 +2853,19 @@ export default function FichasTecnicasPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <Card className="overflow-hidden">
+      <div className="space-y-6">
+        <Card>
           <CardHeader className="space-y-4">
             <div>
-              <CardTitle>Lista de fichas</CardTitle>
+              <CardTitle>Fichas cadastradas</CardTitle>
               <CardDescription>
-                Selecione uma ficha para abrir a visualização detalhada.
+                Todas as fichas ficam exibidas lado a lado. Clique em uma ficha para
+                expandir os detalhes completos abaixo.
               </CardDescription>
             </div>
 
-            <div className="space-y-3">
-              <div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="xl:col-span-2">
                 <Label htmlFor="search-fichas">Buscar</Label>
                 <Input
                   id="search-fichas"
@@ -2856,7 +2875,7 @@ export default function FichasTecnicasPage() {
                 />
               </div>
 
-              <div>
+              <div className="xl:col-span-1">
                 <Label htmlFor="category-filter">Categoria</Label>
                 <select
                   id="category-filter"
@@ -2871,111 +2890,169 @@ export default function FichasTecnicasPage() {
                   ))}
                 </select>
               </div>
+
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setSearchTerm("");
+                    setCategoryFilter("TODAS");
+                  }}
+                >
+                  Limpar filtros
+                </Button>
+              </div>
             </div>
           </CardHeader>
 
-          <CardContent className="max-h-[820px] overflow-y-auto space-y-3">
+          <CardContent>
             {fichasFiltradas.length === 0 ? (
               <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
                 Nenhuma ficha encontrada com os filtros informados.
               </div>
             ) : (
-              fichasFiltradas.map((ficha) => {
-                const ativa = fichaSelecionada?.id === ficha.id;
-                const cmv = calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                {fichasFiltradas.map((ficha) => {
+                  const ativa = fichaSelecionada?.id === ficha.id;
+                  const cmv = calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
 
-                return (
-                  <button
-                    key={ficha.id}
-                    type="button"
-                    onClick={() => {
-                      setFichaSelecionada(ficha);
-                      setViewerTab("ingredientes");
-                    }}
-                    className={`w-full rounded-xl border p-4 text-left transition ${
-                      ativa
-                        ? "border-primary bg-primary/5 shadow-sm"
-                        : "border-border bg-white hover:bg-slate-50"
-                    }`}
-                  >
-                    {ficha.imageUrl ? (
-                      <div className="relative mb-3 h-32 w-full overflow-hidden rounded-lg bg-slate-100">
-                        <Image
-                          src={ficha.imageUrl}
-                          alt={ficha.nome}
-                          fill
-                          className="object-cover"
-                          unoptimized
-                        />
-                      </div>
-                    ) : (
-                      <div className="mb-3 flex h-32 items-center justify-center rounded-lg bg-slate-100 text-xs text-muted-foreground">
-                        Sem imagem
-                      </div>
-                    )}
+                  return (
+                    <button
+                      key={ficha.id}
+                      type="button"
+                      onClick={() => handleSelecionarFicha(ficha)}
+                      className={`overflow-hidden rounded-2xl border text-left transition hover:-translate-y-0.5 hover:shadow-md ${
+                        ativa
+                          ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                          : "border-border bg-white hover:bg-slate-50"
+                      }`}
+                    >
+                      {ficha.imageUrl ? (
+                        <div className="relative h-40 w-full bg-slate-100">
+                          <Image
+                            src={ficha.imageUrl}
+                            alt={ficha.nome}
+                            fill
+                            className="object-cover"
+                            unoptimized
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex h-40 items-center justify-center bg-slate-100 text-xs text-muted-foreground">
+                          Sem imagem
+                        </div>
+                      )}
 
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-gray-900">{ficha.nome}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {ficha.categoria || "Sem categoria"}
-                        </p>
-                      </div>
-                      <Badge variant={ativa ? "default" : "secondary"}>
-                        {ficha.rendimento} porções
-                      </Badge>
-                    </div>
+                      <div className="space-y-4 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-gray-900">
+                              {ficha.nome}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {ficha.categoria || "Sem categoria"}
+                            </p>
+                          </div>
 
-                    <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-                      <div>
-                        <p className="text-muted-foreground">Custo por porção</p>
-                        <p className="font-bold text-red-600">
-                          {formatCurrency(ficha.custoPorPorcao)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">Preço sugerido</p>
-                        <p className="font-bold text-green-600">
-                          {formatCurrency(ficha.precoVenda)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">CMV</p>
-                        <p className="font-bold">{cmv.toFixed(1)}%</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">Escalas</p>
-                        <p className="font-bold">{ficha.escalas.length}</p>
-                      </div>
-                    </div>
+                          <Badge variant={ativa ? "default" : "secondary"}>
+                            {ficha.rendimento} porções
+                          </Badge>
+                        </div>
 
-                    <div className="mt-3 text-xs text-muted-foreground">
-                      ⏱️ {ficha.tempoPreparo} min • ⚖️ {ficha.pesoPorcao}{" "}
-                      {ficha.portionWeightUnit || "G"}
-                    </div>
-                  </button>
-                );
-              })
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <p className="text-muted-foreground">Custo por porção</p>
+                            <p className="font-bold text-red-600">
+                              {formatCurrency(ficha.custoPorPorcao)}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-muted-foreground">Preço sugerido</p>
+                            <p className="font-bold text-green-600">
+                              {formatCurrency(ficha.precoVenda)}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-muted-foreground">CMV</p>
+                            <p className="font-bold">{cmv.toFixed(1)}%</p>
+                          </div>
+
+                          <div>
+                            <p className="text-muted-foreground">Escalas</p>
+                            <p className="font-bold">{ficha.escalas.length}</p>
+                          </div>
+                        </div>
+
+                        <div className="text-xs text-muted-foreground">
+                          ⏱️ {ficha.tempoPreparo} min • ⚖️ {ficha.pesoPorcao}{" "}
+                          {ficha.portionWeightUnit || "G"}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </CardContent>
         </Card>
 
-        <RecipeViewer
-          ficha={fichaSelecionada}
-          desiredServings={desiredServings}
-          setDesiredServings={setDesiredServings}
-          currentTab={viewerTab}
-          setCurrentTab={setViewerTab}
-          onEdit={handleEditarFicha}
-          onPrint={handleImprimirFicha}
-          onExportPdf={handleExportarPdf}
-          onDuplicate={duplicarFicha}
-          onFullscreen={(ficha) => {
-            setFichaSelecionada(ficha);
-            setShowFullscreenViewer(true);
-          }}
-          onDelete={(ficha) => excluirFicha(ficha.id)}
-        />
+        <div ref={viewerRef} className="space-y-3">
+          {showFichaDetalhe && fichaSelecionada ? (
+            <>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold">Visualização detalhada</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Abaixo está a mesma ficha técnica completa no layout atual.
+                  </p>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowFichaDetalhe(false)}
+                >
+                  Recolher detalhes
+                </Button>
+              </div>
+
+              <RecipeViewer
+                ficha={fichaSelecionada}
+                desiredServings={desiredServings}
+                setDesiredServings={setDesiredServings}
+                currentTab={viewerTab}
+                setCurrentTab={setViewerTab}
+                onEdit={handleEditarFicha}
+                onPrint={handleImprimirFicha}
+                onExportPdf={handleExportarPdf}
+                onDuplicate={duplicarFicha}
+                onFullscreen={(ficha) => {
+                  setFichaSelecionada(ficha);
+                  setShowFullscreenViewer(true);
+                }}
+                onDelete={(ficha) => excluirFicha(ficha.id)}
+              />
+            </>
+          ) : (
+            <Card className="border-dashed">
+              <CardContent className="flex min-h-[220px] items-center justify-center p-8">
+                <div className="text-center">
+                  <div className="mb-3 text-4xl">📄</div>
+                  <h3 className="text-lg font-semibold">
+                    Clique em uma ficha para expandir
+                  </h3>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    A visualização detalhada será aberta abaixo, mantendo o mesmo layout atual.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
 
       <Dialog open={showFullscreenViewer} onOpenChange={setShowFullscreenViewer}>

@@ -16,6 +16,7 @@ import {
   Receipt,
   ShoppingCart,
   Tag,
+  Timer,
   Truck,
   Users,
   type LucideIcon,

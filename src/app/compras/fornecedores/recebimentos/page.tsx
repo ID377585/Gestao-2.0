@@ -42,9 +42,8 @@ function statusClass(status: GoodsReceipt["status"]) {
   }
 }
 
-const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
-
 export default function RecebimentosPage() {
+  const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
   const router = useRouter();
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);

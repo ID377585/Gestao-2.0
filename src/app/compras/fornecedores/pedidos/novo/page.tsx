@@ -24,8 +24,6 @@ type FormItem = CreatePurchaseOrderItemInput & {
   localId: string;
 };
 
-const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
-
 function createEmptyItem(): FormItem {
   return {
     localId: crypto.randomUUID(),
@@ -40,8 +38,8 @@ function createEmptyItem(): FormItem {
 }
 
 export default function NovoPedidoPage() {
+  const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
   const router = useRouter();
-
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [requests, setRequests] = useState<PurchaseRequest[]>([]);
   const [requestItems, setRequestItems] = useState<PurchaseRequestItem[]>([]);

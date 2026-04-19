@@ -63,7 +63,6 @@ function seloClass(selo: "excelente" | "bom" | "atencao" | "critico") {
 export default function FornecedorDetalhePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-
   const supplierId = params.id;
 
   const [supplier, setSupplier] = useState<Supplier | null>(null);
@@ -127,7 +126,9 @@ export default function FornecedorDetalhePage() {
 
     const leadTimeMedio =
       leadTimes.length > 0
-        ? Math.round(leadTimes.reduce((acc, item) => acc + item, 0) / leadTimes.length)
+        ? Math.round(
+            leadTimes.reduce((acc, item) => acc + item, 0) / leadTimes.length
+          )
         : 0;
 
     const recebimentosComDivergencia = receipts.filter(
@@ -339,34 +340,18 @@ export default function FornecedorDetalhePage() {
             {supplier.email || "-"}
           </div>
           <div>
-            <span className="font-medium">Documento:</span>{" "}
-            {supplier.documento || "-"}
+            <span className="font-medium">CNPJ:</span>{" "}
+            {supplier.cnpj || "-"}
           </div>
           <div>
             <span className="font-medium">Status:</span>{" "}
             {supplier.ativo ? "Ativo" : "Inativo"}
           </div>
           <div>
-            <span className="font-medium">CEP:</span>{" "}
-            {supplier.cep || "-"}
+            <span className="font-medium">Endereço:</span>{" "}
+            {supplier.endereco || "-"}
           </div>
         </div>
-
-        {(supplier.endereco || supplier.numero || supplier.bairro || supplier.cidade) ? (
-          <div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm">
-            <span className="font-medium">Endereço:</span>{" "}
-            {[
-              supplier.endereco,
-              supplier.numero,
-              supplier.complemento,
-              supplier.bairro,
-              supplier.cidade,
-              supplier.uf,
-            ]
-              .filter(Boolean)
-              .join(", ")}
-          </div>
-        ) : null}
 
         {supplier.observacoes ? (
           <div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm">
@@ -419,9 +404,7 @@ export default function FornecedorDetalhePage() {
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="font-medium">{item.numero}</div>
-                      <div className="text-xs text-gray-500">
-                        {item.status}
-                      </div>
+                      <div className="text-xs text-gray-500">{item.status}</div>
                     </div>
 
                     <div className="text-right">
@@ -436,7 +419,7 @@ export default function FornecedorDetalhePage() {
                     </div>
                   </div>
 
-                  <div className="mt-2">
+                  <div className="mt-3 flex flex-wrap gap-3">
                     <Link
                       href={`/compras/pedidos/${item.id}`}
                       className="text-sm font-medium underline"
@@ -451,7 +434,7 @@ export default function FornecedorDetalhePage() {
                       Plano de ação
                     </Link>
 
-                      <Link
+                    <Link
                       href="/compras/follow-up"
                       className="rounded-xl border px-4 py-2 text-sm font-medium hover:bg-gray-50"
                     >

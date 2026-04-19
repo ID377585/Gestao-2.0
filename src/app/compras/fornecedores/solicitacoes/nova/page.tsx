@@ -11,8 +11,6 @@ type FormItem = CreatePurchaseRequestItemInput & {
   localId: string;
 };
 
-const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
-
 function createEmptyItem(): FormItem {
   return {
     localId: crypto.randomUUID(),
@@ -25,8 +23,8 @@ function createEmptyItem(): FormItem {
 }
 
 export default function NovaSolicitacaoPage() {
+  const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
   const router = useRouter();
-
   const [form, setForm] = useState({
     setorSolicitante: "",
     solicitanteId: "",
@@ -34,7 +32,6 @@ export default function NovaSolicitacaoPage() {
     prioridade: "media" as PriorityLevel,
     observacoes: "",
   });
-
   const [items, setItems] = useState<FormItem[]>([createEmptyItem()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getPurchaseOrderById } from "@/lib/compras/orders";
+import { usePurchaseHistory } from "@/hooks/use-purchase-history";
+import PurchaseHistoryCard from "@/components/compras/purchase-history-card";
 import {
   finalizeGoodsReceipt,
   getGoodsReceiptById,
@@ -15,20 +17,15 @@ type EditableReceiptItem = GoodsReceiptItem;
 export default function RecebimentoDetalhePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-
   const receiptId = params.id;
-
   const [receipt, setReceipt] = useState<GoodsReceipt | null>(null);
   const [items, setItems] = useState<EditableReceiptItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
   const [observacoes, setObservacoes] = useState("");
   const [vencimento, setVencimento] = useState("");
-
   const isLocked = Boolean(receipt?.inventoryApplied);
-
   const totalRecebido = useMemo(() => {
     return items.reduce((acc, item) => {
       return (
@@ -37,6 +34,8 @@ export default function RecebimentoDetalhePage() {
       );
     }, 0);
   }, [items]);
+
+const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
 
   const hasDivergencePreview = useMemo(() => {
     return items.some((item) => {
@@ -118,6 +117,18 @@ export default function RecebimentoDetalhePage() {
     });
 
     await loadData();
+
+    await createPurchaseHistoryEntryWithUser({
+  entityType: "recebimento",
+  entityId: receipt.id,
+  action: "recebimento_finalizado",
+  title: "Recebimento finalizado",
+  description: hasDivergencePreview
+    ? "Finalizado com divergência"
+    : "Finalizado sem divergência",
+  relatedEntityType: "pedido",
+  relatedEntityId: receipt.purchaseOrderId,
+});
 
     if (result.alreadyApplied) {
       alert("Este recebimento já havia sido aplicado ao estoque.");
@@ -449,6 +460,7 @@ export default function RecebimentoDetalhePage() {
             Voltar
           </button>
         </div>
+        <PurchaseHistoryCard entityType="recebimento" entityId={receipt.id} />
       </div>
     </div>
   );

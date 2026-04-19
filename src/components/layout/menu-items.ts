@@ -133,27 +133,77 @@ export const menuSections: MenuSectionConfig[] = [
     label: "Compras",
     icon: ShoppingCart,
     items: [
-      {
-        label: "Fornecedores",
-        href: "/compras/fornecedores",
-        icon: Building2,
-      },
-      {
-        label: "Solicitações",
-        href: "/compras/solicitacoes",
-        icon: FilePlus2,
-      },
-      {
-        label: "Compras",
-        href: "/compras/pedidos",
-        icon: ShoppingCart,
-      },
-      {
-        label: "Recebimentos",
-        href: "/compras/recebimentos",
-        icon: Truck,
-      },
-    ],
+  {
+    label: "Dashboard",
+    href: "/compras",
+    icon: BarChart3,
+  },
+  {
+    label: "Fornecedores",
+    href: "/compras/fornecedores",
+    icon: Building2,
+  },
+  {
+    label: "Dashboard Fornecedores",
+    href: "/compras/fornecedores/dashboard",
+    icon: Building2,
+  },
+   {
+    label: "Dashboard Diário",
+    href: "/compras/dashboard-diario",
+    icon: ClipboardList,
+  },
+  {
+    label: "Painel Semanal",
+    href: "/compras/painel-semanal",
+    icon: BarChart3,
+  },
+  {
+    label: "Produtividade",
+    href: "/compras/produtividade-compradores",
+    icon: BarChart3,
+  },
+  {
+    label: "Follow-up",
+    href: "/compras/follow-up",
+    icon: ClipboardList,
+  },
+  {
+    label: "Solicitações",
+    href: "/compras/solicitacoes",
+    icon: FilePlus2,
+  },
+  {
+    label: "Compras",
+    href: "/compras/pedidos",
+    icon: ShoppingCart,
+  },
+  {
+    label: "Recebimentos",
+    href: "/compras/recebimentos",
+    icon: Truck,
+  },
+  {
+    label: "Alertas",
+    href: "/compras/alertas",
+    icon: AlertTriangle,
+  },
+  {
+    label: "Fila de Ação",
+    href: "/compras/fila-de-acao",
+    icon: ClipboardList,
+  },
+  {
+    label: "Eficiência Operacional",
+    href: "/compras/eficiencia-operacional",
+    icon: Timer,
+  },
+  {
+    label: "Auditoria",
+    href: "/compras/auditoria",
+    icon: History,
+  },
+],
   },
   {
     key: "financeiro",
@@ -214,6 +264,11 @@ export const menuSections: MenuSectionConfig[] = [
   label: "Auditoria Financeira",
   href: "/financeiro/auditoria",
   icon: FileText,
+},
+{
+  label: "Auditoria",
+  href: "/compras/auditoria",
+  icon: History,
 },
   {
     label: "Controladoria",

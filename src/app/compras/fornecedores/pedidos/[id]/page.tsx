@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { usePurchaseHistory } from "@/hooks/use-purchase-history";
+import PurchaseHistoryCard from "@/components/compras/purchase-history-card";
 import {
   getPurchaseOrderById,
   listPurchaseOrderItems,
@@ -22,6 +24,8 @@ import type {
   PurchaseRequest,
   PurchaseRequestItem,
 } from "@/types/compras";
+
+const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
 
 function orderStatusLabel(status: PurchaseOrder["status"]) {
   switch (status) {
@@ -202,6 +206,16 @@ export default function PedidoDetalhePage() {
         responsavelNome: "Administrador",
         observacoes: `Recebimento iniciado a partir do pedido ${order.numero}`,
       });
+
+      await createPurchaseHistoryEntryWithUser({
+  entityType: "pedido",
+  entityId: order.id,
+  action: "recebimento_iniciado",
+  title: "Recebimento iniciado a partir do pedido",
+  description: `Recebimento ${receiptId}`,
+  relatedEntityType: "recebimento",
+  relatedEntityId: receiptId,
+});
 
       router.push(`/compras/recebimentos/${receiptId}`);
     } catch (err) {
@@ -586,6 +600,7 @@ export default function PedidoDetalhePage() {
             </table>
           </div>
         )}
+        <PurchaseHistoryCard entityType="pedido" entityId={order.id} />
       </div>
     </div>
   );

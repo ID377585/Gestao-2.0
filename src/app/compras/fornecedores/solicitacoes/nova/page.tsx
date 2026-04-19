@@ -1,13 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { usePurchaseHistory } from "@/hooks/use-purchase-history";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPurchaseRequest } from "@/lib/compras/requests";
+import { buildCreatedByLabel, getCurrentUserInfo } from "@/lib/auth/current-user";
 import type { CreatePurchaseRequestItemInput, PriorityLevel } from "@/types/compras";
 
 type FormItem = CreatePurchaseRequestItemInput & {
   localId: string;
 };
+
+const { createPurchaseHistoryEntryWithUser } = usePurchaseHistory();
 
 function createEmptyItem(): FormItem {
   return {
@@ -25,7 +29,7 @@ export default function NovaSolicitacaoPage() {
 
   const [form, setForm] = useState({
     setorSolicitante: "",
-    solicitanteId: "admin",
+    solicitanteId: "",
     solicitanteNome: "",
     prioridade: "media" as PriorityLevel,
     observacoes: "",
@@ -34,6 +38,21 @@ export default function NovaSolicitacaoPage() {
   const [items, setItems] = useState<FormItem[]>([createEmptyItem()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadUser() {
+      const currentUser = await getCurrentUserInfo();
+
+      setForm((prev) => ({
+        ...prev,
+        solicitanteId: currentUser?.id ?? "",
+        solicitanteNome:
+          buildCreatedByLabel(currentUser) || prev.solicitanteNome,
+      }));
+    }
+
+    loadUser();
+  }, []);
 
   function updateField(field: string, value: string) {
     setForm((prev) => ({
@@ -110,16 +129,24 @@ export default function NovaSolicitacaoPage() {
       setSaving(true);
       setError("");
 
-      await createPurchaseRequest({
-        setorSolicitante: form.setorSolicitante,
-        solicitanteId: form.solicitanteId,
-        solicitanteNome: form.solicitanteNome,
-        prioridade: form.prioridade,
-        observacoes: form.observacoes,
-        items: sanitizedItems,
-      });
+      const requestId = await createPurchaseRequest({
+  setorSolicitante: form.setorSolicitante,
+  solicitanteId: form.solicitanteId || "unknown",
+  solicitanteNome: form.solicitanteNome,
+  prioridade: form.prioridade,
+  observacoes: form.observacoes,
+  items: sanitizedItems,
+});
 
-      router.push("/compras/solicitacoes");
+await createPurchaseHistoryEntryWithUser({
+  entityType: "solicitacao",
+  entityId: requestId,
+  action: "solicitacao_criada",
+  title: "Solicitação de compra criada",
+  description: `${form.setorSolicitante} • ${form.solicitanteNome}`,
+});
+
+router.push("/compras/solicitacoes");
     } catch (err) {
       console.error(err);
       setError("Não foi possível salvar a solicitação.");
@@ -190,6 +217,10 @@ export default function NovaSolicitacaoPage() {
               placeholder="Informações adicionais da solicitação"
             />
           </div>
+        </div>
+
+        <div className="rounded-xl border bg-gray-50 p-4 text-sm text-gray-600">
+          O solicitante já vem preenchido com o usuário logado, mas continua editável.
         </div>
 
         <div className="space-y-4">

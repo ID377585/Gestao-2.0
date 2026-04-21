@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { uploadTechnicalSheetPdfImportAction } from "@/app/(dashboard)/dashboard/fichas-tecnicas/actions";
 
 const MAX_FILE_SIZE = 40 * 1024 * 1024; // 40 MB
@@ -11,6 +11,11 @@ type Props = {
   onSuccess?: (jobId?: string) => void;
   establishmentId: string;
   uploadedBy?: string;
+};
+
+type UploadActionResult = {
+  filePath: string;
+  downloadURL: string;
 };
 
 export default function PdfImportModal({
@@ -25,6 +30,12 @@ export default function PdfImportModal({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      resetState();
+    }
+  }, [open]);
 
   if (!open) return null;
 
@@ -42,14 +53,6 @@ export default function PdfImportModal({
     onClose();
   }
 
-  function sanitizeFileName(fileName: string) {
-    return fileName
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9._-]/g, "-")
-      .replace(/-+/g, "-");
-  }
-
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0] ?? null;
     setMessage("");
@@ -59,7 +62,11 @@ export default function PdfImportModal({
       return;
     }
 
-    if (selected.type !== "application/pdf") {
+    const isPdf =
+      selected.type === "application/pdf" ||
+      selected.name.toLowerCase().endsWith(".pdf");
+
+    if (!isPdf) {
       setMessage("Selecione apenas arquivos PDF.");
       setFile(null);
       return;
@@ -72,6 +79,19 @@ export default function PdfImportModal({
     }
 
     setFile(selected);
+  }
+
+  function isValidUploadResult(value: unknown): value is UploadActionResult {
+    if (!value || typeof value !== "object") return false;
+
+    const candidate = value as Record<string, unknown>;
+
+    return (
+      typeof candidate.filePath === "string" &&
+      candidate.filePath.trim().length > 0 &&
+      typeof candidate.downloadURL === "string" &&
+      candidate.downloadURL.trim().length > 0
+    );
   }
 
   async function handleUpload() {
@@ -87,23 +107,29 @@ export default function PdfImportModal({
 
     try {
       setLoading(true);
-      setMessage("Enviando PDF para o storage...");
       setUploadProgress(10);
+      setMessage("Enviando PDF para o storage...");
 
       const uploadFormData = new FormData();
-uploadFormData.append("file", file);
+      uploadFormData.append("file", file);
 
-const uploadResult = await uploadTechnicalSheetPdfImportAction(uploadFormData);
+      const rawUploadResult =
+        await uploadTechnicalSheetPdfImportAction(uploadFormData);
 
-if (!uploadResult?.filePath || !uploadResult?.downloadURL) {
-  throw new Error("O upload do PDF não retornou filePath e downloadURL.");
-}
+      if (!isValidUploadResult(rawUploadResult)) {
+        console.error(
+          "Resposta inválida da uploadTechnicalSheetPdfImportAction:",
+          rawUploadResult
+        );
+        throw new Error(
+          "O upload do PDF não retornou filePath e downloadURL."
+        );
+      }
 
-const filePath = uploadResult.filePath;
-const downloadURL = uploadResult.downloadURL;
+      const { filePath, downloadURL } = rawUploadResult;
 
-setUploadProgress(40);
-setMessage("PDF enviado. Obtendo URL do arquivo...");
+      setUploadProgress(40);
+      setMessage("PDF enviado. Obtendo URL do arquivo...");
 
       setUploadProgress(55);
       setMessage("Criando job de importação...");
@@ -118,7 +144,7 @@ setMessage("PDF enviado. Obtendo URL do arquivo...");
           fileUrl: downloadURL,
           filePath,
           fileSize: file.size,
-          mimeType: file.type,
+          mimeType: file.type || "application/pdf",
           category,
           establishmentId,
           uploadedBy: uploadedBy || null,
@@ -197,14 +223,13 @@ setMessage("PDF enviado. Obtendo URL do arquivo...");
         (ignoredList ? `Ignoradas/Revisão:\n${ignoredList}` : "");
 
       setMessage(reportMessage);
-
       onSuccess?.(createResult.jobId);
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         handleClose();
       }, 3500);
     } catch (error: any) {
-      console.error(error);
+      console.error("Erro no fluxo de importação do PDF:", error);
       setMessage(
         error?.message || "Falha ao enviar o PDF e processar a importação."
       );
@@ -225,6 +250,7 @@ setMessage("PDF enviado. Obtendo URL do arquivo...");
             </p>
           </div>
           <button
+            type="button"
             onClick={handleClose}
             disabled={loading}
             className="text-sm text-gray-500 hover:text-gray-800"
@@ -251,7 +277,7 @@ setMessage("PDF enviado. Obtendo URL do arquivo...");
             <label className="mb-1 block text-sm font-medium">PDF</label>
             <input
               type="file"
-              accept="application/pdf"
+              accept="application/pdf,.pdf"
               onChange={handleFileChange}
               disabled={loading}
               className="block w-full text-sm"
@@ -300,6 +326,7 @@ setMessage("PDF enviado. Obtendo URL do arquivo...");
 
           <div className="flex justify-end gap-2 pt-2">
             <button
+              type="button"
               onClick={handleClose}
               disabled={loading}
               className="rounded-lg border px-4 py-2 text-sm"
@@ -307,6 +334,7 @@ setMessage("PDF enviado. Obtendo URL do arquivo...");
               Cancelar
             </button>
             <button
+              type="button"
               onClick={handleUpload}
               disabled={loading || !file}
               className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"

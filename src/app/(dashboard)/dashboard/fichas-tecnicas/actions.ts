@@ -1,7 +1,5 @@
 "use server";
 
-"use server";
-
 import { revalidatePath } from "next/cache";
 import {
   createSupabaseAdminClient,
@@ -128,6 +126,7 @@ type ImportTechnicalSheetsFromPdfResult =
       ok: false;
       error: string;
     };
+
 async function getContext() {
   const supabaseAuth = await createSupabaseServerClient();
   const supabase = createSupabaseAdminClient();
@@ -167,7 +166,12 @@ function sanitizeFileName(fileName: string) {
 }
 
 function toNumber(value: unknown, fallback = 0) {
-  const n = Number(String(value ?? "").replace(",", "."));
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(",", ".");
+
+  const n = Number(normalized);
   return Number.isFinite(n) ? n : fallback;
 }
 
@@ -460,6 +464,11 @@ function extractYieldPortions(pageText: string) {
     pageText.match(/\b(\d+)\s+Bisnaga\b/i),
     pageText.match(/\b(\d+)\s+BSN\b/i),
     pageText.match(/\b(\d+)\s+assadeiras?\b/i),
+    pageText.match(/\b(\d+)\s+Taças?\b/i),
+    pageText.match(/\b(\d+)\s+Porções?\b/i),
+    pageText.match(/\b(\d+)\s+Unidades?\b/i),
+    pageText.match(/\b(\d+)\s+Pratos?\b/i),
+    pageText.match(/\b(\d+)\s+Bolos?\b/i),
   ].filter(Boolean) as RegExpMatchArray[];
 
   if (!candidates.length) return 1;
@@ -473,6 +482,11 @@ function extractYieldLabel(pageText: string) {
     pageText.match(/\b\d+\s+Bisnaga\b/i),
     pageText.match(/\b\d+\s+BSN\b/i),
     pageText.match(/\b\d+\s+assadeiras?\b/i),
+    pageText.match(/\b\d+\s+Taças?\b/i),
+    pageText.match(/\b\d+\s+Porções?\b/i),
+    pageText.match(/\b\d+\s+Unidades?\b/i),
+    pageText.match(/\b\d+\s+Pratos?\b/i),
+    pageText.match(/\b\d+\s+Bolos?\b/i),
   ].filter(Boolean) as RegExpMatchArray[];
 
   return candidates[0]?.[0]?.trim() || null;
@@ -547,7 +561,15 @@ function extractPreparationMethod(pageText: string) {
     /Modo de Preparo:\s*([\s\S]*?)(?:Armazenamento:|Atualizada em:|Alerg[eê]nicos|Cont[eé]m:|Ficou com dúvidas|Confeiteiro Chefe)/i
   );
 
-  return match?.[1]?.trim() || "";
+  if (match?.[1]?.trim()) {
+    return match[1].trim();
+  }
+
+  const fallbackMatch = normalized.match(
+    /Modo de preparo\s*([\s\S]*?)(?:Escalas|Atualizado em|Origem Cadastro|Arquivo de origem|Vídeo|Imagem|$)/i
+  );
+
+  return fallbackMatch?.[1]?.trim() || "";
 }
 
 function extractVideoUrl(pageText: string) {
@@ -640,7 +662,7 @@ function parseScaleTable(pageText: string): ParsedScaleTable | null {
   const joinedYieldText = yieldPieces.join(" ");
   const yieldDescriptions = [
     ...joinedYieldText.matchAll(
-      /(\d+(?:[.,]\d+)?)\s*(ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA)/gi
+      /(\d+(?:[.,]\d+)?)\s*(ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA|TAÇAS?|TAÇA|BOLOS?|BOLO|UNIDADES?|UNIDADE|PORÇÕES?|PORÇÃO|PRATOS?|PRATO)/gi
     ),
   ].map((match) => `${match[1]} ${match[2]}`.replace(/\s+/g, " ").trim());
 
@@ -855,6 +877,7 @@ async function saveScales(
     }
   }
 }
+
 async function duplicateTechnicalSheetImage(
   supabase: any,
   sourceImagePath: string | null | undefined,
@@ -987,7 +1010,7 @@ export async function deleteTechnicalSheetImageAction(imagePath: string) {
 }
 
 export async function listTechnicalSheets() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
     .from("technical_sheets")
@@ -1060,9 +1083,9 @@ export async function listTechnicalSheets() {
     .order("created_at", { ascending: false });
 
   if (error) {
-  console.error("Erro ao listar fichas técnicas:", JSON.stringify(error, null, 2));
-  throw new Error(`Não foi possível carregar as fichas técnicas: ${error.message}`);
-}
+    console.error("Erro ao listar fichas técnicas:", JSON.stringify(error, null, 2));
+    throw new Error(`Não foi possível carregar as fichas técnicas: ${error.message}`);
+  }
 
   return data ?? [];
 }
@@ -1661,14 +1684,15 @@ function splitPdfIntoPagesRobust(rawText: string) {
     return formFeedPages;
   }
 
-  const updateMatches = [...normalized.matchAll(/Atualizada em:\s*\d{2}\/\d{2}\/\d{4}/gi)];
+  const updateMatches = [
+    ...normalized.matchAll(/Atualizada em:\s*\d{2}\/\d{2}\/\d{4}/gi),
+  ];
 
   if (updateMatches.length > 1) {
     const pages: string[] = [];
     let start = 0;
 
     for (let i = 0; i < updateMatches.length; i++) {
-      const currentIndex = updateMatches[i].index ?? 0;
       const nextIndex =
         i + 1 < updateMatches.length
           ? updateMatches[i + 1].index ?? normalized.length
@@ -1733,9 +1757,7 @@ function parseAppExportIngredientsRobust(
   pageText: string
 ): TechnicalSheetIngredientInput[] {
   const normalized = normalizePdfTextKeepingPagesRobust(pageText);
-  const match = normalized.match(
-    /Ingredientes\s*([\s\S]*?)Modo de preparo/i
-  );
+  const match = normalized.match(/Ingredientes\s*([\s\S]*?)Modo de preparo/i);
 
   if (!match?.[1]) return [];
 
@@ -1762,9 +1784,18 @@ function parseAppExportIngredientsRobust(
     const usageUnit = normalizeUnit(rowMatch[3], "G");
     const purchaseQuantity = toNumber(rowMatch[4], 1);
     const purchaseUnit = normalizeUnit(rowMatch[5], "G");
-    const purchasePrice = toNumber(rowMatch[6].replace(/\./g, "").replace(",", "."), 0);
-    const baseUnitCost = toNumber(rowMatch[7].replace(/\./g, "").replace(",", "."), 0);
-    const finalCost = toNumber(rowMatch[8].replace(/\./g, "").replace(",", "."), 0);
+    const purchasePrice = toNumber(
+      rowMatch[6].replace(/\./g, "").replace(",", "."),
+      0
+    );
+    const baseUnitCost = toNumber(
+      rowMatch[7].replace(/\./g, "").replace(",", "."),
+      0
+    );
+    const finalCost = toNumber(
+      rowMatch[8].replace(/\./g, "").replace(",", "."),
+      0
+    );
 
     if (!ingredientName || usageQuantity <= 0) continue;
 
@@ -1811,9 +1842,7 @@ function parseIngredientLineBaseQuantityRobust(
   const cleaned = line.replace(/\s+/g, " ").trim();
   if (!cleaned) return null;
 
-  const regex =
-    /^(.*?)\s+(\d+(?:[.,]\d+)?)(?:\s+(\d+(?:[.,]\d+)?))*\s*$/;
-
+  const regex = /^(.*?)\s+(\d+(?:[.,]\d+)?)(?:\s+(\d+(?:[.,]\d+)?))*\s*$/;
   const match = cleaned.match(regex);
   if (!match) return null;
 
@@ -1860,7 +1889,7 @@ function extractCanvaBaseIngredientsRobust(
     if (/^\d+X(?:\s+\d+X)*$/i.test(upper)) continue;
 
     if (
-      /ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA|TAÇAS?|TAÇA|BOLOS?|BOLO|UNIDADES?|UNIDADE|PORÇÕES?|PORÇÃO/i.test(
+      /ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA|TAÇAS?|TAÇA|BOLOS?|BOLO|UNIDADES?|UNIDADE|PORÇÕES?|PORÇÃO|PRATOS?|PRATO/i.test(
         upper
       ) &&
       !/[A-ZÀ-Ý]{3,}.*\d/.test(upper)
@@ -1915,7 +1944,9 @@ function extractCanvaBaseIngredientsRobust(
   );
 }
 
-function extractCanvaBaseScaleRobust(pageText: string): TechnicalSheetScaleInput[] {
+function extractCanvaBaseScaleRobust(
+  pageText: string
+): TechnicalSheetScaleInput[] {
   const ingredients = extractCanvaBaseIngredientsRobust(pageText);
   if (!ingredients.length) return [];
 
@@ -1933,6 +1964,22 @@ function extractCanvaBaseScaleRobust(pageText: string): TechnicalSheetScaleInput
       })),
     },
   ];
+}
+
+function isTemplateLikePage(pageText: string) {
+  const normalized = normalizePdfTextKeepingPagesRobust(pageText);
+  const upper = normalized.toUpperCase();
+
+  const hasIngredientsHeader = upper.includes("INGREDIENTES");
+  const hasPrepHeader = upper.includes("MODO DE PREPARO");
+  const hasNoStrongIngredients =
+    !/\b[A-ZÀ-Ý][A-ZÀ-Ý\s()./%-]{2,}\s+\d+(?:[.,]\d+)?\b/i.test(normalized);
+
+  const hasEmptyWeight =
+    /PESO L[IÍ]QUIDO:\s*(?:$|\n)/im.test(normalized) ||
+    /PESO L[IÍ]QUIDO:\s*[^\d\n]*$/im.test(normalized);
+
+  return (hasIngredientsHeader && hasPrepHeader && hasNoStrongIngredients) || hasEmptyWeight;
 }
 
 function parseAppExportRecipeRobust(
@@ -2014,6 +2061,10 @@ function parseCanvaRecipeRobust(
   fileName: string,
   defaultCategory: string
 ): ImportedRecipe | null {
+  if (isTemplateLikePage(pageText)) {
+    return null;
+  }
+
   const name = extractTitleRobust(pageText);
   const ingredients = extractCanvaBaseIngredientsRobust(pageText);
 
@@ -2122,7 +2173,7 @@ export async function importTechnicalSheetsFromPdfAction(
           ignoredPages.push({
             page: pageNumber,
             title,
-            reason: "Página incompleta ou sem ingredientes válidos.",
+            reason: "Página incompleta, vazia, template ou sem ingredientes válidos.",
           });
           continue;
         }
@@ -2251,8 +2302,6 @@ export async function importTechnicalSheetsFromPdfAction(
             await saveScales(supabase, sheet.id, recipe.scales);
           } catch (scaleError) {
             console.error("[importPDF] erro ao salvar escalas", scaleError);
-
-            // não derruba a ficha por causa da escala; mantém ficha + ingredientes
           }
         }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { importTechnicalSheetsFromPdfAction } from "@/app/(dashboard)/dashboard/fichas-tecnicas/actions";
 
 const MAX_FILE_SIZE = 40 * 1024 * 1024; // 40 MB
@@ -46,7 +46,7 @@ export default function PdfImportModal({
     onClose();
   }
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0] ?? null;
     setMessage("");
 
@@ -90,40 +90,41 @@ export default function PdfImportModal({
       formData.append("defaultCategory", category);
 
       setUploadProgress(45);
-      setMessage("Extraindo conteúdo do PDF...");
+      setMessage("Analisando páginas do PDF...");
 
       const result = await importTechnicalSheetsFromPdfAction(formData);
 
-      if (!result?.ok) {
-        throw new Error(result?.error || "Erro ao importar o PDF.");
+      if (!result.ok) {
+        throw new Error(result.error || "Erro ao importar o PDF.");
       }
 
       setUploadProgress(100);
 
-      const createdList = Array.isArray(result.recipes)
-        ? result.recipes
-            .slice(0, 10)
-            .map(
-              (item) =>
-                `• ${item.name}${
-                  item.page ? ` (página ${item.page})` : ""
-                }`
-            )
-            .join("\n")
-        : "";
+      const createdList = result.recipes
+        .slice(0, 12)
+        .map((item) => `• ${item.name}${item.page ? ` (página ${item.page})` : ""}`)
+        .join("\n");
+
+      const ignoredList = result.ignoredPages
+        .slice(0, 12)
+        .map(
+          (item) => `• Página ${item.page}: ${item.title} (${item.reason})`
+        )
+        .join("\n");
 
       const reportMessage =
         `Importação concluída com sucesso.\n\n` +
-        `Fichas criadas: ${result.importedCount}\n\n` +
-        (createdList ? `Receitas importadas:\n${createdList}` : "");
+        `Fichas criadas: ${result.importedCount}\n` +
+        `Páginas ignoradas: ${result.ignoredPages.length}\n\n` +
+        (createdList ? `Receitas importadas:\n${createdList}\n\n` : "") +
+        (ignoredList ? `Páginas ignoradas:\n${ignoredList}` : "");
 
       setMessage(reportMessage);
-
       onSuccess?.();
 
       window.setTimeout(() => {
         handleClose();
-      }, 3500);
+      }, 4000);
     } catch (error: any) {
       console.error("Erro na importação do PDF:", error);
       setMessage(error?.message || "Falha ao importar o PDF.");
@@ -214,8 +215,8 @@ export default function PdfImportModal({
           )}
 
           <div className="rounded-md bg-slate-50 p-3 text-sm text-muted-foreground">
-            Nesta etapa, o sistema lê o PDF, extrai receitas válidas, cria as
-            fichas técnicas diretamente e atualiza a listagem ao final.
+            Nesta etapa, o sistema lê o PDF, importa as páginas válidas e ignora
+            automaticamente páginas incompletas ou template.
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

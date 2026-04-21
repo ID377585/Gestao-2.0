@@ -94,6 +94,17 @@ export default function PdfImportModal({
     );
   }
 
+  async function parseJsonSafely(response: Response, routeLabel: string) {
+    const raw = await response.text();
+
+    try {
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      console.error(`Resposta não JSON em ${routeLabel}:`, raw);
+      throw new Error(`${routeLabel} retornou HTML em vez de JSON.`);
+    }
+  }
+
   async function handleUpload() {
     if (!file) {
       setMessage("Selecione um PDF para importar.");
@@ -151,7 +162,10 @@ export default function PdfImportModal({
         }),
       });
 
-      const createResult = await createResponse.json();
+      const createResult = await parseJsonSafely(
+        createResponse,
+        "/api/import-jobs/create"
+      );
 
       if (!createResponse.ok) {
         throw new Error(
@@ -176,7 +190,10 @@ export default function PdfImportModal({
         }),
       });
 
-      const processResult = await processResponse.json();
+      const processResult = await parseJsonSafely(
+        processResponse,
+        "/api/import-jobs/process"
+      );
 
       if (!processResponse.ok) {
         throw new Error(

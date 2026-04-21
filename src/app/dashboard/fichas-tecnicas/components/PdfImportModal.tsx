@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/supabase/client";
+import { uploadTechnicalSheetPdfImportAction } from "@/app/(dashboard)/dashboard/fichas-tecnicas/actions";
 
 const MAX_FILE_SIZE = 40 * 1024 * 1024; // 40 MB
 
@@ -90,35 +90,16 @@ export default function PdfImportModal({
       setMessage("Enviando PDF para o storage...");
       setUploadProgress(10);
 
-      const timestamp = Date.now();
-      const safeFileName = sanitizeFileName(file.name);
-      const filePath = `imports/${timestamp}-${safeFileName}`;
+      const uploadFormData = new FormData();
+uploadFormData.append("file", file);
 
-      const { error: uploadError } = await supabase.storage
-        .from("technical-sheets")
-        .upload(filePath, file, {
-          contentType: "application/pdf",
-          upsert: false,
-        });
+const uploadResult = await uploadTechnicalSheetPdfImportAction(uploadFormData);
 
-      if (uploadError) {
-        throw new Error(
-          uploadError.message || "Erro ao enviar PDF para o Storage."
-        );
-      }
+const filePath = uploadResult.filePath;
+const downloadURL = uploadResult.downloadURL;
 
-      setUploadProgress(40);
-      setMessage("PDF enviado. Obtendo URL do arquivo...");
-
-      const { data: publicUrlData } = supabase.storage
-        .from("technical-sheets")
-        .getPublicUrl(filePath);
-
-      const downloadURL = publicUrlData?.publicUrl;
-
-      if (!downloadURL) {
-        throw new Error("Não foi possível obter a URL pública do PDF.");
-      }
+setUploadProgress(40);
+setMessage("PDF enviado. Obtendo URL do arquivo...");
 
       setUploadProgress(55);
       setMessage("Criando job de importação...");

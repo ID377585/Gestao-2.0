@@ -1837,3 +1837,59 @@ export async function uploadTechnicalSheetPdfImportAction(formData: FormData) {
     downloadURL,
   };
 }
+
+export async function uploadTechnicalSheetPdfImportAction(formData: FormData) {
+  const { supabase, establishmentId, userId } = await getContext();
+
+  const fileEntry = formData.get("file");
+
+  if (!(fileEntry instanceof File)) {
+    throw new Error("Nenhum arquivo PDF foi enviado.");
+  }
+
+  const file = fileEntry;
+
+  if (
+    file.type !== "application/pdf" &&
+    !file.name.toLowerCase().endsWith(".pdf")
+  ) {
+    throw new Error("O arquivo enviado precisa ser um PDF.");
+  }
+
+  const maxPdfSizeInBytes = 40 * 1024 * 1024;
+  if (file.size > maxPdfSizeInBytes) {
+    throw new Error("O PDF deve ter no máximo 40MB.");
+  }
+
+  const safeFileName = sanitizeFileName(file.name);
+  const filePath = `${establishmentId}/${userId}/imports/${Date.now()}-${safeFileName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("technical-sheets")
+    .upload(filePath, file, {
+      contentType: "application/pdf",
+      upsert: false,
+    });
+
+  if (uploadError) {
+    console.error("Erro ao enviar PDF para o Storage:", uploadError);
+    throw new Error(
+      uploadError.message || "Erro ao enviar PDF para o Storage."
+    );
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from("technical-sheets")
+    .getPublicUrl(filePath);
+
+  const downloadURL = publicUrlData?.publicUrl;
+
+  if (!downloadURL) {
+    throw new Error("Não foi possível obter a URL pública do PDF.");
+  }
+
+  return {
+    filePath,
+    downloadURL,
+  };
+}

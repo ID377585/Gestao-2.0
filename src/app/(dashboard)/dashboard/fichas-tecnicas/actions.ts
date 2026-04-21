@@ -1622,13 +1622,13 @@ export async function importTechnicalSheetsFromPdfAction(
       };
     }
 
-    const maxPdfSizeInBytes = 8 * 1024 * 1024;
-    if (file.size > maxPdfSizeInBytes) {
-      return {
-        ok: false,
-        error: "O PDF deve ter no máximo 8MB.",
-      };
-    }
+    const maxPdfSizeInBytes = 40 * 1024 * 1024;
+      if (file.size > maxPdfSizeInBytes) {
+        return {
+          ok: false,
+          error: "O PDF deve ter no máximo 40MB.",
+        };
+      }
 
     const defaultCategory =
       String(categoryEntry ?? "Importado PDF").trim() || "Importado PDF";

@@ -706,6 +706,7 @@ function buildPrintHtml(
 </html>
   `.trim();
 }
+
 function EscalasViewer({ escalas }: { escalas: EscalaFicha[] }) {
   if (!escalas.length) {
     return (
@@ -933,259 +934,6 @@ function RecipeViewerInline({
             </p>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Rendimento original</p>
-            <p className="mt-1 text-lg font-semibold">
-              {ficha.rendimento} porções
-              {ficha.yieldLabel ? ` • ${ficha.yieldLabel}` : ""}
-            </p>
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Peso por porção</p>
-            <p className="mt-1 text-lg font-semibold">
-              {ficha.pesoPorcao} {ficha.portionWeightUnit || "G"}
-            </p>
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Tempo de preparo</p>
-            <p className="mt-1 text-lg font-semibold">{ficha.tempoPreparo} min</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Temperatura</p>
-            <p className="mt-1 text-lg font-semibold">
-              {ficha.temperatureCelsius !== null
-                ? `${ficha.temperatureCelsius} ºC`
-                : "—"}
-            </p>
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Tempo de cocção</p>
-            <p className="mt-1 text-lg font-semibold">
-              {ficha.cookingTimeMinutes !== null
-                ? `${ficha.cookingTimeMinutes} min`
-                : "—"}
-            </p>
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Fator de cocção</p>
-            <p className="mt-1 text-lg font-semibold">
-              {ficha.cookingFactorGrams !== null
-                ? `${ficha.cookingFactorGrams} g`
-                : "—"}
-            </p>
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Fator de correção</p>
-            <p className="mt-1 text-lg font-semibold">
-              {ficha.correctionFactorGrams !== null
-                ? `${ficha.correctionFactorGrams} g`
-                : "—"}
-            </p>
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Armazenamento</p>
-            <p className="mt-1 text-base font-semibold">
-              {ficha.storageInstructions || "—"}
-            </p>
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Validade congelado</p>
-            <p className="mt-1 text-base font-semibold">
-              {ficha.shelfLifeFrozen || "—"}
-            </p>
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Validade refrigerado</p>
-            <p className="mt-1 text-base font-semibold">
-              {ficha.shelfLifeRefrigerated || "—"}
-            </p>
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <p className="text-sm text-muted-foreground">Validade ambiente</p>
-            <p className="mt-1 text-base font-semibold">
-              {ficha.shelfLifeRoomTemp || "—"}
-            </p>
-          </div>
-        </div>
-
-        <div className="rounded-xl border p-4">
-          <p className="text-sm text-muted-foreground">Alergênicos</p>
-          <p className="mt-1 text-base font-semibold">
-            {ficha.allergens || "—"}
-          </p>
-
-          {ficha.importOrigin ? (
-            <p className="mt-3 text-xs text-muted-foreground">
-              Importado via {ficha.importOrigin}
-              {ficha.sourceFileName ? ` • arquivo: ${ficha.sourceFileName}` : ""}
-              {ficha.sourcePageNumber ? ` • página: ${ficha.sourcePageNumber}` : ""}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="rounded-xl border p-4">
-          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <Label htmlFor="desired-servings">Rendimento desejado</Label>
-              <p className="text-xs text-muted-foreground">
-                Ajusta visualização dos ingredientes e custo total da produção.
-              </p>
-            </div>
-
-            <div className="flex w-full max-w-xs items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setDesiredServings(Math.max(1, desiredServings - 1))}
-              >
-                −
-              </Button>
-              <Input
-                id="desired-servings"
-                type="number"
-                min={1}
-                value={desiredServings}
-                onChange={(e) =>
-                  setDesiredServings(Math.max(1, toNumber(e.target.value, 1)))
-                }
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setDesiredServings(desiredServings + 1)}
-              >
-                +
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-muted-foreground">Produção ajustada</p>
-              <p className="text-lg font-bold">{scaled.servings} porções</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-muted-foreground">Fator aplicado</p>
-              <p className="text-lg font-bold">{scaled.factor.toFixed(3)}x</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-muted-foreground">Escalas cadastradas</p>
-              <p className="text-lg font-bold">{ficha.escalas.length}</p>
-            </div>
-          </div>
-        </div>
-                <div>
-          <div className="mb-4 flex gap-2 border-b">
-            <button
-              type="button"
-              className={`border-b-2 px-4 py-2 text-sm font-medium transition ${
-                currentTab === "ingredientes"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground"
-              }`}
-              onClick={() => setCurrentTab("ingredientes")}
-            >
-              Ingredientes
-            </button>
-            <button
-              type="button"
-              className={`border-b-2 px-4 py-2 text-sm font-medium transition ${
-                currentTab === "preparo"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground"
-              }`}
-              onClick={() => setCurrentTab("preparo")}
-            >
-              Modo de preparo
-            </button>
-            <button
-              type="button"
-              className={`border-b-2 px-4 py-2 text-sm font-medium transition ${
-                currentTab === "escalas"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground"
-              }`}
-              onClick={() => setCurrentTab("escalas")}
-            >
-              Escalas
-            </button>
-          </div>
-
-          {currentTab === "ingredientes" ? (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Ingrediente</TableHead>
-                    <TableHead>Uso ajustado</TableHead>
-                    <TableHead>Compra</TableHead>
-                    <TableHead>Preço compra</TableHead>
-                    <TableHead>Custo unit.</TableHead>
-                    <TableHead>Custo final</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {scaled.ingredientes.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={6}
-                        className="text-center text-muted-foreground"
-                      >
-                        Nenhum ingrediente cadastrado.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    scaled.ingredientes.map((ingrediente) => (
-                      <TableRow key={ingrediente.id}>
-                        <TableCell className="font-medium">
-                          {ingrediente.nome}
-                        </TableCell>
-                        <TableCell>
-                          {ingrediente.quantidadeUso} {ingrediente.unidadeUso}
-                        </TableCell>
-                        <TableCell>
-                          {ingrediente.quantidadeCompra}{" "}
-                          {ingrediente.unidadeCompra}
-                        </TableCell>
-                        <TableCell>
-                          {formatCurrency(ingrediente.precoCompra)}
-                        </TableCell>
-                        <TableCell>
-                          {formatCurrency(ingrediente.custoUnitarioBase)}
-                        </TableCell>
-                        <TableCell className="font-medium text-red-600">
-                          {formatCurrency(ingrediente.custoIngrediente)}
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          ) : currentTab === "preparo" ? (
-            <div className="rounded-xl border bg-slate-50 p-5">
-              <p className="whitespace-pre-wrap leading-7 text-sm text-gray-700">
-                {ficha.modoPreparo || "Não informado."}
-              </p>
-            </div>
-          ) : (
-            <EscalasViewer escalas={ficha.escalas} />
-          )}
-        </div>
       </CardContent>
     </Card>
   );
@@ -1245,9 +993,46 @@ export default function FichasTecnicasPage() {
 
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
 
+  const [establishmentId, setEstablishmentId] = useState("");
+  const [uploadedBy, setUploadedBy] = useState("");
+
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
   const editImageInputRef = useRef<HTMLInputElement | null>(null);
   const viewerRef = useRef<HTMLDivElement | null>(null);
+
+  const loadCurrentContext = useCallback(async () => {
+    try {
+      const response = await fetch("/api/user/me", {
+        cache: "no-store",
+      });
+
+      if (!response.ok) return;
+
+      const result = await response.json();
+
+      const resolvedUserId =
+        result?.id ??
+        result?.userId ??
+        result?.user?.id ??
+        "";
+
+      const resolvedEstablishmentId =
+        result?.establishment_id ??
+        result?.establishmentId ??
+        result?.membership?.establishment_id ??
+        result?.membership?.establishmentId ??
+        result?.activeMembership?.establishment_id ??
+        result?.activeMembership?.establishmentId ??
+        "";
+
+      setUploadedBy(resolvedUserId ? String(resolvedUserId) : "");
+      setEstablishmentId(
+        resolvedEstablishmentId ? String(resolvedEstablishmentId) : ""
+      );
+    } catch (error) {
+      console.error("Erro ao carregar contexto do usuário:", error);
+    }
+  }, []);
 
   const loadProductsCatalog = useCallback(async (showLoader = true) => {
     try {
@@ -1308,40 +1093,45 @@ export default function FichasTecnicasPage() {
   }, []);
 
   const loadData = useCallback(async () => {
-  try {
-    setLoadingProducts(true);
-    setLoadingFichas(true);
+    try {
+      setLoadingProducts(true);
+      setLoadingFichas(true);
 
-    const [, fichasRes] = await Promise.all([
-      loadProductsCatalog(false),
-      listTechnicalSheets(),
-    ]);
+      const [, fichasRes] = await Promise.all([
+        loadProductsCatalog(false),
+        listTechnicalSheets(),
+      ]);
 
-    console.log("listTechnicalSheets result:", fichasRes);
+      const fichasNormalizadas = Array.isArray(fichasRes)
+        ? fichasRes.map(normalizeFichaFromDb)
+        : [];
 
-    const fichasNormalizadas = Array.isArray(fichasRes)
-      ? fichasRes.map(normalizeFichaFromDb)
-      : [];
+      setFichasTecnicas(fichasNormalizadas);
 
-    setFichasTecnicas(fichasNormalizadas);
+      setFichaSelecionada((prev) => {
+        if (!fichasNormalizadas.length) return null;
+        if (!prev) return fichasNormalizadas[0];
+        return (
+          fichasNormalizadas.find((f) => f.id === prev.id) ??
+          fichasNormalizadas[0]
+        );
+      });
+    } catch (err) {
+      console.error("Erro detalhado ao carregar fichas técnicas:", err);
+      alert(
+        err instanceof Error
+          ? `Erro ao carregar fichas técnicas: ${err.message}`
+          : "Erro ao carregar fichas técnicas."
+      );
+    } finally {
+      setLoadingProducts(false);
+      setLoadingFichas(false);
+    }
+  }, [loadProductsCatalog]);
 
-    setFichaSelecionada((prev) => {
-      if (!fichasNormalizadas.length) return null;
-      if (!prev) return fichasNormalizadas[0];
-      return fichasNormalizadas.find((f) => f.id === prev.id) ?? fichasNormalizadas[0];
-    });
-  } catch (err) {
-    console.error("Erro detalhado ao carregar fichas técnicas:", err);
-    alert(
-      err instanceof Error
-        ? `Erro ao carregar fichas técnicas: ${err.message}`
-        : "Erro ao carregar fichas técnicas."
-    );
-  } finally {
-    setLoadingProducts(false);
-    setLoadingFichas(false);
-  }
-}, [loadProductsCatalog]);
+  useEffect(() => {
+    void loadCurrentContext();
+  }, [loadCurrentContext]);
 
   useEffect(() => {
     void loadData();
@@ -1463,8 +1253,7 @@ export default function FichasTecnicasPage() {
 
     setIngredientes([]);
   };
-
-  const handleNewImageSelected = async (
+    const handleNewImageSelected = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = event.target.files?.[0];
@@ -1525,7 +1314,8 @@ export default function FichasTecnicasPage() {
       event.target.value = "";
     }
   };
-    const salvarNovaFicha = () => {
+
+  const salvarNovaFicha = () => {
     if (!nome.trim()) {
       alert("Informe o nome da receita.");
       return;
@@ -1851,7 +1641,11 @@ export default function FichasTecnicasPage() {
 
   const handleImprimirFicha = (ficha: FichaTecnica) => {
     const html = buildPrintHtml(ficha, desiredServings, viewerTab);
-    const w = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
+    const w = window.open(
+      "",
+      "_blank",
+      "noopener,noreferrer,width=1200,height=900"
+    );
     if (!w) return;
     w.document.open();
     w.document.write(html);
@@ -1876,14 +1670,29 @@ export default function FichasTecnicasPage() {
     }
   }, [fichasFiltradas, fichaSelecionadaFiltrada]);
 
-  return (
+  const handleImportSuccess = (jobId?: string) => {
+    setShowImportModal(false);
+
+    if (jobId) {
+      setReportJobId(jobId);
+      setShowImportReportModal(true);
+    }
+
+    void loadData();
+  };
+
+  const openNovaFicha = () => {
+    resetForm();
+    setShowNovaFicha(true);
+  };
+    return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Fichas Técnicas</h1>
           <p className="text-gray-600">
-            Visualização avançada, foto do prato, vídeo, escalas, tela cheia, impressão
-            e cálculo automático de custos.
+            Visualização avançada, foto do prato, vídeo, escalas, tela cheia,
+            impressão e cálculo automático de custos.
           </p>
         </div>
 
@@ -1895,12 +1704,20 @@ export default function FichasTecnicasPage() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => setShowImportModal(true)}
+            onClick={() => {
+              if (!establishmentId) {
+                alert(
+                  "Não foi possível identificar o estabelecimento atual para a importação."
+                );
+                return;
+              }
+              setShowImportModal(true);
+            }}
           >
             📥 Importar Ficha Técnica
           </Button>
 
-          <Button type="button" onClick={() => setShowNovaFicha(true)}>
+          <Button type="button" onClick={openNovaFicha}>
             ➕ Nova Ficha Técnica
           </Button>
         </div>
@@ -1920,8 +1737,8 @@ export default function FichasTecnicasPage() {
 
       {!loadingProducts && products.length === 0 && (
         <div className="rounded-md border border-yellow-200 bg-yellow-50 px-4 py-2 text-sm text-yellow-800">
-          Nenhum produto foi carregado da base. Você ainda pode cadastrar fichas com
-          ingredientes manuais, mas o ideal é ter produtos cadastrados antes.
+          Nenhum produto foi carregado da base. Você ainda pode cadastrar fichas
+          com ingredientes manuais, mas o ideal é ter produtos cadastrados antes.
         </div>
       )}
 
@@ -1955,7 +1772,9 @@ export default function FichasTecnicasPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{cmvMedio.toFixed(1)}%</div>
-            <p className="text-xs text-muted-foreground">Custo da mercadoria vendida</p>
+            <p className="text-xs text-muted-foreground">
+              Custo da mercadoria vendida
+            </p>
           </CardContent>
         </Card>
 
@@ -1970,14 +1789,15 @@ export default function FichasTecnicasPage() {
           </CardContent>
         </Card>
       </div>
-            <div className="space-y-6">
+
+      <div className="space-y-6">
         <Card>
           <CardHeader className="space-y-4">
             <div>
               <CardTitle>Fichas cadastradas</CardTitle>
               <CardDescription>
-                Todas as fichas ficam exibidas lado a lado. Clique em uma ficha para
-                expandir os detalhes completos abaixo.
+                Todas as fichas ficam exibidas lado a lado. Clique em uma ficha
+                para expandir os detalhes completos abaixo.
               </CardDescription>
             </div>
 
@@ -2080,7 +1900,9 @@ export default function FichasTecnicasPage() {
 
                         <div className="grid grid-cols-2 gap-3 text-xs">
                           <div>
-                            <p className="text-muted-foreground">Custo por porção</p>
+                            <p className="text-muted-foreground">
+                              Custo por porção
+                            </p>
                             <p className="font-bold text-red-600">
                               {formatCurrency(ficha.custoPorPorcao)}
                             </p>
@@ -2163,7 +1985,8 @@ export default function FichasTecnicasPage() {
                     Clique em uma ficha para expandir
                   </h3>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    A visualização detalhada será aberta abaixo, mantendo o mesmo layout atual.
+                    A visualização detalhada será aberta abaixo, mantendo o mesmo
+                    layout atual.
                   </p>
                 </div>
               </CardContent>
@@ -2171,6 +1994,851 @@ export default function FichasTecnicasPage() {
           )}
         </div>
       </div>
+            <Dialog open={showNovaFicha} onOpenChange={setShowNovaFicha}>
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl">
+          <DialogHeader>
+            <DialogTitle>Nova Ficha Técnica</DialogTitle>
+            <DialogDescription>
+              Cadastre uma nova ficha técnica sem alterar o restante da página.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="xl:col-span-2">
+                <Label>Nome da receita</Label>
+                <Input
+                  value={nome}
+                  onChange={(e) => setNome(e.target.value)}
+                  placeholder="Ex.: Bolo de Cenoura"
+                />
+              </div>
+
+              <div>
+                <Label>Categoria</Label>
+                <Input
+                  value={categoria}
+                  onChange={(e) => setCategoria(e.target.value)}
+                  placeholder="Ex.: Bolos"
+                />
+              </div>
+
+              <div>
+                <Label>Rendimento</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={rendimento}
+                  onChange={(e) => setRendimento(toNumber(e.target.value, 1))}
+                />
+              </div>
+
+              <div>
+                <Label>Peso por porção</Label>
+                <Input
+                  type="number"
+                  step="0.001"
+                  value={pesoPorcao}
+                  onChange={(e) => setPesoPorcao(toNumber(e.target.value, 0))}
+                />
+              </div>
+
+              <div>
+                <Label>Unidade peso porção</Label>
+                <Input
+                  value={portionWeightUnit}
+                  onChange={(e) =>
+                    setPortionWeightUnit(normalizeUnit(e.target.value, "G"))
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Tempo de preparo (min)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={tempoPreparo}
+                  onChange={(e) => setTempoPreparo(toNumber(e.target.value, 0))}
+                />
+              </div>
+
+              <div>
+                <Label>Margem de lucro (%)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={margemLucro}
+                  onChange={(e) => setMargemLucro(toNumber(e.target.value, 0))}
+                />
+              </div>
+
+              <div>
+                <Label>Dificuldade</Label>
+                <Input
+                  value={difficultyLevel}
+                  onChange={(e) => setDifficultyLevel(e.target.value)}
+                  placeholder="Ex.: Média"
+                />
+              </div>
+
+              <div>
+                <Label>Temperatura (°C)</Label>
+                <Input
+                  type="number"
+                  value={temperatureCelsius}
+                  onChange={(e) =>
+                    setTemperatureCelsius(
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Tempo de cocção (min)</Label>
+                <Input
+                  type="number"
+                  value={cookingTimeMinutes}
+                  onChange={(e) =>
+                    setCookingTimeMinutes(
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Fator de cocção (g)</Label>
+                <Input
+                  type="number"
+                  value={cookingFactorGrams}
+                  onChange={(e) =>
+                    setCookingFactorGrams(
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Fator de correção (g)</Label>
+                <Input
+                  type="number"
+                  value={correctionFactorGrams}
+                  onChange={(e) =>
+                    setCorrectionFactorGrams(
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Yield label</Label>
+                <Input
+                  value={yieldLabel}
+                  onChange={(e) => setYieldLabel(e.target.value)}
+                  placeholder="Ex.: 1 assadeira"
+                />
+              </div>
+
+              <div className="xl:col-span-2">
+                <Label>Armazenamento</Label>
+                <Input
+                  value={storageInstructions}
+                  onChange={(e) => setStorageInstructions(e.target.value)}
+                  placeholder="Ex.: Refrigerado"
+                />
+              </div>
+
+              <div>
+                <Label>Validade congelado</Label>
+                <Input
+                  value={shelfLifeFrozen}
+                  onChange={(e) => setShelfLifeFrozen(e.target.value)}
+                  placeholder="Ex.: 90 dias"
+                />
+              </div>
+
+              <div>
+                <Label>Validade refrigerado</Label>
+                <Input
+                  value={shelfLifeRefrigerated}
+                  onChange={(e) => setShelfLifeRefrigerated(e.target.value)}
+                  placeholder="Ex.: 5 dias"
+                />
+              </div>
+
+              <div>
+                <Label>Validade ambiente</Label>
+                <Input
+                  value={shelfLifeRoomTemp}
+                  onChange={(e) => setShelfLifeRoomTemp(e.target.value)}
+                  placeholder="Ex.: 1 dia"
+                />
+              </div>
+
+              <div className="xl:col-span-2">
+                <Label>Alergênicos</Label>
+                <Input
+                  value={allergens}
+                  onChange={(e) => setAllergens(e.target.value)}
+                  placeholder="Ex.: Contém leite e ovos"
+                />
+              </div>
+
+              <div className="xl:col-span-2">
+                <Label>Vídeo (URL)</Label>
+                <Input
+                  value={videoUrl}
+                  onChange={(e) => setVideoUrl(e.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+
+              <div>
+                <Label>Atualizada em</Label>
+                <Input
+                  type="date"
+                  value={sourceUpdatedAt}
+                  onChange={(e) => setSourceUpdatedAt(e.target.value)}
+                />
+              </div>
+
+              <div className="xl:col-span-4">
+                <Label>Modo de preparo</Label>
+                <Textarea
+                  value={modoPreparo}
+                  onChange={(e) => setModoPreparo(e.target.value)}
+                  placeholder="Descreva o modo de preparo..."
+                  rows={6}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-xl border p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h4 className="font-semibold">Imagem do prato</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Envie uma imagem sem alterar a lógica validada de cadastro.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    ref={newImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleNewImageSelected}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => newImageInputRef.current?.click()}
+                    disabled={uploadingImage}
+                  >
+                    {uploadingImage ? "Enviando imagem..." : "Enviar imagem"}
+                  </Button>
+
+                  {imageUrl ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setImageUrl(null);
+                        setImagePath(null);
+                      }}
+                    >
+                      Remover imagem
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
+              {imageUrl ? (
+                <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
+                  <Image
+                    src={imageUrl}
+                    alt="Pré-visualização da receita"
+                    fill
+                    className="object-cover"
+                    unoptimized
+                  />
+                </div>
+              ) : (
+                <div className="flex h-40 items-center justify-center rounded-xl border border-dashed bg-slate-50 text-sm text-muted-foreground">
+                  Nenhuma imagem selecionada
+                </div>
+              )}
+            </div>
+
+            <IngredientEditor
+              products={products}
+              ingredientes={ingredientes}
+              onChange={setIngredientes}
+              uid={uid}
+              formatCurrency={formatCurrency}
+            />
+
+            <ScaleEditor
+              scales={escalas}
+              onChange={setEscalas}
+              uid={uid}
+              toNumber={toNumber}
+              normalizeUnit={normalizeUnit}
+            />
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowNovaFicha(false)}
+                disabled={isPending}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                onClick={salvarNovaFicha}
+                disabled={isPending}
+              >
+                {isPending ? "Salvando..." : "Salvar ficha técnica"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditarFicha} onOpenChange={setShowEditarFicha}>
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl">
+          <DialogHeader>
+            <DialogTitle>Editar Ficha Técnica</DialogTitle>
+            <DialogDescription>
+              Atualize a ficha selecionada preservando a estrutura já validada.
+            </DialogDescription>
+          </DialogHeader>
+
+          {fichaEditando ? (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="xl:col-span-2">
+                  <Label>Nome da receita</Label>
+                  <Input
+                    value={fichaEditando.nome}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, nome: e.target.value } : prev
+                      )
+                    }
+                    placeholder="Ex.: Bolo de Cenoura"
+                  />
+                </div>
+
+                <div>
+                  <Label>Categoria</Label>
+                  <Input
+                    value={fichaEditando.categoria}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, categoria: e.target.value } : prev
+                      )
+                    }
+                    placeholder="Ex.: Bolos"
+                  />
+                </div>
+
+                <div>
+                  <Label>Rendimento</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={fichaEditando.rendimento}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? { ...prev, rendimento: toNumber(e.target.value, 1) }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Peso por porção</Label>
+                  <Input
+                    type="number"
+                    step="0.001"
+                    value={fichaEditando.pesoPorcao}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? { ...prev, pesoPorcao: toNumber(e.target.value, 0) }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Unidade peso porção</Label>
+                  <Input
+                    value={fichaEditando.portionWeightUnit || "G"}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              portionWeightUnit: normalizeUnit(
+                                e.target.value,
+                                "G"
+                              ),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Tempo de preparo (min)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={fichaEditando.tempoPreparo}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              tempoPreparo: toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Margem de lucro (%)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={fichaEditando.margemLucro}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              margemLucro: toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Dificuldade</Label>
+                  <Input
+                    value={fichaEditando.difficultyLevel || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              difficultyLevel: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="Ex.: Média"
+                  />
+                </div>
+                                <div>
+                  <Label>Temperatura (°C)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.temperatureCelsius ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              temperatureCelsius:
+                                e.target.value === ""
+                                  ? null
+                                  : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Tempo de cocção (min)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.cookingTimeMinutes ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              cookingTimeMinutes:
+                                e.target.value === ""
+                                  ? null
+                                  : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Fator de cocção (g)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.cookingFactorGrams ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              cookingFactorGrams:
+                                e.target.value === ""
+                                  ? null
+                                  : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Fator de correção (g)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.correctionFactorGrams ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              correctionFactorGrams:
+                                e.target.value === ""
+                                  ? null
+                                  : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Yield label</Label>
+                  <Input
+                    value={fichaEditando.yieldLabel || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              yieldLabel: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="Ex.: 1 assadeira"
+                  />
+                </div>
+
+                <div className="xl:col-span-2">
+                  <Label>Armazenamento</Label>
+                  <Input
+                    value={fichaEditando.storageInstructions || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              storageInstructions: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="Ex.: Refrigerado"
+                  />
+                </div>
+
+                <div>
+                  <Label>Validade congelado</Label>
+                  <Input
+                    value={fichaEditando.shelfLifeFrozen || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              shelfLifeFrozen: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="Ex.: 90 dias"
+                  />
+                </div>
+
+                <div>
+                  <Label>Validade refrigerado</Label>
+                  <Input
+                    value={fichaEditando.shelfLifeRefrigerated || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              shelfLifeRefrigerated: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="Ex.: 5 dias"
+                  />
+                </div>
+
+                <div>
+                  <Label>Validade ambiente</Label>
+                  <Input
+                    value={fichaEditando.shelfLifeRoomTemp || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              shelfLifeRoomTemp: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="Ex.: 1 dia"
+                  />
+                </div>
+
+                <div className="xl:col-span-2">
+                  <Label>Alergênicos</Label>
+                  <Input
+                    value={fichaEditando.allergens || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              allergens: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="Ex.: Contém leite e ovos"
+                  />
+                </div>
+
+                <div className="xl:col-span-2">
+                  <Label>Vídeo (URL)</Label>
+                  <Input
+                    value={fichaEditando.videoUrl || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              videoUrl: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="https://..."
+                  />
+                </div>
+
+                <div>
+                  <Label>Atualizada em</Label>
+                  <Input
+                    type="date"
+                    value={fichaEditando.sourceUpdatedAt || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              sourceUpdatedAt: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="xl:col-span-4">
+                  <Label>Modo de preparo</Label>
+                  <Textarea
+                    value={fichaEditando.modoPreparo}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? { ...prev, modoPreparo: e.target.value }
+                          : prev
+                      )
+                    }
+                    placeholder="Descreva o modo de preparo..."
+                    rows={6}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3 rounded-xl border p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h4 className="font-semibold">Imagem do prato</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Atualize a imagem sem alterar os demais dados da ficha.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      ref={editImageInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleEditImageSelected}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => editImageInputRef.current?.click()}
+                      disabled={uploadingImage}
+                    >
+                      {uploadingImage ? "Enviando imagem..." : "Trocar imagem"}
+                    </Button>
+                  </div>
+                </div>
+
+                {fichaEditando.imageUrl ? (
+                  <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
+                    <Image
+                      src={fichaEditando.imageUrl}
+                      alt={fichaEditando.nome}
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
+                ) : (
+                  <div className="flex h-40 items-center justify-center rounded-xl border border-dashed bg-slate-50 text-sm text-muted-foreground">
+                    Nenhuma imagem cadastrada
+                  </div>
+                )}
+              </div>
+
+              <IngredientEditor
+                products={products}
+                ingredientes={fichaEditando.ingredientes}
+                onChange={(ingredientesAtualizados) =>
+                  setFichaEditando((prev) =>
+                    prev
+                      ? { ...prev, ingredientes: ingredientesAtualizados }
+                      : prev
+                  )
+                }
+                uid={uid}
+                formatCurrency={formatCurrency}
+              />
+
+              <ScaleEditor
+                scales={fichaEditando.escalas}
+                onChange={(escalasAtualizadas) =>
+                  setFichaEditando((prev) =>
+                    prev ? { ...prev, escalas: escalasAtualizadas } : prev
+                  )
+                }
+                uid={uid}
+                toNumber={toNumber}
+                normalizeUnit={normalizeUnit}
+              />
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowEditarFicha(false)}
+                  disabled={isPending}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={salvarEdicaoFicha}
+                  disabled={isPending}
+                >
+                  {isPending ? "Salvando..." : "Salvar alterações"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showFullscreenViewer} onOpenChange={setShowFullscreenViewer}>
+        <DialogContent className="max-h-[96vh] overflow-y-auto p-0 sm:max-w-7xl">
+          <div className="p-4 sm:p-6">
+            <DialogHeader className="mb-4">
+              <DialogTitle>Visualização em tela cheia</DialogTitle>
+              <DialogDescription>
+                A mesma ficha técnica completa em um layout ampliado.
+              </DialogDescription>
+            </DialogHeader>
+
+            <RecipeViewerInline
+              ficha={fichaSelecionada}
+              desiredServings={desiredServings}
+              setDesiredServings={setDesiredServings}
+              currentTab={viewerTab}
+              setCurrentTab={setViewerTab}
+              onEdit={handleEditarFicha}
+              onPrint={handleImprimirFicha}
+              onExportPdf={handleExportarPdf}
+              onDuplicate={duplicarFicha}
+              onFullscreen={() => setShowFullscreenViewer(true)}
+              onDelete={(ficha) => excluirFicha(ficha.id)}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <PdfImportModal
+        open={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={handleImportSuccess}
+        establishmentId={establishmentId}
+        uploadedBy={uploadedBy}
+      />
+
+      <ImportJobReportModal
+        open={showImportReportModal}
+        jobId={reportJobId}
+        onClose={() => {
+          setShowImportReportModal(false);
+          setReportJobId(null);
+          void loadData();
+        }}
+      />
     </div>
   );
 }

@@ -856,6 +856,7 @@ async function saveScales(
 
     if (scale.ingredients?.length) {
       const payload = scale.ingredients.map((item, index) => ({
+        scale_id: createdScale.id,
         technical_sheet_scale_id: createdScale.id,
         ingredient_name: item.ingredient_name.trim(),
         amount: item.amount,
@@ -1010,7 +1011,7 @@ export async function deleteTechnicalSheetImageAction(imagePath: string) {
 }
 
 export async function listTechnicalSheets() {
-  const supabase = await createSupabaseServerClient();
+  const { supabase, establishmentId } = await getContext();
 
   const { data, error } = await supabase
     .from("technical_sheets")
@@ -1080,6 +1081,7 @@ export async function listTechnicalSheets() {
         )
       )
     `)
+    .eq("establishment_id", establishmentId)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -1641,9 +1643,7 @@ function sanitizeTitleRobust(value: string | null | undefined) {
     .trim();
 }
 
-async function extractRawPdfTextRobust(file: File) {
-  const buffer = Buffer.from(await file.arrayBuffer());
-
+async function loadPdfParseModuleRobust() {
   let pdfParse: any;
 
   try {
@@ -1662,6 +1662,101 @@ async function extractRawPdfTextRobust(file: File) {
     );
   }
 
+  return pdfParse;
+}
+
+function isLikelyTitleLineRobust(value: string | null | undefined) {
+  const line = sanitizeTitleRobust(value);
+  const upper = line.toUpperCase();
+
+  if (!line) return false;
+  if (!/[A-Za-zÀ-ÿ]/.test(line)) return false;
+  if (/^\d/.test(line)) return false;
+  if (line.length > 60) return false;
+  if (/[.!?:;]$/.test(line)) return false;
+
+  const blockedFragments = [
+    "INGREDIENTES",
+    "MODO DE PREPARO",
+    "ATUALIZADA EM",
+    "CONTÉM",
+    "CONTEM",
+    "ALERGÊNICOS",
+    "ALERGENICOS",
+    "ARMAZENAMENTO",
+    "CONGELAMENTO",
+    "CONGELADO",
+    "SOB REFRIGERAÇÃO",
+    "SOB REFRIGERACAO",
+    "TEMP. AMBIENTE",
+    "TEMPERATURA AMBIENTE",
+    "CONFEITEIRO CHEFE",
+    "FICOU COM DÚVIDAS",
+    "FICOU COM DUVIDAS",
+    "ENTRE EM CONTATO",
+    "ASSISTA O",
+    "TEMPO DE PREP",
+    "TEMPO COC",
+    "FATOR",
+    "RENDIMENTO",
+    "PESO DA PORÇÃO",
+    "PESO DA PORCAO",
+    "PESO LÍQUIDO",
+    "PESO LIQUIDO",
+    "TEMPERATURA",
+    "GRAU DE",
+    "DIFICULDADE",
+    "GRAMAS",
+    "KILO",
+    "PACOTE",
+    "PACOTES",
+    "BISNAGA",
+    "BISNAGAS",
+    "UNIDADE",
+    "UNIDADES",
+    "GRAUS",
+    "GLÚTEN",
+    "GLUTEN",
+    "LACTOSE",
+    "OVOS",
+    "AÇÚCAR",
+    "ACUCAR",
+    "CASTANHAS",
+    "IVAN",
+    "ESCOBAR",
+  ];
+
+  return !blockedFragments.some((fragment) => upper.includes(fragment));
+}
+
+async function renderPdfPageTextRobust(pageData: any) {
+  const textContent = await pageData.getTextContent({
+    normalizeWhitespace: false,
+    disableCombineTextItems: false,
+  });
+
+  let lastY: number | null = null;
+  let text = "";
+
+  for (const item of textContent.items ?? []) {
+    const value = typeof item?.str === "string" ? item.str : "";
+    const y = typeof item?.transform?.[5] === "number" ? item.transform[5] : null;
+
+    if (lastY === null || y === lastY) {
+      text += value;
+    } else {
+      text += `\n${value}`;
+    }
+
+    lastY = y;
+  }
+
+  return text;
+}
+
+async function extractRawPdfTextRobust(file: File) {
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const pdfParse = await loadPdfParseModuleRobust();
   const parsed = await pdfParse(buffer);
   const rawText = String(parsed?.text ?? "");
 
@@ -1710,31 +1805,78 @@ function splitPdfIntoPagesRobust(rawText: string) {
 }
 
 async function extractPdfPagesTextRobust(file: File) {
-  const rawText = await extractRawPdfTextRobust(file);
-  return splitPdfIntoPagesRobust(rawText);
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const pdfParse = await loadPdfParseModuleRobust();
+  const pages: string[] = [];
+
+  const parsed = await pdfParse(buffer, {
+    pagerender: async (pageData: any) => {
+      const rawPageText = await renderPdfPageTextRobust(pageData);
+      const normalizedPageText = normalizePdfTextKeepingPagesRobust(rawPageText);
+
+      if (normalizedPageText) {
+        pages.push(normalizedPageText);
+      }
+
+      return rawPageText;
+    },
+  });
+
+  if (pages.length > 0) {
+    return pages;
+  }
+
+  const fallbackRawText = String(parsed?.text ?? "");
+  const fallbackPages = splitPdfIntoPagesRobust(fallbackRawText);
+
+  if (!fallbackPages.length) {
+    throw new Error("Não foi possível separar as páginas do PDF.");
+  }
+
+  return fallbackPages;
 }
 
 function extractTitleRobust(pageText: string) {
   const lines = getCleanLinesRobust(pageText);
 
-  const candidateFromBottom = [...lines]
-    .reverse()
-    .find((line) => {
-      const upper = line.toUpperCase();
-      return (
-        /[A-ZÀ-Ýa-zà-ý]/.test(line) &&
-        !upper.includes("ATUALIZADA EM") &&
-        !upper.includes("CONFEITEIRO CHEFE") &&
-        !upper.includes("FICOU COM DÚVIDAS") &&
-        !upper.includes("ENTRE EM CONTATO") &&
-        !upper.includes("ALERGÊNICOS") &&
-        !upper.includes("MODO DE PREPARO") &&
-        !upper.includes("INGREDIENTES")
-      );
-    });
+  const firstLineCandidate = sanitizeTitleRobust(lines[0] ?? "");
+  if (isLikelyTitleLineRobust(firstLineCandidate)) {
+    return firstLineCandidate;
+  }
+
+  const ingredientIndex = lines.findIndex((line) => /^Ingredientes\s*:?\s*$/i.test(line));
+
+  if (ingredientIndex > 0) {
+    for (let i = ingredientIndex - 1; i >= Math.max(0, ingredientIndex - 4); i--) {
+      const candidate = sanitizeTitleRobust(lines[i]);
+      if (isLikelyTitleLineRobust(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  const candidateFromBottom = [...lines].reverse().find((line) => {
+    return isLikelyTitleLineRobust(line);
+  });
 
   if (candidateFromBottom) {
     return sanitizeTitleRobust(candidateFromBottom);
+  }
+
+  const updatedAtIndex = lines.findIndex((line) => /Atualizada em:/i.test(line));
+
+  if (updatedAtIndex > 0) {
+    for (let i = updatedAtIndex - 1; i >= Math.max(0, updatedAtIndex - 20); i--) {
+      const candidate = sanitizeTitleRobust(lines[i]);
+      if (isLikelyTitleLineRobust(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  const topCandidate = lines.find((line) => isLikelyTitleLineRobust(line));
+  if (topCandidate) {
+    return sanitizeTitleRobust(topCandidate);
   }
 
   return "Receita importada";
@@ -1774,7 +1916,7 @@ function parseAppExportIngredientsRobust(
 
   for (const line of lines) {
     const rowMatch = line.match(
-      /^(.*?)\s+(\d+(?:[.,]\d+)?)\s+(KG|G|ML|L|UN)\s+(\d+(?:[.,]\d+)?)\s+(KG|G|ML|L|UN)\s+R\$\s*([\d.,]+)\s+R\$\s*([\d.,]+)\s+R\$\s*([\d.,]+)$/i
+      /^(.*)(\d+(?:[.,]\d+)?)\s*(KG|G|ML|L|UN)\s*(\d+(?:[.,]\d+)?)\s*(KG|G|ML|L|UN)\s*R\$\s*([\d.,]+)\s*R\$\s*([\d.,]+)\s*R\$\s*([\d.,]+)$/i
     );
 
     if (!rowMatch) continue;
@@ -1858,15 +2000,137 @@ function parseIngredientLineBaseQuantityRobust(
   };
 }
 
+function canSegmentDigitsIntoCountRobust(
+  digits: string,
+  count: number,
+  memo = new Map<string, boolean>()
+) {
+  const key = `${digits}|${count}`;
+  const cached = memo.get(key);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  if (count === 0) {
+    const result = digits.length === 0;
+    memo.set(key, result);
+    return result;
+  }
+
+  if (!digits.length) {
+    memo.set(key, false);
+    return false;
+  }
+
+  if (digits.length < count || digits.length > count * 4) {
+    memo.set(key, false);
+    return false;
+  }
+
+  for (let chunkLength = 1; chunkLength <= Math.min(4, digits.length); chunkLength++) {
+    const chunk = digits.slice(0, chunkLength);
+
+    if (chunk.length > 1 && chunk.startsWith("0")) {
+      continue;
+    }
+
+    if (canSegmentDigitsIntoCountRobust(digits.slice(chunkLength), count - 1, memo)) {
+      memo.set(key, true);
+      return true;
+    }
+  }
+
+  memo.set(key, false);
+  return false;
+}
+
+function inferBaseQuantityFromScaleValuesRobust(
+  line: string,
+  scaleLabels: string[],
+  usageUnit: string
+) {
+  const exactValues = parseValuesLine(line, scaleLabels);
+  if (exactValues?.length) {
+    return exactValues[0] ?? null;
+  }
+
+  const digitsOnly = line.replace(/[^\d]/g, "");
+  const remainingCount = Math.max(0, scaleLabels.length - 1);
+
+  if (!digitsOnly) return null;
+  if (remainingCount === 0) {
+    return toNumber(digitsOnly, 0) || null;
+  }
+
+  const candidateLengths = usageUnit === "UN" ? [1, 2] : [4, 3, 2, 1];
+
+  for (const candidateLength of candidateLengths) {
+    if (candidateLength > digitsOnly.length) continue;
+
+    const prefix = digitsOnly.slice(0, candidateLength);
+    if (prefix.length > 1 && prefix.startsWith("0")) continue;
+
+    const value = Number(prefix);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    if (usageUnit !== "UN" && value < 10 && digitsOnly.length > candidateLength + remainingCount) {
+      continue;
+    }
+
+    const rest = digitsOnly.slice(candidateLength);
+    if (canSegmentDigitsIntoCountRobust(rest, remainingCount)) {
+      return value;
+    }
+  }
+
+  const fallbackPrefixLength = usageUnit === "UN" ? 1 : Math.min(3, digitsOnly.length);
+  return toNumber(digitsOnly.slice(0, fallbackPrefixLength), 0) || null;
+}
+
+function parseInlineIngredientWithScaleValuesRobust(
+  line: string,
+  scaleLabels: string[]
+): { ingredientName: string; quantity: number; unit: string } | null {
+  const cleaned = line.replace(/\s+/g, " ").trim();
+  const match = cleaned.match(/^(.*?)(\d[\d.,]*)$/);
+
+  if (!match) return null;
+
+  const ingredientName = match[1].trim();
+  if (!ingredientName || !/[A-Za-zÀ-ÿ]/.test(ingredientName)) {
+    return null;
+  }
+
+  const unit = inferUsageUnit(ingredientName);
+  const quantity = inferBaseQuantityFromScaleValuesRobust(
+    match[2],
+    scaleLabels,
+    unit
+  );
+
+  if (!quantity || quantity <= 0) {
+    return null;
+  }
+
+  return {
+    ingredientName,
+    quantity,
+    unit,
+  };
+}
+
 function extractCanvaBaseIngredientsRobust(
   pageText: string
 ): TechnicalSheetIngredientInput[] {
   const lines = getCleanLinesRobust(pageText);
   const scaleHeaderIndex = lines.findIndex(
-    (line) => /\b1X\b/i.test(line) && /\b2X\b/i.test(line)
+    (line) => extractScaleLabels(line).length >= 2
   );
 
   if (scaleHeaderIndex < 0) return [];
+
+  const scaleLabels = extractScaleLabels(lines[scaleHeaderIndex]);
+  if (!scaleLabels.length) return [];
 
   const endIndex = lines.findIndex(
     (line, index) =>
@@ -1886,7 +2150,7 @@ function extractCanvaBaseIngredientsRobust(
     const upper = line.toUpperCase();
 
     if (!line.trim()) continue;
-    if (/^\d+X(?:\s+\d+X)*$/i.test(upper)) continue;
+    if (extractScaleLabels(line).length >= 2) continue;
 
     if (
       /ASSADEIRAS?|PAC(?:OTES?)?|PAC|BSN|BISNAGAS?|BISNAGA|TAÇAS?|TAÇA|BOLOS?|BOLO|UNIDADES?|UNIDADE|PORÇÕES?|PORÇÃO|PRATOS?|PRATO/i.test(
@@ -1934,6 +2198,62 @@ function extractCanvaBaseIngredientsRobust(
       continue;
     }
 
+    const inlineRow = parseInlineIngredientWithScaleValuesRobust(line, scaleLabels);
+
+    if (inlineRow) {
+      ingredients.push({
+        product_id: null,
+        ingredient_name: inlineRow.ingredientName,
+        usage_quantity: inlineRow.quantity,
+        usage_unit: inlineRow.unit,
+        purchase_price: 0,
+        purchase_quantity: 1,
+        purchase_unit: inlineRow.unit,
+        correction_factor: 1,
+        cooking_factor: 1,
+        base_unit_cost: 0,
+        final_cost: 0,
+        sort_order: ingredients.length,
+      });
+
+      nameBuffer = [];
+      continue;
+    }
+
+    if (nameBuffer.length > 0) {
+      const ingredientName = nameBuffer.join(" ").replace(/\s+/g, " ").trim();
+      const usageUnit = inferUsageUnit(ingredientName);
+      const baseQuantity = inferBaseQuantityFromScaleValuesRobust(
+        line,
+        scaleLabels,
+        usageUnit
+      );
+
+      if (ingredientName && baseQuantity && baseQuantity > 0) {
+        ingredients.push({
+          product_id: null,
+          ingredient_name: ingredientName,
+          usage_quantity: baseQuantity,
+          usage_unit: usageUnit,
+          purchase_price: 0,
+          purchase_quantity: 1,
+          purchase_unit: usageUnit,
+          correction_factor: 1,
+          cooking_factor: 1,
+          base_unit_cost: 0,
+          final_cost: 0,
+          sort_order: ingredients.length,
+        });
+
+        nameBuffer = [];
+        continue;
+      }
+    }
+
+    if (isYieldOnlyLine(line) || shouldIgnoreLine(line)) {
+      continue;
+    }
+
     if (!/\d/.test(line)) {
       nameBuffer.push(line);
     }
@@ -1945,9 +2265,9 @@ function extractCanvaBaseIngredientsRobust(
 }
 
 function extractCanvaBaseScaleRobust(
+  ingredients: TechnicalSheetIngredientInput[],
   pageText: string
 ): TechnicalSheetScaleInput[] {
-  const ingredients = extractCanvaBaseIngredientsRobust(pageText);
   if (!ingredients.length) return [];
 
   return [
@@ -1966,9 +2286,78 @@ function extractCanvaBaseScaleRobust(
   ];
 }
 
+function extractPreparationMethodRobust(pageText: string) {
+  const extracted = extractPreparationMethod(pageText).trim();
+  const extractedLooksInvalid =
+    !extracted ||
+    /^n[aã]o informado\.?$/i.test(extracted) ||
+    /Atualizada em:|Cont[eé]m:|Alerg[êe]nicos|Armazenamento:/i.test(extracted);
+
+  if (!extractedLooksInvalid && extracted.length >= 20) {
+    return extracted;
+  }
+
+  const lines = getCleanLinesRobust(pageText);
+  const title = extractTitleRobust(pageText);
+  const titleIndex = lines.findIndex(
+    (line) => sanitizeTitleRobust(line) === sanitizeTitleRobust(title)
+  );
+  const ingredientIndex = lines.findIndex((line) => /^Ingredientes\s*:?\s*$/i.test(line));
+  const updatedAtIndex = lines.findIndex((line) => /Atualizada em:/i.test(line));
+
+  let startIndex = lines.findIndex((line) => /Grau de/i.test(line));
+  if (startIndex < 0) {
+    startIndex = lines.findIndex((line) => /TEMPERATURA/i.test(line));
+  }
+
+  const endCandidates = [titleIndex, ingredientIndex, updatedAtIndex].filter(
+    (index) => index > startIndex
+  );
+
+  if (startIndex >= 0) {
+    const endIndex =
+      endCandidates.length > 0 ? Math.min(...endCandidates) : lines.length;
+
+    const candidate = lines
+      .slice(startIndex + 1, endIndex)
+      .filter(
+        (line) =>
+          line &&
+          !/^Dificuldade$/i.test(line) &&
+          !/^Ingredientes\s*:?\s*$/i.test(line) &&
+          !/^Modo de Preparo\s*:?\s*$/i.test(line) &&
+          !/^Cont[eé]m\s*:?\s*$/i.test(line) &&
+          !/^Alerg[êe]nicos$/i.test(line) &&
+          !/^Atualizada em:/i.test(line) &&
+          !/^Confeiteiro Chefe$/i.test(line) &&
+          !/^\(?\d{2}\)?/.test(line) &&
+          !/^Ivan$/i.test(line) &&
+          !/^Escobar$/i.test(line) &&
+          !/^Ficou com d[úu]vidas/i.test(line) &&
+          !/^Entre em contato/i.test(line)
+      )
+      .join("\n")
+      .trim();
+
+    if (candidate.length >= 20) {
+      return candidate;
+    }
+  }
+
+  return extracted;
+}
+
 function isTemplateLikePage(pageText: string) {
   const normalized = normalizePdfTextKeepingPagesRobust(pageText);
   const upper = normalized.toUpperCase();
+  const detectedIngredients = Math.max(
+    extractIngredients(pageText).length,
+    extractCanvaBaseIngredientsRobust(pageText).length
+  );
+
+  if (detectedIngredients > 0) {
+    return false;
+  }
 
   const hasIngredientsHeader = upper.includes("INGREDIENTES");
   const hasPrepHeader = upper.includes("MODO DE PREPARO");
@@ -1976,7 +2365,8 @@ function isTemplateLikePage(pageText: string) {
     !/\b[A-ZÀ-Ý][A-ZÀ-Ý\s()./%-]{2,}\s+\d+(?:[.,]\d+)?\b/i.test(normalized);
 
   const hasEmptyWeight =
-    /PESO L[IÍ]QUIDO:\s*(?:$|\n)/im.test(normalized) ||
+    (/PESO L[IÍ]QUIDO:\s*(?:$|\n)/im.test(normalized) &&
+      !/PESO L[IÍ]QUIDO:\s*\n?\s*\d/im.test(normalized)) ||
     /PESO L[IÍ]QUIDO:\s*[^\d\n]*$/im.test(normalized);
 
   return (hasIngredientsHeader && hasPrepHeader && hasNoStrongIngredients) || hasEmptyWeight;
@@ -2066,7 +2456,16 @@ function parseCanvaRecipeRobust(
   }
 
   const name = extractTitleRobust(pageText);
-  const ingredients = extractCanvaBaseIngredientsRobust(pageText);
+  const parsedScaleIngredients = extractIngredients(pageText);
+  const fallbackIngredients = extractCanvaBaseIngredientsRobust(pageText);
+  const useFallbackIngredients =
+    fallbackIngredients.length > parsedScaleIngredients.length;
+  const ingredients = useFallbackIngredients
+    ? fallbackIngredients
+    : parsedScaleIngredients;
+  const scales = useFallbackIngredients
+    ? extractCanvaBaseScaleRobust(ingredients, pageText)
+    : extractScales(pageText);
 
   if (!name || !ingredients.length) {
     return null;
@@ -2078,7 +2477,7 @@ function parseCanvaRecipeRobust(
     yield_portions: parseCanvaYieldPortionsRobust(pageText),
     portion_weight: extractPortionWeight(pageText),
     prep_time_minutes: extractPrepTime(pageText),
-    preparation_method: extractPreparationMethod(pageText),
+    preparation_method: extractPreparationMethodRobust(pageText),
     difficulty_level: extractDifficulty(pageText),
     temperature_celsius: extractTemperature(pageText),
     cooking_time_minutes: extractCookingTime(pageText),
@@ -2096,7 +2495,7 @@ function parseCanvaRecipeRobust(
     source_page_number: pageNumber,
     video_url: extractVideoUrl(pageText),
     ingredients,
-    scales: extractCanvaBaseScaleRobust(pageText),
+    scales,
   };
 }
 
@@ -2211,6 +2610,34 @@ export async function importTechnicalSheetsFromPdfAction(
 
     for (const recipe of validRecipes) {
       try {
+        if (recipe.source_file_name && recipe.source_page_number !== null) {
+          const { data: existingImportedSheets, error: existingImportedSheetsError } =
+            await supabase
+              .from("technical_sheets")
+              .select("id, name")
+              .eq("establishment_id", establishmentId)
+              .eq("import_origin", "pdf_import")
+              .eq("source_file_name", recipe.source_file_name)
+              .eq("source_page_number", recipe.source_page_number)
+              .limit(1);
+
+          if (existingImportedSheetsError) {
+            console.error(
+              "[importPDF] erro ao verificar duplicidade da ficha importada",
+              existingImportedSheetsError
+            );
+          } else if (existingImportedSheets?.length) {
+            ignoredPages.push({
+              page: recipe.source_page_number ?? 0,
+              title: recipe.name,
+              reason:
+                "Esta página deste arquivo já foi importada anteriormente.",
+            });
+
+            continue;
+          }
+        }
+
         const { data: sheet, error: sheetError } = await supabase
           .from("technical_sheets")
           .insert({

@@ -94,6 +94,12 @@ export default function PdfImportModal({
 
       const result = await importTechnicalSheetsFromPdfAction(formData);
 
+      if (!result || typeof result.ok !== "boolean") {
+        throw new Error(
+          "O servidor não retornou uma resposta válida para a importação do PDF."
+        );
+      }
+
       if (!result.ok) {
         throw new Error(result.error || "Erro ao importar o PDF.");
       }

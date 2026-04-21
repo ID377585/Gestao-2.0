@@ -122,12 +122,12 @@ type ImportTechnicalSheetsFromPdfResult =
       ok: true;
       importedCount: number;
       recipes: Array<{ id: string; name: string; page: number | null }>;
+      ignoredPages: Array<{ page: number; title: string; reason: string }>;
     }
   | {
       ok: false;
       error: string;
     };
-
 async function getContext() {
   const supabaseAuth = await createSupabaseServerClient();
   const supabase = createSupabaseAdminClient();
@@ -1623,12 +1623,12 @@ export async function importTechnicalSheetsFromPdfAction(
     }
 
     const maxPdfSizeInBytes = 40 * 1024 * 1024;
-      if (file.size > maxPdfSizeInBytes) {
-        return {
-          ok: false,
-          error: "O PDF deve ter no máximo 40MB.",
-        };
-      }
+    if (file.size > maxPdfSizeInBytes) {
+      return {
+        ok: false,
+        error: "O PDF deve ter no máximo 40MB.",
+      };
+    }
 
     const defaultCategory =
       String(categoryEntry ?? "Importado PDF").trim() || "Importado PDF";
@@ -1647,27 +1647,69 @@ export async function importTechnicalSheetsFromPdfAction(
       total: pages.length,
     });
 
-    const parsedPages = pages.map((pageText, index) => {
+    const validRecipes: ImportedRecipe[] = [];
+    const ignoredPages: Array<{ page: number; title: string; reason: string }> = [];
+
+    for (let index = 0; index < pages.length; index++) {
+      const pageText = pages[index];
+      const pageNumber = index + 1;
+
+      const title = extractTitle(pageText) || `Página ${pageNumber}`;
+      const ingredients = extractIngredients(pageText);
+      const preparationMethod = extractPreparationMethod(pageText);
+      const scales = extractScales(pageText);
+
+      const hasAnyRelevantContent =
+        !!title ||
+        ingredients.length > 0 ||
+        !!preparationMethod ||
+        scales.length > 0;
+
+      if (!hasAnyRelevantContent) {
+        ignoredPages.push({
+          page: pageNumber,
+          title: `Página ${pageNumber}`,
+          reason: "Página sem conteúdo utilizável.",
+        });
+        continue;
+      }
+
       const recipe = parsePdfPageToRecipe(
         pageText,
-        index + 1,
+        pageNumber,
         file.name,
         defaultCategory
       );
 
-      console.log("[importPDF] análise do bloco", {
-        page: index + 1,
-        recipeName: recipe?.name ?? null,
-        ingredientsCount: recipe?.ingredients?.length ?? 0,
-        scalesCount: recipe?.scales?.length ?? 0,
+      if (!recipe) {
+        ignoredPages.push({
+          page: pageNumber,
+          title,
+          reason: "Página incompleta ou sem ingredientes válidos.",
+        });
+        continue;
+      }
+
+      if (!recipe.ingredients.length) {
+        ignoredPages.push({
+          page: pageNumber,
+          title: recipe.name,
+          reason: "Página sem ingredientes válidos para importação.",
+        });
+        continue;
+      }
+
+      validRecipes.push(recipe);
+
+      console.log("[importPDF] receita válida", {
+        page: pageNumber,
+        recipeName: recipe.name,
+        ingredientsCount: recipe.ingredients.length,
+        scalesCount: recipe.scales.length,
       });
+    }
 
-      return recipe;
-    });
-
-    const recipes = parsedPages.filter(Boolean) as ImportedRecipe[];
-
-    if (!recipes.length) {
+    if (!validRecipes.length) {
       return {
         ok: false,
         error:
@@ -1677,7 +1719,7 @@ export async function importTechnicalSheetsFromPdfAction(
 
     const created: Array<{ id: string; name: string; page: number | null }> = [];
 
-    for (const recipe of recipes) {
+    for (const recipe of validRecipes) {
       const { data: sheet, error: sheetError } = await supabase
         .from("technical_sheets")
         .insert({
@@ -1718,10 +1760,14 @@ export async function importTechnicalSheetsFromPdfAction(
 
       if (sheetError || !sheet) {
         console.error("[importPDF] erro ao criar ficha", sheetError, recipe);
-        return {
-          ok: false,
-          error: `Falha ao criar a ficha "${recipe.name}".`,
-        };
+
+        ignoredPages.push({
+          page: recipe.source_page_number ?? 0,
+          title: recipe.name,
+          reason: "Falha ao criar a ficha no banco.",
+        });
+
+        continue;
       }
 
       if (recipe.ingredients.length) {
@@ -1750,14 +1796,39 @@ export async function importTechnicalSheetsFromPdfAction(
             "[importPDF] erro ao criar ingredientes",
             ingredientsError
           );
-          return {
-            ok: false,
-            error: `A ficha "${recipe.name}" foi criada, mas os ingredientes não foram salvos.`,
-          };
+
+          await supabase.from("technical_sheets").delete().eq("id", sheet.id);
+
+          ignoredPages.push({
+            page: recipe.source_page_number ?? 0,
+            title: recipe.name,
+            reason: "Erro ao salvar ingredientes.",
+          });
+
+          continue;
         }
       }
 
-      await saveScales(supabase, sheet.id, recipe.scales);
+      try {
+        await saveScales(supabase, sheet.id, recipe.scales);
+      } catch (scaleError) {
+        console.error("[importPDF] erro ao salvar escalas", scaleError);
+
+        await supabase
+          .from("technical_sheet_ingredients")
+          .delete()
+          .eq("technical_sheet_id", sheet.id);
+
+        await supabase.from("technical_sheets").delete().eq("id", sheet.id);
+
+        ignoredPages.push({
+          page: recipe.source_page_number ?? 0,
+          title: recipe.name,
+          reason: "Erro ao salvar escalas.",
+        });
+
+        continue;
+      }
 
       created.push({
         id: sheet.id,
@@ -1766,12 +1837,21 @@ export async function importTechnicalSheetsFromPdfAction(
       });
     }
 
+    if (!created.length) {
+      return {
+        ok: false,
+        error:
+          "Nenhuma ficha técnica válida pôde ser criada a partir deste PDF.",
+      };
+    }
+
     revalidatePath("/dashboard/fichas-tecnicas");
 
     return {
       ok: true,
       importedCount: created.length,
       recipes: created,
+      ignoredPages,
     };
   } catch (error: any) {
     console.error("[importPDF] falha geral", error);

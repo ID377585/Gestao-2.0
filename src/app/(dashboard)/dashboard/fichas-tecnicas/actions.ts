@@ -1060,9 +1060,9 @@ export async function listTechnicalSheets() {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Erro ao listar fichas técnicas:", error);
-    throw new Error("Não foi possível carregar as fichas técnicas.");
-  }
+  console.error("Erro ao listar fichas técnicas:", JSON.stringify(error, null, 2));
+  throw new Error(`Não foi possível carregar as fichas técnicas: ${error.message}`);
+}
 
   return data ?? [];
 }

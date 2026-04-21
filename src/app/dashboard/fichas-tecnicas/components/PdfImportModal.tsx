@@ -95,6 +95,10 @@ uploadFormData.append("file", file);
 
 const uploadResult = await uploadTechnicalSheetPdfImportAction(uploadFormData);
 
+if (!uploadResult?.filePath || !uploadResult?.downloadURL) {
+  throw new Error("O upload do PDF não retornou filePath e downloadURL.");
+}
+
 const filePath = uploadResult.filePath;
 const downloadURL = uploadResult.downloadURL;
 

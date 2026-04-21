@@ -40,22 +40,19 @@ export default function EngenhariaDashboardPage() {
       setError("");
 
       const [fichasRes, etiquetasRes] = await Promise.all([
-        supabase.from("technicalSheets").select("*"),
-        supabase.from("labels").select("*"),
-      ]);
+  supabase.from("technical_sheets").select("*"),
+  supabase.from("labels").select("*"),
+]);
 
-      if (fichasRes.error) throw fichasRes.error;
-      if (etiquetasRes.error) throw etiquetasRes.error;
-
-      setFichas(
-        (fichasRes.data ?? []).map((item: any) => ({
-          id: String(item.id),
-          nome: item.nome ?? "",
-          rendimento: Number(item.rendimento ?? 0),
-          custoTotal: Number(item.custoTotal ?? 0),
-          ativo: item.ativo ?? true,
-        }))
-      );
+setFichas(
+  (fichasRes.data ?? []).map((item: any) => ({
+    id: String(item.id),
+    nome: item.name ?? "",
+    rendimento: Number(item.yield_portions ?? 0),
+    custoTotal: Number(item.total_cost ?? 0),
+    ativo: true,
+  }))
+);
 
       setEtiquetas(
         (etiquetasRes.data ?? []).map((item: any) => ({

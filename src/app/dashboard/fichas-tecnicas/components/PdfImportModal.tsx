@@ -1,245 +1,249 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
-import { importTechnicalSheetsFromPdfAction } from "@/app/(dashboard)/dashboard/fichas-tecnicas/actions";
+import { useRef, useState, useTransition } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { importTechnicalSheetsFromPdfAction } from "../actions";
 
-const MAX_FILE_SIZE = 40 * 1024 * 1024; // 40 MB
+type ImportResult =
+  | {
+      ok: true;
+      importedCount: number;
+      recipes: Array<{ id: string; name: string; page: number | null }>;
+      ignoredPages: Array<{ page: number; title: string; reason: string }>;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
 
 type Props = {
   open: boolean;
-  onClose: () => void;
-  onSuccess?: (jobId?: string) => void;
-  establishmentId: string;
-  uploadedBy?: string;
+  onOpenChange: (open: boolean) => void;
+  onImported?: (result: Extract<ImportResult, { ok: true }>) => void;
 };
 
 export default function PdfImportModal({
   open,
-  onClose,
-  onSuccess,
+  onOpenChange,
+  onImported,
 }: Props) {
-  const [category, setCategory] = useState("Importado PDF");
-  const [file, setFile] = useState<File | null>(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    if (!open) {
-      resetState();
-    }
-  }, [open]);
-
-  if (!open) return null;
+  const [isPending, startTransition] = useTransition();
+  const [defaultCategory, setDefaultCategory] = useState("Importado PDF");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [ignoredPages, setIgnoredPages] = useState<
+    Array<{ page: number; title: string; reason: string }>
+  >([]);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   function resetState() {
-    setCategory("Importado PDF");
-    setFile(null);
-    setUploadProgress(0);
-    setLoading(false);
-    setMessage("");
+    setSelectedFile(null);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIgnoredPages([]);
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
   }
 
-  function handleClose() {
-    if (loading) return;
-    resetState();
-    onClose();
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      resetState();
+    }
+    onOpenChange(nextOpen);
   }
 
-  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const selected = e.target.files?.[0] ?? null;
-    setMessage("");
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
 
-    if (!selected) {
-      setFile(null);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIgnoredPages([]);
+
+    if (!file) {
+      setSelectedFile(null);
       return;
     }
 
     const isPdf =
-      selected.type === "application/pdf" ||
-      selected.name.toLowerCase().endsWith(".pdf");
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf");
 
     if (!isPdf) {
-      setMessage("Selecione apenas arquivos PDF.");
-      setFile(null);
+      setSelectedFile(null);
+      setErrorMessage("Selecione um arquivo PDF válido.");
       return;
     }
 
-    if (selected.size > MAX_FILE_SIZE) {
-      setMessage("O arquivo excede 40 MB. Envie um PDF de até 40 MB.");
-      setFile(null);
+    const maxPdfSizeInBytes = 40 * 1024 * 1024;
+    if (file.size > maxPdfSizeInBytes) {
+      setSelectedFile(null);
+      setErrorMessage("O PDF deve ter no máximo 40 MB.");
       return;
     }
 
-    setFile(selected);
+    setSelectedFile(file);
   }
 
-  async function handleUpload() {
-    if (!file) {
-      setMessage("Selecione um PDF para importar.");
+  function handleImport() {
+    if (!selectedFile) {
+      setErrorMessage("Selecione um arquivo PDF antes de importar.");
       return;
     }
 
-    try {
-      setLoading(true);
-      setUploadProgress(15);
-      setMessage("Lendo PDF e preparando importação...");
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIgnoredPages([]);
 
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("defaultCategory", category);
+    startTransition(async () => {
+      try {
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        formData.append("defaultCategory", defaultCategory);
 
-      setUploadProgress(45);
-      setMessage("Analisando páginas do PDF...");
+        const result = (await importTechnicalSheetsFromPdfAction(
+          formData
+        )) as ImportResult | null | undefined;
 
-      const result = await importTechnicalSheetsFromPdfAction(formData);
+        if (!result || typeof result !== "object" || !("ok" in result)) {
+          setErrorMessage(
+            "A importação retornou uma resposta inválida. Verifique a action do servidor."
+          );
+          return;
+        }
 
-      if (!result.ok) {
-        throw new Error(result.error || "Erro ao importar o PDF.");
+        if (!result.ok) {
+          setErrorMessage(result.error || "Erro ao importar o PDF.");
+          return;
+        }
+
+        setSuccessMessage(
+          `${result.importedCount} ficha(s) técnica(s) importada(s) com sucesso.`
+        );
+        setIgnoredPages(result.ignoredPages ?? []);
+
+        if (onImported) {
+          onImported(result);
+        }
+      } catch (error: any) {
+        console.error("[PdfImportModal] erro ao importar PDF", error);
+        setErrorMessage(
+          error?.message || "Erro inesperado ao importar o PDF."
+        );
       }
-
-      setUploadProgress(100);
-
-      const createdList = result.recipes
-        .slice(0, 12)
-        .map((item) => `• ${item.name}${item.page ? ` (página ${item.page})` : ""}`)
-        .join("\n");
-
-      const ignoredList = result.ignoredPages
-        .slice(0, 12)
-        .map(
-          (item) => `• Página ${item.page}: ${item.title} (${item.reason})`
-        )
-        .join("\n");
-
-      const reportMessage =
-        `Importação concluída com sucesso.\n\n` +
-        `Fichas criadas: ${result.importedCount}\n` +
-        `Páginas ignoradas: ${result.ignoredPages.length}\n\n` +
-        (createdList ? `Receitas importadas:\n${createdList}\n\n` : "") +
-        (ignoredList ? `Páginas ignoradas:\n${ignoredList}` : "");
-
-      setMessage(reportMessage);
-      onSuccess?.();
-
-      window.setTimeout(() => {
-        handleClose();
-      }, 4000);
-    } catch (error: any) {
-      console.error("Erro na importação do PDF:", error);
-      setMessage(error?.message || "Falha ao importar o PDF.");
-      setUploadProgress(0);
-    } finally {
-      setLoading(false);
-    }
+    });
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-        <div className="mb-4 flex items-start justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Importar Ficha Técnica</h2>
-            <p className="text-sm text-gray-500">
-              Envie um PDF de até 40 MB para importar várias fichas de uma vez.
-            </p>
-          </div>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-[720px]">
+        <DialogHeader>
+          <DialogTitle>Importar Ficha Técnica</DialogTitle>
+          <DialogDescription>
+            Envie um PDF de até 40 MB para importar várias fichas de uma vez.
+          </DialogDescription>
+        </DialogHeader>
 
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={loading}
-            className="text-sm text-gray-500 hover:text-gray-800"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium">
-              Categoria padrão
-            </label>
-            <input
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              disabled={loading}
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="defaultCategory">Categoria padrão</Label>
+            <Input
+              id="defaultCategory"
+              value={defaultCategory}
+              onChange={(e) => setDefaultCategory(e.target.value)}
               placeholder="Importado PDF"
             />
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium">PDF</label>
-            <input
+          <div className="space-y-2">
+            <Label htmlFor="pdfFile">PDF</Label>
+            <Input
+              id="pdfFile"
+              ref={inputRef}
               type="file"
               accept="application/pdf,.pdf"
               onChange={handleFileChange}
-              disabled={loading}
-              className="block w-full text-sm"
             />
-            <p className="mt-1 text-xs text-gray-500">Limite máximo: 40 MB</p>
+            <p className="text-sm text-muted-foreground">Limite máximo: 40 MB</p>
           </div>
 
-          {file && (
-            <div className="rounded-lg border bg-gray-50 p-3 text-sm">
-              <p>
-                <strong>Arquivo:</strong> {file.name}
-              </p>
-              <p>
+          {selectedFile ? (
+            <div className="rounded-xl border p-4 text-sm">
+              <div>
+                <strong>Arquivo:</strong> {selectedFile.name}
+              </div>
+              <div>
                 <strong>Tamanho:</strong>{" "}
-                {(file.size / 1024 / 1024).toFixed(2)} MB
-              </p>
-            </div>
-          )}
-
-          {loading && (
-            <div>
-              <div className="mb-1 flex justify-between text-xs">
-                <span>Processo de importação</span>
-                <span>{uploadProgress}%</span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-gray-200">
-                <div
-                  className="h-2 rounded-full bg-green-600 transition-all"
-                  style={{ width: `${uploadProgress}%` }}
-                />
+                {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
               </div>
             </div>
-          )}
+          ) : null}
 
-          {message && (
-            <div className="whitespace-pre-line rounded-lg border px-3 py-2 text-sm">
-              {message}
+          {errorMessage ? (
+            <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-700">
+              {errorMessage}
             </div>
-          )}
+          ) : null}
 
-          <div className="rounded-md bg-slate-50 p-3 text-sm text-muted-foreground">
+          {successMessage ? (
+            <div className="rounded-xl border border-green-300 bg-green-50 p-4 text-green-700">
+              {successMessage}
+            </div>
+          ) : null}
+
+          {ignoredPages.length > 0 ? (
+            <div className="rounded-xl border p-4">
+              <div className="mb-2 font-semibold">Páginas ignoradas</div>
+              <div className="max-h-56 space-y-2 overflow-auto text-sm">
+                {ignoredPages.map((item, index) => (
+                  <div
+                    key={`${item.page}-${item.title}-${index}`}
+                    className="rounded-lg border p-2"
+                  >
+                    <div>
+                      <strong>Página {item.page}</strong> — {item.title}
+                    </div>
+                    <div className="text-muted-foreground">{item.reason}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
             Nesta etapa, o sistema lê o PDF, importa as páginas válidas e ignora
             automaticamente páginas incompletas ou template.
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button
+          <div className="flex justify-end gap-3">
+            <Button
               type="button"
-              onClick={handleClose}
-              disabled={loading}
-              className="rounded-lg border px-4 py-2 text-sm"
+              variant="outline"
+              onClick={() => handleOpenChange(false)}
+              disabled={isPending}
             >
               Cancelar
-            </button>
-
-            <button
+            </Button>
+            <Button
               type="button"
-              onClick={handleUpload}
-              disabled={loading || !file}
-              className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+              onClick={handleImport}
+              disabled={isPending || !selectedFile}
             >
-              {loading ? "Importando..." : "Importar PDF"}
-            </button>
+              {isPending ? "Importando..." : "Importar PDF"}
+            </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

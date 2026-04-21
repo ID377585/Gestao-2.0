@@ -1308,37 +1308,40 @@ export default function FichasTecnicasPage() {
   }, []);
 
   const loadData = useCallback(async () => {
-    try {
-      setLoadingProducts(true);
-      setLoadingFichas(true);
+  try {
+    setLoadingProducts(true);
+    setLoadingFichas(true);
 
-      const [, fichasRes] = await Promise.all([
-        loadProductsCatalog(false),
-        listTechnicalSheets(),
-      ]);
+    const [, fichasRes] = await Promise.all([
+      loadProductsCatalog(false),
+      listTechnicalSheets(),
+    ]);
 
-      const fichasNormalizadas = Array.isArray(fichasRes)
-        ? fichasRes.map(normalizeFichaFromDb)
-        : [];
+    console.log("listTechnicalSheets result:", fichasRes);
 
-      setFichasTecnicas(fichasNormalizadas);
+    const fichasNormalizadas = Array.isArray(fichasRes)
+      ? fichasRes.map(normalizeFichaFromDb)
+      : [];
 
-      setFichaSelecionada((prev) => {
-        if (!fichasNormalizadas.length) return null;
-        if (!prev) return fichasNormalizadas[0];
-        return (
-          fichasNormalizadas.find((f) => f.id === prev.id) ??
-          fichasNormalizadas[0]
-        );
-      });
-    } catch (err) {
-      console.error("Erro ao carregar fichas técnicas:", err);
-      alert("Erro ao carregar fichas técnicas.");
-    } finally {
-      setLoadingProducts(false);
-      setLoadingFichas(false);
-    }
-  }, [loadProductsCatalog]);
+    setFichasTecnicas(fichasNormalizadas);
+
+    setFichaSelecionada((prev) => {
+      if (!fichasNormalizadas.length) return null;
+      if (!prev) return fichasNormalizadas[0];
+      return fichasNormalizadas.find((f) => f.id === prev.id) ?? fichasNormalizadas[0];
+    });
+  } catch (err) {
+    console.error("Erro detalhado ao carregar fichas técnicas:", err);
+    alert(
+      err instanceof Error
+        ? `Erro ao carregar fichas técnicas: ${err.message}`
+        : "Erro ao carregar fichas técnicas."
+    );
+  } finally {
+    setLoadingProducts(false);
+    setLoadingFichas(false);
+  }
+}, [loadProductsCatalog]);
 
   useEffect(() => {
     void loadData();

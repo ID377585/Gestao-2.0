@@ -35,39 +35,46 @@ export default function EngenhariaDashboardPage() {
   const [error, setError] = useState("");
 
   const loadData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
+  try {
+    setLoading(true);
+    setError("");
 
-      const [fichasRes, etiquetasRes] = await Promise.all([
-  supabase.from("technical_sheets").select("*"),
-  supabase.from("labels").select("*"),
-]);
+    const [fichasRes, etiquetasRes] = await Promise.all([
+      supabase
+        .from("technical_sheets")
+        .select("id, name, yield_portions, total_cost"),
+      supabase
+        .from("etiquetas")
+        .select("id, nome, created_at"),
+    ]);
 
-setFichas(
-  (fichasRes.data ?? []).map((item: any) => ({
-    id: String(item.id),
-    nome: item.name ?? "",
-    rendimento: Number(item.yield_portions ?? 0),
-    custoTotal: Number(item.total_cost ?? 0),
-    ativo: true,
-  }))
-);
+    if (fichasRes.error) throw fichasRes.error;
+    if (etiquetasRes.error) throw etiquetasRes.error;
 
-      setEtiquetas(
-        (etiquetasRes.data ?? []).map((item: any) => ({
-          id: String(item.id),
-          nome: item.nome ?? "",
-          createdAt: toIsoDate(item.createdAt ?? item.created_at),
-        }))
-      );
-    } catch (err) {
-      console.error(err);
-      setError("Não foi possível carregar o dashboard de engenharia.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    setFichas(
+      (fichasRes.data ?? []).map((item: any) => ({
+        id: String(item.id),
+        nome: item.name ?? "",
+        rendimento: Number(item.yield_portions ?? 0),
+        custoTotal: Number(item.total_cost ?? 0),
+        ativo: true,
+      }))
+    );
+
+    setEtiquetas(
+      (etiquetasRes.data ?? []).map((item: any) => ({
+        id: String(item.id),
+        nome: item.nome ?? "",
+        createdAt: toIsoDate(item.created_at),
+      }))
+    );
+  } catch (err) {
+    console.error(err);
+    setError("Não foi possível carregar o dashboard de engenharia.");
+  } finally {
+    setLoading(false);
+  }
+}, []);
 
   const metrics = useMemo(() => {
     const ativas = fichas.filter((item) => item.ativo !== false);

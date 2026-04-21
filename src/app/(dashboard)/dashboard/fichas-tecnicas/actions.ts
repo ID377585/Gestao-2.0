@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { Buffer } from "node:buffer";
 
@@ -124,7 +124,8 @@ type ImportTechnicalSheetsFromPdfResult =
     };
 
 async function getContext() {
-  const supabase = await createSupabaseServerClient();
+  const supabaseAuth = await createSupabaseServerClient();
+  const supabase = createSupabaseAdminClient();
   const { membership } = await getActiveMembershipOrRedirect();
 
   const establishmentId = (membership as any)?.establishment_id as
@@ -138,7 +139,7 @@ async function getContext() {
   const {
     data: { user },
     error: userError,
-  } = await supabase.auth.getUser();
+  } = await supabaseAuth.auth.getUser();
 
   if (userError || !user) {
     throw new Error("Usuário não autenticado.");
@@ -849,7 +850,6 @@ async function saveScales(
     }
   }
 }
-
 async function duplicateTechnicalSheetImage(
   supabase: any,
   sourceImagePath: string | null | undefined,
@@ -1048,6 +1048,7 @@ export async function listTechnicalSheets() {
         created_at,
         ingredients:technical_sheet_scale_ingredients (
           id,
+          scale_id,
           technical_sheet_scale_id,
           ingredient_name,
           amount,
@@ -1319,6 +1320,11 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
     await supabase
       .from("technical_sheet_scale_ingredients")
       .delete()
+      .in("scale_id", scaleIds);
+
+    await supabase
+      .from("technical_sheet_scale_ingredients")
+      .delete()
       .in("technical_sheet_scale_id", scaleIds);
 
     await supabase
@@ -1400,6 +1406,7 @@ export async function duplicateTechnicalSheetAction(technicalSheetId: string) {
         created_at,
         ingredients:technical_sheet_scale_ingredients (
           id,
+          scale_id,
           technical_sheet_scale_id,
           ingredient_name,
           amount,

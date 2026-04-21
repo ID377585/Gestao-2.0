@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
-import { db } from "@/lib/firebase/client";
+import { listAllFinancialHistory } from "@/lib/financeiro/financial-history";
 import type { FinancialHistoryEntry } from "@/types/compras";
 
 function formatDateTime(value?: string) {
@@ -31,28 +30,6 @@ function actionLabel(action: FinancialHistoryEntry["action"]) {
     default:
       return action;
   }
-}
-
-function toIsoDate(value: any): string {
-  return value?.toDate?.()?.toISOString?.() ?? "";
-}
-
-function normalizeEntry(
-  id: string,
-  data: Record<string, any>
-): FinancialHistoryEntry {
-  return {
-    id,
-    financeType: data.financeType ?? "pagar",
-    financeId: data.financeId ?? "",
-    action: data.action ?? "editado",
-    title: data.title ?? "",
-    description: data.description ?? "",
-    bankAccountName: data.bankAccountName ?? "",
-    reconciliationEntryId: data.reconciliationEntryId ?? "",
-    createdAt: toIsoDate(data.createdAt),
-    createdBy: data.createdBy ?? "",
-  };
 }
 
 function sameOrAfter(value: string, compare: string) {
@@ -91,22 +68,10 @@ export default function AuditoriaFinanceiraPage() {
     try {
       setLoading(true);
       setError("");
-
-      const q = query(
-        collection(db, "financialHistory"),
-        orderBy("createdAt", "desc")
-      );
-
-      const snapshot = await getDocs(q);
-
-      const data = snapshot.docs.map((docItem) =>
-        normalizeEntry(docItem.id, docItem.data())
-      );
-
-      setItems(data);
+      setItems(await listAllFinancialHistory());
     } catch (err) {
       console.error(err);
-      setError("Não foi possível carregar a auditoria financeira.");
+      setError("Nao foi possivel carregar a auditoria financeira.");
     } finally {
       setLoading(false);
     }
@@ -131,8 +96,7 @@ export default function AuditoriaFinanceiraPage() {
       const actionOk =
         actionFilter === "todos" || item.action === actionFilter;
 
-      const dateOk =
-        (!dateFrom && !dateTo) || inDateRange(item.createdAt);
+      const dateOk = (!dateFrom && !dateTo) || inDateRange(item.createdAt);
 
       const createdByOk =
         !createdByFilter ||
@@ -183,7 +147,7 @@ export default function AuditoriaFinanceiraPage() {
     const map = new Map<string, number>();
 
     for (const item of filteredItems) {
-      const key = item.createdBy?.trim() || "Não informado";
+      const key = item.createdBy?.trim() || "Nao informado";
       map.set(key, (map.get(key) ?? 0) + 1);
     }
 
@@ -215,7 +179,7 @@ export default function AuditoriaFinanceiraPage() {
         <div>
           <h1 className="text-2xl font-bold">Auditoria Financeira</h1>
           <p className="text-sm text-gray-500">
-            Histórico geral de eventos financeiros do sistema.
+            Historico geral de eventos financeiros do sistema.
           </p>
         </div>
 
@@ -240,7 +204,7 @@ export default function AuditoriaFinanceiraPage() {
 
       <div className="hidden print:block">
         <div className="mb-4">
-          <h1 className="text-2xl font-bold">Relatório de Auditoria Financeira</h1>
+          <h1 className="text-2xl font-bold">Relatorio de Auditoria Financeira</h1>
           <p className="text-sm text-gray-600">
             Gerado em {new Date().toLocaleString("pt-BR")}
           </p>
@@ -264,12 +228,12 @@ export default function AuditoriaFinanceiraPage() {
         </div>
 
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="text-sm text-gray-500">Eventos bancários</div>
+          <div className="text-sm text-gray-500">Conciliacoes</div>
           <div className="mt-2 text-2xl font-bold">{metrics.conciliacoes}</div>
         </div>
 
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="text-sm text-gray-500">Alterações</div>
+          <div className="text-sm text-gray-500">Alteracoes</div>
           <div className="mt-2 text-2xl font-bold">{metrics.alteracoes}</div>
         </div>
       </div>
@@ -281,9 +245,7 @@ export default function AuditoriaFinanceiraPage() {
             <select
               value={financeTypeFilter}
               onChange={(e) =>
-                setFinanceTypeFilter(
-                  e.target.value as "todos" | "pagar" | "receber"
-                )
+                setFinanceTypeFilter(e.target.value as typeof financeTypeFilter)
               }
               className="w-full rounded-xl border px-3 py-2 outline-none"
             >
@@ -294,22 +256,11 @@ export default function AuditoriaFinanceiraPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">Ação</label>
+            <label className="mb-1 block text-sm font-medium">Acao</label>
             <select
               value={actionFilter}
               onChange={(e) =>
-                setActionFilter(
-                  e.target.value as
-                    | "todos"
-                    | "criado"
-                    | "editado"
-                    | "pago"
-                    | "recebido"
-                    | "cancelado"
-                    | "pendente"
-                    | "conciliado_banco"
-                    | "desconciliado_banco"
-                )
+                setActionFilter(e.target.value as typeof actionFilter)
               }
               className="w-full rounded-xl border px-3 py-2 outline-none"
             >
@@ -346,88 +297,84 @@ export default function AuditoriaFinanceiraPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">Usuário</label>
+            <label className="mb-1 block text-sm font-medium">Responsavel</label>
             <input
               value={createdByFilter}
               onChange={(e) => setCreatedByFilter(e.target.value)}
+              placeholder="Filtrar por usuario"
               className="w-full rounded-xl border px-3 py-2 outline-none"
-              placeholder="Nome, email ou login"
             />
           </div>
         </div>
 
         <div className="mt-4">
-          <label className="mb-1 block text-sm font-medium">Busca livre</label>
+          <label className="mb-1 block text-sm font-medium">Busca</label>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            placeholder="Titulo, descricao, conta, banco..."
             className="w-full rounded-xl border px-3 py-2 outline-none"
-            placeholder="Título, descrição, ID, conta bancária ou usuário"
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <div className="rounded-2xl border bg-white p-5 shadow-sm xl:col-span-2">
-          <h2 className="mb-4 text-lg font-semibold">Eventos auditados</h2>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_1fr]">
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Eventos financeiros</h2>
+            <div className="text-sm text-gray-500">{filteredItems.length} registros</div>
+          </div>
 
           {loading ? (
             <p className="text-sm text-gray-500">Carregando auditoria...</p>
           ) : error ? (
             <p className="text-sm text-red-600">{error}</p>
           ) : filteredItems.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              Nenhum evento encontrado para os filtros selecionados.
-            </p>
+            <p className="text-sm text-gray-500">Nenhum evento encontrado.</p>
           ) : (
-            <div className="space-y-3">
-              {filteredItems.map((item) => (
-                <div key={item.id} className="rounded-xl border p-4">
-                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <div className="font-medium">{item.title}</div>
-                      <div className="text-sm text-gray-500">
-                        {item.financeType} • {actionLabel(item.action)} • ID {item.financeId}
-                      </div>
-                    </div>
-
-                    <div className="text-sm text-gray-500">
-                      {formatDateTime(item.createdAt)}
-                    </div>
-                  </div>
-
-                  {item.description ? (
-                    <div className="mt-2 text-sm text-gray-700">
-                      {item.description}
-                    </div>
-                  ) : null}
-
-                  <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
-                    <div className="text-sm text-gray-600">
-                      Usuário: {item.createdBy || "Não informado"}
-                    </div>
-
-                    <div className="text-sm text-gray-600">
-                      Conta bancária: {item.bankAccountName || "-"}
-                    </div>
-
-                    <div className="text-sm text-gray-600">
-                      Conciliação: {item.reconciliationEntryId || "-"}
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50 text-left">
+                    <th className="px-4 py-3 font-medium">Data</th>
+                    <th className="px-4 py-3 font-medium">Tipo</th>
+                    <th className="px-4 py-3 font-medium">Acao</th>
+                    <th className="px-4 py-3 font-medium">Titulo</th>
+                    <th className="px-4 py-3 font-medium">Descricao</th>
+                    <th className="px-4 py-3 font-medium">Conta</th>
+                    <th className="px-4 py-3 font-medium">Responsavel</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredItems.map((item) => (
+                    <tr key={item.id} className="border-b align-top">
+                      <td className="px-4 py-3">{formatDateTime(item.createdAt)}</td>
+                      <td className="px-4 py-3 uppercase">{item.financeType}</td>
+                      <td className="px-4 py-3">{actionLabel(item.action)}</td>
+                      <td className="px-4 py-3 font-medium">{item.title}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {item.description || "-"}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs">
+                        {item.financeId}
+                        {item.bankAccountName ? (
+                          <div className="mt-1 text-gray-500">{item.bankAccountName}</div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3">{item.createdBy || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
 
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold">Resumo por usuário</h2>
+          <h2 className="mb-4 text-lg font-semibold">Eventos por usuario</h2>
 
-          {loading ? (
-            <p className="text-sm text-gray-500">Carregando resumo...</p>
-          ) : usersSummary.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhum usuário encontrado.</p>
+          {usersSummary.length === 0 ? (
+            <p className="text-sm text-gray-500">Nenhum usuario encontrado.</p>
           ) : (
             <div className="space-y-3">
               {usersSummary.map((item) => (
@@ -435,18 +382,12 @@ export default function AuditoriaFinanceiraPage() {
                   key={item.user}
                   className="flex items-center justify-between rounded-xl border px-4 py-3"
                 >
-                  <div className="font-medium">{item.user}</div>
-                  <div className="font-semibold">{item.total}</div>
+                  <div className="text-sm font-medium">{item.user}</div>
+                  <div className="text-sm text-gray-500">{item.total}</div>
                 </div>
               ))}
             </div>
           )}
-
-          <div className="mt-6 rounded-xl border bg-gray-50 p-4 text-sm text-gray-600">
-            Para o filtro por usuário ficar forte de verdade, o próximo passo é
-            começar a preencher automaticamente o campo <strong>createdBy</strong>
-            em cada evento de histórico.
-          </div>
         </div>
       </div>
     </div>

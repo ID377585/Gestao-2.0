@@ -1,104 +1,88 @@
-import {
-  addDoc,
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  Timestamp,
-  updateDoc,
-  where,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { createClient } from "@supabase/supabase-js";
 
-export type NotificationType = "info" | "warning" | "success" | "error";
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-export interface AppNotification {
+export type NotificationType = "info" | "success" | "warning" | "error";
+
+export type AppNotification = {
   id: string;
   userId: string;
-  titulo: string;
-  mensagem: string;
-  tipo: NotificationType;
-  lida: boolean;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+  type?: NotificationType;
   href?: string | null;
   eventKey?: string | null;
   entityType?: string | null;
   entityId?: string | null;
   metadata?: Record<string, unknown> | null;
   emailSent?: boolean;
-  createdAt?: Timestamp | null;
-  updatedAt?: Timestamp | null;
+};
+
+function normalizeNotification(row: Record<string, any>): AppNotification {
+  return {
+    id: String(row.id ?? ""),
+    userId: String(row.user_id ?? row.userId ?? ""),
+    title: String(row.title ?? row.titulo ?? ""),
+    message: String(row.message ?? row.mensagem ?? ""),
+    read: Boolean(row.read ?? row.lida ?? false),
+    createdAt: String(row.created_at ?? row.createdAt ?? new Date().toISOString()),
+    type: (row.type ?? row.tipo ?? "info") as NotificationType,
+    href: row.href ?? null,
+    eventKey: row.event_key ?? row.eventKey ?? null,
+    entityType: row.entity_type ?? row.entityType ?? null,
+    entityId: row.entity_id ?? row.entityId ?? null,
+    metadata:
+      row.metadata && typeof row.metadata === "object"
+        ? (row.metadata as Record<string, unknown>)
+        : null,
+    emailSent:
+      typeof row.email_sent === "boolean"
+        ? row.email_sent
+        : typeof row.emailSent === "boolean"
+          ? row.emailSent
+          : undefined,
+  };
 }
 
-function sanitizeNotificationKey(value: string) {
-  return String(value)
-    .trim()
-    .replace(/[^a-zA-Z0-9:_-]/g, "_")
-    .replace(/_+/g, "_")
-    .slice(0, 180);
-}
-
-function buildNotificationDocId(userId: string, eventKey: string) {
-  return `${sanitizeNotificationKey(userId)}__${sanitizeNotificationKey(eventKey)}`;
-}
-
-export function subscribeToNotifications(
+async function getUserNotificationsByColumn(
   userId: string,
-  callback: (notifications: AppNotification[]) => void
+  userColumn: "user_id" | "userId",
+  createdAtColumn: "created_at" | "createdAt"
 ) {
-  const q = query(
-    collection(db, "notifications"),
-    where("userId", "==", userId),
-    orderBy("createdAt", "desc")
-  );
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .eq(userColumn, userId)
+    .order(createdAtColumn, { ascending: false });
 
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const data: AppNotification[] = snapshot.docs.map((docItem) => ({
-        id: docItem.id,
-        ...(docItem.data() as Omit<AppNotification, "id">),
-      }));
+  if (error) throw error;
 
-      callback(data);
-    },
-    (error) => {
-      console.error("Erro ao assinar notificações:", error);
-      callback([]);
-    }
+  return (data ?? []).map((row) =>
+    normalizeNotification(row as Record<string, any>)
   );
 }
 
-export async function markNotificationAsRead(notificationId: string) {
-  const ref = doc(db, "notifications", notificationId);
-  await updateDoc(ref, {
-    lida: true,
-    updatedAt: serverTimestamp(),
-  });
-}
-
-export async function markAllNotificationsAsRead(
-  notifications: AppNotification[]
-) {
-  const pending = notifications
-    .filter((item) => !item.lida)
-    .map((item) =>
-      updateDoc(doc(db, "notifications", item.id), {
-        lida: true,
-        updatedAt: serverTimestamp(),
-      })
-    );
-
-  await Promise.all(pending);
+export async function getUserNotifications(userId: string) {
+  try {
+    return await getUserNotificationsByColumn(userId, "user_id", "created_at");
+  } catch {
+    return getUserNotificationsByColumn(userId, "userId", "createdAt");
+  }
 }
 
 export async function createNotification(params: {
   userId: string;
-  titulo: string;
-  mensagem: string;
-  tipo: NotificationType;
+  title?: string;
+  titulo?: string;
+  message?: string;
+  mensagem?: string;
+  type?: NotificationType;
+  tipo?: NotificationType;
   href?: string | null;
   eventKey?: string | null;
   entityType?: string | null;
@@ -106,69 +90,104 @@ export async function createNotification(params: {
   metadata?: Record<string, unknown> | null;
   emailSent?: boolean;
 }) {
-  const payload = {
-    userId: params.userId,
-    titulo: params.titulo,
-    mensagem: params.mensagem,
-    tipo: params.tipo,
-    lida: false,
+  const title = params.title ?? params.titulo ?? "";
+  const message = params.message ?? params.mensagem ?? "";
+  const type = params.type ?? params.tipo ?? "info";
+
+  const richPayload = {
+    user_id: params.userId,
+    title,
+    message,
+    read: false,
+    type,
     href: params.href ?? null,
-    eventKey: params.eventKey ?? null,
-    entityType: params.entityType ?? null,
-    entityId: params.entityId ?? null,
+    event_key: params.eventKey ?? null,
+    entity_type: params.entityType ?? null,
+    entity_id: params.entityId ?? null,
     metadata: params.metadata ?? null,
-    emailSent: params.emailSent ?? false,
-    updatedAt: serverTimestamp(),
+    email_sent: params.emailSent ?? false,
   };
 
-  const trimmedEventKey = String(params.eventKey ?? "").trim();
+  let { error } = await supabase.from("notifications").insert(richPayload);
 
-  if (trimmedEventKey) {
-    const ref = doc(
-      db,
-      "notifications",
-      buildNotificationDocId(params.userId, trimmedEventKey)
-    );
+  if (!error) return;
 
-    await setDoc(
-      ref,
-      {
-        ...payload,
-        createdAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    return {
-      id: ref.id,
-      deduplicated: true as const,
-    };
-  }
-
-  const ref = await addDoc(collection(db, "notifications"), {
-    ...payload,
-    createdAt: serverTimestamp(),
-  });
-
-  return {
-    id: ref.id,
-    deduplicated: false as const,
+  const basicPayload = {
+    userId: params.userId,
+    title,
+    message,
+    read: false,
   };
+
+  ({ error } = await supabase.from("notifications").insert(basicPayload));
+
+  if (error) throw error;
 }
 
-export async function createNotificationsBulk(
-  notifications: Array<{
-    userId: string;
-    titulo: string;
-    mensagem: string;
-    tipo: NotificationType;
-    href?: string | null;
-    eventKey?: string | null;
-    entityType?: string | null;
-    entityId?: string | null;
-    metadata?: Record<string, unknown> | null;
-    emailSent?: boolean;
-  }>
+export async function markNotificationAsRead(id: string) {
+  let { error } = await supabase
+    .from("notifications")
+    .update({ read: true })
+    .eq("id", id);
+
+  if (!error) return;
+
+  ({ error } = await supabase
+    .from("notifications")
+    .update({ lida: true })
+    .eq("id", id));
+
+  if (error) throw error;
+}
+
+export async function markAllNotificationsAsRead(userId: string) {
+  let { error } = await supabase
+    .from("notifications")
+    .update({ read: true })
+    .eq("user_id", userId)
+    .eq("read", false);
+
+  if (!error) return;
+
+  ({ error } = await supabase
+    .from("notifications")
+    .update({ read: true })
+    .eq("userId", userId)
+    .eq("read", false));
+
+  if (!error) return;
+
+  ({ error } = await supabase
+    .from("notifications")
+    .update({ lida: true })
+    .eq("userId", userId)
+    .eq("lida", false));
+
+  if (error) throw error;
+}
+
+export function subscribeToNotifications(
+  userId: string,
+  callback: (notifications: AppNotification[]) => void
 ) {
-  return Promise.all(notifications.map((item) => createNotification(item)));
+  let active = true;
+
+  async function fetchLoop() {
+    while (active) {
+      try {
+        const data = await getUserNotifications(userId);
+        callback(data);
+      } catch (error) {
+        console.error("Erro ao buscar notificacoes:", error);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+  }
+
+  void fetchLoop();
+
+  return () => {
+    active = false;
+  };
 }

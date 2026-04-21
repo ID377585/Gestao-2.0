@@ -1,11 +1,9 @@
 import {
-  collection,
-  doc,
-  runTransaction,
-  serverTimestamp,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase/client";
+  assertSupabaseSuccess,
+  getLegacySupabase,
+  toBoolean,
+} from "@/lib/legacy/supabase";
+import { moveStock } from "@/lib/stock/moveStock";
 import type {
   FinalizeGoodsReceiptResult,
   GoodsReceipt,
@@ -14,35 +12,10 @@ import type {
   PurchaseOrderStatus,
 } from "@/types/compras";
 
-const PRODUCT_COLLECTION = "products";
-const STOCK_MOVEMENT_COLLECTION = "stockMovements";
-const PRODUCT_COST_HISTORY_COLLECTION = "productCostHistory";
-const ACCOUNTS_PAYABLE_COLLECTION = "accountsPayable";
-
-function toNumber(value: unknown): number {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function calculateWeightedAverageCost(params: {
-  currentStock: number;
-  currentAverageCost: number;
-  entryQuantity: number;
-  entryUnitCost: number;
-}) {
-  const { currentStock, currentAverageCost, entryQuantity, entryUnitCost } = params;
-
-  if (entryQuantity <= 0) return currentAverageCost;
-  if (currentStock <= 0) return entryUnitCost;
-
-  const newStock = currentStock + entryQuantity;
-
-  if (newStock <= 0) return entryUnitCost;
-
-  return (
-    (currentStock * currentAverageCost + entryQuantity * entryUnitCost) / newStock
-  );
-}
+const RECEIPTS_TABLE = "goods_receipts";
+const RECEIPT_ITEMS_TABLE = "goods_receipt_items";
+const ORDERS_TABLE = "purchase_orders";
+const PAYABLES_TABLE = "accounts_payable";
 
 export async function applyPurchaseReceiptToInventory(params: {
   receipt: GoodsReceipt;
@@ -54,212 +27,148 @@ export async function applyPurchaseReceiptToInventory(params: {
   observacoes?: string;
   vencimento?: string;
 }): Promise<FinalizeGoodsReceiptResult> {
-  const receiptRef = doc(db, "goodsReceipts", params.receipt.id);
-  const orderRef = doc(db, "purchaseOrders", params.order.id);
-  const payableRef = doc(db, ACCOUNTS_PAYABLE_COLLECTION, params.receipt.id);
+  const supabase = getLegacySupabase();
 
-  return runTransaction(db, async (tx) => {
-    const liveReceiptSnap = await tx.get(receiptRef);
+  const { data: liveReceipt, error: receiptError } = await supabase
+    .from(RECEIPTS_TABLE)
+    .select("id, inventory_applied, inventory_pending_link, status, valor_total_recebido")
+    .eq("id", params.receipt.id)
+    .maybeSingle();
 
-    if (!liveReceiptSnap.exists()) {
-      throw new Error("Recebimento não encontrado.");
-    }
+  assertSupabaseSuccess(receiptError, "Nao foi possivel validar o recebimento");
 
-    const liveReceipt = liveReceiptSnap.data();
+  if (!liveReceipt) {
+    throw new Error("Recebimento nao encontrado.");
+  }
 
-    if (liveReceipt.inventoryApplied) {
-      return {
-        receiptStatus: liveReceipt.status ?? params.receiptStatus,
-        orderStatus: params.orderStatus,
-        valorTotalRecebido: toNumber(liveReceipt.valorTotalRecebido),
-        inventoryPendingLink: Boolean(liveReceipt.inventoryPendingLink ?? false),
-        alreadyApplied: true,
-      };
-    }
+  if (toBoolean(liveReceipt.inventory_applied, false)) {
+    return {
+      receiptStatus: (liveReceipt.status as "divergencia" | "finalizado") ?? params.receiptStatus,
+      orderStatus: params.orderStatus,
+      valorTotalRecebido: Number(liveReceipt.valor_total_recebido ?? 0),
+      inventoryPendingLink: toBoolean(liveReceipt.inventory_pending_link, false),
+      alreadyApplied: true,
+    };
+  }
 
-    let inventoryPendingLink = false;
+  let inventoryPendingLink = false;
 
-    for (const item of params.items) {
-      const quantidadeRecebida = toNumber(item.quantidadeRecebida);
-      const valorUnitarioReal = toNumber(item.valorUnitarioReal);
+  for (const item of params.items) {
+    const quantidadeRecebida = Number(item.quantidadeRecebida ?? 0);
+    const valorUnitarioReal = Number(item.valorUnitarioReal ?? 0);
 
-      const itemRef = doc(
-        db,
-        "goodsReceipts",
-        params.receipt.id,
-        "items",
-        item.id
-      );
-
-      tx.update(itemRef, {
-        quantidadeRecebida,
-        valorUnitarioReal,
+    const { error: itemError } = await supabase
+      .from(RECEIPT_ITEMS_TABLE)
+      .update({
+        quantidade_recebida: quantidadeRecebida,
+        valor_unitario_real: valorUnitarioReal,
         lote: item.lote ?? "",
         validade: item.validade ?? "",
         divergencia: Boolean(item.divergencia),
-        motivoDivergencia: item.motivoDivergencia ?? "",
-        updatedAt: serverTimestamp(),
-      });
+        motivo_divergencia: item.motivoDivergencia ?? "",
+      })
+      .eq("id", item.id)
+      .eq("receipt_id", params.receipt.id);
 
-      if (quantidadeRecebida <= 0) {
-        continue;
-      }
+    assertSupabaseSuccess(itemError, "Nao foi possivel atualizar os itens do recebimento");
 
-      const movementRef = doc(
-        db,
-        STOCK_MOVEMENT_COLLECTION,
-        `${params.receipt.id}_${item.id}`
-      );
-
-      if (!item.productId) {
-        inventoryPendingLink = true;
-
-        tx.set(movementRef, {
-          origem: "recebimento_compra",
-          origemId: params.receipt.id,
-          receiptNumber: params.receipt.numero,
-          purchaseOrderId: params.receipt.purchaseOrderId,
-          productId: "",
-          produtoNome: item.produtoNome,
-          tipo: "entrada",
-          quantidade: quantidadeRecebida,
-          unidade: item.unidade,
-          lote: item.lote ?? "",
-          validade: item.validade ?? "",
-          valorUnitario: valorUnitarioReal,
-          valorTotal: quantidadeRecebida * valorUnitarioReal,
-          pendenteVinculoProduto: true,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-
-        continue;
-      }
-
-      const productRef = doc(db, PRODUCT_COLLECTION, item.productId);
-      const productSnap = await tx.get(productRef);
-
-      if (!productSnap.exists()) {
-        throw new Error(
-          `Produto do estoque não encontrado para o item "${item.produtoNome}".`
-        );
-      }
-
-      const productData = productSnap.data();
-
-      const currentStock = toNumber(productData.stockAtual);
-      const currentAverageCost = toNumber(productData.custoMedio);
-      const newStock = currentStock + quantidadeRecebida;
-
-      const newAverageCost = calculateWeightedAverageCost({
-        currentStock,
-        currentAverageCost,
-        entryQuantity: quantidadeRecebida,
-        entryUnitCost: valorUnitarioReal,
-      });
-
-      tx.update(productRef, {
-        stockAtual: newStock,
-        custoMedio: newAverageCost,
-        ultimoCustoCompra: valorUnitarioReal,
-        dataUltimaCompra: params.receipt.dataRecebimento,
-        updatedAt: serverTimestamp(),
-      });
-
-      tx.set(movementRef, {
-        origem: "recebimento_compra",
-        origemId: params.receipt.id,
-        receiptNumber: params.receipt.numero,
-        purchaseOrderId: params.receipt.purchaseOrderId,
-        productId: item.productId,
-        produtoNome: item.produtoNome,
-        tipo: "entrada",
-        quantidade: quantidadeRecebida,
-        unidade: item.unidade,
-        lote: item.lote ?? "",
-        validade: item.validade ?? "",
-        valorUnitario: valorUnitarioReal,
-        valorTotal: quantidadeRecebida * valorUnitarioReal,
-        stockAnterior: currentStock,
-        stockPosterior: newStock,
-        custoMedioAnterior: currentAverageCost,
-        custoMedioPosterior: newAverageCost,
-        pendenteVinculoProduto: false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-
-      const costHistoryRef = doc(
-        db,
-        PRODUCT_COST_HISTORY_COLLECTION,
-        `${params.receipt.id}_${item.id}`
-      );
-
-      tx.set(costHistoryRef, {
-        productId: item.productId,
-        produtoNome: item.produtoNome,
-        origem: "recebimento_compra",
-        origemId: params.receipt.id,
-        receiptNumber: params.receipt.numero,
-        purchaseOrderId: params.receipt.purchaseOrderId,
-        quantidadeEntrada: quantidadeRecebida,
-        valorUnitarioEntrada: valorUnitarioReal,
-        stockAnterior: currentStock,
-        stockPosterior: newStock,
-        custoMedioAnterior: currentAverageCost,
-        custoMedioPosterior: newAverageCost,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+    if (quantidadeRecebida <= 0) {
+      continue;
     }
 
-    tx.update(receiptRef, {
+    if (!item.productId) {
+      inventoryPendingLink = true;
+      continue;
+    }
+
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .select("id, establishment_id, default_unit_label")
+      .eq("id", item.productId)
+      .maybeSingle();
+
+    if (productError || !product) {
+      console.error("[compras] produto sem vinculo de estoque para recebimento", {
+        itemId: item.id,
+        productId: item.productId,
+        error: productError,
+      });
+      inventoryPendingLink = true;
+      continue;
+    }
+
+    try {
+      await moveStock(supabase as never, {
+        establishment_id: product.establishment_id,
+        product_id: product.id,
+        unit_label: item.unidade || product.default_unit_label || "UN",
+        qty_delta: quantidadeRecebida,
+        reason: "purchase_receipt",
+        source: "legacy_purchase_receipt",
+      });
+    } catch (error) {
+      console.error("[compras] falha ao aplicar estoque do recebimento", {
+        receiptId: params.receipt.id,
+        itemId: item.id,
+        productId: item.productId,
+        error,
+      });
+      inventoryPendingLink = true;
+    }
+  }
+
+  const { error: receiptUpdateError } = await supabase
+    .from(RECEIPTS_TABLE)
+    .update({
       status: params.receiptStatus,
       observacoes: params.observacoes ?? params.receipt.observacoes ?? "",
-      valorTotalRecebido: params.valorTotalRecebido,
-      inventoryApplied: true,
-      inventoryPendingLink,
-      payableCreated: params.valorTotalRecebido > 0,
-      finalizedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+      valor_total_recebido: params.valorTotalRecebido,
+      inventory_applied: true,
+      inventory_pending_link: inventoryPendingLink,
+      payable_created: params.valorTotalRecebido > 0,
+      finalized_at: new Date().toISOString(),
+    })
+    .eq("id", params.receipt.id);
 
-    tx.update(orderRef, {
-      status: params.orderStatus,
-      updatedAt: serverTimestamp(),
-    });
+  assertSupabaseSuccess(receiptUpdateError, "Nao foi possivel finalizar o recebimento");
 
-    if (params.valorTotalRecebido > 0) {
-      tx.set(
-        payableRef,
-        {
-          origem: "recebimento",
-origemId: params.receipt.id,
-supplierId: params.receipt.supplierId,
-supplierName: params.receipt.supplierName,
-descricao: `Recebimento ${params.receipt.numero} - Pedido ${params.receipt.purchaseOrderNumber}`,
-valor: params.valorTotalRecebido,
-vencimento: params.vencimento ?? params.order.vencimento ?? "",
-statusPagamento: "pendente",
-dataPagamento: "",
-formaPagamento: "",
-numeroDocumento: params.receipt.numero,
-categoria: "Compras",
-centroCusto: "Suprimentos",
-observacoes: params.observacoes ?? "",
-createdAt: serverTimestamp(),
-updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-    }
+  const { error: orderUpdateError } = await supabase
+    .from(ORDERS_TABLE)
+    .update({ status: params.orderStatus })
+    .eq("id", params.order.id);
 
-    return {
-      receiptStatus: params.receiptStatus,
-      orderStatus: params.orderStatus,
-      valorTotalRecebido: params.valorTotalRecebido,
-      inventoryPendingLink,
-      alreadyApplied: false,
-    };
-  });
+  assertSupabaseSuccess(orderUpdateError, "Nao foi possivel atualizar o pedido de compra");
+
+  if (params.valorTotalRecebido > 0) {
+    const { error: payableError } = await supabase.from(PAYABLES_TABLE).upsert(
+      {
+        id: params.receipt.id,
+        origem: "recebimento",
+        origem_id: params.receipt.id,
+        supplier_id: params.receipt.supplierId,
+        supplier_name: params.receipt.supplierName,
+        descricao: `Recebimento ${params.receipt.numero} - Pedido ${params.receipt.purchaseOrderNumber}`,
+        valor: params.valorTotalRecebido,
+        vencimento: params.vencimento ?? params.order.vencimento ?? "",
+        status_pagamento: "pendente",
+        data_pagamento: "",
+        forma_pagamento: "",
+        numero_documento: params.receipt.numero,
+        categoria: "Compras",
+        centro_custo: "Suprimentos",
+        observacoes: params.observacoes ?? "",
+      },
+      { onConflict: "id" }
+    );
+
+    assertSupabaseSuccess(payableError, "Nao foi possivel gerar a conta a pagar do recebimento");
+  }
+
+  return {
+    receiptStatus: params.receiptStatus,
+    orderStatus: params.orderStatus,
+    valorTotalRecebido: params.valorTotalRecebido,
+    inventoryPendingLink,
+    alreadyApplied: false,
+  };
 }

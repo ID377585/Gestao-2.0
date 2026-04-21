@@ -1,47 +1,41 @@
 import {
-  collection,
-  doc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  where,
-} from "firebase/firestore";
-
+  assertSupabaseSuccess,
+  createLegacyId,
+  getLegacySupabase,
+  toBoolean,
+  toIsoString,
+  toNumber,
+  toText,
+} from "@/lib/legacy/supabase";
 import { createFinancialHistoryEntry } from "@/lib/financeiro/financial-history";
-import { db } from "@/lib/firebase/client";
 import type { BankReconciliationEntry } from "@/types/compras";
 
-const COLLECTION_NAME = "bankReconciliationEntries";
-
-function toIsoDate(value: any): string {
-  return value?.toDate?.()?.toISOString?.() ?? "";
-}
+const TABLE_NAME = "bank_reconciliation_entries";
 
 function normalizeEntry(
-  id: string,
-  data: Record<string, any>
+  row: Record<string, unknown>
 ): BankReconciliationEntry {
   return {
-    id,
-    bankAccountId: data.bankAccountId ?? "",
-    bankAccountName: data.bankAccountName ?? "",
-    data: data.data ?? "",
-    descricao: data.descricao ?? "",
-    tipo: data.tipo ?? "saida",
-    valor: Number(data.valor ?? 0),
-    origem: data.origem ?? "manual",
-    origemId: data.origemId ?? "",
-    conciliado: Boolean(data.conciliado ?? false),
-    matchedFinanceType: data.matchedFinanceType ?? "",
-    matchedFinanceId: data.matchedFinanceId ?? "",
-    matchedFinanceLabel: data.matchedFinanceLabel ?? "",
-    matchedAt: data.matchedAt ?? "",
-    observacoes: data.observacoes ?? "",
-    createdAt: toIsoDate(data.createdAt),
-    updatedAt: toIsoDate(data.updatedAt),
+    id: toText(row.id),
+    bankAccountId: toText(row.bank_account_id),
+    bankAccountName: toText(row.bank_account_name),
+    data: toText(row.data),
+    descricao: toText(row.descricao),
+    tipo: (toText(row.tipo, "saida") ?? "saida") as BankReconciliationEntry["tipo"],
+    valor: toNumber(row.valor),
+    origem: (toText(row.origem, "manual") ??
+      "manual") as BankReconciliationEntry["origem"],
+    origemId: toText(row.origem_id),
+    conciliado: toBoolean(row.conciliado, false),
+    matchedFinanceType: toText(
+      row.matched_finance_type
+    ) as BankReconciliationEntry["matchedFinanceType"],
+    matchedFinanceId: toText(row.matched_finance_id),
+    matchedFinanceLabel: toText(row.matched_finance_label),
+    matchedAt: toText(row.matched_at),
+    observacoes: toText(row.observacoes),
+    createdAt: toIsoString(row.created_at as string | null | undefined),
+    updatedAt: toIsoString(row.updated_at as string | null | undefined),
   };
 }
 
@@ -101,19 +95,16 @@ function normalizeMoney(value: string) {
 export async function listBankReconciliationEntries(
   bankAccountId?: string
 ): Promise<BankReconciliationEntry[]> {
-  const baseCollection = collection(db, COLLECTION_NAME);
+  const supabase = getLegacySupabase();
+  let query = supabase.from(TABLE_NAME).select("*");
 
-  const q = bankAccountId
-    ? query(
-        baseCollection,
-        where("bankAccountId", "==", bankAccountId),
-        orderBy("data", "desc")
-      )
-    : query(baseCollection, orderBy("data", "desc"));
+  if (bankAccountId) {
+    query = query.eq("bank_account_id", bankAccountId);
+  }
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((item) => normalizeEntry(item.id, item.data()));
+  const { data, error } = await query.order("data", { ascending: false });
+  assertSupabaseSuccess(error, "Nao foi possivel listar os lancamentos bancarios");
+  return (data ?? []).map((row) => normalizeEntry(row as Record<string, unknown>));
 }
 
 export async function createBankReconciliationEntry(input: {
@@ -127,37 +118,35 @@ export async function createBankReconciliationEntry(input: {
   origemId?: string;
   observacoes?: string;
 }) {
-  const refId =
+  const supabase = getLegacySupabase();
+  const id =
     input.origem === "financeiro" && input.origemId
       ? `${input.tipo}_${input.origemId}`
-      : doc(collection(db, COLLECTION_NAME)).id;
+      : createLegacyId();
 
-  const ref = doc(db, COLLECTION_NAME, refId);
-
-  await setDoc(
-    ref,
+  const { error } = await supabase.from(TABLE_NAME).upsert(
     {
-      bankAccountId: input.bankAccountId,
-      bankAccountName: input.bankAccountName,
+      id,
+      bank_account_id: input.bankAccountId,
+      bank_account_name: input.bankAccountName,
       data: input.data,
       descricao: input.descricao,
       tipo: input.tipo,
       valor: Number(input.valor ?? 0),
       origem: input.origem ?? "manual",
-      origemId: input.origemId ?? "",
+      origem_id: input.origemId ?? "",
       conciliado: false,
-      matchedFinanceType: "",
-      matchedFinanceId: "",
-      matchedFinanceLabel: "",
-      matchedAt: "",
+      matched_finance_type: "",
+      matched_finance_id: "",
+      matched_finance_label: "",
+      matched_at: "",
       observacoes: input.observacoes ?? "",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
     },
-    { merge: true }
+    { onConflict: "id" }
   );
 
-  return ref.id;
+  assertSupabaseSuccess(error, "Nao foi possivel criar o lancamento bancario");
+  return id;
 }
 
 export async function importBankReconciliationCsv(params: {
@@ -209,8 +198,8 @@ export async function importBankReconciliationCsv(params: {
       rawType === "entrada" || rawType === "credito" || rawType === "crédito"
         ? "entrada"
         : valor < 0
-        ? "saida"
-        : "entrada";
+          ? "saida"
+          : "entrada";
 
     await createBankReconciliationEntry({
       bankAccountId: params.bankAccountId,
@@ -234,13 +223,16 @@ export async function markReconciliationEntry(params: {
   conciliado: boolean;
   observacoes?: string;
 }) {
-  const ref = doc(db, COLLECTION_NAME, params.id);
+  const supabase = getLegacySupabase();
+  const { error } = await supabase
+    .from(TABLE_NAME)
+    .update({
+      conciliado: params.conciliado,
+      observacoes: params.observacoes ?? "",
+    })
+    .eq("id", params.id);
 
-  await updateDoc(ref, {
-    conciliado: params.conciliado,
-    observacoes: params.observacoes ?? "",
-    updatedAt: serverTimestamp(),
-  });
+  assertSupabaseSuccess(error, "Nao foi possivel atualizar a conciliacao");
 }
 
 export async function linkReconciliationToFinance(params: {
@@ -250,55 +242,61 @@ export async function linkReconciliationToFinance(params: {
   financeLabel: string;
   observacoes?: string;
 }) {
-  const ref = doc(db, COLLECTION_NAME, params.id);
+  const supabase = getLegacySupabase();
+  const { error } = await supabase
+    .from(TABLE_NAME)
+    .update({
+      conciliado: true,
+      matched_finance_type: params.financeType,
+      matched_finance_id: params.financeId,
+      matched_finance_label: params.financeLabel,
+      matched_at: new Date().toISOString(),
+      observacoes: params.observacoes ?? "",
+    })
+    .eq("id", params.id);
 
-  await updateDoc(ref, {
-    conciliado: true,
-    matchedFinanceType: params.financeType,
-    matchedFinanceId: params.financeId,
-    matchedFinanceLabel: params.financeLabel,
-    matchedAt: new Date().toISOString(),
-    observacoes: params.observacoes ?? "",
-    updatedAt: serverTimestamp(),
+  assertSupabaseSuccess(error, "Nao foi possivel vincular o lancamento ao financeiro");
+
+  await createFinancialHistoryEntry({
+    financeType: params.financeType,
+    financeId: params.financeId,
+    action: "conciliado_banco",
+    title: "Titulo conciliado no banco",
+    description: params.financeLabel,
+    reconciliationEntryId: params.id,
   });
-
-await createFinancialHistoryEntry({
-  financeType: params.financeType,
-  financeId: params.financeId,
-  action: "conciliado_banco",
-  title: "Título conciliado no banco",
-  description: params.financeLabel,
-  reconciliationEntryId: params.id,
-});
-
 }
 
 export async function unlinkReconciliationFromFinance(params: {
   id: string;
   observacoes?: string;
 }) {
-  const ref = doc(db, COLLECTION_NAME, params.id);
   const currentEntries = await listBankReconciliationEntries();
-const currentEntry = currentEntries.find((item) => item.id === params.id);
+  const currentEntry = currentEntries.find((item) => item.id === params.id);
 
-if (currentEntry?.matchedFinanceType && currentEntry?.matchedFinanceId) {
-  await createFinancialHistoryEntry({
-    financeType: currentEntry.matchedFinanceType,
-    financeId: currentEntry.matchedFinanceId,
-    action: "desconciliado_banco",
-    title: "Vínculo bancário removido",
-    description: params.observacoes ?? "",
-    reconciliationEntryId: params.id,
-  });
-}
+  const supabase = getLegacySupabase();
+  const { error } = await supabase
+    .from(TABLE_NAME)
+    .update({
+      conciliado: false,
+      matched_finance_type: "",
+      matched_finance_id: "",
+      matched_finance_label: "",
+      matched_at: "",
+      observacoes: params.observacoes ?? "",
+    })
+    .eq("id", params.id);
 
-  await updateDoc(ref, {
-    conciliado: false,
-    matchedFinanceType: "",
-    matchedFinanceId: "",
-    matchedFinanceLabel: "",
-    matchedAt: "",
-    observacoes: params.observacoes ?? "",
-    updatedAt: serverTimestamp(),
-  });
+  assertSupabaseSuccess(error, "Nao foi possivel desfazer a conciliacao");
+
+  if (currentEntry?.matchedFinanceType && currentEntry?.matchedFinanceId) {
+    await createFinancialHistoryEntry({
+      financeType: currentEntry.matchedFinanceType,
+      financeId: currentEntry.matchedFinanceId,
+      action: "desconciliado_banco",
+      title: "Vinculo bancario removido",
+      description: params.observacoes ?? "",
+      reconciliationEntryId: params.id,
+    });
+  }
 }

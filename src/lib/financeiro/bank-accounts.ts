@@ -1,86 +1,79 @@
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase/client";
+  assertSupabaseSuccess,
+  createLegacyId,
+  getLegacySupabase,
+  toBoolean,
+  toIsoString,
+  toNumber,
+  toText,
+} from "@/lib/legacy/supabase";
 import type {
   BankAccount,
   CreateBankAccountInput,
 } from "@/types/compras";
 
-const COLLECTION_NAME = "bankAccounts";
+const TABLE_NAME = "bank_accounts";
 
-function toIsoDate(value: any): string {
-  return value?.toDate?.()?.toISOString?.() ?? "";
-}
-
-function normalizeBankAccount(
-  id: string,
-  data: Record<string, any>
-): BankAccount {
+function normalizeBankAccount(row: Record<string, unknown>): BankAccount {
   return {
-    id,
-    banco: data.banco ?? "",
-    nomeConta: data.nomeConta ?? "",
-    agencia: data.agencia ?? "",
-    numeroConta: data.numeroConta ?? "",
-    tipo: data.tipo ?? "corrente",
-    saldoInicial: Number(data.saldoInicial ?? 0),
-    ativo: Boolean(data.ativo ?? true),
-    createdAt: toIsoDate(data.createdAt),
-    updatedAt: toIsoDate(data.updatedAt),
+    id: toText(row.id),
+    banco: toText(row.banco),
+    nomeConta: toText(row.nome_conta),
+    agencia: toText(row.agencia),
+    numeroConta: toText(row.numero_conta),
+    tipo: (toText(row.tipo, "corrente") ?? "corrente") as BankAccount["tipo"],
+    saldoInicial: toNumber(row.saldo_inicial),
+    ativo: toBoolean(row.ativo, true),
+    createdAt: toIsoString(row.created_at as string | null | undefined),
+    updatedAt: toIsoString(row.updated_at as string | null | undefined),
   };
 }
 
 export async function listBankAccounts(): Promise<BankAccount[]> {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    orderBy("banco", "asc"),
-    orderBy("nomeConta", "asc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .order("banco", { ascending: true })
+    .order("nome_conta", { ascending: true });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((item) =>
-    normalizeBankAccount(item.id, item.data())
+  assertSupabaseSuccess(error, "Nao foi possivel listar as contas bancarias");
+  return (data ?? []).map((row) =>
+    normalizeBankAccount(row as Record<string, unknown>)
   );
 }
 
 export async function getBankAccountById(
   id: string
 ): Promise<BankAccount | null> {
-  const ref = doc(db, COLLECTION_NAME, id);
-  const snapshot = await getDoc(ref);
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
 
-  if (!snapshot.exists()) return null;
-
-  return normalizeBankAccount(snapshot.id, snapshot.data());
+  assertSupabaseSuccess(error, "Nao foi possivel buscar a conta bancaria");
+  return data ? normalizeBankAccount(data as Record<string, unknown>) : null;
 }
 
 export async function createBankAccount(input: CreateBankAccountInput) {
-  const ref = doc(collection(db, COLLECTION_NAME));
+  const supabase = getLegacySupabase();
+  const id = createLegacyId();
 
-  await setDoc(ref, {
+  const { error } = await supabase.from(TABLE_NAME).insert({
+    id,
     banco: input.banco,
-    nomeConta: input.nomeConta,
+    nome_conta: input.nomeConta,
     agencia: input.agencia ?? "",
-    numeroConta: input.numeroConta ?? "",
+    numero_conta: input.numeroConta ?? "",
     tipo: input.tipo,
-    saldoInicial: Number(input.saldoInicial ?? 0),
+    saldo_inicial: Number(input.saldoInicial ?? 0),
     ativo: input.ativo ?? true,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
   });
 
-  return ref.id;
+  assertSupabaseSuccess(error, "Nao foi possivel criar a conta bancaria");
+  return id;
 }
 
 export async function updateBankAccount(params: {
@@ -93,16 +86,19 @@ export async function updateBankAccount(params: {
   saldoInicial: number;
   ativo: boolean;
 }) {
-  const ref = doc(db, COLLECTION_NAME, params.id);
+  const supabase = getLegacySupabase();
+  const { error } = await supabase
+    .from(TABLE_NAME)
+    .update({
+      banco: params.banco,
+      nome_conta: params.nomeConta,
+      agencia: params.agencia ?? "",
+      numero_conta: params.numeroConta ?? "",
+      tipo: params.tipo,
+      saldo_inicial: Number(params.saldoInicial ?? 0),
+      ativo: params.ativo,
+    })
+    .eq("id", params.id);
 
-  await updateDoc(ref, {
-    banco: params.banco,
-    nomeConta: params.nomeConta,
-    agencia: params.agencia ?? "",
-    numeroConta: params.numeroConta ?? "",
-    tipo: params.tipo,
-    saldoInicial: Number(params.saldoInicial ?? 0),
-    ativo: params.ativo,
-    updatedAt: serverTimestamp(),
-  });
+  assertSupabaseSuccess(error, "Nao foi possivel atualizar a conta bancaria");
 }

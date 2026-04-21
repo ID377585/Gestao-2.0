@@ -76,15 +76,15 @@ export default function NotificationsModal({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="font-semibold text-gray-900 dark:text-slate-100">
-                    {n.titulo}
+                    {n.title}
                   </div>
-                  <div className="text-muted-foreground">{n.mensagem}</div>
+                  <div className="text-muted-foreground">{n.message}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {formatDate(n.createdAt)}
                   </div>
                 </div>
 
-                {!n.lida && (
+                {!n.read && (
                   <Button
                     size="sm"
                     variant="ghost"

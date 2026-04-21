@@ -1,7 +1,12 @@
 "use server";
 
+"use server";
+
 import { revalidatePath } from "next/cache";
-import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseAdminClient,
+  createSupabaseServerClient,
+} from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { Buffer } from "node:buffer";
 
@@ -982,7 +987,7 @@ export async function deleteTechnicalSheetImageAction(imagePath: string) {
 }
 
 export async function listTechnicalSheets() {
-  const supabase = createClient();
+  const supabase = createSupabaseServerClient();
 
   const { data, error } = await supabase
     .from("technical_sheets")

@@ -1,56 +1,46 @@
 import {
-  collection,
-  doc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase/client";
+  assertSupabaseSuccess,
+  getLegacySupabase,
+  toIsoString,
+  toText,
+} from "@/lib/legacy/supabase";
 import type { PurchaseAlertActionItem } from "@/types/compras";
 
-const COLLECTION_NAME = "purchaseActionQueue";
+const TABLE_NAME = "purchase_action_queue";
 
-function toIsoDate(value: any): string {
-  return value?.toDate?.()?.toISOString?.() ?? "";
-}
-
-function normalizeItem(
-  id: string,
-  data: Record<string, any>
-): PurchaseAlertActionItem {
+function normalizeItem(row: Record<string, unknown>): PurchaseAlertActionItem {
   return {
-    id,
-    alertId: data.alertId ?? "",
-    alertType: data.alertType ?? "fornecedor_critico",
-    title: data.title ?? "",
-    description: data.description ?? "",
-    severity: data.severity ?? "media",
-    supplierId: data.supplierId ?? "",
-    supplierName: data.supplierName ?? "",
-    purchaseOrderId: data.purchaseOrderId ?? "",
-    purchaseOrderNumber: data.purchaseOrderNumber ?? "",
-    status: data.status ?? "pendente",
-    observacaoTratativa: data.observacaoTratativa ?? "",
-    treatedAt: data.treatedAt ?? "",
-    treatedBy: data.treatedBy ?? "",
-    createdAt: toIsoDate(data.createdAt),
-    updatedAt: toIsoDate(data.updatedAt),
+    id: toText(row.id),
+    alertId: toText(row.alert_id),
+    alertType: (toText(row.alert_type, "fornecedor_critico") ??
+      "fornecedor_critico") as PurchaseAlertActionItem["alertType"],
+    title: toText(row.title),
+    description: toText(row.description),
+    severity: (toText(row.severity, "media") ??
+      "media") as PurchaseAlertActionItem["severity"],
+    supplierId: toText(row.supplier_id),
+    supplierName: toText(row.supplier_name),
+    purchaseOrderId: toText(row.purchase_order_id),
+    purchaseOrderNumber: toText(row.purchase_order_number),
+    status: (toText(row.status, "pendente") ??
+      "pendente") as PurchaseAlertActionItem["status"],
+    observacaoTratativa: toText(row.observacao_tratativa),
+    treatedAt: toText(row.treated_at),
+    treatedBy: toText(row.treated_by),
+    createdAt: toIsoString(row.created_at as string | null | undefined),
+    updatedAt: toIsoString(row.updated_at as string | null | undefined),
   };
 }
 
 export async function listPurchaseActionQueue() {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    orderBy("updatedAt", "desc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .order("updated_at", { ascending: false });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((item) => normalizeItem(item.id, item.data()));
+  assertSupabaseSuccess(error, "Nao foi possivel listar a fila de acoes");
+  return (data ?? []).map((row) => normalizeItem(row as Record<string, unknown>));
 }
 
 export async function upsertPurchaseActionItem(input: {
@@ -64,31 +54,30 @@ export async function upsertPurchaseActionItem(input: {
   purchaseOrderId?: string;
   purchaseOrderNumber?: string;
 }) {
-  const ref = doc(db, COLLECTION_NAME, input.alertId);
+  const supabase = getLegacySupabase();
+  const payload = {
+    id: input.alertId,
+    alert_id: input.alertId,
+    alert_type: input.alertType,
+    title: input.title,
+    description: input.description,
+    severity: input.severity,
+    supplier_id: input.supplierId ?? "",
+    supplier_name: input.supplierName ?? "",
+    purchase_order_id: input.purchaseOrderId ?? "",
+    purchase_order_number: input.purchaseOrderNumber ?? "",
+    status: "pendente",
+    observacao_tratativa: "",
+    treated_at: "",
+    treated_by: "",
+  };
 
-  await setDoc(
-    ref,
-    {
-      alertId: input.alertId,
-      alertType: input.alertType,
-      title: input.title,
-      description: input.description,
-      severity: input.severity,
-      supplierId: input.supplierId ?? "",
-      supplierName: input.supplierName ?? "",
-      purchaseOrderId: input.purchaseOrderId ?? "",
-      purchaseOrderNumber: input.purchaseOrderNumber ?? "",
-      status: "pendente",
-      observacaoTratativa: "",
-      treatedAt: "",
-      treatedBy: "",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+  const { error } = await supabase.from(TABLE_NAME).upsert(payload, {
+    onConflict: "id",
+  });
 
-  return ref.id;
+  assertSupabaseSuccess(error, "Nao foi possivel registrar o item da fila");
+  return input.alertId;
 }
 
 export async function markPurchaseActionAsDone(params: {
@@ -96,27 +85,31 @@ export async function markPurchaseActionAsDone(params: {
   observacaoTratativa?: string;
   treatedBy?: string;
 }) {
-  const ref = doc(db, COLLECTION_NAME, params.id);
+  const supabase = getLegacySupabase();
+  const { error } = await supabase
+    .from(TABLE_NAME)
+    .update({
+      status: "tratado",
+      observacao_tratativa: params.observacaoTratativa ?? "",
+      treated_at: new Date().toISOString(),
+      treated_by: params.treatedBy ?? "",
+    })
+    .eq("id", params.id);
 
-  await updateDoc(ref, {
-    status: "tratado",
-    observacaoTratativa: params.observacaoTratativa ?? "",
-    treatedAt: new Date().toISOString(),
-    treatedBy: params.treatedBy ?? "",
-    updatedAt: serverTimestamp(),
-  });
+  assertSupabaseSuccess(error, "Nao foi possivel concluir a acao");
 }
 
-export async function reopenPurchaseAction(params: {
-  id: string;
-}) {
-  const ref = doc(db, COLLECTION_NAME, params.id);
+export async function reopenPurchaseAction(params: { id: string }) {
+  const supabase = getLegacySupabase();
+  const { error } = await supabase
+    .from(TABLE_NAME)
+    .update({
+      status: "pendente",
+      observacao_tratativa: "",
+      treated_at: "",
+      treated_by: "",
+    })
+    .eq("id", params.id);
 
-  await updateDoc(ref, {
-    status: "pendente",
-    observacaoTratativa: "",
-    treatedAt: "",
-    treatedBy: "",
-    updatedAt: serverTimestamp(),
-  });
+  assertSupabaseSuccess(error, "Nao foi possivel reabrir a acao");
 }

@@ -1,79 +1,71 @@
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase/client";
+  assertSupabaseSuccess,
+  createLegacyId,
+  getLegacySupabase,
+  toBoolean,
+  toIsoString,
+  toText,
+} from "@/lib/legacy/supabase";
 import type {
   CostCenter,
   CreateCostCenterInput,
 } from "@/types/compras";
 
-const COLLECTION_NAME = "costCenters";
+const TABLE_NAME = "cost_centers";
 
-function toIsoDate(value: any): string {
-  return value?.toDate?.()?.toISOString?.() ?? "";
-}
-
-function normalizeCostCenter(
-  id: string,
-  data: Record<string, any>
-): CostCenter {
+function normalizeCostCenter(row: Record<string, unknown>): CostCenter {
   return {
-    id,
-    codigo: data.codigo ?? "",
-    nome: data.nome ?? "",
-    descricao: data.descricao ?? "",
-    ativo: Boolean(data.ativo ?? true),
-    createdAt: toIsoDate(data.createdAt),
-    updatedAt: toIsoDate(data.updatedAt),
+    id: toText(row.id),
+    codigo: toText(row.codigo),
+    nome: toText(row.nome),
+    descricao: toText(row.descricao),
+    ativo: toBoolean(row.ativo, true),
+    createdAt: toIsoString(row.created_at as string | null | undefined),
+    updatedAt: toIsoString(row.updated_at as string | null | undefined),
   };
 }
 
 export async function listCostCenters(): Promise<CostCenter[]> {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    orderBy("nome", "asc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .order("nome", { ascending: true });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((item) =>
-    normalizeCostCenter(item.id, item.data())
+  assertSupabaseSuccess(error, "Nao foi possivel listar os centros de custo");
+  return (data ?? []).map((row) =>
+    normalizeCostCenter(row as Record<string, unknown>)
   );
 }
 
 export async function getCostCenterById(
   id: string
 ): Promise<CostCenter | null> {
-  const ref = doc(db, COLLECTION_NAME, id);
-  const snapshot = await getDoc(ref);
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
 
-  if (!snapshot.exists()) return null;
-
-  return normalizeCostCenter(snapshot.id, snapshot.data());
+  assertSupabaseSuccess(error, "Nao foi possivel buscar o centro de custo");
+  return data ? normalizeCostCenter(data as Record<string, unknown>) : null;
 }
 
 export async function createCostCenter(input: CreateCostCenterInput) {
-  const ref = doc(collection(db, COLLECTION_NAME));
+  const supabase = getLegacySupabase();
+  const id = createLegacyId();
 
-  await setDoc(ref, {
+  const { error } = await supabase.from(TABLE_NAME).insert({
+    id,
     codigo: input.codigo,
     nome: input.nome,
     descricao: input.descricao ?? "",
     ativo: input.ativo ?? true,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
   });
 
-  return ref.id;
+  assertSupabaseSuccess(error, "Nao foi possivel criar o centro de custo");
+  return id;
 }
 
 export async function updateCostCenter(params: {
@@ -83,13 +75,16 @@ export async function updateCostCenter(params: {
   descricao?: string;
   ativo: boolean;
 }) {
-  const ref = doc(db, COLLECTION_NAME, params.id);
+  const supabase = getLegacySupabase();
+  const { error } = await supabase
+    .from(TABLE_NAME)
+    .update({
+      codigo: params.codigo,
+      nome: params.nome,
+      descricao: params.descricao ?? "",
+      ativo: params.ativo,
+    })
+    .eq("id", params.id);
 
-  await updateDoc(ref, {
-    codigo: params.codigo,
-    nome: params.nome,
-    descricao: params.descricao ?? "",
-    ativo: params.ativo,
-    updatedAt: serverTimestamp(),
-  });
+  assertSupabaseSuccess(error, "Nao foi possivel atualizar o centro de custo");
 }

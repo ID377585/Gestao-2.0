@@ -545,3 +545,15 @@ export interface SupplierScoreReviewItem {
   createdAt: string;
   updatedAt: string;
 }
+export interface BuyerMonthlyGoal {
+  id: string;
+  buyer: string;
+  referenceMonth: string; // YYYY-MM
+  targetContacts: number;
+  targetActionsCompleted: number;
+  targetReviewsDone: number;
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}

@@ -1,41 +1,31 @@
 import {
-  collection,
-  doc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  where,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase/client";
+  assertSupabaseSuccess,
+  createLegacyId,
+  getLegacySupabase,
+  toIsoString,
+  toText,
+} from "@/lib/legacy/supabase";
 import type {
   FinancialHistoryAction,
   FinancialHistoryEntry,
 } from "@/types/compras";
 
-const COLLECTION_NAME = "financialHistory";
+const TABLE_NAME = "financial_history";
 
-function toIsoDate(value: any): string {
-  return value?.toDate?.()?.toISOString?.() ?? "";
-}
-
-function normalizeEntry(
-  id: string,
-  data: Record<string, any>
-): FinancialHistoryEntry {
+function normalizeEntry(row: Record<string, unknown>): FinancialHistoryEntry {
   return {
-    id,
-    financeType: data.financeType ?? "pagar",
-    financeId: data.financeId ?? "",
-    action: data.action ?? "editado",
-    title: data.title ?? "",
-    description: data.description ?? "",
-    bankAccountName: data.bankAccountName ?? "",
-    reconciliationEntryId: data.reconciliationEntryId ?? "",
-    createdAt: toIsoDate(data.createdAt),
-    createdBy: data.createdBy ?? "",
+    id: toText(row.id),
+    financeType: (toText(row.finance_type, "pagar") ??
+      "pagar") as FinancialHistoryEntry["financeType"],
+    financeId: toText(row.finance_id),
+    action: (toText(row.action, "editado") ??
+      "editado") as FinancialHistoryAction,
+    title: toText(row.title),
+    description: toText(row.description),
+    bankAccountName: toText(row.bank_account_name),
+    reconciliationEntryId: toText(row.reconciliation_entry_id),
+    createdAt: toIsoString(row.created_at as string | null | undefined),
+    createdBy: toText(row.created_by),
   };
 }
 
@@ -49,35 +39,48 @@ export async function createFinancialHistoryEntry(input: {
   reconciliationEntryId?: string;
   createdBy?: string;
 }) {
-  const ref = doc(collection(db, COLLECTION_NAME));
+  const supabase = getLegacySupabase();
+  const id = createLegacyId();
 
-  await setDoc(ref, {
-    financeType: input.financeType,
-    financeId: input.financeId,
+  const { error } = await supabase.from(TABLE_NAME).insert({
+    id,
+    finance_type: input.financeType,
+    finance_id: input.financeId,
     action: input.action,
     title: input.title,
     description: input.description ?? "",
-    bankAccountName: input.bankAccountName ?? "",
-    reconciliationEntryId: input.reconciliationEntryId ?? "",
-    createdBy: input.createdBy ?? "",
-    createdAt: serverTimestamp(),
+    bank_account_name: input.bankAccountName ?? "",
+    reconciliation_entry_id: input.reconciliationEntryId ?? "",
+    created_by: input.createdBy ?? "",
   });
 
-  return ref.id;
+  assertSupabaseSuccess(error, "Nao foi possivel registrar o historico financeiro");
+  return id;
 }
 
 export async function listFinancialHistory(params: {
   financeType: "pagar" | "receber";
   financeId: string;
 }) {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    where("financeType", "==", params.financeType),
-    where("financeId", "==", params.financeId),
-    orderBy("createdAt", "desc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .eq("finance_type", params.financeType)
+    .eq("finance_id", params.financeId)
+    .order("created_at", { ascending: false });
 
-  const snapshot = await getDocs(q);
+  assertSupabaseSuccess(error, "Nao foi possivel listar o historico financeiro");
+  return (data ?? []).map((row) => normalizeEntry(row as Record<string, unknown>));
+}
 
-  return snapshot.docs.map((item) => normalizeEntry(item.id, item.data()));
+export async function listAllFinancialHistory() {
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  assertSupabaseSuccess(error, "Nao foi possivel listar a auditoria financeira");
+  return (data ?? []).map((row) => normalizeEntry(row as Record<string, unknown>));
 }

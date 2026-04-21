@@ -196,11 +196,13 @@ export function Topbar({ className }: TopbarProps) {
         "Notification" in window &&
         Notification.permission === "granted"
       ) {
-        newNotifications.forEach((item) => {
-          new Notification(item.titulo, {
-            body: item.mensagem,
+        if ("Notification" in window && Notification.permission === "granted") {
+            newNotifications.forEach((item) => {
+            new Notification(item.title ?? "Notificação", {
+              body: item.message ?? "",
+            });
           });
-        });
+          }
       }
 
       previousIdsRef.current = currentIds;
@@ -209,11 +211,13 @@ export function Topbar({ className }: TopbarProps) {
     return () => unsubscribe();
   }, [userNotificationId, settings.browserNotifications]);
 
-  const notificacoesNaoLidas = notificacoes.filter((n) => !n.lida).length;
+  const notificacoesNaoLidas = notificacoes.filter((n) => !n.read).length;
 
   const handleMarkAllAsRead = async () => {
+    if (!userNotificationId) return;
+
     try {
-      await markAllNotificationsAsRead(notificacoes);
+      await markAllNotificationsAsRead(userNotificationId);
     } catch (error) {
       console.error("Erro ao marcar notificações como lidas:", error);
     }
@@ -334,7 +338,7 @@ export function Topbar({ className }: TopbarProps) {
                         className="flex cursor-pointer flex-col items-start gap-1 py-3 focus:bg-gray-50 dark:focus:bg-slate-800"
                         onSelect={(event) => {
                           event.preventDefault();
-                          if (!n.lida) {
+                          if (!n.read) {
                             void handleMarkAsRead(n.id);
                           }
 
@@ -345,14 +349,14 @@ export function Topbar({ className }: TopbarProps) {
                       >
                         <div className="flex w-full items-center justify-between gap-3">
                           <span className="text-sm font-medium text-gray-900 dark:text-slate-100">
-                            {n.titulo}
+                            {n.title}
                           </span>
-                          {!n.lida && (
+                          {!n.read && (
                             <span className="h-2 w-2 rounded-full bg-blue-600" />
                           )}
                         </div>
                         <span className="text-xs text-gray-700 dark:text-slate-300">
-                          {n.mensagem}
+                          {n.message}
                         </span>
                         <span className="text-[11px] text-gray-500 dark:text-slate-400">
                           {formatDate(n.createdAt)}

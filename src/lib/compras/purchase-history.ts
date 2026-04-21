@@ -1,42 +1,32 @@
 import {
-  collection,
-  doc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  where,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase/client";
+  assertSupabaseSuccess,
+  createLegacyId,
+  getLegacySupabase,
+  toIsoString,
+  toText,
+} from "@/lib/legacy/supabase";
 import type {
   PurchaseHistoryAction,
   PurchaseHistoryEntry,
   PurchaseHistoryEntityType,
 } from "@/types/compras";
 
-const COLLECTION_NAME = "purchaseHistory";
+const TABLE_NAME = "purchase_history";
 
-function toIsoDate(value: any): string {
-  return value?.toDate?.()?.toISOString?.() ?? "";
-}
-
-function normalizeEntry(
-  id: string,
-  data: Record<string, any>
-): PurchaseHistoryEntry {
+function normalizeEntry(row: Record<string, unknown>): PurchaseHistoryEntry {
   return {
-    id,
-    entityType: data.entityType ?? "pedido",
-    entityId: data.entityId ?? "",
-    action: data.action ?? "pedido_criado",
-    title: data.title ?? "",
-    description: data.description ?? "",
-    relatedEntityType: data.relatedEntityType ?? "",
-    relatedEntityId: data.relatedEntityId ?? "",
-    createdAt: toIsoDate(data.createdAt),
-    createdBy: data.createdBy ?? "",
+    id: toText(row.id),
+    entityType: (toText(row.entity_type, "pedido") ??
+      "pedido") as PurchaseHistoryEntityType,
+    entityId: toText(row.entity_id),
+    action: (toText(row.action, "pedido_criado") ??
+      "pedido_criado") as PurchaseHistoryAction,
+    title: toText(row.title),
+    description: toText(row.description),
+    relatedEntityType: toText(row.related_entity_type) as PurchaseHistoryEntityType,
+    relatedEntityId: toText(row.related_entity_id),
+    createdAt: toIsoString(row.created_at as string | null | undefined),
+    createdBy: toText(row.created_by),
   };
 }
 
@@ -50,46 +40,48 @@ export async function createPurchaseHistoryEntry(input: {
   relatedEntityId?: string;
   createdBy?: string;
 }) {
-  const ref = doc(collection(db, COLLECTION_NAME));
+  const supabase = getLegacySupabase();
+  const id = createLegacyId();
 
-  await setDoc(ref, {
-    entityType: input.entityType,
-    entityId: input.entityId,
+  const { error } = await supabase.from(TABLE_NAME).insert({
+    id,
+    entity_type: input.entityType,
+    entity_id: input.entityId,
     action: input.action,
     title: input.title,
     description: input.description ?? "",
-    relatedEntityType: input.relatedEntityType ?? "",
-    relatedEntityId: input.relatedEntityId ?? "",
-    createdBy: input.createdBy ?? "",
-    createdAt: serverTimestamp(),
+    related_entity_type: input.relatedEntityType ?? "",
+    related_entity_id: input.relatedEntityId ?? "",
+    created_by: input.createdBy ?? "",
   });
 
-  return ref.id;
+  assertSupabaseSuccess(error, "Nao foi possivel registrar o historico de compras");
+  return id;
 }
 
 export async function listPurchaseHistory(params: {
   entityType: PurchaseHistoryEntityType;
   entityId: string;
 }) {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    where("entityType", "==", params.entityType),
-    where("entityId", "==", params.entityId),
-    orderBy("createdAt", "desc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .eq("entity_type", params.entityType)
+    .eq("entity_id", params.entityId)
+    .order("created_at", { ascending: false });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((item) => normalizeEntry(item.id, item.data()));
+  assertSupabaseSuccess(error, "Nao foi possivel listar o historico de compras");
+  return (data ?? []).map((row) => normalizeEntry(row as Record<string, unknown>));
 }
 
 export async function listAllPurchaseHistory() {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    orderBy("createdAt", "desc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .order("created_at", { ascending: false });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((item) => normalizeEntry(item.id, item.data()));
+  assertSupabaseSuccess(error, "Nao foi possivel listar a auditoria de compras");
+  return (data ?? []).map((row) => normalizeEntry(row as Record<string, unknown>));
 }

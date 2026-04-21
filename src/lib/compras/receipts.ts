@@ -1,17 +1,12 @@
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  serverTimestamp,
-  where,
-  writeBatch,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase/client";
+  assertSupabaseSuccess,
+  createLegacyId,
+  getLegacySupabase,
+  toBoolean,
+  toIsoString,
+  toNumber,
+  toText,
+} from "@/lib/legacy/supabase";
 import { applyPurchaseReceiptToInventory } from "@/lib/estoque/inventory";
 import {
   getPurchaseOrderById,
@@ -25,80 +20,69 @@ import type {
   PurchaseOrderStatus,
 } from "@/types/compras";
 
-const COLLECTION_NAME = "goodsReceipts";
-
-function toIsoDate(value: any): string {
-  return value?.toDate?.()?.toISOString?.() ?? "";
-}
+const RECEIPTS_TABLE = "goods_receipts";
+const RECEIPT_ITEMS_TABLE = "goods_receipt_items";
 
 function generateReceiptNumber() {
   return `RC-${Date.now()}`;
 }
 
-function normalizeReceipt(id: string, data: Record<string, any>): GoodsReceipt {
+function normalizeReceipt(row: Record<string, unknown>): GoodsReceipt {
   return {
-    id,
-    numero: data.numero ?? "",
-    purchaseOrderId: data.purchaseOrderId ?? "",
-    purchaseOrderNumber: data.purchaseOrderNumber ?? "",
-    supplierId: data.supplierId ?? "",
-    supplierName: data.supplierName ?? "",
-    dataRecebimento: data.dataRecebimento ?? "",
-    responsavelId: data.responsavelId ?? "",
-    responsavelNome: data.responsavelNome ?? "",
-    status: data.status ?? "pendente",
-    observacoes: data.observacoes ?? "",
-    totalItens: Number(data.totalItens ?? 0),
-    valorTotalRecebido: Number(data.valorTotalRecebido ?? 0),
-    inventoryApplied: Boolean(data.inventoryApplied ?? false),
-    inventoryPendingLink: Boolean(data.inventoryPendingLink ?? false),
-    payableCreated: Boolean(data.payableCreated ?? false),
-    finalizedAt: toIsoDate(data.finalizedAt),
-    createdAt: toIsoDate(data.createdAt),
-    updatedAt: toIsoDate(data.updatedAt),
+    id: toText(row.id),
+    numero: toText(row.numero),
+    purchaseOrderId: toText(row.purchase_order_id),
+    purchaseOrderNumber: toText(row.purchase_order_number),
+    supplierId: toText(row.supplier_id),
+    supplierName: toText(row.supplier_name),
+    dataRecebimento: toText(row.data_recebimento),
+    responsavelId: toText(row.responsavel_id),
+    responsavelNome: toText(row.responsavel_nome),
+    status: (toText(row.status, "pendente") ?? "pendente") as GoodsReceipt["status"],
+    observacoes: toText(row.observacoes),
+    totalItens: toNumber(row.total_itens),
+    valorTotalRecebido: toNumber(row.valor_total_recebido),
+    inventoryApplied: toBoolean(row.inventory_applied, false),
+    inventoryPendingLink: toBoolean(row.inventory_pending_link, false),
+    payableCreated: toBoolean(row.payable_created, false),
+    finalizedAt: toIsoString(row.finalized_at as string | null | undefined),
+    createdAt: toIsoString(row.created_at as string | null | undefined),
+    updatedAt: toIsoString(row.updated_at as string | null | undefined),
   };
 }
 
-function normalizeReceiptItem(
-  id: string,
-  receiptId: string,
-  data: Record<string, any>
-): GoodsReceiptItem {
+function normalizeReceiptItem(row: Record<string, unknown>): GoodsReceiptItem {
   return {
-    id,
-    receiptId,
-    productId: data.productId ?? "",
-    produtoNome: data.produtoNome ?? "",
-    unidade: data.unidade ?? "",
-    quantidadePedido: Number(data.quantidadePedido ?? 0),
-    quantidadeRecebida: Number(data.quantidadeRecebida ?? 0),
-    valorUnitarioPedido: Number(data.valorUnitarioPedido ?? 0),
-    valorUnitarioReal: Number(
-      data.valorUnitarioReal ?? data.valorUnitarioPedido ?? 0
-    ),
-    lote: data.lote ?? "",
-    validade: data.validade ?? "",
-    divergencia: Boolean(data.divergencia ?? false),
-    motivoDivergencia: data.motivoDivergencia ?? "",
-    observacao: data.observacao ?? "",
+    id: toText(row.id),
+    receiptId: toText(row.receipt_id),
+    productId: toText(row.product_id),
+    produtoNome: toText(row.produto_nome),
+    unidade: toText(row.unidade),
+    quantidadePedido: toNumber(row.quantidade_pedido),
+    quantidadeRecebida: toNumber(row.quantidade_recebida),
+    valorUnitarioPedido: toNumber(row.valor_unitario_pedido),
+    valorUnitarioReal: toNumber(row.valor_unitario_real),
+    lote: toText(row.lote),
+    validade: toText(row.validade),
+    divergencia: toBoolean(row.divergencia, false),
+    motivoDivergencia: toText(row.motivo_divergencia),
+    observacao: toText(row.observacao),
   };
 }
 
 async function findReceiptByOrderId(
   purchaseOrderId: string
 ): Promise<GoodsReceipt | null> {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    where("purchaseOrderId", "==", purchaseOrderId),
-    limit(1)
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(RECEIPTS_TABLE)
+    .select("*")
+    .eq("purchase_order_id", purchaseOrderId)
+    .limit(1)
+    .maybeSingle();
 
-  const snapshot = await getDocs(q);
-
-  if (snapshot.empty) return null;
-
-  const first = snapshot.docs[0];
-  return normalizeReceipt(first.id, first.data());
+  assertSupabaseSuccess(error, "Nao foi possivel buscar o recebimento do pedido");
+  return data ? normalizeReceipt(data as Record<string, unknown>) : null;
 }
 
 function getOrderStatusFromReceiptItems(
@@ -112,10 +96,7 @@ function getOrderStatusFromReceiptItems(
 
   if (allFullyReceived) return "recebido";
 
-  const anyReceived = items.some(
-    (item) => Number(item.quantidadeRecebida) > 0
-  );
-
+  const anyReceived = items.some((item) => Number(item.quantidadeRecebida) > 0);
   if (anyReceived) return "parcial";
 
   return "aberto";
@@ -139,102 +120,105 @@ export async function createReceiptFromOrder(
   const order = await getPurchaseOrderById(input.purchaseOrderId);
 
   if (!order) {
-    throw new Error("Pedido de compra não encontrado.");
+    throw new Error("Pedido de compra nao encontrado.");
   }
 
   const orderItems = await listPurchaseOrderItems(order.id);
 
   if (!orderItems.length) {
-    throw new Error("O pedido não possui itens.");
+    throw new Error("O pedido nao possui itens.");
   }
 
-  const receiptRef = doc(collection(db, COLLECTION_NAME));
-  const receiptId = receiptRef.id;
-  const batch = writeBatch(db);
+  const supabase = getLegacySupabase();
+  const receiptId = createLegacyId();
 
-  batch.set(receiptRef, {
+  const { error: receiptError } = await supabase.from(RECEIPTS_TABLE).insert({
+    id: receiptId,
     numero: generateReceiptNumber(),
-    purchaseOrderId: order.id,
-    purchaseOrderNumber: order.numero,
-    supplierId: order.supplierId,
-    supplierName: order.supplierName,
-    dataRecebimento: new Date().toISOString(),
-    responsavelId: input.responsavelId.trim(),
-    responsavelNome: input.responsavelNome.trim(),
+    purchase_order_id: order.id,
+    purchase_order_number: order.numero,
+    supplier_id: order.supplierId,
+    supplier_name: order.supplierName,
+    data_recebimento: new Date().toISOString(),
+    responsavel_id: input.responsavelId.trim(),
+    responsavel_nome: input.responsavelNome.trim(),
     status: "pendente",
     observacoes: input.observacoes?.trim() ?? "",
-    totalItens: orderItems.length,
-    valorTotalRecebido: 0,
-    inventoryApplied: false,
-    inventoryPendingLink: false,
-    payableCreated: false,
-    finalizedAt: null,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    total_itens: orderItems.length,
+    valor_total_recebido: 0,
+    inventory_applied: false,
+    inventory_pending_link: false,
+    payable_created: false,
+    finalized_at: null,
   });
 
-  orderItems.forEach((item) => {
-    const itemRef = doc(collection(db, COLLECTION_NAME, receiptId, "items"));
+  assertSupabaseSuccess(receiptError, "Nao foi possivel iniciar o recebimento");
 
-    batch.set(itemRef, {
-      productId: item.productId?.trim() ?? "",
-      produtoNome: item.produtoNome.trim(),
-      unidade: item.unidade.trim(),
-      quantidadePedido: Number(item.quantidade),
-      quantidadeRecebida: 0,
-      valorUnitarioPedido: Number(item.valorUnitario),
-      valorUnitarioReal: Number(item.valorUnitario),
-      lote: "",
-      validade: "",
-      divergencia: false,
-      motivoDivergencia: "",
-      observacao: item.observacao?.trim() ?? "",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  });
+  const itemsPayload = orderItems.map((item) => ({
+    id: createLegacyId(),
+    receipt_id: receiptId,
+    product_id: item.productId?.trim() ?? "",
+    produto_nome: item.produtoNome.trim(),
+    unidade: item.unidade.trim(),
+    quantidade_pedido: Number(item.quantidade),
+    quantidade_recebida: 0,
+    valor_unitario_pedido: Number(item.valorUnitario),
+    valor_unitario_real: Number(item.valorUnitario),
+    lote: "",
+    validade: "",
+    divergencia: false,
+    motivo_divergencia: "",
+    observacao: item.observacao?.trim() ?? "",
+  }));
 
-  await batch.commit();
+  const { error: itemsError } = await supabase
+    .from(RECEIPT_ITEMS_TABLE)
+    .insert(itemsPayload);
 
+  assertSupabaseSuccess(itemsError, "Nao foi possivel salvar os itens do recebimento");
   return receiptId;
 }
 
 export async function listGoodsReceipts(): Promise<GoodsReceipt[]> {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    orderBy("createdAt", "desc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(RECEIPTS_TABLE)
+    .select("*")
+    .order("created_at", { ascending: false });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((docItem) =>
-    normalizeReceipt(docItem.id, docItem.data())
+  assertSupabaseSuccess(error, "Nao foi possivel listar os recebimentos");
+  return (data ?? []).map((row) =>
+    normalizeReceipt(row as Record<string, unknown>)
   );
 }
 
 export async function getGoodsReceiptById(
   id: string
 ): Promise<GoodsReceipt | null> {
-  const ref = doc(db, COLLECTION_NAME, id);
-  const snapshot = await getDoc(ref);
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(RECEIPTS_TABLE)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
 
-  if (!snapshot.exists()) return null;
-
-  return normalizeReceipt(snapshot.id, snapshot.data());
+  assertSupabaseSuccess(error, "Nao foi possivel buscar o recebimento");
+  return data ? normalizeReceipt(data as Record<string, unknown>) : null;
 }
 
 export async function listGoodsReceiptItems(
   receiptId: string
 ): Promise<GoodsReceiptItem[]> {
-  const q = query(
-    collection(db, COLLECTION_NAME, receiptId, "items"),
-    orderBy("produtoNome", "asc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(RECEIPT_ITEMS_TABLE)
+    .select("*")
+    .eq("receipt_id", receiptId)
+    .order("produto_nome", { ascending: true });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((docItem) =>
-    normalizeReceiptItem(docItem.id, receiptId, docItem.data())
+  assertSupabaseSuccess(error, "Nao foi possivel listar os itens do recebimento");
+  return (data ?? []).map((row) =>
+    normalizeReceiptItem(row as Record<string, unknown>)
   );
 }
 
@@ -250,19 +234,19 @@ export async function finalizeGoodsReceipt(
   const receipt = await getGoodsReceiptById(input.receiptId);
 
   if (!receipt) {
-    throw new Error("Recebimento não encontrado.");
+    throw new Error("Recebimento nao encontrado.");
   }
 
   const order = await getPurchaseOrderById(receipt.purchaseOrderId);
 
   if (!order) {
-    throw new Error("Pedido vinculado ao recebimento não encontrado.");
+    throw new Error("Pedido vinculado ao recebimento nao encontrado.");
   }
 
   const currentItems = await listGoodsReceiptItems(receipt.id);
 
   if (!currentItems.length) {
-    throw new Error("O recebimento não possui itens.");
+    throw new Error("O recebimento nao possui itens.");
   }
 
   const inputMap = new Map(input.items.map((item) => [item.id, item]));
@@ -279,11 +263,11 @@ export async function finalizeGoodsReceipt(
     );
 
     if (quantidadeRecebida < 0) {
-      throw new Error("Quantidade recebida não pode ser negativa.");
+      throw new Error("Quantidade recebida nao pode ser negativa.");
     }
 
     if (valorUnitarioReal < 0) {
-      throw new Error("Valor unitário real não pode ser negativo.");
+      throw new Error("Valor unitario real nao pode ser negativo.");
     }
 
     const motivoDivergencia = incoming?.motivoDivergencia?.trim() ?? "";
@@ -326,15 +310,15 @@ export async function finalizeGoodsReceipt(
 export async function listGoodsReceiptsByOrderId(
   purchaseOrderId: string
 ): Promise<GoodsReceipt[]> {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    where("purchaseOrderId", "==", purchaseOrderId),
-    orderBy("createdAt", "desc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(RECEIPTS_TABLE)
+    .select("*")
+    .eq("purchase_order_id", purchaseOrderId)
+    .order("created_at", { ascending: false });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((docItem) =>
-    normalizeReceipt(docItem.id, docItem.data())
+  assertSupabaseSuccess(error, "Nao foi possivel listar os recebimentos do pedido");
+  return (data ?? []).map((row) =>
+    normalizeReceipt(row as Record<string, unknown>)
   );
 }

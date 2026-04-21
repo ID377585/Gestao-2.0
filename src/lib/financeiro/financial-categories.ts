@@ -1,86 +1,78 @@
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase/client";
+  assertSupabaseSuccess,
+  createLegacyId,
+  getLegacySupabase,
+  toBoolean,
+  toIsoString,
+  toText,
+} from "@/lib/legacy/supabase";
 import type {
   CreateFinancialCategoryInput,
   FinancialCategory,
 } from "@/types/compras";
 
-const COLLECTION_NAME = "financialCategories";
+const TABLE_NAME = "financial_categories";
 
-function toIsoDate(value: any): string {
-  return value?.toDate?.()?.toISOString?.() ?? "";
-}
-
-function normalizeCategory(
-  id: string,
-  data: Record<string, any>
-): FinancialCategory {
+function normalizeCategory(row: Record<string, unknown>): FinancialCategory {
   return {
-    id,
-    codigo: data.codigo ?? "",
-    grupo: data.grupo ?? "",
-    categoria: data.categoria ?? "",
-    subcategoria: data.subcategoria ?? "",
-    tipo: data.tipo ?? "despesa",
-    ativo: Boolean(data.ativo ?? true),
-    createdAt: toIsoDate(data.createdAt),
-    updatedAt: toIsoDate(data.updatedAt),
+    id: toText(row.id),
+    codigo: toText(row.codigo),
+    grupo: toText(row.grupo),
+    categoria: toText(row.categoria),
+    subcategoria: toText(row.subcategoria),
+    tipo: (toText(row.tipo, "despesa") ?? "despesa") as FinancialCategory["tipo"],
+    ativo: toBoolean(row.ativo, true),
+    createdAt: toIsoString(row.created_at as string | null | undefined),
+    updatedAt: toIsoString(row.updated_at as string | null | undefined),
   };
 }
 
 export async function listFinancialCategories(): Promise<FinancialCategory[]> {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    orderBy("grupo", "asc"),
-    orderBy("categoria", "asc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .order("grupo", { ascending: true })
+    .order("categoria", { ascending: true });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((item) =>
-    normalizeCategory(item.id, item.data())
+  assertSupabaseSuccess(error, "Nao foi possivel listar as categorias financeiras");
+  return (data ?? []).map((row) =>
+    normalizeCategory(row as Record<string, unknown>)
   );
 }
 
 export async function getFinancialCategoryById(
   id: string
 ): Promise<FinancialCategory | null> {
-  const ref = doc(db, COLLECTION_NAME, id);
-  const snapshot = await getDoc(ref);
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
 
-  if (!snapshot.exists()) return null;
-
-  return normalizeCategory(snapshot.id, snapshot.data());
+  assertSupabaseSuccess(error, "Nao foi possivel buscar a categoria financeira");
+  return data ? normalizeCategory(data as Record<string, unknown>) : null;
 }
 
 export async function createFinancialCategory(
   input: CreateFinancialCategoryInput
 ) {
-  const ref = doc(collection(db, COLLECTION_NAME));
+  const supabase = getLegacySupabase();
+  const id = createLegacyId();
 
-  await setDoc(ref, {
+  const { error } = await supabase.from(TABLE_NAME).insert({
+    id,
     codigo: input.codigo,
     grupo: input.grupo,
     categoria: input.categoria,
     subcategoria: input.subcategoria ?? "",
     tipo: input.tipo,
     ativo: input.ativo ?? true,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
   });
 
-  return ref.id;
+  assertSupabaseSuccess(error, "Nao foi possivel criar a categoria financeira");
+  return id;
 }
 
 export async function updateFinancialCategory(params: {
@@ -92,15 +84,18 @@ export async function updateFinancialCategory(params: {
   tipo: "receita" | "despesa" | "custo";
   ativo: boolean;
 }) {
-  const ref = doc(db, COLLECTION_NAME, params.id);
+  const supabase = getLegacySupabase();
+  const { error } = await supabase
+    .from(TABLE_NAME)
+    .update({
+      codigo: params.codigo,
+      grupo: params.grupo,
+      categoria: params.categoria,
+      subcategoria: params.subcategoria ?? "",
+      tipo: params.tipo,
+      ativo: params.ativo,
+    })
+    .eq("id", params.id);
 
-  await updateDoc(ref, {
-    codigo: params.codigo,
-    grupo: params.grupo,
-    categoria: params.categoria,
-    subcategoria: params.subcategoria ?? "",
-    tipo: params.tipo,
-    ativo: params.ativo,
-    updatedAt: serverTimestamp(),
-  });
+  assertSupabaseSuccess(error, "Nao foi possivel atualizar a categoria financeira");
 }

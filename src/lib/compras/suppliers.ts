@@ -1,50 +1,46 @@
 import {
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase/client";
+  assertSupabaseSuccess,
+  createLegacyId,
+  getLegacySupabase,
+  toBoolean,
+  toIsoString,
+  toText,
+} from "@/lib/legacy/supabase";
 import type {
   CreateSupplierInput,
   Supplier,
   UpdateSupplierInput,
 } from "@/types/compras";
 
-const COLLECTION_NAME = "suppliers";
+const TABLE_NAME = "suppliers";
 
-function normalizeSupplier(
-  id: string,
-  data: Record<string, any>
-): Supplier {
+function normalizeSupplier(row: Record<string, unknown>): Supplier {
   return {
-    id,
-    razaoSocial: data.razaoSocial ?? "",
-    nomeFantasia: data.nomeFantasia ?? "",
-    cnpj: data.cnpj ?? "",
-    contato: data.contato ?? "",
-    telefone: data.telefone ?? "",
-    email: data.email ?? "",
-    endereco: data.endereco ?? "",
-    observacoes: data.observacoes ?? "",
-    ativo: data.ativo ?? true,
-    createdAt: data.createdAt?.toDate?.()?.toISOString?.() ?? "",
-    updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() ?? "",
+    id: toText(row.id),
+    razaoSocial: toText(row.razao_social),
+    nomeFantasia: toText(row.nome_fantasia),
+    cnpj: toText(row.cnpj),
+    contato: toText(row.contato),
+    telefone: toText(row.telefone),
+    email: toText(row.email),
+    endereco: toText(row.endereco),
+    observacoes: toText(row.observacoes),
+    ativo: toBoolean(row.ativo, true),
+    createdAt: toIsoString(row.created_at as string | null | undefined),
+    updatedAt: toIsoString(row.updated_at as string | null | undefined),
   };
 }
 
 export async function createSupplier(
   input: CreateSupplierInput
 ): Promise<string> {
-  const payload = {
-    razaoSocial: input.razaoSocial.trim(),
-    nomeFantasia: input.nomeFantasia?.trim() ?? "",
+  const supabase = getLegacySupabase();
+  const id = createLegacyId();
+
+  const { error } = await supabase.from(TABLE_NAME).insert({
+    id,
+    razao_social: input.razaoSocial.trim(),
+    nome_fantasia: input.nomeFantasia?.trim() ?? "",
     cnpj: input.cnpj?.trim() ?? "",
     contato: input.contato?.trim() ?? "",
     telefone: input.telefone?.trim() ?? "",
@@ -52,58 +48,63 @@ export async function createSupplier(
     endereco: input.endereco?.trim() ?? "",
     observacoes: input.observacoes?.trim() ?? "",
     ativo: input.ativo ?? true,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
+  });
 
-  const ref = await addDoc(collection(db, COLLECTION_NAME), payload);
-  return ref.id;
+  assertSupabaseSuccess(error, "Nao foi possivel criar o fornecedor");
+  return id;
 }
 
 export async function listSuppliers(): Promise<Supplier[]> {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    orderBy("razaoSocial", "asc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .order("razao_social", { ascending: true });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((docItem) =>
-    normalizeSupplier(docItem.id, docItem.data())
+  assertSupabaseSuccess(error, "Nao foi possivel listar os fornecedores");
+  return (data ?? []).map((row) =>
+    normalizeSupplier(row as Record<string, unknown>)
   );
 }
 
 export async function getSupplierById(id: string): Promise<Supplier | null> {
-  const ref = doc(db, COLLECTION_NAME, id);
-  const snapshot = await getDoc(ref);
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
 
-  if (!snapshot.exists()) return null;
-
-  return normalizeSupplier(snapshot.id, snapshot.data());
+  assertSupabaseSuccess(error, "Nao foi possivel buscar o fornecedor");
+  return data ? normalizeSupplier(data as Record<string, unknown>) : null;
 }
 
 export async function updateSupplier(
   id: string,
   input: UpdateSupplierInput
 ): Promise<void> {
-  const ref = doc(db, COLLECTION_NAME, id);
+  const supabase = getLegacySupabase();
+  const payload: Record<string, unknown> = {};
 
-  const payload = {
-    ...input,
-    updatedAt: serverTimestamp(),
-  };
+  if (input.razaoSocial !== undefined) payload.razao_social = input.razaoSocial.trim();
+  if (input.nomeFantasia !== undefined) payload.nome_fantasia = input.nomeFantasia.trim();
+  if (input.cnpj !== undefined) payload.cnpj = input.cnpj.trim();
+  if (input.contato !== undefined) payload.contato = input.contato.trim();
+  if (input.telefone !== undefined) payload.telefone = input.telefone.trim();
+  if (input.email !== undefined) payload.email = input.email.trim();
+  if (input.endereco !== undefined) payload.endereco = input.endereco.trim();
+  if (input.observacoes !== undefined) payload.observacoes = input.observacoes.trim();
+  if (input.ativo !== undefined) payload.ativo = input.ativo;
 
-  await updateDoc(ref, payload);
+  const { error } = await supabase.from(TABLE_NAME).update(payload).eq("id", id);
+  assertSupabaseSuccess(error, "Nao foi possivel atualizar o fornecedor");
 }
 
 export async function toggleSupplierStatus(
   id: string,
   ativo: boolean
 ): Promise<void> {
-  const ref = doc(db, COLLECTION_NAME, id);
-
-  await updateDoc(ref, {
-    ativo,
-    updatedAt: serverTimestamp(),
-  });
+  const supabase = getLegacySupabase();
+  const { error } = await supabase.from(TABLE_NAME).update({ ativo }).eq("id", id);
+  assertSupabaseSuccess(error, "Nao foi possivel atualizar o status do fornecedor");
 }

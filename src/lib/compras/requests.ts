@@ -1,18 +1,13 @@
 "use client";
 
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-  writeBatch,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase/client";
+  assertSupabaseSuccess,
+  createLegacyId,
+  getLegacySupabase,
+  toIsoString,
+  toNumber,
+  toText,
+} from "@/lib/legacy/supabase";
 import type {
   CreatePurchaseRequestInput,
   PurchaseRequest,
@@ -20,42 +15,37 @@ import type {
   PurchaseRequestStatus,
 } from "@/types/compras";
 
-const COLLECTION_NAME = "purchaseRequests";
+const REQUESTS_TABLE = "purchase_requests";
+const REQUEST_ITEMS_TABLE = "purchase_request_items";
 
-function toIsoDate(value: any): string {
-  return value?.toDate?.()?.toISOString?.() ?? "";
-}
-
-function normalizeRequest(id: string, data: Record<string, any>): PurchaseRequest {
+function normalizeRequest(row: Record<string, unknown>): PurchaseRequest {
   return {
-    id,
-    numero: data.numero ?? "",
-    setorSolicitante: data.setorSolicitante ?? "",
-    solicitanteId: data.solicitanteId ?? "",
-    solicitanteNome: data.solicitanteNome ?? "",
-    dataSolicitacao: data.dataSolicitacao ?? "",
-    prioridade: data.prioridade ?? "media",
-    status: data.status ?? "pendente",
-    observacoes: data.observacoes ?? "",
-    totalItens: data.totalItens ?? 0,
-    createdAt: toIsoDate(data.createdAt),
-    updatedAt: toIsoDate(data.updatedAt),
+    id: toText(row.id),
+    numero: toText(row.numero),
+    setorSolicitante: toText(row.setor_solicitante),
+    solicitanteId: toText(row.solicitante_id),
+    solicitanteNome: toText(row.solicitante_nome),
+    dataSolicitacao: toText(row.data_solicitacao),
+    prioridade: (toText(row.prioridade, "media") ?? "media") as PurchaseRequest["prioridade"],
+    status: (toText(row.status, "pendente") ?? "pendente") as PurchaseRequestStatus,
+    observacoes: toText(row.observacoes),
+    totalItens: toNumber(row.total_itens),
+    createdAt: toIsoString(row.created_at as string | null | undefined),
+    updatedAt: toIsoString(row.updated_at as string | null | undefined),
   };
 }
 
 function normalizeRequestItem(
-  id: string,
-  requestId: string,
-  data: Record<string, any>
+  row: Record<string, unknown>
 ): PurchaseRequestItem {
   return {
-    id,
-    requestId,
-    productId: data.productId ?? "",
-    produtoNome: data.produtoNome ?? "",
-    unidade: data.unidade ?? "",
-    quantidade: data.quantidade ?? 0,
-    observacao: data.observacao ?? "",
+    id: toText(row.id),
+    requestId: toText(row.request_id),
+    productId: toText(row.product_id),
+    produtoNome: toText(row.produto_nome),
+    unidade: toText(row.unidade),
+    quantidade: toNumber(row.quantidade),
+    observacao: toText(row.observacao),
   };
 }
 
@@ -67,84 +57,83 @@ export async function createPurchaseRequest(
   input: CreatePurchaseRequestInput
 ): Promise<string> {
   if (!input.items.length) {
-    throw new Error("A solicitação precisa ter ao menos um item.");
+    throw new Error("A solicitacao precisa ter ao menos um item.");
   }
 
-  const requestRef = doc(collection(db, COLLECTION_NAME));
-  const batch = writeBatch(db);
+  const supabase = getLegacySupabase();
+  const requestId = createLegacyId();
 
-  const numero = generateRequestNumber();
-  const requestId = requestRef.id;
-
-  batch.set(requestRef, {
-    numero,
-    setorSolicitante: input.setorSolicitante.trim(),
-    solicitanteId: input.solicitanteId.trim(),
-    solicitanteNome: input.solicitanteNome.trim(),
-    dataSolicitacao: new Date().toISOString(),
+  const { error: requestError } = await supabase.from(REQUESTS_TABLE).insert({
+    id: requestId,
+    numero: generateRequestNumber(),
+    setor_solicitante: input.setorSolicitante.trim(),
+    solicitante_id: input.solicitanteId.trim(),
+    solicitante_nome: input.solicitanteNome.trim(),
+    data_solicitacao: new Date().toISOString(),
     prioridade: input.prioridade,
     status: "pendente",
     observacoes: input.observacoes?.trim() ?? "",
-    totalItens: input.items.length,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    total_itens: input.items.length,
   });
 
-  input.items.forEach((item) => {
-    const itemRef = doc(collection(db, COLLECTION_NAME, requestId, "items"));
+  assertSupabaseSuccess(requestError, "Nao foi possivel criar a solicitacao");
 
-    batch.set(itemRef, {
-      productId: item.productId?.trim() ?? "",
-      produtoNome: item.produtoNome.trim(),
-      unidade: item.unidade.trim(),
-      quantidade: Number(item.quantidade),
-      observacao: item.observacao?.trim() ?? "",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  });
+  const itemsPayload = input.items.map((item) => ({
+    id: createLegacyId(),
+    request_id: requestId,
+    product_id: item.productId?.trim() ?? "",
+    produto_nome: item.produtoNome.trim(),
+    unidade: item.unidade.trim(),
+    quantidade: Number(item.quantidade),
+    observacao: item.observacao?.trim() ?? "",
+  }));
 
-  await batch.commit();
+  const { error: itemsError } = await supabase
+    .from(REQUEST_ITEMS_TABLE)
+    .insert(itemsPayload);
 
+  assertSupabaseSuccess(itemsError, "Nao foi possivel salvar os itens da solicitacao");
   return requestId;
 }
 
 export async function listPurchaseRequests(): Promise<PurchaseRequest[]> {
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    orderBy("createdAt", "desc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(REQUESTS_TABLE)
+    .select("*")
+    .order("created_at", { ascending: false });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((docItem) =>
-    normalizeRequest(docItem.id, docItem.data())
-  );
+  assertSupabaseSuccess(error, "Nao foi possivel listar as solicitacoes");
+  return (data ?? []).map((row) => normalizeRequest(row as Record<string, unknown>));
 }
 
 export async function getPurchaseRequestById(
   id: string
 ): Promise<PurchaseRequest | null> {
-  const ref = doc(db, COLLECTION_NAME, id);
-  const snapshot = await getDoc(ref);
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(REQUESTS_TABLE)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
 
-  if (!snapshot.exists()) return null;
-
-  return normalizeRequest(snapshot.id, snapshot.data());
+  assertSupabaseSuccess(error, "Nao foi possivel buscar a solicitacao");
+  return data ? normalizeRequest(data as Record<string, unknown>) : null;
 }
 
 export async function listPurchaseRequestItems(
   requestId: string
 ): Promise<PurchaseRequestItem[]> {
-  const q = query(
-    collection(db, COLLECTION_NAME, requestId, "items"),
-    orderBy("produtoNome", "asc")
-  );
+  const supabase = getLegacySupabase();
+  const { data, error } = await supabase
+    .from(REQUEST_ITEMS_TABLE)
+    .select("*")
+    .eq("request_id", requestId)
+    .order("produto_nome", { ascending: true });
 
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((docItem) =>
-    normalizeRequestItem(docItem.id, requestId, docItem.data())
+  assertSupabaseSuccess(error, "Nao foi possivel listar os itens da solicitacao");
+  return (data ?? []).map((row) =>
+    normalizeRequestItem(row as Record<string, unknown>)
   );
 }
 
@@ -156,12 +145,15 @@ export async function updatePurchaseRequestStatus(
     userName?: string;
   }
 ): Promise<void> {
-  const ref = doc(db, COLLECTION_NAME, id);
+  const supabase = getLegacySupabase();
+  const { error } = await supabase
+    .from(REQUESTS_TABLE)
+    .update({
+      status,
+      updated_by: actor?.userId ?? "",
+      updated_by_name: actor?.userName ?? "",
+    })
+    .eq("id", id);
 
-  await updateDoc(ref, {
-    status,
-    updatedAt: serverTimestamp(),
-    updatedBy: actor?.userId ?? "",
-    updatedByName: actor?.userName ?? "",
-  });
+  assertSupabaseSuccess(error, "Nao foi possivel atualizar o status da solicitacao");
 }

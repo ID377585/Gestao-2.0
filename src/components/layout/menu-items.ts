@@ -80,54 +80,64 @@ export const menuSections: MenuSectionConfig[] = [
     label: "Estoque",
     icon: Package,
     items: [
-      {
-        label: "Estoque",
-        href: "/dashboard/estoque",
-        icon: Package,
-      },
-      {
-        label: "Entradas",
-        href: "/dashboard/entradas",
-        icon: FileInput,
-      },
-      {
-        label: "Inventário",
-        href: "/dashboard/inventario",
-        icon: Boxes,
-      },
-      {
-        label: "Produtos",
-        href: "/dashboard/produtos",
-        icon: Box,
-      },
-      {
-        label: "Transferências",
-        href: "/dashboard/transferencias",
-        icon: ArrowLeftRight,
-      },
-      {
-        label: "Perdas",
-        href: "/dashboard/perdas",
-        icon: AlertTriangle,
-      },
-    ],
+  {
+    label: "Dashboard",
+    href: "/estoque",
+    icon: BarChart3,
+  },
+  {
+    label: "Estoque",
+    href: "/dashboard/estoque",
+    icon: Package,
+  },
+  {
+    label: "Entradas",
+    href: "/dashboard/entradas",
+    icon: FileInput,
+  },
+  {
+    label: "Inventário",
+    href: "/dashboard/inventario",
+    icon: Boxes,
+  },
+  {
+    label: "Produtos",
+    href: "/dashboard/produtos",
+    icon: Box,
+  },
+  {
+    label: "Transferências",
+    href: "/dashboard/transferencias",
+    icon: ArrowLeftRight,
+  },
+  {
+    label: "Perdas",
+    href: "/dashboard/perdas",
+    icon: AlertTriangle,
+  },
+],
   },
   {
     key: "engenharia",
     label: "Engenharia",
     icon: FileText,
     items: [
-      {
-        label: "Fichas Técnicas",
-        href: "/dashboard/fichas-tecnicas",
-        icon: FileText,
-      },
-      {
-        label: "Etiquetas",
-        href: "/dashboard/etiquetas",
-        icon: Tag,
-      },
-    ],
+  {
+    label: "Dashboard",
+    href: "/engenharia",
+    icon: BarChart3,
+  },
+  {
+    label: "Fichas Técnicas",
+    href: "/dashboard/fichas-tecnicas",
+    icon: FileText,
+  },
+  {
+    label: "Etiquetas",
+    href: "/dashboard/etiquetas",
+    icon: Tag,
+  },
+],
   },
   {
     key: "compras",
@@ -158,6 +168,11 @@ export const menuSections: MenuSectionConfig[] = [
     label: "Painel Semanal",
     href: "/compras/painel-semanal",
     icon: BarChart3,
+  },
+   {
+    label: "Metas",
+    href: "/compras/metas-compradores",
+    icon: FileText,
   },
   {
     label: "Produtividade",

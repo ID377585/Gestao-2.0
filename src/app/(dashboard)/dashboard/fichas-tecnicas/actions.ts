@@ -982,22 +982,21 @@ export async function deleteTechnicalSheetImageAction(imagePath: string) {
 }
 
 export async function listTechnicalSheets() {
-  const { supabase, establishmentId } = await getContext();
+  const supabase = createClient();
 
   const { data, error } = await supabase
     .from("technical_sheets")
     .select(`
       id,
-      establishment_id,
       name,
       category,
       yield_portions,
       portion_weight,
       prep_time_minutes,
-      profit_margin_percent,
-      sale_price,
       total_cost,
       cost_per_portion,
+      profit_margin_percent,
+      sale_price,
       preparation_method,
       image_url,
       image_path,
@@ -1018,7 +1017,6 @@ export async function listTechnicalSheets() {
       source_file_name,
       source_page_number,
       video_url,
-      created_by,
       created_at,
       updated_at,
       ingredients:technical_sheet_ingredients (
@@ -1031,12 +1029,11 @@ export async function listTechnicalSheets() {
         purchase_price,
         purchase_quantity,
         purchase_unit,
-        correction_factor,
-        cooking_factor,
         base_unit_cost,
         final_cost,
-        sort_order,
-        created_at
+        correction_factor,
+        cooking_factor,
+        sort_order
       ),
       scales:technical_sheet_scales (
         id,
@@ -1045,20 +1042,16 @@ export async function listTechnicalSheets() {
         yield_description,
         net_weight,
         sort_order,
-        created_at,
-        ingredients:technical_sheet_scale_ingredients (
+        ingredients:technical_sheet_scale_ingredients!technical_sheet_scale_ingredients_scale_id_fkey (
           id,
           scale_id,
-          technical_sheet_scale_id,
           ingredient_name,
           amount,
           unit,
-          sort_order,
-          created_at
+          sort_order
         )
       )
     `)
-    .eq("establishment_id", establishmentId)
     .order("created_at", { ascending: false });
 
   if (error) {

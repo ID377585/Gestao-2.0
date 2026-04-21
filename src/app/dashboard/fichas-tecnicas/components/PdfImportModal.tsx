@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { uploadTechnicalSheetPdfImportAction } from "@/app/(dashboard)/dashboard/fichas-tecnicas/actions";
+import { importTechnicalSheetsFromPdfAction } from "@/app/(dashboard)/dashboard/fichas-tecnicas/actions";
 
 const MAX_FILE_SIZE = 40 * 1024 * 1024; // 40 MB
 
@@ -13,17 +13,10 @@ type Props = {
   uploadedBy?: string;
 };
 
-type UploadActionResult = {
-  filePath: string;
-  downloadURL: string;
-};
-
 export default function PdfImportModal({
   open,
   onClose,
   onSuccess,
-  establishmentId,
-  uploadedBy,
 }: Props) {
   const [category, setCategory] = useState("Importado PDF");
   const [file, setFile] = useState<File | null>(null);
@@ -81,175 +74,59 @@ export default function PdfImportModal({
     setFile(selected);
   }
 
-  function isValidUploadResult(value: unknown): value is UploadActionResult {
-    if (!value || typeof value !== "object") return false;
-
-    const candidate = value as Record<string, unknown>;
-
-    return (
-      typeof candidate.filePath === "string" &&
-      candidate.filePath.trim().length > 0 &&
-      typeof candidate.downloadURL === "string" &&
-      candidate.downloadURL.trim().length > 0
-    );
-  }
-
-  async function parseJsonSafely(response: Response, routeLabel: string) {
-    const raw = await response.text();
-
-    try {
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      console.error(`Resposta não JSON em ${routeLabel}:`, raw);
-      throw new Error(`${routeLabel} retornou HTML em vez de JSON.`);
-    }
-  }
-
   async function handleUpload() {
     if (!file) {
       setMessage("Selecione um PDF para importar.");
       return;
     }
 
-    if (!establishmentId) {
-      setMessage("EstablishmentId não informado para a importação.");
-      return;
-    }
-
     try {
       setLoading(true);
-      setUploadProgress(10);
-      setMessage("Enviando PDF para o storage...");
+      setUploadProgress(15);
+      setMessage("Lendo PDF e preparando importação...");
 
-      const uploadFormData = new FormData();
-      uploadFormData.append("file", file);
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("defaultCategory", category);
 
-      const rawUploadResult =
-        await uploadTechnicalSheetPdfImportAction(uploadFormData);
+      setUploadProgress(45);
+      setMessage("Extraindo conteúdo do PDF...");
 
-      if (!isValidUploadResult(rawUploadResult)) {
-        console.error(
-          "Resposta inválida da uploadTechnicalSheetPdfImportAction:",
-          rawUploadResult
-        );
-        throw new Error(
-          "O upload do PDF não retornou filePath e downloadURL."
-        );
-      }
+      const result = await importTechnicalSheetsFromPdfAction(formData);
 
-      const { filePath, downloadURL } = rawUploadResult;
-
-      setUploadProgress(40);
-      setMessage("PDF enviado. Obtendo URL do arquivo...");
-
-      setUploadProgress(55);
-      setMessage("Criando job de importação...");
-
-      const createResponse = await fetch("/api/import-jobs/create", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          fileName: file.name,
-          fileUrl: downloadURL,
-          filePath,
-          fileSize: file.size,
-          mimeType: file.type || "application/pdf",
-          category,
-          establishmentId,
-          uploadedBy: uploadedBy || null,
-        }),
-      });
-
-      const createResult = await parseJsonSafely(
-        createResponse,
-        "/api/import-jobs/create"
-      );
-
-      if (!createResponse.ok) {
-        throw new Error(
-          createResult?.error || "Erro ao criar job de importação."
-        );
-      }
-
-      if (!createResult?.jobId) {
-        throw new Error("O job de importação foi criado sem retornar jobId.");
-      }
-
-      setUploadProgress(70);
-      setMessage("Processando PDF e analisando páginas...");
-
-      const processResponse = await fetch("/api/import-jobs/process", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jobId: createResult.jobId,
-        }),
-      });
-
-      const processResult = await parseJsonSafely(
-        processResponse,
-        "/api/import-jobs/process"
-      );
-
-      if (!processResponse.ok) {
-        throw new Error(
-          processResult?.error || "Erro ao processar o PDF importado."
-        );
+      if (!result?.ok) {
+        throw new Error(result?.error || "Erro ao importar o PDF.");
       }
 
       setUploadProgress(100);
 
-      const totalPages = processResult?.totalPages ?? 0;
-      const detectedRecipes = processResult?.detectedRecipes ?? 0;
-      const createdRecipes = processResult?.createdRecipes ?? 0;
-      const errors = Array.isArray(processResult?.errors)
-        ? processResult.errors
-        : [];
-      const createdPages = Array.isArray(processResult?.createdPages)
-        ? processResult.createdPages
-        : [];
-      const ignoredPages = Array.isArray(processResult?.ignoredPages)
-        ? processResult.ignoredPages
-        : [];
-
-      const createdList = createdPages
-        .slice(0, 8)
-        .map((item: any) => `• Página ${item.pageNumber}: ${item.title}`)
-        .join("\n");
-
-      const ignoredList = ignoredPages
-        .slice(0, 8)
-        .map(
-          (item: any) =>
-            `• Página ${item.pageNumber}: ${item.title || "Sem título"} (${item.reason})`
-        )
-        .join("\n");
+      const createdList = Array.isArray(result.recipes)
+        ? result.recipes
+            .slice(0, 10)
+            .map(
+              (item) =>
+                `• ${item.name}${
+                  item.page ? ` (página ${item.page})` : ""
+                }`
+            )
+            .join("\n")
+        : "";
 
       const reportMessage =
-        `Importação concluída.\n\n` +
-        `Páginas lidas: ${totalPages}\n` +
-        `Receitas detectadas: ${detectedRecipes}\n` +
-        `Fichas criadas: ${createdRecipes}\n` +
-        `Páginas ignoradas/revisão: ${ignoredPages.length}\n` +
-        `Erros: ${errors.length}\n\n` +
-        (createdList ? `Criadas:\n${createdList}\n\n` : "") +
-        (ignoredList ? `Ignoradas/Revisão:\n${ignoredList}` : "");
+        `Importação concluída com sucesso.\n\n` +
+        `Fichas criadas: ${result.importedCount}\n\n` +
+        (createdList ? `Receitas importadas:\n${createdList}` : "");
 
       setMessage(reportMessage);
-      onSuccess?.(createResult.jobId);
+
+      onSuccess?.();
 
       window.setTimeout(() => {
         handleClose();
       }, 3500);
     } catch (error: any) {
-      console.error("Erro no fluxo de importação do PDF:", error);
-      setMessage(
-        error?.message || "Falha ao enviar o PDF e processar a importação."
-      );
+      console.error("Erro na importação do PDF:", error);
+      setMessage(error?.message || "Falha ao importar o PDF.");
       setUploadProgress(0);
     } finally {
       setLoading(false);
@@ -266,6 +143,7 @@ export default function PdfImportModal({
               Envie um PDF de até 40 MB para importar várias fichas de uma vez.
             </p>
           </div>
+
           <button
             type="button"
             onClick={handleClose}
@@ -336,9 +214,8 @@ export default function PdfImportModal({
           )}
 
           <div className="rounded-md bg-slate-50 p-3 text-sm text-muted-foreground">
-            Nesta etapa, o sistema já salva relatório por página, extrai
-            ingredientes para análise, preenche campos técnicos básicos e mostra
-            quais páginas foram criadas e quais foram ignoradas.
+            Nesta etapa, o sistema lê o PDF, extrai receitas válidas, cria as
+            fichas técnicas diretamente e atualiza a listagem ao final.
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -350,13 +227,14 @@ export default function PdfImportModal({
             >
               Cancelar
             </button>
+
             <button
               type="button"
               onClick={handleUpload}
               disabled={loading || !file}
               className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
             >
-              {loading ? "Processando..." : "Importar PDF"}
+              {loading ? "Importando..." : "Importar PDF"}
             </button>
           </div>
         </div>

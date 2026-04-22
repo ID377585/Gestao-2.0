@@ -1994,8 +1994,8 @@ export default function FichasTecnicasPage() {
           )}
         </div>
       </div>
-            <Dialog open={showNovaFicha} onOpenChange={setShowNovaFicha}>
-        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl">
+            <Dialog open={showEditarFicha} onOpenChange={setShowEditarFicha}>
+  <DialogContent className="max-h-[92vh] overflow-y-auto bg-white text-slate-900 shadow-2xl border border-slate-200 sm:max-w-6xl">
           <DialogHeader>
             <DialogTitle>Nova Ficha Técnica</DialogTitle>
             <DialogDescription>

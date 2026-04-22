@@ -2313,7 +2313,7 @@ export default function FichasTecnicasPage() {
       </Dialog>
 
       <Dialog open={showEditarFicha} onOpenChange={setShowEditarFicha}>
-        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl">
+  <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl !bg-white !text-slate-900 border border-slate-200 shadow-2xl">
           <DialogHeader>
             <DialogTitle>Editar Ficha Técnica</DialogTitle>
             <DialogDescription>
@@ -2322,7 +2322,7 @@ export default function FichasTecnicasPage() {
           </DialogHeader>
 
           {fichaEditando ? (
-            <div className="space-y-6">
+              <div className="space-y-6 rounded-xl bg-white text-slate-900">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div className="xl:col-span-2">
                   <Label>Nome da receita</Label>

@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { LegalLinks } from "@/components/site/LegalLinks";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -142,6 +143,17 @@ export default function ResetPasswordPage() {
             )}
           </CardContent>
         </Card>
+
+        <div className="mt-4 border-t border-slate-200 pt-4 text-center">
+          <p className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">
+            Informações jurídicas
+          </p>
+          <LegalLinks
+            variant="auth"
+            className="flex justify-center"
+            linkClassName="text-slate-600 hover:text-slate-900"
+          />
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 export const COOKIE_CONSENT_STORAGE_KEY = "gestify.cookie-consent.v1";
 export const COOKIE_CONSENT_EVENT = "gestify:cookie-consent-change";
+export const COOKIE_CONSENT_OPEN_EVENT = "gestify:cookie-consent-open";
 
 export type CookieConsentPreferences = {
   necessary: true;
@@ -110,4 +111,18 @@ export function rejectOptionalCookies() {
     analytics: false,
     marketing: false,
   });
+}
+
+export function requestCookiePreferencesPanel(options?: {
+  expandPreferences?: boolean;
+}) {
+  if (!isBrowser()) return;
+
+  window.dispatchEvent(
+    new CustomEvent(COOKIE_CONSENT_OPEN_EVENT, {
+      detail: {
+        expandPreferences: Boolean(options?.expandPreferences),
+      },
+    })
+  );
 }

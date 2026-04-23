@@ -58,4 +58,21 @@ export function createSupabaseAdminClient() {
   });
 }
 
-export const supabaseAdmin = createSupabaseAdminClient();
+let cachedSupabaseAdmin: ReturnType<typeof createSupabaseAdminClient> | null = null;
+
+export function getSupabaseAdminClient() {
+  if (!cachedSupabaseAdmin) {
+    cachedSupabaseAdmin = createSupabaseAdminClient();
+  }
+
+  return cachedSupabaseAdmin;
+}
+
+export const supabaseAdmin = new Proxy(
+  {} as ReturnType<typeof createSupabaseAdminClient>,
+  {
+    get(_target, prop, receiver) {
+      return Reflect.get(getSupabaseAdminClient(), prop, receiver);
+    },
+  }
+);

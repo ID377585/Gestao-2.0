@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { GestifyLogo } from "@/components/brand/GestifyLogo";
+import { LegalLinks } from "@/components/site/LegalLinks";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -141,6 +142,13 @@ export default function ForgotPasswordPage() {
             <Link href="/" className="text-sm text-slate-300 hover:text-white">
               Voltar para página inicial
             </Link>
+          </div>
+
+          <div className="mt-4 border-t border-white/10 pt-4 text-center">
+            <p className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">
+              Informações jurídicas
+            </p>
+            <LegalLinks variant="auth" className="flex justify-center" />
           </div>
         </div>
       </div>

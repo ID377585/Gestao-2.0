@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { GestifyLogo } from "@/components/brand/GestifyLogo";
+import { PublicFooter } from "@/components/site/PublicFooter";
 
 const features = [
   {
@@ -326,12 +327,7 @@ export default function HomePage() {
         </section>
       </main>
 
-      <footer className="border-t border-white/10 bg-slate-950">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 text-sm text-slate-400 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
-          <p>© 2026 Gestify. Plataforma de gestão para restaurantes e operações alimentícias.</p>
-          <p>gestify.app</p>
-        </div>
-      </footer>
+      <PublicFooter />
     </div>
   );
 }

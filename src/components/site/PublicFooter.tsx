@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { CookiePreferencesButton } from "@/components/legal/CookiePreferencesButton";
 import { LegalLinks } from "@/components/site/LegalLinks";
 
 export function PublicFooter() {
@@ -22,6 +23,7 @@ export function PublicFooter() {
             Jurídico
           </p>
           <LegalLinks />
+          <CookiePreferencesButton />
           <Link
             href="/login"
             className="inline-flex text-sm font-medium text-cyan-300 underline-offset-4 transition hover:text-cyan-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"

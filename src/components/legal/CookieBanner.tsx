@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   acceptOptionalCookies,
   getDefaultCookieConsent,
+  COOKIE_CONSENT_OPEN_EVENT,
   readCookieConsentPreferences,
   rejectOptionalCookies,
   shouldRenderCookieBanner,
@@ -83,6 +84,26 @@ export function CookieBanner() {
     setPanelOpen(true);
     setPreferencesExpanded(false);
   }, [isPublicPath, mounted, pathname]);
+
+  useEffect(() => {
+    if (!mounted) return;
+
+    const handleOpenPreferences = (event: Event) => {
+      const customEvent = event as CustomEvent<{ expandPreferences?: boolean }>;
+
+      setPanelOpen(true);
+      setPreferencesExpanded(Boolean(customEvent.detail?.expandPreferences));
+    };
+
+    window.addEventListener(COOKIE_CONSENT_OPEN_EVENT, handleOpenPreferences);
+
+    return () => {
+      window.removeEventListener(
+        COOKIE_CONSENT_OPEN_EVENT,
+        handleOpenPreferences
+      );
+    };
+  }, [mounted]);
 
   const hasVisiblePanel = mounted && isPublicPath && panelOpen;
   const showManageButton = mounted && isPublicPath && hasDecision && !panelOpen;
@@ -164,7 +185,10 @@ export function CookieBanner() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setPanelOpen(true)}
+              onClick={() => {
+                setPanelOpen(true);
+                setPreferencesExpanded(true);
+              }}
               className="border-white/15 bg-slate-950/90 text-slate-100 shadow-2xl backdrop-blur hover:bg-slate-900"
             >
               Preferências de cookies

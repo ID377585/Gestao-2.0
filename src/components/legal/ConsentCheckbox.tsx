@@ -3,6 +3,7 @@
 import type { CheckedState } from "@radix-ui/react-checkbox";
 import Link from "next/link";
 
+import { CURRENT_TERMS_DOCUMENT_TITLE } from "@/lib/auth/terms-config";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ type ConsentCheckboxProps = {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  helperText?: string;
   secondaryConsent?: SecondaryConsent;
 };
 
@@ -38,6 +40,7 @@ export function ConsentCheckbox({
   required = true,
   disabled = false,
   className,
+  helperText = "Use este componente em formulários públicos que dependam de aceite contratual ou consentimento informado.",
   secondaryConsent,
 }: ConsentCheckboxProps) {
   const helperId = `${id}-helper`;
@@ -68,7 +71,7 @@ export function ConsentCheckbox({
               href="/termos-de-uso"
               className="text-blue-700 underline underline-offset-4 transition hover:text-blue-800"
             >
-              Termos de Uso
+              {CURRENT_TERMS_DOCUMENT_TITLE}
             </Link>{" "}
             e a{" "}
             <Link
@@ -81,8 +84,7 @@ export function ConsentCheckbox({
           </Label>
 
           <p id={helperId} className="text-xs leading-5 text-slate-500">
-            Use este componente em formulários públicos que dependam de aceite
-            contratual ou consentimento informado.
+            {helperText}
           </p>
         </div>
       </div>

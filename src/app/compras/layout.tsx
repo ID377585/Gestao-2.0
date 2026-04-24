@@ -1,5 +1,9 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import {
+  ensureCurrentTermsAcceptedOrRedirect,
+  touchUserAuthenticatedAccess,
+} from "@/lib/auth/terms-compliance.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
@@ -26,6 +30,15 @@ export default async function ComprasLayout({
   if (userError || !user) {
     redirect("/login");
   }
+
+  await ensureCurrentTermsAcceptedOrRedirect({
+    userId: user.id,
+    redirectPath: "/compras",
+  });
+  await touchUserAuthenticatedAccess({
+    userId: user.id,
+    path: "/compras",
+  });
 
   const { data: membership, error: membershipError } = await supabase
     .from("memberships")

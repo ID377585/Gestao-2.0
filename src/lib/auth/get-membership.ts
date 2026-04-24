@@ -1,5 +1,6 @@
 import "server-only";
 import { redirect } from "next/navigation";
+import { ensureCurrentTermsAcceptedOrRedirect } from "@/lib/auth/terms-compliance.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type Role =
@@ -65,6 +66,12 @@ export async function getActiveMembershipOrRedirect(
     redirect(redirectToLogin);
   }
 
+  await ensureCurrentTermsAcceptedOrRedirect({
+    userId: user.id,
+    redirectPath: "/dashboard/pedidos",
+    loginPath: redirectToLogin,
+  });
+
   // 2) membership (FONTE ÚNICA)
   const { data: membershipData, error: membershipErr } = await supabase
     .from("memberships")
@@ -128,6 +135,15 @@ export async function getActiveMembership() {
   } = await supabase.auth.getUser();
 
   if (userErr || !user) return { user: null, membership: null };
+
+  try {
+    await ensureCurrentTermsAcceptedOrRedirect({
+      userId: user.id,
+      redirectPath: "/dashboard/pedidos",
+    });
+  } catch {
+    return { user, membership: null };
+  }
 
   const { data: membershipData, error: membershipErr } = await supabase
     .from("memberships")

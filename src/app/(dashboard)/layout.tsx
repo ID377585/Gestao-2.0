@@ -1,5 +1,9 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import {
+  ensureCurrentTermsAcceptedOrRedirect,
+  touchUserAuthenticatedAccess,
+} from "@/lib/auth/terms-compliance.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
@@ -26,6 +30,15 @@ export default async function DashboardLayout({
   if (userError || !user) {
     redirect("/login");
   }
+
+  await ensureCurrentTermsAcceptedOrRedirect({
+    userId: user.id,
+    redirectPath: "/dashboard/pedidos",
+  });
+  await touchUserAuthenticatedAccess({
+    userId: user.id,
+    path: "/dashboard",
+  });
 
   const { data: membership, error: membershipError } = await supabase
     .from("memberships")

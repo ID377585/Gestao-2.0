@@ -1,4 +1,9 @@
 import type { Metadata } from "next";
+import {
+  CURRENT_TERMS_DOCUMENT_TITLE,
+  CURRENT_TERMS_DOCUMENT_VERSION,
+  CURRENT_TERMS_UPDATED_AT,
+} from "@/lib/auth/terms-config";
 
 export type LegalSubsection = {
   id: string;
@@ -40,7 +45,7 @@ export const legalNavigationLinks = [
   },
   {
     href: "/termos-de-uso",
-    label: "Termos de Uso",
+    label: CURRENT_TERMS_DOCUMENT_TITLE,
   },
   {
     href: "/politica-de-cookies",
@@ -400,203 +405,416 @@ export const privacyPolicyDocument: LegalDocument = {
 
 export const termsOfUseDocument: LegalDocument = {
   slug: "/termos-de-uso",
-  title: "Termos e Condições de Uso",
-  updatedAt: "22/04/2026",
+  title: CURRENT_TERMS_DOCUMENT_TITLE,
+  updatedAt: CURRENT_TERMS_UPDATED_AT,
   description:
-    "Conheça as condições de acesso e uso do site, da plataforma e dos serviços disponibilizados pela Gestify.",
+    "Conheça o contrato SaaS vigente da Gestify, com regras de uso, cobrança, suporte, proteção de dados, segurança e responsabilidades das partes.",
   intro: [
-    "Estes Termos e Condições de Uso regulam o acesso e a utilização do site, da plataforma e dos serviços disponibilizados pela Gestify. Ao acessar o site ou utilizar a plataforma, o usuário declara que leu, compreendeu e concorda com estes Termos e com a Política de Privacidade.",
+    `Este ${CURRENT_TERMS_DOCUMENT_TITLE} regula a disponibilização e o uso da plataforma Gestify em modelo SaaS. Ao acessar o site, criar conta, contratar, efetuar pagamento, receber convite de acesso ou utilizar a plataforma, o usuário declara que leu, compreendeu e concorda com este contrato e com a Política de Privacidade da Gestify.`,
+    `Versão contratual vigente: ${CURRENT_TERMS_DOCUMENT_VERSION}. Data da versão: ${CURRENT_TERMS_UPDATED_AT}.`,
+    "Observação importante: este documento é um modelo-base contratual para uso comercial do Gestify. Antes da publicação final e do uso com clientes Enterprise, recomenda-se revisão por advogado especializado em contratos digitais, LGPD e SaaS.",
   ],
   sections: [
     {
-      id: "definicoes",
-      heading: "1. Definições",
-      paragraphs: ["Para fins destes Termos:"],
-      list: [
-        "Gestify: marca, site, plataforma, sistema, interface, aplicações, conteúdos e serviços disponibilizados pela NT Solution.",
-        "Usuário: qualquer pessoa que acesse o site ou utilize a plataforma.",
-        "Cliente: pessoa física ou jurídica que contrata os serviços da Gestify.",
-        "Conta: credencial de acesso vinculada a usuário autorizado.",
-        "Administrador da conta: usuário com poderes de gestão de contas, acessos, permissões e configurações do ambiente da empresa cliente.",
-        "Plataforma: ambiente digital com funcionalidades operacionais, administrativas, gerenciais e comerciais disponibilizadas pela Gestify.",
+      id: "partes",
+      heading: "1. Partes",
+      paragraphs: [
+        "CONTRATADA: NT Solution, responsável pela disponibilização, operação e comercialização da plataforma Gestify.",
+        "PLATAFORMA: Gestify, solução digital disponibilizada em modelo SaaS, acessível por meio do domínio gestify.app e de outros domínios, subdomínios, aplicações, APIs e ambientes relacionados.",
+        "CONTRATANTE: pessoa física ou jurídica que cria conta, acessa, contrata, paga, utiliza ou aceita eletronicamente este contrato, diretamente ou por representantes autorizados.",
+        "Ao aceitar este contrato eletronicamente, criar conta, efetuar pagamento ou utilizar a plataforma, o CONTRATANTE declara ciência e concordância integral com seus termos.",
       ],
     },
     {
       id: "objeto",
       heading: "2. Objeto",
       paragraphs: [
-        "A Gestify disponibiliza solução digital voltada à gestão operacional, administrativa e organizacional, conforme funcionalidades contratadas, liberadas e tecnicamente disponíveis na plataforma.",
+        "O presente contrato tem por objeto a disponibilização de acesso à plataforma Gestify, em modelo SaaS, incluindo funcionalidades, atualizações, suporte técnico, recursos de armazenamento, integrações e demais serviços vinculados, conforme o plano contratado.",
+        "A contratação não implica venda, cessão, transferência de propriedade, acesso ao código-fonte ou qualquer direito de titularidade sobre o software.",
       ],
     },
     {
-      id: "aceitacao",
-      heading: "3. Aceitação",
-      paragraphs: [
-        "Ao acessar o site, criar conta, receber convite de acesso, contratar serviços ou utilizar a plataforma, o usuário concorda integralmente com estes Termos. Caso não concorde, deverá cessar o uso do site e da plataforma.",
-      ],
-    },
-    {
-      id: "elegibilidade",
-      heading: "4. Elegibilidade e responsabilidade cadastral",
-      paragraphs: ["O usuário declara que:"],
+      id: "definicoes",
+      heading: "3. Definições",
+      paragraphs: ["Para fins deste contrato:"],
       list: [
-        "possui capacidade legal para aceitar estes Termos;",
-        "utilizará a plataforma em nome próprio ou com autorização legítima da empresa vinculada;",
-        "fornecerá informações verdadeiras, completas e atualizadas;",
-        "manterá seus dados cadastrais atualizados;",
-        "utilizará a plataforma somente para finalidades lícitas e autorizadas.",
+        "SaaS: software disponibilizado como serviço, mediante acesso remoto via internet.",
+        "Conta: ambiente de acesso do CONTRATANTE na plataforma.",
+        "Usuário: pessoa autorizada pelo CONTRATANTE a acessar a plataforma.",
+        "Dados do Cliente: informações inseridas, cadastradas, importadas ou processadas pelo CONTRATANTE na plataforma.",
+        "Dados Pessoais: informações relacionadas a pessoa natural identificada ou identificável.",
+        "Controlador: parte que decide as finalidades e meios do tratamento de dados pessoais.",
+        "Operador: parte que trata dados pessoais em nome do controlador.",
+        "Suboperador: terceiro contratado para apoiar o tratamento de dados pessoais.",
+        "Downtime: período em que a plataforma fica indisponível por falha atribuível exclusivamente à CONTRATADA, excluídas as hipóteses previstas neste contrato e em seus anexos.",
       ],
     },
     {
-      id: "cadastro",
-      heading: "5. Cadastro, conta e credenciais",
+      id: "licenca",
+      heading: "4. Licença de uso",
       paragraphs: [
-        "Determinadas funcionalidades exigem conta de acesso, que poderá ser criada diretamente, por contratação ou por convite feito por administrador autorizado.",
-        "O usuário é responsável por:",
+        "A CONTRATADA concede ao CONTRATANTE uma licença de uso limitada, revogável, não exclusiva, intransferível, não sublicenciável e condicionada ao cumprimento deste contrato, enquanto houver plano ativo e pagamento regular, quando aplicável.",
+        "É expressamente vedado ao CONTRATANTE e aos seus usuários:",
       ],
       list: [
-        "manter o sigilo de login e senha;",
-        "não compartilhar credenciais;",
-        "comunicar imediatamente qualquer suspeita de acesso indevido;",
-        "utilizar mecanismos razoáveis de segurança em seus dispositivos.",
-      ],
-      afterListParagraphs: [
-        "A Gestify poderá adotar medidas de proteção, bloqueio, suspensão ou limitação de acesso diante de indícios de fraude, uso indevido, violação destes Termos ou risco à segurança.",
-      ],
-    },
-    {
-      id: "conduta",
-      heading: "6. Regras de conduta",
-      paragraphs: ["É proibido ao usuário:"],
-      list: [
-        "praticar atos ilícitos ou contrários à boa-fé;",
-        "violar direitos da Gestify ou de terceiros;",
-        "tentar obter acesso não autorizado a contas, sistemas, servidores ou dados;",
-        "burlar permissões, autenticação, limites técnicos ou controles de acesso;",
-        "inserir vírus, malware, scripts maliciosos ou rotinas automatizadas abusivas;",
-        "copiar, reproduzir, desmontar, descompilar, modificar ou explorar indevidamente a plataforma;",
-        "realizar scraping ou mineração não autorizada;",
-        "utilizar a plataforma para spam, fraude, engenharia social, assédio, difamação ou discriminação;",
-        "inserir conteúdo ilegal, enganoso, ofensivo, abusivo ou sem base legítima de tratamento.",
-      ],
-    },
-    {
-      id: "responsabilidades-do-cliente",
-      heading: "7. Responsabilidades do cliente e dos dados inseridos",
-      paragraphs: [
-        "O cliente e os usuários vinculados à sua conta são responsáveis pelos dados, conteúdos, documentos, cadastros, registros operacionais e demais informações inseridas na plataforma.",
-        "O cliente declara que possui legitimidade para inserir e tratar tais dados, inclusive quando envolver dados pessoais de terceiros, comprometendo-se a observar a legislação aplicável e a fornecer avisos, bases legais e instruções cabíveis quando for controlador desses dados.",
-      ],
-    },
-    {
-      id: "disponibilidade",
-      heading: "8. Disponibilidade dos serviços",
-      paragraphs: [
-        "A Gestify busca manter a plataforma disponível, estável e segura, mas não garante operação ininterrupta ou livre de erros.",
-        "Poderão ocorrer indisponibilidades temporárias em razão de:",
-      ],
-      list: [
-        "manutenção preventiva ou corretiva;",
-        "atualização técnica;",
-        "falhas de conectividade, energia ou serviços de terceiros;",
-        "incidentes de segurança;",
-        "caso fortuito ou força maior.",
-      ],
-    },
-    {
-      id: "evolucao",
-      heading: "9. Funcionalidades, evolução e alterações",
-      paragraphs: [
-        "A Gestify poderá atualizar, evoluir, reorganizar, limitar ou descontinuar funcionalidades, interfaces ou recursos, desde que respeitados os compromissos contratuais aplicáveis.",
-      ],
-    },
-    {
-      id: "propriedade-intelectual",
-      heading: "10. Propriedade intelectual",
-      paragraphs: [
-        "Todo o conteúdo, software, código-fonte, layout, design, marca, identidade visual, documentação, bancos de dados, fluxos, interfaces e elementos da Gestify são protegidos pela legislação aplicável e pertencem à Gestify ou aos seus licenciadores.",
-        "O uso da plataforma não transfere ao usuário qualquer direito de propriedade intelectual, exceto licença limitada, revogável, não exclusiva e intransferível para uso conforme estes Termos e os instrumentos contratuais aplicáveis.",
-      ],
-    },
-    {
-      id: "privacidade",
-      heading: "11. Privacidade e proteção de dados",
-      paragraphs: [
-        "O tratamento de dados pessoais relacionado ao uso do site e da plataforma observará a Política de Privacidade da Gestify e a legislação aplicável.",
+        "realizar engenharia reversa, descompilação, desmontagem ou tentativa de acesso ao código-fonte;",
+        "copiar, modificar, adaptar, traduzir, reproduzir ou criar obras derivadas da plataforma sem autorização;",
+        "revender, sublicenciar, alugar, ceder, compartilhar comercialmente ou explorar a plataforma sem autorização;",
+        "utilizar a plataforma para desenvolver produto concorrente;",
+        "praticar scraping, mineração abusiva, automação não autorizada ou coleta massiva de dados;",
+        "sobrecarregar, testar vulnerabilidades, invadir ou tentar comprometer a infraestrutura;",
+        "utilizar a plataforma para fins ilegais, fraudulentos, discriminatórios, abusivos ou contrários à legislação aplicável.",
       ],
     },
     {
       id: "planos",
-      heading: "12. Planos, contratação, cobrança e cancelamento",
+      heading: "5. Planos, preços e condições comerciais",
       paragraphs: [
-        "Quando houver contratação paga, as condições comerciais, preços, periodicidade, reajustes, limites, cancelamento, suporte, inadimplência e demais regras seguirão proposta comercial, contrato, ordem de serviço, plano ou checkout aplicável.",
-        "Na ausência de instrumento específico, prevalecerão as condições informadas no momento da contratação.",
+        "A plataforma poderá ser contratada em planos de referência como Starter, Pro e Enterprise, com valores e escopos definidos comercialmente no momento da contratação.",
+        "Os valores poderão ser alterados mediante aviso prévio mínimo de 30 dias, salvo promoções, reajustes tributários, alterações de escopo ou contratação específica.",
+        "A cobrança poderá ocorrer por cartão de crédito, Pix, boleto, gateway de pagamento, plataforma de assinatura ou outro meio disponibilizado pela CONTRATADA.",
+        "A contratação poderá incluir limites de uso, como quantidade de usuários, unidades, registros, integrações, armazenamento, requisições, automações, módulos, ambientes e funcionalidades.",
       ],
     },
     {
-      id: "suspensao",
-      heading: "13. Suspensão, bloqueio e encerramento",
-      paragraphs: ["A Gestify poderá suspender, restringir ou encerrar acesso em caso de:"],
+      id: "inadimplencia",
+      heading: "6. Inadimplência, suspensão e reativação",
+      paragraphs: [
+        "O atraso no pagamento superior a 7 dias poderá resultar em suspensão parcial ou total do acesso à plataforma.",
+        "A inadimplência superior a 30 dias poderá resultar em rescisão contratual, bloqueio definitivo da conta e início do prazo de retenção técnica dos dados.",
+        "A reativação poderá depender da quitação dos valores em aberto, atualização cadastral, regularização contratual e, se aplicável, pagamento de taxa administrativa.",
+      ],
+    },
+    {
+      id: "cancelamento",
+      heading: "7. Cancelamento e reembolso",
+      paragraphs: [
+        "O CONTRATANTE poderá cancelar a assinatura a qualquer momento pelos canais disponibilizados pela CONTRATADA.",
+        "Salvo disposição expressa em contrato específico, o cancelamento não gera reembolso proporcional de período já pago, permanecendo o acesso disponível até o fim do ciclo contratado.",
+        "Em caso de violação contratual, uso indevido, fraude ou risco à segurança da plataforma, a CONTRATADA poderá suspender ou encerrar o acesso sem obrigação de reembolso.",
+      ],
+    },
+    {
+      id: "enterprise",
+      heading: "8. Clientes B2B, corporativos e Enterprise",
+      paragraphs: [
+        "Clientes B2B e Enterprise poderão contratar condições específicas mediante proposta comercial, ordem de serviço, contrato complementar ou aditivo.",
+        "Essas condições poderão incluir:",
+      ],
       list: [
-        "violação destes Termos;",
-        "inadimplência, quando aplicável;",
-        "uso indevido da plataforma;",
-        "risco à segurança do ambiente;",
-        "determinação legal, regulatória ou judicial;",
-        "uso incompatível com a finalidade do serviço.",
+        "SLA customizado;",
+        "suporte prioritário;",
+        "canal dedicado de atendimento;",
+        "limites ampliados de uso;",
+        "condições específicas de pagamento;",
+        "treinamento, onboarding e implantação assistida;",
+        "integrações específicas;",
+        "obrigações adicionais de segurança;",
+        "cláusulas próprias de auditoria, confidencialidade e proteção de dados;",
+        "ambientes segregados ou dedicados, quando técnica e comercialmente aplicável.",
+      ],
+      afterListParagraphs: [
+        "Em caso de conflito entre este contrato e instrumento Enterprise assinado separadamente, prevalecerá o instrumento mais específico.",
+      ],
+    },
+    {
+      id: "sla",
+      heading: "9. SLA — nível de serviço",
+      paragraphs: [
+        "A CONTRATADA envidará esforços comercialmente razoáveis para manter a plataforma disponível conforme o plano contratado.",
+        "Como referência contratual, a disponibilidade mensal poderá observar 99,0% para planos Starter e Pro e 99,9% para clientes Enterprise, nos termos do Anexo I.",
+        "Os créditos previstos em SLA, quando aplicáveis, constituem a compensação contratual cabível por indisponibilidade elegível, salvo disposição expressa em contrato específico.",
+      ],
+    },
+    {
+      id: "suporte",
+      heading: "10. Suporte técnico",
+      paragraphs: [
+        "O suporte será prestado conforme o plano contratado e os canais disponibilizados pela CONTRATADA.",
+        "Como referência, os prazos de primeira resposta poderão variar de até 48 horas úteis em planos básicos até atendimento prioritário para clientes Enterprise.",
+        "Os prazos de primeira resposta não garantem prazo de solução definitiva, pois a correção poderá depender da complexidade técnica, de terceiros, de infraestrutura, de APIs externas ou da cooperação do CONTRATANTE.",
+      ],
+    },
+    {
+      id: "backup",
+      heading: "11. Backup, retenção e continuidade",
+      paragraphs: [
+        "A CONTRATADA adotará rotina de backup compatível com o estágio, porte e arquitetura da plataforma.",
+        "A política padrão prevê, como referência, backup automático diário, retenção padrão de 7 dias e armazenamento em infraestrutura cloud ou de terceiros.",
+        "A CONTRATADA não garante recuperação integral de dados em todos os cenários, especialmente quando a perda decorrer de ação ou omissão do CONTRATANTE, exclusão manual, uso indevido, falha de credenciais, integrações externas, limitação técnica ou eventos de força maior.",
+        "O CONTRATANTE é responsável por manter cópias próprias de dados críticos, documentos fiscais, relatórios, bases contábeis, registros legais e informações essenciais à sua operação.",
+      ],
+    },
+    {
+      id: "portabilidade",
+      heading: "12. Exportação, portabilidade e devolução de dados",
+      paragraphs: [
+        "O CONTRATANTE poderá exportar seus dados a qualquer momento, quando a funcionalidade estiver disponível na plataforma, ou solicitar exportação por canal de atendimento.",
+        "A exportação poderá ser fornecida em formato estruturado, como CSV, JSON, XLSX ou equivalente, conforme viabilidade técnica e plano contratado.",
+        "Após o encerramento da conta, os dados poderão permanecer armazenados por período técnico de retenção, backup, auditoria, prevenção a fraudes, cumprimento legal ou defesa de direitos, conforme este contrato e a Política de Privacidade.",
+      ],
+    },
+    {
+      id: "integracoes",
+      heading: "13. Integrações, infraestrutura e serviços de terceiros",
+      paragraphs: [
+        "A plataforma poderá utilizar, integrar-se ou depender de tecnologias e provedores de terceiros, incluindo infraestrutura, banco de dados, autenticação, hospedagem, pagamento, armazenamento, e-mail, DNS, CDN, logs, monitoramento e analytics.",
+        "A CONTRATADA não se responsabiliza por falhas, interrupções, alterações, limitações, custos, indisponibilidades, políticas ou incidentes originados exclusivamente em terceiros, embora adote esforços razoáveis para mitigar impactos.",
+        "Quando uma integração for configurada pelo CONTRATANTE, este será responsável por credenciais, permissões, chaves de API, limites de uso, cobranças de terceiros e conformidade com os termos desses provedores.",
+      ],
+    },
+    {
+      id: "uso-aceitavel",
+      heading: "14. Uso aceitável e medidas por uso indevido",
+      paragraphs: [
+        "O CONTRATANTE compromete-se a utilizar a plataforma de forma lícita, ética e compatível com sua finalidade.",
+        "São proibidos, entre outros:",
+      ],
+      list: [
+        "uso para atividades ilícitas, fraudulentas ou abusivas;",
+        "envio de spam, phishing, malware ou conteúdo malicioso;",
+        "tentativa de acesso não autorizado;",
+        "exploração de vulnerabilidades;",
+        "uso de bots, crawlers, scripts ou automações não autorizadas;",
+        "compartilhamento indevido de credenciais;",
+        "violação de direitos de terceiros;",
+        "uso que comprometa desempenho, segurança, reputação ou disponibilidade da plataforma.",
+      ],
+      afterListParagraphs: [
+        "Em caso de uso indevido, a CONTRATADA poderá aplicar, isolada ou cumulativamente, alerta formal, limitação de recursos, suspensão temporária, bloqueio de conta, rescisão unilateral, cobrança de custos técnicos, administrativos, jurídicos e operacionais e responsabilização por perdas e danos.",
+      ],
+    },
+    {
+      id: "propriedade-intelectual",
+      heading: "15. Propriedade intelectual",
+      paragraphs: [
+        "Todos os direitos de propriedade intelectual relacionados à plataforma, incluindo software, código-fonte, código-objeto, arquitetura, banco de dados, fluxos, telas, layout, marca, identidade visual, documentação, APIs, modelos, integrações, automações, know-how e melhorias pertencem exclusivamente à CONTRATADA ou a seus licenciantes.",
+        "O CONTRATANTE não adquire qualquer direito de propriedade sobre a plataforma.",
+        "Os dados inseridos pelo CONTRATANTE permanecem de titularidade do CONTRATANTE ou de seus respectivos titulares, conforme aplicável.",
+        "Feedbacks, sugestões, ideias ou recomendações enviados pelo CONTRATANTE poderão ser utilizados pela CONTRATADA para melhoria da plataforma, sem obrigação de remuneração, desde que não envolvam informações confidenciais indevidamente divulgadas.",
+      ],
+    },
+    {
+      id: "confidencialidade",
+      heading: "16. Confidencialidade",
+      paragraphs: [
+        "As partes comprometem-se a manter sigilo sobre informações confidenciais obtidas em razão da contratação, incluindo dados técnicos, comerciais, financeiros, estratégicos, operacionais, credenciais, informações de clientes, documentação, propostas e materiais não públicos.",
+        "A obrigação de confidencialidade permanecerá vigente por 5 anos após o encerramento contratual, ou por prazo superior quando exigido por lei, segredo de negócio ou contrato específico.",
+      ],
+    },
+    {
+      id: "lgpd",
+      heading: "17. LGPD, DPA e proteção de dados",
+      paragraphs: [
+        "No tratamento de dados pessoais inseridos pelo CONTRATANTE na plataforma, em regra, o CONTRATANTE atua como Controlador e a CONTRATADA atua como Operadora, tratando os dados conforme instruções do CONTRATANTE e limites necessários à prestação dos serviços.",
+        "As regras detalhadas de tratamento de dados pessoais, segurança, suboperadores, transferência internacional, resposta a titulares, incidentes e cooperação constam no Anexo II — DPA.",
+        "A CONTRATADA poderá atuar como Controladora em relação a dados próprios necessários à gestão da conta, cobrança, relacionamento comercial, segurança, prevenção a fraudes, marketing próprio e cumprimento legal, conforme a Política de Privacidade.",
+      ],
+    },
+    {
+      id: "seguranca",
+      heading: "18. Segurança da informação",
+      paragraphs: [
+        "A CONTRATADA adotará medidas técnicas e organizacionais razoáveis para proteger a plataforma e os dados contra acessos não autorizados, perdas, alterações, destruição, vazamentos e usos indevidos.",
+        "As medidas poderão incluir:",
+      ],
+      list: [
+        "controle de acesso;",
+        "autenticação;",
+        "segregação lógica de ambientes;",
+        "criptografia em trânsito;",
+        "backups;",
+        "logs;",
+        "monitoramento;",
+        "gestão de incidentes;",
+        "revisão de permissões;",
+        "boas práticas de desenvolvimento seguro.",
+      ],
+      afterListParagraphs: [
+        "A política detalhada consta no Anexo III — Política de Segurança da Informação.",
       ],
     },
     {
       id: "limitacao-de-responsabilidade",
-      heading: "14. Limitação de responsabilidade",
+      heading: "19. Limitação de responsabilidade",
       paragraphs: [
-        "Na máxima extensão permitida pela legislação aplicável, a Gestify não será responsável por:",
+        "Na máxima extensão permitida pela legislação aplicável, a responsabilidade total da CONTRATADA por danos decorrentes deste contrato ficará limitada ao valor efetivamente pago pelo CONTRATANTE nos 12 meses anteriores ao evento que gerou a reclamação.",
+        "A CONTRATADA não será responsável por:",
       ],
       list: [
-        "danos decorrentes de uso inadequado da plataforma;",
-        "falhas de internet, energia, navegadores, dispositivos ou provedores de terceiros;",
-        "indisponibilidades temporárias razoáveis;",
-        "perda causada por compartilhamento indevido de credenciais pelo próprio usuário;",
-        "decisões empresariais tomadas exclusivamente com base em informações da plataforma sem validação própria;",
-        "danos indiretos, incidentais, especiais, consequenciais ou lucros cessantes, salvo quando a lei aplicável vedar essa limitação.",
+        "lucros cessantes;",
+        "perda de receita;",
+        "perda de oportunidade;",
+        "danos indiretos, incidentais, especiais ou consequenciais;",
+        "decisões comerciais tomadas com base em dados inseridos pelo CONTRATANTE;",
+        "falhas de internet, energia, infraestrutura local ou dispositivos do CONTRATANTE;",
+        "falhas de terceiros;",
+        "atos de usuários, colaboradores, parceiros ou representantes do CONTRATANTE;",
+        "exclusões, alterações ou erros de cadastro feitos pelo CONTRATANTE.",
+      ],
+      afterListParagraphs: [
+        "Nada neste contrato limitará responsabilidade que não possa ser limitada por lei.",
       ],
     },
     {
-      id: "indenizacao",
-      heading: "15. Indenização",
+      id: "garantias",
+      heading: "20. Isenções e garantias",
       paragraphs: [
-        "O usuário e/ou cliente concorda em indenizar a Gestify por prejuízos, perdas, despesas, custos e demandas decorrentes de uso indevido da plataforma, violação destes Termos ou lesão a direitos de terceiros.",
+        "A plataforma é fornecida conforme disponível, respeitadas as obrigações contratuais expressas.",
+        "A CONTRATADA não garante que a plataforma será livre de erros, falhas, interrupções, vulnerabilidades, incompatibilidades ou que atenderá a todas as necessidades específicas do CONTRATANTE sem customização ou contratação adicional.",
+        "A CONTRATADA não presta consultoria contábil, fiscal, jurídica, trabalhista ou regulatória, salvo se contratado expressamente em instrumento separado.",
       ],
     },
     {
-      id: "comunicacoes",
-      heading: "16. Comunicações",
+      id: "rescisao",
+      heading: "21. Rescisão",
       paragraphs: [
-        "A Gestify poderá enviar comunicações administrativas, técnicas, operacionais, de segurança, cobrança e, quando permitido, comunicações comerciais, por e-mail, sistema, WhatsApp ou outros canais informados pelo usuário ou cliente.",
+        "O contrato poderá ser rescindido por solicitação do CONTRATANTE, por inadimplência, por violação contratual, por uso indevido, por risco à segurança da plataforma, por ordem legal, regulatória ou judicial, ou por descontinuidade comercial da plataforma, mediante aviso prévio razoável quando possível.",
+        "Após a rescisão, a CONTRATADA poderá restringir acesso, iniciar período de retenção técnica e excluir dados conforme este contrato, a Política de Privacidade e o DPA.",
       ],
     },
     {
-      id: "nulidade",
-      heading: "17. Tolerância e nulidade parcial",
+      id: "versionamento",
+      heading: "22. Alterações, versionamento e aceite",
       paragraphs: [
-        "A eventual tolerância ao descumprimento de qualquer disposição destes Termos não implicará renúncia de direito. Caso alguma cláusula seja considerada inválida, as demais permanecerão em vigor.",
+        `Este contrato é identificado pela versão ${CURRENT_TERMS_DOCUMENT_VERSION}.`,
+        "A CONTRATADA poderá atualizar este contrato para refletir alterações legais, técnicas, comerciais, operacionais, regulatórias ou de segurança.",
+        "Alterações relevantes serão comunicadas por meio razoável, como e-mail, aviso na plataforma ou publicação no site.",
+        "O uso contínuo da plataforma após a entrada em vigor de nova versão implica aceitação dos novos termos.",
+        "A CONTRATADA poderá manter histórico de versões anteriores para fins de auditoria e transparência.",
+      ],
+    },
+    {
+      id: "investidores",
+      heading: "23. Termos preparados para investidores",
+      paragraphs: [
+        "Este contrato foi estruturado para demonstrar maturidade operacional, previsibilidade jurídica, governança, proteção de dados, controle de risco e clareza comercial da plataforma.",
+        "Este contrato não concede ao CONTRATANTE, usuário, parceiro, investidor potencial ou terceiro participação societária, direito de preferência, opção de compra, participação em receitas, acesso ao código-fonte, direito de auditoria irrestrita ou poder de gestão sobre a CONTRATADA ou sobre a plataforma.",
+        "Qualquer relação com investidores, sócios, aceleradoras, fundos, parceiros estratégicos ou financiadores deverá ser formalizada por instrumento próprio.",
+      ],
+    },
+    {
+      id: "disposicoes-gerais",
+      heading: "24. Disposições gerais",
+      paragraphs: [
+        "A tolerância de uma parte quanto ao descumprimento de qualquer obrigação não constituirá renúncia de direito.",
+        "Se qualquer cláusula for considerada inválida, as demais permanecerão válidas e eficazes.",
+        "O CONTRATANTE não poderá ceder este contrato sem autorização prévia da CONTRATADA.",
+        "A CONTRATADA poderá ceder este contrato em caso de reorganização societária, venda de ativos, fusão, aquisição, investimento, sucessão empresarial ou mudança de estrutura jurídica.",
       ],
     },
     {
       id: "foro",
-      heading: "18. Lei aplicável e foro",
+      heading: "25. Foro",
       paragraphs: [
-        "Estes Termos serão regidos pelas leis da República Federativa do Brasil.",
-        "Fica eleito o foro da comarca de São Paulo/SP, salvo hipótese de competência legal imperativa diversa.",
+        "Fica eleito o foro da comarca da sede da CONTRATADA, salvo disposição legal obrigatória em sentido diverso.",
       ],
     },
     {
-      id: "contato",
-      heading: "19. Contato",
-      list: [
-        "NT Solution / Gestify",
-        "E-mail: atendimento@ntsolution.com.br",
-        "Telefone: +55 11 98675-4605",
+      id: "anexo-sla",
+      heading: "26. Anexo I — SLA Enterprise",
+      paragraphs: [
+        "Este anexo define níveis de serviço aplicáveis ao plano Enterprise, incluindo disponibilidade, cálculo de downtime, suporte prioritário, créditos contratuais e exclusões.",
+      ],
+      subsections: [
+        {
+          id: "sla-disponibilidade",
+          heading: "26.1. Disponibilidade e downtime elegível",
+          paragraphs: [
+            "A CONTRATADA buscará manter disponibilidade mensal de 99,9% para clientes Enterprise.",
+            "Será considerado downtime elegível o período em que o núcleo essencial da plataforma estiver indisponível para a maioria dos usuários do CONTRATANTE por falha diretamente atribuível à CONTRATADA.",
+          ],
+          list: [
+            "manutenção programada ou emergencial de segurança;",
+            "falhas causadas por provedores externos;",
+            "falhas de internet, DNS, CDN, gateway de pagamento, APIs externas ou infraestrutura do CONTRATANTE;",
+            "falhas decorrentes de credenciais incorretas, permissões, integrações ou configurações feitas pelo CONTRATANTE;",
+            "indisponibilidade parcial que não impeça o uso principal da plataforma;",
+            "bloqueios por inadimplência, violação contratual ou suspeita de fraude;",
+            "eventos de força maior;",
+            "ataques cibernéticos, DDoS ou exploração de vulnerabilidades, salvo culpa comprovada da CONTRATADA;",
+            "uso acima dos limites contratados.",
+          ],
+        },
+        {
+          id: "sla-suporte-creditos",
+          heading: "26.2. Suporte e créditos",
+          paragraphs: [
+            "Clientes Enterprise poderão receber canal prioritário dedicado e tempos de primeira resposta compatíveis com a severidade do incidente.",
+            "Quando a disponibilidade mensal ficar abaixo de 99,9% por downtime elegível, o CONTRATANTE Enterprise poderá solicitar crédito contratual, aplicado preferencialmente na fatura seguinte.",
+            "Os créditos não serão pagos em dinheiro, não serão cumulativos e constituem o remédio contratual exclusivo por descumprimento de SLA, salvo dolo, fraude, má-fé ou disposição expressa em contrato Enterprise específico.",
+          ],
+        },
+      ],
+    },
+    {
+      id: "anexo-dpa",
+      heading: "27. Anexo II — DPA (LGPD / GDPR)",
+      paragraphs: [
+        "Este anexo regula o tratamento de dados pessoais realizado pela CONTRATADA em nome do CONTRATANTE no contexto da prestação dos serviços da plataforma Gestify.",
+      ],
+      subsections: [
+        {
+          id: "dpa-papeis",
+          heading: "27.1. Papéis, finalidades e categorias",
+          paragraphs: [
+            "Para os dados pessoais inseridos pelo CONTRATANTE na plataforma, em regra, o CONTRATANTE atua como Controlador, a CONTRATADA atua como Operadora e terceiros de infraestrutura, hospedagem, banco de dados, autenticação, pagamento, suporte, logs e monitoramento poderão atuar como Suboperadores.",
+            "A CONTRATADA tratará dados pessoais para disponibilizar e operar a plataforma, autenticar usuários, armazenar e processar dados inseridos pelo CONTRATANTE, prestar suporte técnico, processar pagamentos e cobranças, prevenir fraudes e abusos, monitorar segurança e estabilidade, cumprir obrigações legais, regulatórias e contratuais e melhorar funcionalidades quando permitido.",
+          ],
+        },
+        {
+          id: "dpa-seguranca-suboperadores",
+          heading: "27.2. Segurança, suboperadores e atendimento a titulares",
+          paragraphs: [
+            "A CONTRATADA adotará medidas técnicas e organizacionais razoáveis, proporcionais ao risco, incluindo controle de acesso, autenticação, segregação lógica de dados, criptografia em trânsito, backups, logs de acesso, monitoramento de disponibilidade, restrição de privilégios administrativos, revisão de permissões e gestão de incidentes.",
+            "O CONTRATANTE autoriza a contratação de suboperadores necessários à prestação dos serviços, incluindo provedores de cloud, banco de dados, autenticação, hospedagem, monitoramento, suporte, pagamento, comunicação e segurança.",
+            "Quando a CONTRATADA receber solicitação de titular relacionada a dados tratados em nome do CONTRATANTE, poderá encaminhá-la ao próprio CONTRATANTE, salvo obrigação legal diversa.",
+          ],
+        },
+      ],
+    },
+    {
+      id: "anexo-seguranca",
+      heading: "28. Anexo III — Política de Segurança da Informação",
+      paragraphs: [
+        "Esta política descreve medidas administrativas, técnicas e organizacionais adotadas para proteger a plataforma Gestify, seus ambientes, dados, acessos, integrações e infraestrutura.",
+      ],
+      subsections: [
+        {
+          id: "seguranca-principios",
+          heading: "28.1. Princípios e controles",
+          paragraphs: [
+            "A CONTRATADA adota princípios de menor privilégio, necessidade de acesso, segregação lógica, rastreabilidade, prevenção, resposta rápida a incidentes, melhoria contínua e proteção proporcional ao risco.",
+          ],
+          list: [
+            "contas individuais sempre que possível;",
+            "restrição de acessos administrativos;",
+            "revogação de acessos desnecessários;",
+            "uso de autenticação segura;",
+            "revisão periódica de permissões;",
+            "separação entre acessos internos e acessos de clientes;",
+            "registro de acessos relevantes quando tecnicamente disponível.",
+          ],
+        },
+        {
+          id: "seguranca-logs-incidentes",
+          heading: "28.2. Logs, monitoramento e incidentes",
+          paragraphs: [
+            "A plataforma poderá manter logs técnicos para autenticação, diagnóstico de falhas, segurança, auditoria, prevenção de abuso, investigação de incidentes e melhoria da estabilidade.",
+            "Incidentes com potencial impacto em dados pessoais serão tratados conforme o DPA e a legislação aplicável.",
+            "A CONTRATADA buscará aplicar boas práticas de desenvolvimento seguro, atualização de dependências, proteção de variáveis sensíveis, validação de entradas, controle de erros, restrição de permissões em banco de dados e correção de vulnerabilidades conforme criticidade.",
+          ],
+        },
+      ],
+    },
+    {
+      id: "controle-de-versoes",
+      heading: "29. Controle de versões",
+      paragraphs: [
+        "v1.0 — 23/04/2026 — Primeira versão contratual.",
+        "v1.1 — 23/04/2026 — Ajustes de planos, cobrança e LGPD.",
+        "v1.2 — 23/04/2026 — Inclusão de SLA, backup, DPA e segurança.",
+        `v1.3 — ${CURRENT_TERMS_UPDATED_AT} — Versão robusta com anexos Enterprise, DPA nacional/internacional, política de segurança e termos preparados para investidores.`,
       ],
     },
   ],

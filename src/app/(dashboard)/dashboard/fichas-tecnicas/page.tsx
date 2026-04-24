@@ -946,11 +946,9 @@ export default function FichasTecnicasPage() {
   const [isPending, startTransition] = useTransition();
   const [uploadingImage, setUploadingImage] = useState(false);
   const [exportingPdfId, setExportingPdfId] = useState<string | null>(null);
-
   const [fichasTecnicas, setFichasTecnicas] = useState<FichaTecnica[]>([]);
   const [fichaSelecionada, setFichaSelecionada] = useState<FichaTecnica | null>(null);
   const [showFichaDetalhe, setShowFichaDetalhe] = useState(false);
-
   const [showNovaFicha, setShowNovaFicha] = useState(false);
   const [showEditarFicha, setShowEditarFicha] = useState(false);
   const [showFullscreenViewer, setShowFullscreenViewer] = useState(false);
@@ -958,13 +956,10 @@ export default function FichasTecnicasPage() {
   const [showImportReportModal, setShowImportReportModal] = useState(false);
   const [reportJobId, setReportJobId] = useState<string | null>(null);
   const [fichaEditando, setFichaEditando] = useState<FichaTecnica | null>(null);
-
   const [viewerTab, setViewerTab] = useState<ViewerTab>("ingredientes");
   const [desiredServings, setDesiredServings] = useState<number>(1);
-
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("TODAS");
-
   const [nome, setNome] = useState("");
   const [categoria, setCategoria] = useState("");
   const [rendimento, setRendimento] = useState<number>(1);
@@ -974,7 +969,6 @@ export default function FichasTecnicasPage() {
   const [modoPreparo, setModoPreparo] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
-
   const [difficultyLevel, setDifficultyLevel] = useState("");
   const [temperatureCelsius, setTemperatureCelsius] = useState<number | "">("");
   const [cookingTimeMinutes, setCookingTimeMinutes] = useState<number | "">("");
@@ -1994,7 +1988,7 @@ export default function FichasTecnicasPage() {
           )}
         </div>
       </div>
-            <Dialog open={showEditarFicha} onOpenChange={setShowEditarFicha}>
+      <Dialog open={showNovaFicha} onOpenChange={setShowNovaFicha}>
   <DialogContent className="max-h-[92vh] overflow-y-auto bg-white text-slate-900 shadow-2xl border border-slate-200 sm:max-w-6xl">
           <DialogHeader>
             <DialogTitle>Nova Ficha Técnica</DialogTitle>

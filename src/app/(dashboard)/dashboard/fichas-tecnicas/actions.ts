@@ -1082,6 +1082,7 @@ export async function listTechnicalSheets() {
       )
     `)
     .eq("establishment_id", establishmentId)
+    .order("name", { ascending: true })
     .order("created_at", { ascending: false });
 
   if (error) {

@@ -139,6 +139,16 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
+function compareFichaByNome(a: FichaTecnica, b: FichaTecnica) {
+  const nomeA = a.nome?.trim() || "";
+  const nomeB = b.nome?.trim() || "";
+
+  return nomeA.localeCompare(nomeB, "pt-BR", {
+    sensitivity: "base",
+    numeric: true,
+  });
+}
+
 function calcularCMV(custoPorPorcao: number, precoVenda: number) {
   if (!precoVenda || precoVenda <= 0) return 0;
   return (custoPorPorcao / precoVenda) * 100;
@@ -1097,7 +1107,7 @@ export default function FichasTecnicasPage() {
       ]);
 
       const fichasNormalizadas = Array.isArray(fichasRes)
-        ? fichasRes.map(normalizeFichaFromDb)
+        ? fichasRes.map(normalizeFichaFromDb).sort(compareFichaByNome)
         : [];
 
       setFichasTecnicas(fichasNormalizadas);
@@ -1159,23 +1169,25 @@ export default function FichasTecnicasPage() {
   const fichasFiltradas = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
 
-    return fichasTecnicas.filter((ficha) => {
-      const matchesCategory =
-        categoryFilter === "TODAS" || ficha.categoria === categoryFilter;
+    return fichasTecnicas
+      .filter((ficha) => {
+        const matchesCategory =
+          categoryFilter === "TODAS" || ficha.categoria === categoryFilter;
 
-      const matchesSearch =
-        !q ||
-        ficha.nome.toLowerCase().includes(q) ||
-        ficha.categoria.toLowerCase().includes(q) ||
-        ficha.ingredientes.some((i) => i.nome.toLowerCase().includes(q)) ||
-        ficha.escalas.some(
-          (s) =>
-            s.label.toLowerCase().includes(q) ||
-            s.ingredientes.some((ing) => ing.nome.toLowerCase().includes(q))
-        );
+        const matchesSearch =
+          !q ||
+          ficha.nome.toLowerCase().includes(q) ||
+          ficha.categoria.toLowerCase().includes(q) ||
+          ficha.ingredientes.some((i) => i.nome.toLowerCase().includes(q)) ||
+          ficha.escalas.some(
+            (s) =>
+              s.label.toLowerCase().includes(q) ||
+              s.ingredientes.some((ing) => ing.nome.toLowerCase().includes(q))
+          );
 
-      return matchesCategory && matchesSearch;
-    });
+        return matchesCategory && matchesSearch;
+      })
+      .sort(compareFichaByNome);
   }, [fichasTecnicas, searchTerm, categoryFilter]);
 
   const custoMedio = useMemo(() => {
@@ -1505,7 +1517,7 @@ export default function FichasTecnicasPage() {
 
         const fichasRes = await listTechnicalSheets();
         const fichasNormalizadas = Array.isArray(fichasRes)
-          ? fichasRes.map(normalizeFichaFromDb)
+          ? fichasRes.map(normalizeFichaFromDb).sort(compareFichaByNome)
           : [];
 
         setFichasTecnicas(fichasNormalizadas);

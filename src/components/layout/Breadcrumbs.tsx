@@ -18,6 +18,8 @@ const labelsMap: Record<string, string> = {
   perdas: "Perdas",
   transferencias: "Transferências",
   compras: "Hub de Dados",
+  financeiro: "Financeiro",
+  dre: "DRE",
   controladoria: "Controladoria",
   admin: "Administração",
   usuarios: "Usuários",

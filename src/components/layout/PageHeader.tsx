@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 
 const titles: Record<string, string> = {
+  "/financeiro": "Financeiro",
   "/dashboard/pedidos": "Pedidos",
   "/dashboard/producao": "Produção",
   "/dashboard/produtividade": "Produtividade",
@@ -19,6 +20,7 @@ const titles: Record<string, string> = {
   "/dashboard/compras": "Hub de Dados",
   "/dashboard/controladoria": "Controladoria",
   "/dashboard/admin/usuarios": "Usuários",
+  "/financeiro/dre": "DRE",
 };
 
 export function PageHeader() {

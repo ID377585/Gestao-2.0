@@ -80,8 +80,11 @@ export default function EngenhariaDashboardPage() {
 
     return {
       fichas: ativas.length,
-      rendimentoZero: ativas.filter((item) => Number(item.rendimento ?? 0) <= 0).length,
-      semCusto: ativas.filter((item) => Number(item.custoTotal ?? 0) <= 0).length,
+      rendimentoZero: ativas.filter(
+        (item) => Number(item.rendimento ?? 0) <= 0
+      ).length,
+      semCusto: ativas.filter((item) => Number(item.custoTotal ?? 0) <= 0)
+        .length,
       etiquetas: etiquetas.length,
       etiquetasDisponiveis,
       etiquetasUltimos7Dias,
@@ -93,7 +96,8 @@ export default function EngenhariaDashboardPage() {
       .filter((item) => item.ativo !== false)
       .filter(
         (item) =>
-          Number(item.rendimento ?? 0) <= 0 || Number(item.custoTotal ?? 0) <= 0
+          Number(item.rendimento ?? 0) <= 0 ||
+          Number(item.custoTotal ?? 0) <= 0
       )
       .slice(0, 10);
   }, [fichas]);
@@ -152,7 +156,9 @@ export default function EngenhariaDashboardPage() {
 
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
               <div className="text-sm text-gray-500">Rendimento zerado</div>
-              <div className="mt-2 text-2xl font-bold">{metrics.rendimentoZero}</div>
+              <div className="mt-2 text-2xl font-bold">
+                {metrics.rendimentoZero}
+              </div>
             </div>
 
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -178,7 +184,9 @@ export default function EngenhariaDashboardPage() {
             </div>
 
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <div className="text-sm text-gray-500">Etiquetas nos últimos 7 dias</div>
+              <div className="text-sm text-gray-500">
+                Etiquetas nos últimos 7 dias
+              </div>
               <div className="mt-2 text-2xl font-bold">
                 {metrics.etiquetasUltimos7Dias}
               </div>
@@ -203,8 +211,9 @@ export default function EngenhariaDashboardPage() {
                     >
                       <div className="font-medium">{item.nome || "-"}</div>
                       <div className="mt-1 text-xs text-gray-500">
-                        Categoria: {item.categoria || "Sem categoria"} •{" "}
-                        Rendimento: {Number(item.rendimento ?? 0)} • Custo: {Number(item.custoTotal ?? 0)}
+                        Categoria: {item.categoria || "Sem categoria"} •
+                        Rendimento: {Number(item.rendimento ?? 0)} • Custo:{" "}
+                        {Number(item.custoTotal ?? 0)}
                       </div>
                     </div>
                   ))}
@@ -216,7 +225,9 @@ export default function EngenhariaDashboardPage() {
               <h2 className="mb-4 text-lg font-semibold">Últimas etiquetas</h2>
 
               {ultimasEtiquetas.length === 0 ? (
-                <p className="text-sm text-gray-500">Nenhuma etiqueta encontrada.</p>
+                <p className="text-sm text-gray-500">
+                  Nenhuma etiqueta encontrada.
+                </p>
               ) : (
                 <div className="space-y-3">
                   {ultimasEtiquetas.map((item) => (

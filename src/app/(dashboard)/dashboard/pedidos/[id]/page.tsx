@@ -108,6 +108,37 @@ function getStatusLabel(status: string) {
   return STATUS_LABEL[status] ?? status;
 }
 
+function normalizeTimelineFingerprintValue(value: string | null | undefined) {
+  return String(value ?? "").trim();
+}
+
+function getTimelineEventFingerprint(event: {
+  from_status?: string | null;
+  to_status?: string | null;
+  note?: string | null;
+  visible_to_client?: boolean | null;
+  created_at?: string | null;
+}) {
+  return [
+    normalizeTimelineFingerprintValue(event.from_status),
+    normalizeTimelineFingerprintValue(event.to_status),
+    normalizeTimelineFingerprintValue(event.note),
+    event.visible_to_client ? "1" : "0",
+    normalizeTimelineFingerprintValue(event.created_at),
+  ].join("|");
+}
+
+function preferTimelineEvent(current: any, incoming: any) {
+  const currentLabel = normalizeTimelineFingerprintValue(current?.client_label);
+  const incomingLabel = normalizeTimelineFingerprintValue(incoming?.client_label);
+
+  if (!currentLabel && incomingLabel) return incoming;
+  if (currentLabel && !incomingLabel) return current;
+
+  if (incomingLabel.length > currentLabel.length) return incoming;
+  return current;
+}
+
 function getAdvanceActionLabel(status: string) {
   switch (status) {
     case "aceitou_pedido":
@@ -759,15 +790,32 @@ export default function PedidoDetalhePage() {
 
             safeSetState(() => {
               setTimeline((prev: any) => {
-                if (prev.some((x: any) => x.id === ev.id)) return prev;
+                const items = Array.isArray(prev) ? prev : [];
 
-                const next = [...prev, ev];
-                next.sort(
+                if (items.some((x: any) => x.id === ev.id)) return items;
+
+                const deduped = new Map<string, any>();
+
+                for (const item of [...items, ev]) {
+                  const fingerprint = getTimelineEventFingerprint(item);
+                  const existing = deduped.get(fingerprint);
+
+                  if (!existing) {
+                    deduped.set(fingerprint, item);
+                    continue;
+                  }
+
+                  deduped.set(
+                    fingerprint,
+                    preferTimelineEvent(existing, item)
+                  );
+                }
+
+                return Array.from(deduped.values()).sort(
                   (a: any, b: any) =>
                     new Date(a.created_at).getTime() -
                     new Date(b.created_at).getTime()
                 );
-                return next;
               });
             });
           });

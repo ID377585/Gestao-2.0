@@ -65,6 +65,40 @@ export type OrderTimelineEvent = {
   note: string | null;
 };
 
+function normalizeTimelineFingerprintValue(value: string | null | undefined) {
+  return String(value ?? "").trim();
+}
+
+function getTimelineEventFingerprint(event: {
+  from_status: string | null;
+  to_status: string;
+  note: string | null;
+  visible_to_client: boolean;
+  created_at: string;
+}) {
+  return [
+    normalizeTimelineFingerprintValue(event.from_status),
+    normalizeTimelineFingerprintValue(event.to_status),
+    normalizeTimelineFingerprintValue(event.note),
+    event.visible_to_client ? "1" : "0",
+    normalizeTimelineFingerprintValue(event.created_at),
+  ].join("|");
+}
+
+function preferTimelineEvent(
+  current: OrderTimelineEvent,
+  incoming: OrderTimelineEvent
+) {
+  const currentLabel = normalizeTimelineFingerprintValue(current.client_label);
+  const incomingLabel = normalizeTimelineFingerprintValue(incoming.client_label);
+
+  if (!currentLabel && incomingLabel) return incoming;
+  if (currentLabel && !incomingLabel) return current;
+
+  if (incomingLabel.length > currentLabel.length) return incoming;
+  return current;
+}
+
 export type OrderLineItem = {
   id: string;
   order_id: string;
@@ -417,23 +451,27 @@ export async function getOrderTimeline(
   if (error) throw new Error(error.message);
 
   const rows = (data ?? []) as OrderTimelineEvent[];
+  const dedupedByFingerprint = new Map<string, OrderTimelineEvent>();
 
-  const seen = new Set<string>();
-  const unique = rows.filter((ev) => {
-    const key = [
-      ev.from_status ?? "",
-      ev.to_status ?? "",
-      ev.note ?? "",
-      ev.created_at ?? "",
-      ev.client_label ?? "",
-      ev.visible_to_client ? "1" : "0",
-    ].join("|");
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  for (const row of rows) {
+    const fingerprint = getTimelineEventFingerprint(row);
+    const existing = dedupedByFingerprint.get(fingerprint);
 
-  return unique as OrderTimelineEvent[];
+    if (!existing) {
+      dedupedByFingerprint.set(fingerprint, row);
+      continue;
+    }
+
+    dedupedByFingerprint.set(
+      fingerprint,
+      preferTimelineEvent(existing, row)
+    );
+  }
+
+  return Array.from(dedupedByFingerprint.values()).sort(
+    (a, b) =>
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
 }
 
 /** lista itens do pedido (tabela antiga, usada na tela de detalhes) */

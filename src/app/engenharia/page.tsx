@@ -2,31 +2,24 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase/client";
+import { listTechnicalSheets } from "@/app/(dashboard)/dashboard/fichas-tecnicas/actions";
+import { listInventoryLabels } from "@/app/(dashboard)/dashboard/etiquetas/actions";
 
 type FichaTecnica = {
   id: string;
-  nome?: string;
-  rendimento?: number;
-  custoTotal?: number;
-  ativo?: boolean;
+  nome: string;
+  categoria: string;
+  rendimento: number;
+  custoTotal: number;
+  ativo: boolean;
 };
 
 type Etiqueta = {
   id: string;
-  nome?: string;
-  createdAt?: string;
+  nome: string;
+  status: string;
+  createdAt: string;
 };
-
-function toIsoDate(value: unknown): string {
-  if (!value) return "";
-
-  if (typeof value === "string") return value;
-
-  if (value instanceof Date) return value.toISOString();
-
-  return "";
-}
 
 export default function EngenhariaDashboardPage() {
   const [fichas, setFichas] = useState<FichaTecnica[]>([]);
@@ -35,55 +28,63 @@ export default function EngenhariaDashboardPage() {
   const [error, setError] = useState("");
 
   const loadData = useCallback(async () => {
-  try {
-    setLoading(true);
-    setError("");
+    try {
+      setLoading(true);
+      setError("");
 
-    const [fichasRes, etiquetasRes] = await Promise.all([
-      supabase
-        .from("technical_sheets")
-        .select("id, name, yield_portions, total_cost"),
-      supabase
-        .from("etiquetas")
-        .select("id, nome, created_at"),
-    ]);
+      const [fichasRes, etiquetasRes] = await Promise.all([
+        listTechnicalSheets(),
+        listInventoryLabels(),
+      ]);
 
-    if (fichasRes.error) throw fichasRes.error;
-    if (etiquetasRes.error) throw etiquetasRes.error;
+      setFichas(
+        (fichasRes ?? []).map((item: any) => ({
+          id: String(item.id),
+          nome: String(item.name ?? ""),
+          categoria: String(item.category ?? ""),
+          rendimento: Number(item.yield_portions ?? 0),
+          custoTotal: Number(item.total_cost ?? 0),
+          ativo: true,
+        }))
+      );
 
-    setFichas(
-      (fichasRes.data ?? []).map((item: any) => ({
-        id: String(item.id),
-        nome: item.name ?? "",
-        rendimento: Number(item.yield_portions ?? 0),
-        custoTotal: Number(item.total_cost ?? 0),
-        ativo: true,
-      }))
-    );
-
-    setEtiquetas(
-      (etiquetasRes.data ?? []).map((item: any) => ({
-        id: String(item.id),
-        nome: item.nome ?? "",
-        createdAt: toIsoDate(item.created_at),
-      }))
-    );
-  } catch (err) {
-    console.error(err);
-    setError("Não foi possível carregar o dashboard de engenharia.");
-  } finally {
-    setLoading(false);
-  }
-}, []);
+      setEtiquetas(
+        (etiquetasRes ?? []).map((item: any) => ({
+          id: String(item.id),
+          nome: String(item.label_code ?? ""),
+          status: String(item.status ?? ""),
+          createdAt:
+            typeof item.created_at === "string" ? item.created_at : "",
+        }))
+      );
+    } catch (err) {
+      console.error("Erro ao carregar dashboard de engenharia:", err);
+      setError("Não foi possível carregar o dashboard de engenharia.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const metrics = useMemo(() => {
     const ativas = fichas.filter((item) => item.ativo !== false);
+    const etiquetasDisponiveis = etiquetas.filter(
+      (item) => item.status === "available"
+    ).length;
+    const etiquetasUltimos7Dias = etiquetas.filter((item) => {
+      if (!item.createdAt) return false;
+      const createdAt = new Date(item.createdAt);
+      if (Number.isNaN(createdAt.getTime())) return false;
+      const diffMs = Date.now() - createdAt.getTime();
+      return diffMs <= 7 * 24 * 60 * 60 * 1000;
+    }).length;
 
     return {
       fichas: ativas.length,
       rendimentoZero: ativas.filter((item) => Number(item.rendimento ?? 0) <= 0).length,
       semCusto: ativas.filter((item) => Number(item.custoTotal ?? 0) <= 0).length,
       etiquetas: etiquetas.length,
+      etiquetasDisponiveis,
+      etiquetasUltimos7Dias,
     };
   }, [fichas, etiquetas]);
 
@@ -160,8 +161,30 @@ export default function EngenhariaDashboardPage() {
             </div>
 
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <div className="text-sm text-gray-500">Etiquetas</div>
+              <div className="text-sm text-gray-500">Etiquetas criadas</div>
               <div className="mt-2 text-2xl font-bold">{metrics.etiquetas}</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+              <div className="text-sm text-gray-500">Etiquetas disponíveis</div>
+              <div className="mt-2 text-2xl font-bold">
+                {metrics.etiquetasDisponiveis}
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Itens prontos para uso e ainda não consumidos.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+              <div className="text-sm text-gray-500">Etiquetas nos últimos 7 dias</div>
+              <div className="mt-2 text-2xl font-bold">
+                {metrics.etiquetasUltimos7Dias}
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Volume recente de geração e revalidação de etiquetas.
+              </p>
             </div>
           </div>
 
@@ -180,6 +203,7 @@ export default function EngenhariaDashboardPage() {
                     >
                       <div className="font-medium">{item.nome || "-"}</div>
                       <div className="mt-1 text-xs text-gray-500">
+                        Categoria: {item.categoria || "Sem categoria"} •{" "}
                         Rendimento: {Number(item.rendimento ?? 0)} • Custo: {Number(item.custoTotal ?? 0)}
                       </div>
                     </div>

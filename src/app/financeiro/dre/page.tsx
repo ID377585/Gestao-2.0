@@ -29,11 +29,20 @@ import { isLegacyTableMissingError } from "@/lib/legacy/supabase";
 
 const PIE_COLORS = ["#111827", "#2563eb", "#10b981", "#f59e0b", "#ef4444"];
 
+function toNumber(value: unknown) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
 function formatCurrency(value: number) {
   return value.toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
   });
+}
+
+function formatChartCurrency(value: unknown) {
+  return formatCurrency(toNumber(value));
 }
 
 function formatPercent(value: number) {
@@ -138,11 +147,15 @@ export default function DrePage() {
 
       {loading ? (
         <div className="rounded-2xl border bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <p className="text-sm text-gray-500 dark:text-slate-400">Carregando DRE...</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400">
+            Carregando DRE...
+          </p>
         </div>
       ) : error || !data || !summary ? (
         <div className="rounded-2xl border bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <p className="text-sm text-red-600">{error || "Sem dados para a DRE."}</p>
+          <p className="text-sm text-red-600">
+            {error || "Sem dados para a DRE."}
+          </p>
         </div>
       ) : (
         <>
@@ -173,7 +186,10 @@ export default function DrePage() {
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
             <Panel title="Estrutura da DRE">
               <ResponsiveContainer width="100%" height={320}>
-                <BarChart data={data.lines} margin={{ top: 8, right: 12, left: 0, bottom: 60 }}>
+                <BarChart
+                  data={data.lines}
+                  margin={{ top: 8, right: 12, left: 0, bottom: 60 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
                     dataKey="label"
@@ -183,8 +199,8 @@ export default function DrePage() {
                     height={72}
                     tick={{ fontSize: 11 }}
                   />
-                  <YAxis tickFormatter={(value: number) => formatCurrency(value)} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <YAxis tickFormatter={formatChartCurrency} />
+                  <Tooltip formatter={formatChartCurrency} />
                   <Bar dataKey="value" radius={[8, 8, 0, 0]}>
                     {data.lines.map((line) => (
                       <Cell
@@ -202,8 +218,8 @@ export default function DrePage() {
                 <LineChart data={data.charts.receitasVsDespesas}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="periodo" />
-                  <YAxis tickFormatter={(value: number) => formatCurrency(value)} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <YAxis tickFormatter={formatChartCurrency} />
+                  <Tooltip formatter={formatChartCurrency} />
                   <Legend />
                   <Line
                     type="monotone"
@@ -238,9 +254,9 @@ export default function DrePage() {
                   margin={{ top: 8, right: 20, left: 20, bottom: 8 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" tickFormatter={(value: number) => formatCurrency(value)} />
+                  <XAxis type="number" tickFormatter={formatChartCurrency} />
                   <YAxis type="category" dataKey="name" width={150} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Tooltip formatter={formatChartCurrency} />
                   <Bar dataKey="value" radius={[0, 8, 8, 0]} fill="#111827" />
                 </BarChart>
               </ResponsiveContainer>
@@ -264,7 +280,7 @@ export default function DrePage() {
                       />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Tooltip formatter={formatChartCurrency} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
@@ -275,8 +291,8 @@ export default function DrePage() {
                 <AreaChart data={data.charts.receitasVsDespesas}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="periodo" />
-                  <YAxis tickFormatter={(value: number) => formatCurrency(value)} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <YAxis tickFormatter={formatChartCurrency} />
+                  <Tooltip formatter={formatChartCurrency} />
                   <Legend />
                   <Area
                     type="monotone"

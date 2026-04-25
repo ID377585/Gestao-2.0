@@ -27,7 +27,6 @@ import { OrderStatusStepper } from "@/components/orders/OrderStatusStepper";
 import { useToast } from "@/hooks/use-toast";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { useOrderRealtime } from "@/lib/supabase/realtime/useOrderRealtime";
 
 import {
   acceptOrder,
@@ -463,14 +462,6 @@ export default function PedidoDetalhePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const orderId = params?.id as string;
-
-  // 🔄 Hook de realtime chamando router.refresh
-  useOrderRealtime({
-    orderId,
-    onUpdate: () => {
-      router.refresh();
-    },
-  });
 
   const [order, setOrder] = useState<OrderDetails | null>(null);
   const [timeline, setTimeline] = useState<Timeline[]>([]);

@@ -227,8 +227,8 @@ export const menuSections: MenuSectionConfig[] = [
     icon: BadgeDollarSign,
     items: [
   {
-    label: "Dashboard",
-    href: "/financeiro",
+    label: "DRE",
+    href: "/financeiro/dre",
     icon: BarChart3,
   },
   {

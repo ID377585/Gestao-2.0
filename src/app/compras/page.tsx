@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listPurchaseRequests } from "@/lib/compras/requests";
 import { listPurchaseOrders } from "@/lib/compras/orders";
 import { listGoodsReceipts } from "@/lib/compras/receipts";
+import { isLegacyTableMissingError } from "@/lib/legacy/supabase";
 import type {
   PurchaseRequest,
   PurchaseOrder,
@@ -38,21 +39,51 @@ export default function ComprasDashboardPage() {
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [safeMode, setSafeMode] = useState(false);
+
+  async function loadListWithFallback<T>(
+    loader: () => Promise<T[]>,
+    label: string
+  ) {
+    try {
+      return {
+        data: await loader(),
+        usedFallback: false,
+      };
+    } catch (error) {
+      if (!isLegacyTableMissingError(error)) {
+        throw error;
+      }
+
+      console.warn(`[compras] tabela legada ausente para ${label}; usando fallback vazio.`, error);
+
+      return {
+        data: [] as T[],
+        usedFallback: true,
+      };
+    }
+  }
 
   async function loadData() {
     try {
       setLoading(true);
       setError("");
+      setSafeMode(false);
 
-      const [requestsData, ordersData, receiptsData] = await Promise.all([
-        listPurchaseRequests(),
-        listPurchaseOrders(),
-        listGoodsReceipts(),
+      const [requestsResult, ordersResult, receiptsResult] = await Promise.all([
+        loadListWithFallback(listPurchaseRequests, "solicitações"),
+        loadListWithFallback(listPurchaseOrders, "pedidos"),
+        loadListWithFallback(listGoodsReceipts, "recebimentos"),
       ]);
 
-      setRequests(requestsData);
-      setOrders(ordersData);
-      setReceipts(receiptsData);
+      setRequests(requestsResult.data);
+      setOrders(ordersResult.data);
+      setReceipts(receiptsResult.data);
+      setSafeMode(
+        requestsResult.usedFallback ||
+          ordersResult.usedFallback ||
+          receiptsResult.usedFallback
+      );
     } catch (err) {
       console.error(err);
       setError("Não foi possível carregar o dashboard de compras.");
@@ -203,6 +234,16 @@ export default function ComprasDashboardPage() {
         </div>
       ) : (
         <>
+          {safeMode ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+              <p className="text-sm text-amber-900">
+                O dashboard foi carregado em modo seguro porque as tabelas legadas do
+                módulo de compras ainda não estão provisionadas neste banco. Os
+                indicadores ficam zerados até essa estrutura existir.
+              </p>
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
               <div className="text-sm text-gray-500">Solicitações</div>

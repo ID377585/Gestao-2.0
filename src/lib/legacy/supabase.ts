@@ -37,3 +37,22 @@ export function assertSupabaseSuccess(error: { message?: string } | null, messag
   if (!error) return;
   throw new Error(`${message}: ${error.message ?? "erro desconhecido"}`);
 }
+
+export function isLegacyTableMissingError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : error &&
+            typeof error === "object" &&
+            "message" in error &&
+            typeof (error as { message?: unknown }).message === "string"
+          ? ((error as { message: string }).message ?? "")
+          : "";
+
+  return (
+    message.includes("Could not find the table") &&
+    message.includes("in the schema cache")
+  );
+}

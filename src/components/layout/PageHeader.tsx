@@ -5,6 +5,21 @@ import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 
 const titles: Record<string, string> = {
   "/financeiro": "Financeiro",
+  "/financeiro/dre": "DRE",
+  "/financeiro/dre/drilldown": "Drill-down da DRE",
+  "/financeiro/dre/fornecedores": "Drill-down por Fornecedor",
+  "/financeiro/dre/produtos": "Drill-down por Produto",
+  "/financeiro/dre/relatorio": "Relatório Executivo da DRE",
+  "/financeiro/contas-a-pagar": "Contas a Pagar",
+  "/financeiro/contas-a-receber": "Contas a Receber",
+  "/financeiro/fluxo-de-caixa": "Fluxo de Caixa",
+  "/financeiro/dashboard-bancario": "Dashboard Bancário",
+  "/financeiro/contas-bancarias": "Contas Bancárias",
+  "/financeiro/conciliacao-bancaria": "Conciliação Bancária",
+  "/financeiro/plano-de-contas": "Plano de Contas",
+  "/financeiro/centros-de-custo": "Centros de Custo",
+  "/financeiro/relatorios": "Relatórios",
+  "/financeiro/auditoria": "Auditoria Financeira",
   "/dashboard/pedidos": "Pedidos",
   "/dashboard/producao": "Produção",
   "/dashboard/produtividade": "Produtividade",
@@ -20,7 +35,6 @@ const titles: Record<string, string> = {
   "/dashboard/compras": "Hub de Dados",
   "/dashboard/controladoria": "Controladoria",
   "/dashboard/admin/usuarios": "Usuários",
-  "/financeiro/dre": "DRE",
 };
 
 export function PageHeader() {

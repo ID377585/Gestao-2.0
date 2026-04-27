@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { buildCreatedByLabel, getCurrentUserInfo } from "@/lib/auth/current-user";
@@ -15,6 +15,7 @@ import {
   updateSupplierActionPlanStatus,
   updateSupplierScoreReviewStatus,
 } from "@/lib/compras/supplier-action-plan";
+import { isLegacyTableMissingError } from "@/lib/legacy/supabase";
 import type {
   Supplier,
   SupplierActionPlanItem,
@@ -93,6 +94,7 @@ export default function SupplierActionPlanPage() {
   const [reviews, setReviews] = useState<SupplierScoreReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [safeMode, setSafeMode] = useState(false);
 
   const [savingAction, setSavingAction] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
@@ -120,36 +122,84 @@ export default function SupplierActionPlanPage() {
     notes: "",
   });
 
-  async function loadData() {
+  const loadListWithFallback = useCallback(
+    async <T,>(loader: () => Promise<T[]>, label: string) => {
+      try {
+        return {
+          data: await loader(),
+          usedFallback: false,
+        };
+      } catch (err) {
+        if (!isLegacyTableMissingError(err)) {
+          throw err;
+        }
+
+        console.warn(
+          `[fornecedor.plano-acao] tabela legada ausente para ${label}; usando fallback vazio.`,
+          err
+        );
+
+        return {
+          data: [] as T[],
+          usedFallback: true,
+        };
+      }
+    },
+    []
+  );
+
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
+      setSafeMode(false);
 
       const supplierData = await getSupplierById(supplierId);
 
       if (!supplierData) {
+        setSupplier(null);
+        setActions([]);
+        setContacts([]);
+        setReviews([]);
         setError("Fornecedor não encontrado.");
-        setLoading(false);
         return;
       }
 
       const [actionItems, contactItems, reviewItems] = await Promise.all([
-        listSupplierActionPlanItems(supplierId),
-        listSupplierContactHistory(supplierId),
-        listSupplierScoreReviews(supplierId),
+        loadListWithFallback(
+          () => listSupplierActionPlanItems(supplierId),
+          "plano de ação"
+        ),
+        loadListWithFallback(
+          () => listSupplierContactHistory(supplierId),
+          "histórico de contato"
+        ),
+        loadListWithFallback(
+          () => listSupplierScoreReviews(supplierId),
+          "reavaliações"
+        ),
       ]);
 
       setSupplier(supplierData);
-      setActions(actionItems);
-      setContacts(contactItems);
-      setReviews(reviewItems);
+      setActions(actionItems.data);
+      setContacts(contactItems.data);
+      setReviews(reviewItems.data);
+      setSafeMode(
+        actionItems.usedFallback ||
+          contactItems.usedFallback ||
+          reviewItems.usedFallback
+      );
     } catch (err) {
       console.error(err);
+      setSupplier(null);
+      setActions([]);
+      setContacts([]);
+      setReviews([]);
       setError("Não foi possível carregar o plano de ação.");
     } finally {
       setLoading(false);
     }
-  }
+  }, [supplierId, loadListWithFallback]);
 
   async function getActor() {
     const currentUser = await getCurrentUserInfo();
@@ -268,9 +318,9 @@ export default function SupplierActionPlanPage() {
 
   useEffect(() => {
     if (supplierId) {
-      loadData();
+      void loadData();
     }
-  }, [supplierId]);
+  }, [supplierId, loadData]);
 
   if (loading) {
     return (
@@ -298,6 +348,14 @@ export default function SupplierActionPlanPage() {
 
   return (
     <div className="space-y-6 p-6">
+      {safeMode ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          O fornecedor foi carregado em modo seguro. As tabelas de plano de ação,
+          contatos ou reavaliações ainda podem não estar provisionadas neste banco,
+          então os quadros podem aparecer vazios.
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Plano de ação</h1>

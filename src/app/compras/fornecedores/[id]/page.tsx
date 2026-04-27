@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { getSupplierById } from "@/lib/compras/suppliers";
 import { listPurchaseOrders } from "@/lib/compras/orders";
 import { listGoodsReceipts } from "@/lib/compras/receipts";
 import { calculateSupplierScore } from "@/lib/compras/supplier-score";
+import { isLegacyTableMissingError } from "@/lib/legacy/supabase";
 import type { GoodsReceipt, PurchaseOrder, Supplier } from "@/types/compras";
 
 function formatCurrency(value: number) {
@@ -70,44 +71,81 @@ export default function FornecedorDetalhePage() {
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [safeMode, setSafeMode] = useState(false);
 
-  async function loadData() {
+  const loadListWithFallback = useCallback(
+    async <T,>(loader: () => Promise<T[]>, label: string) => {
+      try {
+        return {
+          data: await loader(),
+          usedFallback: false,
+        };
+      } catch (err) {
+        if (!isLegacyTableMissingError(err)) {
+          throw err;
+        }
+
+        console.warn(
+          `[fornecedor.detalhe] tabela legada ausente para ${label}; usando fallback vazio.`,
+          err
+        );
+
+        return {
+          data: [] as T[],
+          usedFallback: true,
+        };
+      }
+    },
+    []
+  );
+
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
+      setSafeMode(false);
 
-      const [supplierData, ordersData, receiptsData] = await Promise.all([
-        getSupplierById(supplierId),
-        listPurchaseOrders(),
-        listGoodsReceipts(),
-      ]);
+      const supplierData = await getSupplierById(supplierId);
 
       if (!supplierData) {
+        setSupplier(null);
+        setOrders([]);
+        setReceipts([]);
         setError("Fornecedor não encontrado.");
-        setLoading(false);
         return;
       }
 
-      const supplierOrders = ordersData.filter(
+      const [ordersResult, receiptsResult] = await Promise.all([
+        loadListWithFallback(listPurchaseOrders, "pedidos"),
+        loadListWithFallback(listGoodsReceipts, "recebimentos"),
+      ]);
+
+      const supplierOrders = ordersResult.data.filter(
         (item) => item.supplierId === supplierData.id
       );
 
       const orderIds = supplierOrders.map((item) => item.id);
 
-      const supplierReceipts = receiptsData.filter((item) =>
+      const supplierReceipts = receiptsResult.data.filter((item) =>
         orderIds.includes(item.purchaseOrderId)
       );
 
       setSupplier(supplierData);
       setOrders(supplierOrders);
       setReceipts(supplierReceipts);
+      setSafeMode(
+        ordersResult.usedFallback || receiptsResult.usedFallback
+      );
     } catch (err) {
       console.error(err);
+      setSupplier(null);
+      setOrders([]);
+      setReceipts([]);
       setError("Não foi possível carregar o fornecedor.");
     } finally {
       setLoading(false);
     }
-  }
+  }, [supplierId, loadListWithFallback]);
 
   const metrics = useMemo(() => {
     const leadTimes: number[] = [];
@@ -231,9 +269,9 @@ export default function FornecedorDetalhePage() {
 
   useEffect(() => {
     if (supplierId) {
-      loadData();
+      void loadData();
     }
-  }, [supplierId]);
+  }, [supplierId, loadData]);
 
   if (loading) {
     return (
@@ -261,6 +299,14 @@ export default function FornecedorDetalhePage() {
 
   return (
     <div className="space-y-6 p-6">
+      {safeMode ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          O fornecedor foi carregado em modo seguro. Pedidos e/ou recebimentos
+          do módulo de compras ainda não estão totalmente provisionados neste banco,
+          então os indicadores podem aparecer zerados.
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">{supplier.razaoSocial}</h1>

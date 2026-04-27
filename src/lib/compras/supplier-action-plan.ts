@@ -19,22 +19,23 @@ function normalizeActionPlanItem(
   row: Record<string, unknown>
 ): SupplierActionPlanItem {
   return {
-    id: toText(row.id),
-    supplierId: toText(row.supplier_id),
-    supplierName: toText(row.supplier_name),
-    title: toText(row.title),
-    description: toText(row.description),
-    category: (toText(row.category, "operacional") ??
-      "operacional") as SupplierActionPlanItem["category"],
-    status: (toText(row.status, "pendente") ??
-      "pendente") as SupplierActionPlanItem["status"],
-    priority: (toText(row.priority, "media") ??
-      "media") as SupplierActionPlanItem["priority"],
-    dueDate: toText(row.due_date),
-    assignedTo: toText(row.assigned_to),
-    createdBy: toText(row.created_by),
-    createdAt: toIsoString(row.created_at as string | null | undefined),
-    updatedAt: toIsoString(row.updated_at as string | null | undefined),
+    id: String(row.id ?? ""),
+    supplierId: toText(row.supplier_id) ?? "",
+    supplierName: toText(row.supplier_name) ?? "",
+    title: toText(row.title) ?? "",
+    description: toText(row.description) ?? "",
+    category:
+      (toText(row.category) as SupplierActionPlanItem["category"]) ??
+      "operacional",
+    status:
+      (toText(row.status) as SupplierActionPlanItem["status"]) ?? "pendente",
+    priority:
+      (toText(row.priority) as SupplierActionPlanItem["priority"]) ?? "media",
+    dueDate: toText(row.due_date) ?? "",
+    assignedTo: toText(row.assigned_to) ?? "",
+    createdBy: toText(row.created_by) ?? "",
+    createdAt: toIsoString(toText(row.created_at)) ?? "",
+    updatedAt: toIsoString(toText(row.updated_at)) ?? "",
   };
 }
 
@@ -42,18 +43,19 @@ function normalizeContactHistoryItem(
   row: Record<string, unknown>
 ): SupplierContactHistoryItem {
   return {
-    id: toText(row.id),
-    supplierId: toText(row.supplier_id),
-    supplierName: toText(row.supplier_name),
-    contactType: (toText(row.contact_type, "email") ??
-      "email") as SupplierContactHistoryItem["contactType"],
-    subject: toText(row.subject),
-    notes: toText(row.notes),
-    contactDate: toText(row.contact_date),
-    nextFollowUpDate: toText(row.next_follow_up_date),
-    createdBy: toText(row.created_by),
-    createdAt: toIsoString(row.created_at as string | null | undefined),
-    updatedAt: toIsoString(row.updated_at as string | null | undefined),
+    id: String(row.id ?? ""),
+    supplierId: toText(row.supplier_id) ?? "",
+    supplierName: toText(row.supplier_name) ?? "",
+    contactType:
+      (toText(row.contact_type) as SupplierContactHistoryItem["contactType"]) ??
+      "email",
+    subject: toText(row.subject) ?? "",
+    notes: toText(row.notes) ?? "",
+    contactDate: toText(row.contact_date) ?? "",
+    nextFollowUpDate: toText(row.next_follow_up_date) ?? "",
+    createdBy: toText(row.created_by) ?? "",
+    createdAt: toIsoString(toText(row.created_at)) ?? "",
+    updatedAt: toIsoString(toText(row.updated_at)) ?? "",
   };
 }
 
@@ -61,30 +63,79 @@ function normalizeScoreReviewItem(
   row: Record<string, unknown>
 ): SupplierScoreReviewItem {
   return {
-    id: toText(row.id),
-    supplierId: toText(row.supplier_id),
-    supplierName: toText(row.supplier_name),
-    scheduledDate: toText(row.scheduled_date),
-    notes: toText(row.notes),
-    status: (toText(row.status, "agendada") ??
-      "agendada") as SupplierScoreReviewItem["status"],
-    createdBy: toText(row.created_by),
-    createdAt: toIsoString(row.created_at as string | null | undefined),
-    updatedAt: toIsoString(row.updated_at as string | null | undefined),
+    id: String(row.id ?? ""),
+    supplierId: toText(row.supplier_id) ?? "",
+    supplierName: toText(row.supplier_name) ?? "",
+    scheduledDate: toText(row.scheduled_date) ?? "",
+    notes: toText(row.notes) ?? "",
+    status:
+      (toText(row.status) as SupplierScoreReviewItem["status"]) ?? "agendada",
+    createdBy: toText(row.created_by) ?? "",
+    createdAt: toIsoString(toText(row.created_at)) ?? "",
+    updatedAt: toIsoString(toText(row.updated_at)) ?? "",
   };
 }
 
-export async function listSupplierActionPlanItems(supplierId: string) {
+export async function listSupplierActionPlanItems(
+  supplierId: string
+): Promise<SupplierActionPlanItem[]> {
   const supabase = getLegacySupabase();
+
   const { data, error } = await supabase
     .from(ACTION_PLAN_TABLE)
     .select("*")
     .eq("supplier_id", supplierId)
     .order("created_at", { ascending: false });
 
-  assertSupabaseSuccess(error, "Nao foi possivel listar o plano de acao do fornecedor");
+  assertSupabaseSuccess(
+    error,
+    "Nao foi possivel listar o plano de acao do fornecedor"
+  );
+
   return (data ?? []).map((row) =>
     normalizeActionPlanItem(row as Record<string, unknown>)
+  );
+}
+
+export async function listSupplierContactHistory(
+  supplierId: string
+): Promise<SupplierContactHistoryItem[]> {
+  const supabase = getLegacySupabase();
+
+  const { data, error } = await supabase
+    .from(CONTACT_HISTORY_TABLE)
+    .select("*")
+    .eq("supplier_id", supplierId)
+    .order("created_at", { ascending: false });
+
+  assertSupabaseSuccess(
+    error,
+    "Nao foi possivel listar o historico de contato do fornecedor"
+  );
+
+  return (data ?? []).map((row) =>
+    normalizeContactHistoryItem(row as Record<string, unknown>)
+  );
+}
+
+export async function listSupplierScoreReviews(
+  supplierId: string
+): Promise<SupplierScoreReviewItem[]> {
+  const supabase = getLegacySupabase();
+
+  const { data, error } = await supabase
+    .from(SCORE_REVIEW_TABLE)
+    .select("*")
+    .eq("supplier_id", supplierId)
+    .order("created_at", { ascending: false });
+
+  assertSupabaseSuccess(
+    error,
+    "Nao foi possivel listar as reavaliacoes do fornecedor"
+  );
+
+  return (data ?? []).map((row) =>
+    normalizeScoreReviewItem(row as Record<string, unknown>)
   );
 }
 
@@ -94,58 +145,34 @@ export async function createSupplierActionPlanItem(input: {
   title: string;
   description?: string;
   category: SupplierActionPlanItem["category"];
-  status?: SupplierActionPlanItem["status"];
   priority: SupplierActionPlanItem["priority"];
   dueDate?: string;
   assignedTo?: string;
   createdBy?: string;
-}) {
+}): Promise<string> {
   const supabase = getLegacySupabase();
   const id = createLegacyId();
+  const now = new Date().toISOString();
 
   const { error } = await supabase.from(ACTION_PLAN_TABLE).insert({
     id,
     supplier_id: input.supplierId,
     supplier_name: input.supplierName,
-    title: input.title,
-    description: input.description ?? "",
+    title: input.title.trim(),
+    description: input.description?.trim() || null,
     category: input.category,
-    status: input.status ?? "pendente",
+    status: "pendente",
     priority: input.priority,
-    due_date: input.dueDate ?? "",
-    assigned_to: input.assignedTo ?? "",
-    created_by: input.createdBy ?? "",
+    due_date: input.dueDate?.trim() || null,
+    assigned_to: input.assignedTo?.trim() || null,
+    created_by: input.createdBy?.trim() || null,
+    created_at: now,
+    updated_at: now,
   });
 
-  assertSupabaseSuccess(error, "Nao foi possivel criar o plano de acao do fornecedor");
+  assertSupabaseSuccess(error, "Nao foi possivel criar a acao do fornecedor");
+
   return id;
-}
-
-export async function updateSupplierActionPlanStatus(params: {
-  id: string;
-  status: SupplierActionPlanItem["status"];
-}) {
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from(ACTION_PLAN_TABLE)
-    .update({ status: params.status })
-    .eq("id", params.id);
-
-  assertSupabaseSuccess(error, "Nao foi possivel atualizar o status do plano de acao");
-}
-
-export async function listSupplierContactHistory(supplierId: string) {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(CONTACT_HISTORY_TABLE)
-    .select("*")
-    .eq("supplier_id", supplierId)
-    .order("contact_date", { ascending: false });
-
-  assertSupabaseSuccess(error, "Nao foi possivel listar o historico de contato");
-  return (data ?? []).map((row) =>
-    normalizeContactHistoryItem(row as Record<string, unknown>)
-  );
 }
 
 export async function createSupplierContactHistory(input: {
@@ -154,41 +181,34 @@ export async function createSupplierContactHistory(input: {
   contactType: SupplierContactHistoryItem["contactType"];
   subject: string;
   notes?: string;
-  contactDate: string;
+  contactDate?: string;
   nextFollowUpDate?: string;
   createdBy?: string;
-}) {
+}): Promise<string> {
   const supabase = getLegacySupabase();
   const id = createLegacyId();
+  const now = new Date().toISOString();
 
   const { error } = await supabase.from(CONTACT_HISTORY_TABLE).insert({
     id,
     supplier_id: input.supplierId,
     supplier_name: input.supplierName,
     contact_type: input.contactType,
-    subject: input.subject,
-    notes: input.notes ?? "",
-    contact_date: input.contactDate,
-    next_follow_up_date: input.nextFollowUpDate ?? "",
-    created_by: input.createdBy ?? "",
+    subject: input.subject.trim(),
+    notes: input.notes?.trim() || null,
+    contact_date: input.contactDate?.trim() || null,
+    next_follow_up_date: input.nextFollowUpDate?.trim() || null,
+    created_by: input.createdBy?.trim() || null,
+    created_at: now,
+    updated_at: now,
   });
 
-  assertSupabaseSuccess(error, "Nao foi possivel registrar o historico de contato");
-  return id;
-}
-
-export async function listSupplierScoreReviews(supplierId: string) {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(SCORE_REVIEW_TABLE)
-    .select("*")
-    .eq("supplier_id", supplierId)
-    .order("scheduled_date", { ascending: true });
-
-  assertSupabaseSuccess(error, "Nao foi possivel listar as revisoes de score");
-  return (data ?? []).map((row) =>
-    normalizeScoreReviewItem(row as Record<string, unknown>)
+  assertSupabaseSuccess(
+    error,
+    "Nao foi possivel registrar o contato do fornecedor"
   );
+
+  return id;
 }
 
 export async function createSupplierScoreReview(input: {
@@ -197,33 +217,67 @@ export async function createSupplierScoreReview(input: {
   scheduledDate: string;
   notes?: string;
   createdBy?: string;
-}) {
+}): Promise<string> {
   const supabase = getLegacySupabase();
   const id = createLegacyId();
+  const now = new Date().toISOString();
 
   const { error } = await supabase.from(SCORE_REVIEW_TABLE).insert({
     id,
     supplier_id: input.supplierId,
     supplier_name: input.supplierName,
-    scheduled_date: input.scheduledDate,
-    notes: input.notes ?? "",
+    scheduled_date: input.scheduledDate.trim(),
+    notes: input.notes?.trim() || null,
     status: "agendada",
-    created_by: input.createdBy ?? "",
+    created_by: input.createdBy?.trim() || null,
+    created_at: now,
+    updated_at: now,
   });
 
-  assertSupabaseSuccess(error, "Nao foi possivel criar a revisao de score");
+  assertSupabaseSuccess(
+    error,
+    "Nao foi possivel criar a reavaliacao do fornecedor"
+  );
+
   return id;
 }
 
-export async function updateSupplierScoreReviewStatus(params: {
+export async function updateSupplierActionPlanStatus(input: {
+  id: string;
+  status: SupplierActionPlanItem["status"];
+}): Promise<void> {
+  const supabase = getLegacySupabase();
+
+  const { error } = await supabase
+    .from(ACTION_PLAN_TABLE)
+    .update({
+      status: input.status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.id);
+
+  assertSupabaseSuccess(
+    error,
+    "Nao foi possivel atualizar o status da acao do fornecedor"
+  );
+}
+
+export async function updateSupplierScoreReviewStatus(input: {
   id: string;
   status: SupplierScoreReviewItem["status"];
-}) {
+}): Promise<void> {
   const supabase = getLegacySupabase();
+
   const { error } = await supabase
     .from(SCORE_REVIEW_TABLE)
-    .update({ status: params.status })
-    .eq("id", params.id);
+    .update({
+      status: input.status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.id);
 
-  assertSupabaseSuccess(error, "Nao foi possivel atualizar a revisao de score");
+  assertSupabaseSuccess(
+    error,
+    "Nao foi possivel atualizar o status da reavaliacao do fornecedor"
+  );
 }

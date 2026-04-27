@@ -1211,12 +1211,12 @@ export default function FichasTecnicasPage() {
   }, [fichasTecnicas]);
 
   const cmvAlvoMedio = useMemo(() => {
-    if (!fichasTecnicas.length) return 0;
-    return (
-      fichasTecnicas.reduce((acc, f) => acc + f.margemLucro, 0) /
-      fichasTecnicas.length
-    );
-  }, [fichasTecnicas]);
+  if (!fichasTecnicas.length) return 0;
+  return (
+    fichasTecnicas.reduce((acc, f) => acc + f.margemLucro, 0) /
+    fichasTecnicas.length
+  );
+}, [fichasTecnicas]);
 
   const handleSelecionarFicha = useCallback((ficha: FichaTecnica) => {
     setFichaSelecionada(ficha);
@@ -1792,7 +1792,7 @@ export default function FichasTecnicasPage() {
             <span className="text-2xl">📈</span>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{margemMedia.toFixed(0)}%</div>
+            <div className="text-2xl font-bold">{cmvAlvoMedio.toFixed(0)}%</div>
             <p className="text-xs text-muted-foreground">CMV alvo</p>
           </CardContent>
         </Card>

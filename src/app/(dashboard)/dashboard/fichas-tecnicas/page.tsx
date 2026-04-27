@@ -1238,7 +1238,7 @@ export default function FichasTecnicasPage() {
     setRendimento(1);
     setPesoPorcao(0);
     setTempoPreparo(0);
-    setCmvAlvo(30);
+    setCmvAlvo(14);
     setModoPreparo("");
     setImageUrl(null);
     setImagePath(null);

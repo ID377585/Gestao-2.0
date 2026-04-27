@@ -122,13 +122,10 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
   const supabase = await createSupabaseServerClient();
 
-  // Carrega produtos
   const { data, error } = await supabase
     .from("products")
     .select(
-      .select(
-    "id, sku, name, brand, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, shelf_life_days, is_active, price, created_at, created_by",
-)
+      "id, sku, name, brand, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, shelf_life_days, is_active, price, created_at, created_by",
     )
     .order("product_type", { ascending: true })
     .order("name", { ascending: true });

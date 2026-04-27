@@ -6,9 +6,6 @@ import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * Normaliza possível ID para evitar "undefined"/"null" em string.
- */
 function normalizeId(value: any): string | null {
   if (!value) return null;
   const v = String(value).trim();
@@ -18,9 +15,6 @@ function normalizeId(value: any): string | null {
   return v;
 }
 
-/**
- * Converte string de número em number aceitando vírgula ou ponto.
- */
 function parseNumberStr(
   value: string | null | undefined,
   decimals = 3,
@@ -33,9 +27,6 @@ function parseNumberStr(
   return Number(n.toFixed(decimals));
 }
 
-/**
- * ✅ parse inteiro (dias) seguro
- */
 function parseIntSafeCsv(value: string | null | undefined): number | null {
   const s = String(value ?? "").trim();
   if (!s) return null;
@@ -45,27 +36,19 @@ function parseIntSafeCsv(value: string | null | undefined): number | null {
   return i < 0 ? null : i;
 }
 
-/**
- * ✅ Normaliza unidade (CSV → valores aceitos no banco/app)
- * Suporta aliases comuns do Excel: UNID, LITRO, etc.
- */
 const UNIT_ALIASES: Record<string, "UN" | "KG" | "G" | "L" | "ML"> = {
   UN: "UN",
   UNID: "UN",
   UNIDADE: "UN",
-
   KG: "KG",
   KILO: "KG",
   QUILO: "KG",
-
   G: "G",
   GR: "G",
   GRAMA: "G",
-
   L: "L",
   LT: "L",
   LITRO: "L",
-
   ML: "ML",
 };
 
@@ -76,9 +59,6 @@ function normalizeUnitCsv(
   return UNIT_ALIASES[raw] ?? "UN";
 }
 
-/**
- * ✅ Setor (Categoria) — fallback local (se não conseguirmos inferir do banco)
- */
 const SECTOR_CATEGORIES_FALLBACK = [
   "Confeitaria",
   "Padaria",
@@ -95,23 +75,15 @@ const SECTOR_CATEGORIES_FALLBACK = [
 ] as const;
 
 function cleanTextFromExcel(value: string) {
-  // remove NBSP (muito comum vindo do Excel) + trims
   return value.replace(/\u00A0/g, " ").trim();
 }
 
-/**
- * ✅ Determina o delimitador do CSV/TSV ( ; , ou TAB )
- * (Excel às vezes exporta TSV com \t)
- */
 function detectDelimiter(headerLine: string): "\t" | ";" | "," {
   if (headerLine.includes("\t")) return "\t";
   if (headerLine.includes(";")) return ";";
   return ",";
 }
 
-/**
- * Parser de CSV linha-a-linha com suporte básico a aspas
- */
 function parseCsvLine(line: string, delimiter: string): string[] {
   const out: string[] = [];
   let cur = "";
@@ -155,11 +127,6 @@ function wantsJson(request: Request) {
   return false;
 }
 
-/**
- * ✅ Resposta de erro compatível com:
- * - Navegação via form (HTML): redireciona para /dashboard/produtos?error=...
- * - XHR/API: retorna JSON
- */
 function respondError(
   request: Request,
   message: string,
@@ -172,14 +139,9 @@ function respondError(
 
   const url = new URL("/dashboard/produtos", request.url);
   url.searchParams.set("error", encodeURIComponent(message));
-
-  // opcional: pode anexar "success" vazio etc., mas não é necessário.
   return NextResponse.redirect(url, 303);
 }
 
-/**
- * Split robusto para Windows/Mac/Linux
- */
 function splitLinesRobusto(text: string): string[] {
   return text
     .split(/\r\n|\n|\r/g)
@@ -205,23 +167,13 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 
 function normalizeHeader(h: string) {
   const cleaned = cleanTextFromExcel(String(h ?? ""));
-  // remove BOM de header
   return cleaned.replace(/^\uFEFF/, "").trim().toLowerCase();
 }
 
-/**
- * ✅ Busca os valores "permitidos" de sector_category direto do banco (distintos)
- * Isso evita violar o CHECK caso o banco esteja com lista diferente do frontend.
- *
- * ✅ FIX:
- * Se não retornar nada (tabela vazia / coluna nova), usamos o fallback do app,
- * senão a primeira importação vai converter tudo para NULL e “perder” a coluna.
- */
 async function loadAllowedSectorCategoriesFromDb(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   establishmentId: string,
 ): Promise<string[]> {
-  // pega um lote e deduz os distintos (suficiente para descobrir os valores já aceitos)
   const { data, error } = await supabase
     .from("products")
     .select("sector_category")
@@ -230,7 +182,6 @@ async function loadAllowedSectorCategoriesFromDb(
 
   if (error) {
     console.error("[import.products] load sector_category from db error:", error);
-    // mantém fallback apenas quando houve erro de consulta
     return [...SECTOR_CATEGORIES_FALLBACK];
   }
 
@@ -242,7 +193,6 @@ async function loadAllowedSectorCategoriesFromDb(
     if (v) set.add(v);
   }
 
-  // ✅ IMPORTANTE: tabela vazia/coluna nova -> usa fallback (permite primeira importação popular a coluna)
   if (set.size === 0) return [...SECTOR_CATEGORIES_FALLBACK];
 
   return Array.from(set.values());
@@ -255,25 +205,83 @@ function normalizeSectorCategoryWithAllowed(
   const raw = cleanTextFromExcel(String(value ?? ""));
   if (!raw) return null;
 
-  // mapa lower -> canonical
   const map = new Map<string, string>();
   for (const a of allowed) {
     map.set(cleanTextFromExcel(a).toLowerCase(), cleanTextFromExcel(a));
   }
 
   const hit = map.get(raw.toLowerCase());
-  return hit ?? null; // se não bater, devolve null (não viola CHECK se NULL for permitido)
+  return hit ?? null;
 }
 
 /**
- * ✅ Resolve establishment_id com múltiplas estratégias (igual ao export)
+ * Busca SKUs existentes e determina o próximo SKU numérico.
  */
+async function loadExistingSkuContext(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  establishmentId: string,
+): Promise<{ existingSkuSet: Set<string>; nextSkuNumber: number }> {
+  const existingSkuSet = new Set<string>();
+  const pageSize = 1000;
+  let from = 0;
+  let maxNumericSku = 0;
+
+  while (true) {
+    const to = from + pageSize - 1;
+
+    const { data, error } = await supabase
+      .from("products")
+      .select("sku")
+      .eq("establishment_id", establishmentId)
+      .range(from, to);
+
+    if (error) {
+      throw new Error(`Falha ao carregar SKUs existentes: ${error.message}`);
+    }
+
+    const rows = data ?? [];
+    for (const row of rows) {
+      const raw = String((row as any)?.sku ?? "").trim();
+      if (!raw) continue;
+
+      existingSkuSet.add(raw);
+
+      if (/^\d+$/.test(raw)) {
+        const n = Number(raw);
+        if (!Number.isNaN(n) && n > maxNumericSku) {
+          maxNumericSku = n;
+        }
+      }
+    }
+
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return {
+    existingSkuSet,
+    nextSkuNumber: maxNumericSku + 1,
+  };
+}
+
+function generateSequentialSku(
+  ctx: { existingSkuSet: Set<string>; nextSkuNumber: number },
+): string {
+  while (ctx.existingSkuSet.has(String(ctx.nextSkuNumber))) {
+    ctx.nextSkuNumber += 1;
+  }
+
+  const sku = String(ctx.nextSkuNumber);
+  ctx.existingSkuSet.add(sku);
+  ctx.nextSkuNumber += 1;
+  return sku;
+}
+
 async function resolveEstablishmentId(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
 ): Promise<{ establishmentId: string | null; debug: string[] }> {
   const debug: string[] = [];
 
-  // 1) helper do app
   try {
     const helperRes = await getActiveMembershipOrRedirect();
     const membership = (helperRes as any)?.membership ?? helperRes;
@@ -292,7 +300,6 @@ async function resolveEstablishmentId(
     debug.push(`membership-helper: falhou (${e?.message ?? "sem mensagem"})`);
   }
 
-  // 2) fallback auth.getUser + memberships + profiles
   try {
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData?.user) {
@@ -303,7 +310,6 @@ async function resolveEstablishmentId(
     const userId = userData.user.id;
     debug.push(`auth.getUser: ok (user=${userId})`);
 
-    // memberships
     try {
       const { data: m, error: mErr } = await supabase
         .from("memberships")
@@ -332,7 +338,6 @@ async function resolveEstablishmentId(
       );
     }
 
-    // profiles
     try {
       const { data: p, error: pErr } = await supabase
         .from("profiles")
@@ -369,11 +374,9 @@ export async function POST(request: Request) {
   try {
     const supabase = await createSupabaseServerClient();
 
-    // ✅ resolve establishment de forma robusta
     const { establishmentId: resolvedEstablishmentId, debug } =
       await resolveEstablishmentId(supabase);
 
-    // user id real
     let authUserId: string | null = null;
     try {
       const { data: authData } = await supabase.auth.getUser();
@@ -441,7 +444,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // records
     const records: Record<string, string>[] = [];
     for (const line of lines.slice(1)) {
       const cols = parseCsvLine(line, delimiter);
@@ -452,20 +454,15 @@ export async function POST(request: Request) {
       records.push(rec);
     }
 
-    // csv establishment ids (se existir coluna)
     const csvEstabSet = new Set<string>();
     for (const rec of records) {
       const csvEstab = normalizeId(rec["establishment_id"]);
       if (csvEstab) csvEstabSet.add(csvEstab);
     }
 
-    // ✅ Determina establishment efetivo:
-    // 1) resolved pelo usuário logado
-    // 2) se não der, usa o CSV (mas exige 1 único UUID)
     let effectiveEstablishmentId: string | null = resolvedEstablishmentId;
 
     if (effectiveEstablishmentId) {
-      // se CSV tiver ids, valida consistência
       if (csvEstabSet.size > 0) {
         for (const v of csvEstabSet.values()) {
           if (v !== effectiveEstablishmentId) {
@@ -485,7 +482,6 @@ export async function POST(request: Request) {
         }
       }
     } else {
-      // não conseguiu resolver pelo login → exige CSV preenchido
       if (csvEstabSet.size !== 1) {
         return respondError(
           request,
@@ -511,42 +507,47 @@ export async function POST(request: Request) {
       );
     }
 
-    // ✅ carrega lista aceita do banco (pra não violar CHECK)
     const allowedSectorCategories = await loadAllowedSectorCategoriesFromDb(
       supabase,
       effectiveEstablishmentId,
     );
 
-    // ==========================================================
-    // Payloads + dedupe
-    // ==========================================================
+    const skuContext = await loadExistingSkuContext(
+      supabase,
+      effectiveEstablishmentId,
+    );
+
     const bySku = new Map<string, any>();
     const insertNoSku: any[] = [];
-
-    // ✅ NOVO: itens com ID vindo do CSV (vamos separar insert vs update depois)
     const withIdPayloads: any[] = [];
 
     let skipped = 0;
     const nowIso = new Date().toISOString();
-    const userId = authUserId; // usa auth real
+    const userId = authUserId;
 
-    // ✅ warnings (não aborta; só zera sector_category quando inválido)
     const warnings: any[] = [];
 
     for (const rec of records) {
       const id = normalizeId(rec["id"]?.trim() || null);
 
-      const skuRaw = rec["sku"]?.trim() || "";
+      let skuRaw = rec["sku"]?.trim() || "";
+      if (!skuRaw) {
+        skuRaw = generateSequentialSku(skuContext);
+      }
+
       const sku = skuRaw.length > 0 ? skuRaw : null;
 
       const name = cleanTextFromExcel(String(rec["name"] ?? ""));
+      const brand =
+        rec["brand"] && rec["brand"].trim().length > 0
+          ? cleanTextFromExcel(String(rec["brand"]))
+          : null;
+
       const product_type = (
         cleanTextFromExcel(String(rec["product_type"] ?? "INSU")) || "INSU"
       ).toUpperCase();
 
-      // ✅ normaliza UNID/LITRO/etc → UN/L
       const default_unit_label = normalizeUnitCsv(rec["default_unit_label"]);
-
       const package_qty = parseNumberStr(rec["package_qty"], 3);
 
       const qty_per_package =
@@ -556,7 +557,6 @@ export async function POST(request: Request) {
 
       const priceParsed = parseNumberStr(rec["price"], 2);
       const price = priceParsed ?? 0;
-
       const conversion_factor = parseNumberStr(rec["conversion_factor"], 4) ?? 1;
 
       const category =
@@ -570,8 +570,6 @@ export async function POST(request: Request) {
         allowedSectorCategories,
       );
 
-      // ✅ se veio preenchido e não bate com o que o banco já aceita:
-      // -> não aborta; grava warning e seta null pra não violar CHECK
       if (
         String(sector_category_raw ?? "").trim().length > 0 &&
         !sector_category
@@ -587,7 +585,6 @@ export async function POST(request: Request) {
         });
       }
 
-      // ✅ importa shelf_life_days (se vier no CSV)
       const shelf_life_days = parseIntSafeCsv(rec["shelf_life_days"]);
 
       const is_active_raw = (rec["is_active"] ?? "1").trim().toLowerCase();
@@ -604,20 +601,19 @@ export async function POST(request: Request) {
       const basePayload: any = {
         sku,
         name,
+        brand,
         product_type,
         default_unit_label,
         package_qty,
         qty_per_package,
         category,
-        sector_category: sector_category ?? null, // ✅ garante null quando inválido
+        sector_category: sector_category ?? null,
         shelf_life_days,
         price,
         conversion_factor,
         is_active,
       };
 
-      // ✅ MELHORIA: quando vier ID no CSV, não fazemos upsert cego.
-      // Vamos separar depois: se o ID já existe -> update; se não existe -> insert COM created_by/created_at
       if (id) {
         withIdPayloads.push({
           id,
@@ -640,9 +636,6 @@ export async function POST(request: Request) {
     const dedupedBySku = Array.from(bySku.values());
     const dedupedSkuList = Array.from(bySku.keys());
 
-    // ==========================================================
-    // 1) UPSERT por SKU robusto
-    // ==========================================================
     let upsertSkuInsertedOrUpdated = 0;
 
     if (dedupedBySku.length > 0) {
@@ -742,9 +735,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // ==========================================================
-    // 2) INSERT sem SKU
-    // ==========================================================
     let insertedNoSku = 0;
     if (insertNoSku.length > 0) {
       const { error: insertErr, data } = await supabase
@@ -774,10 +764,6 @@ export async function POST(request: Request) {
       insertedNoSku = (data ?? []).length;
     }
 
-    // ==========================================================
-    // 3) ID vindo do CSV (separar INSERT vs UPDATE para não quebrar RLS/created_by)
-    // ✅ FIX: se o CSV traz ID, mas o SKU já existe no establishment, atualizar pelo ID do SKU
-    // ==========================================================
     let insertedWithId = 0;
     let updatedById = 0;
 
@@ -786,7 +772,6 @@ export async function POST(request: Request) {
         new Set(withIdPayloads.map((p) => String(p.id)).filter(Boolean)),
       );
 
-      // Descobre quais IDs já existem
       const existingIdSet = new Set<string>();
       const idChunks = chunkArray(ids, 250);
 
@@ -815,7 +800,6 @@ export async function POST(request: Request) {
         }
       }
 
-      // ✅ NOVO: mapeia SKU -> ID existente para evitar violar "products_establishment_sku_unique"
       const skuList = Array.from(
         new Set(
           withIdPayloads
@@ -868,7 +852,6 @@ export async function POST(request: Request) {
         const existingIdFromSku = sku ? existingBySku.get(sku) : null;
 
         if (existingIdSet.has(csvId)) {
-          // ID já existe -> update normal por ID
           toUpdateById.push({
             ...payload,
             ...(userId ? { updated_by: userId, updated_at: nowIso } : {}),
@@ -877,7 +860,6 @@ export async function POST(request: Request) {
         }
 
         if (existingIdFromSku) {
-          // ✅ SKU já existe -> atualizar pelo ID real do banco (ignora o ID do CSV)
           const { id: _ignoreIdFromCsv, ...restPayload } = payload;
 
           toUpdateById.push({
@@ -889,7 +871,6 @@ export async function POST(request: Request) {
           continue;
         }
 
-        // Nem ID nem SKU existem -> pode inserir com ID do CSV (mantém created_by/created_at)
         toInsertWithId.push({
           ...payload,
           ...(userId ? { created_by: userId, created_at: nowIso } : {}),
@@ -924,7 +905,6 @@ export async function POST(request: Request) {
         if (upsertIdErr) {
           console.error("Erro upsert por ID (import):", upsertIdErr);
 
-          // fallback update 1 a 1 (mantém sua lógica validada)
           for (const rec of toUpdateById) {
             const { id, ...rest } = rec;
 
@@ -968,6 +948,7 @@ export async function POST(request: Request) {
       sku_stats: {
         received_with_sku: bySku.size,
         deduped_with_sku: dedupedBySku.length,
+        note: "Linhas sem SKU agora recebem código automático sequencial.",
       },
       id_stats: {
         received_with_id: withIdPayloads.length,
@@ -976,7 +957,6 @@ export async function POST(request: Request) {
       },
     };
 
-    // ✅ devolve warnings (quando o setor veio inválido e foi setado como null)
     if (warnings.length > 0) {
       summary.warnings = {
         count: warnings.length,
@@ -986,7 +966,6 @@ export async function POST(request: Request) {
       };
     }
 
-    // ✅ MELHORIA: não dar "sucesso" se nada foi inserido/atualizado
     const affected = (summary.insertedOrUpserted ?? 0) + (summary.updated ?? 0);
 
     if (affected === 0) {
@@ -1009,7 +988,6 @@ export async function POST(request: Request) {
   } catch (err: any) {
     console.error("Erro inesperado em /api/import/products:", err);
 
-    // ✅ mantém UX boa no navegador (redirect com mensagem)
     return respondError(
       request,
       "Erro inesperado ao importar produtos.",

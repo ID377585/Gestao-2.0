@@ -7,9 +7,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/**
- * Escapa campo para CSV usando ; como separador.
- */
 function csvField(value: any): string {
   if (value === null || value === undefined) return "";
   let text = String(value);
@@ -22,9 +19,6 @@ function csvField(value: any): string {
   return text;
 }
 
-/**
- * Formata números pt-BR
- */
 function formatNumber(value: number | null | undefined, decimals: number) {
   if (value === null || value === undefined) return "";
   if (Number.isNaN(value)) return "";
@@ -34,26 +28,19 @@ function formatNumber(value: number | null | undefined, decimals: number) {
   });
 }
 
-/**
- * Tipagem explícita do retorno do export
- */
 type ProductExportRow = {
   id: string | null;
   establishment_id: string | null;
   sku: string | null;
   name: string | null;
+  brand: string | null;
   product_type: string | null;
   default_unit_label: string | null;
   package_qty: number | string | null;
   qty_per_package: string | null;
   category: string | null;
-
-  // ✅ NOVA COLUNA (SETOR)
   sector_category: string | null;
-
-  // ✅ NOVA COLUNA (SHELF LIFE)
   shelf_life_days: number | string | null;
-
   price: number | string | null;
   conversion_factor: number | string | null;
   is_active: boolean | null;
@@ -68,18 +55,11 @@ function normalizeId(value: any): string | null {
   return v;
 }
 
-/**
- * ✅ Resolve establishment_id com múltiplas estratégias
- * 1) getActiveMembershipOrRedirect
- * 2) fallback: memberships
- * 3) fallback: profiles
- */
 async function resolveEstablishmentId(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
 ): Promise<{ establishmentId: string | null; debug: string[] }> {
   const debug: string[] = [];
 
-  // 1) helper do app (compatível com seu projeto)
   try {
     const helperRes = await getActiveMembershipOrRedirect();
     const membership = (helperRes as any)?.membership ?? helperRes;
@@ -98,7 +78,6 @@ async function resolveEstablishmentId(
     debug.push(`membership-helper: falhou (${e?.message ?? "sem mensagem"})`);
   }
 
-  // 2) auth.getUser + memberships / profiles
   try {
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData?.user) {
@@ -109,7 +88,6 @@ async function resolveEstablishmentId(
     const userId = userData.user.id;
     debug.push(`auth.getUser: ok (user=${userId})`);
 
-    // memberships
     try {
       const { data: m, error: mErr } = await supabase
         .from("memberships")
@@ -135,7 +113,6 @@ async function resolveEstablishmentId(
       );
     }
 
-    // profiles
     try {
       const { data: p, error: pErr } = await supabase
         .from("profiles")
@@ -190,13 +167,14 @@ export async function GET(_request: Request) {
       "establishment_id",
       "sku",
       "name",
+      "brand",
       "product_type",
       "default_unit_label",
       "package_qty",
       "qty_per_package",
       "category",
       "sector_category",
-      "shelf_life_days", // ✅ NOVO: exportar Shelf life
+      "shelf_life_days",
       "price",
       "conversion_factor",
       "is_active",
@@ -219,19 +197,19 @@ export async function GET(_request: Request) {
 
     const products = (Array.isArray(data) ? data : []) as ProductExportRow[];
 
-    // ✅ Header com establishment_id (ESSENCIAL PARA IMPORT)
     const header = [
       "id",
       "establishment_id",
       "sku",
       "name",
+      "brand",
       "product_type",
       "default_unit_label",
       "package_qty",
       "qty_per_package",
       "category",
       "sector_category",
-      "shelf_life_days", // ✅ NOVO
+      "shelf_life_days",
       "price",
       "conversion_factor",
       "is_active",
@@ -254,7 +232,6 @@ export async function GET(_request: Request) {
           ? String(p.qty_per_package)
           : "";
 
-      // ✅ Shelf life (dias) — inteiro (sem mexer no resto)
       let shelfLifeFormatted = "";
       if (p.shelf_life_days !== null && p.shelf_life_days !== undefined) {
         const n = Number(p.shelf_life_days);
@@ -280,16 +257,17 @@ export async function GET(_request: Request) {
 
       const row = [
         csvField(p.id ?? ""),
-        csvField(p.establishment_id ?? ""), // ✅ essencial
+        csvField(p.establishment_id ?? ""),
         csvField(p.sku ?? ""),
         csvField(p.name ?? ""),
+        csvField(p.brand ?? ""),
         csvField(p.product_type ?? ""),
         csvField(p.default_unit_label ?? ""),
         csvField(packageQtyFormatted),
         csvField(qtyPerPackageText),
         csvField(p.category ?? ""),
         csvField(sectorCategoryText),
-        csvField(shelfLifeFormatted), // ✅ NOVO
+        csvField(shelfLifeFormatted),
         csvField(priceFormatted),
         csvField(conversionFormatted),
         csvField(p.is_active ? 1 : 0),

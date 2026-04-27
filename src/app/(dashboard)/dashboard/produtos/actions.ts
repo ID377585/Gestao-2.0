@@ -32,9 +32,7 @@ function normalizeText(value: FormDataEntryValue | null): string | null {
 }
 
 /**
- * ✅ NOVO: Normaliza unidade para evitar inconsistência (KG/KG/ML/mL etc)
- * - força maiúsculo
- * - garante apenas valores permitidos
+ * Normaliza unidade para evitar inconsistência.
  */
 function normalizeUnit(value: FormDataEntryValue | null): string | null {
   if (!value) return null;
@@ -44,7 +42,7 @@ function normalizeUnit(value: FormDataEntryValue | null): string | null {
 }
 
 /**
- * Log seguro (não explode circular) para Vercel Logs
+ * Log seguro.
  */
 function safeJson(obj: any) {
   try {
@@ -68,15 +66,15 @@ function supabaseErrorText(error: any) {
 }
 
 /**
- * Redireciona com erro sem derrubar a página (evita Digest)
+ * Redireciona com erro sem derrubar a página.
  */
 function redirectWithError(message: string) {
-  const msg = encodeURIComponent(String(message).slice(0, 180)); // evita URL gigante
+  const msg = encodeURIComponent(String(message).slice(0, 180));
   redirect(`/dashboard/produtos?error=${msg}`);
 }
 
 /**
- * Faz parse numérico seguro, sempre evitando retornar NaN.
+ * Faz parse numérico seguro.
  */
 function parseNumber(
   value: FormDataEntryValue | null,
@@ -91,7 +89,7 @@ function parseNumber(
 }
 
 /**
- * ✅ NOVO: parse inteiro (dias) seguro
+ * Parse inteiro seguro.
  */
 function parseIntSafe(value: FormDataEntryValue | null): number | null {
   if (value == null) return null;
@@ -105,7 +103,7 @@ function parseIntSafe(value: FormDataEntryValue | null): number | null {
 }
 
 /**
- * Checkbox pode chegar como "on" (HTML), "true" (alguns forms) ou null
+ * Checkbox pode chegar como "on", "true" etc.
  */
 function parseBoolean(value: FormDataEntryValue | null): boolean {
   if (value == null) return false;
@@ -114,23 +112,62 @@ function parseBoolean(value: FormDataEntryValue | null): boolean {
 }
 
 /**
- * ✅ MELHORIA CRÍTICA:
- * Se o helper getActiveMembershipOrRedirect NÃO trouxer establishment_id,
- * fazemos fallback consultando a tabela memberships.
- *
- * Isso resolve o seu erro: ?error=estabelecimento_nao_encontrado
+ * Gera o próximo SKU numérico disponível dentro do establishment.
+ * Mantém a lógica isolada para não mexer no restante do fluxo validado.
+ */
+async function generateNextSku(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  establishmentId: string,
+): Promise<string> {
+  const pageSize = 1000;
+  let from = 0;
+  let maxNumericSku = 0;
+
+  while (true) {
+    const to = from + pageSize - 1;
+
+    const { data, error } = await supabase
+      .from("products")
+      .select("sku")
+      .eq("establishment_id", establishmentId)
+      .range(from, to);
+
+    if (error) {
+      throw new Error(`Falha ao gerar SKU automático: ${error.message}`);
+    }
+
+    const rows = data ?? [];
+    for (const row of rows) {
+      const raw = String((row as any)?.sku ?? "").trim();
+      if (!raw) continue;
+
+      if (/^\d+$/.test(raw)) {
+        const n = Number(raw);
+        if (!Number.isNaN(n) && n > maxNumericSku) {
+          maxNumericSku = n;
+        }
+      }
+    }
+
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return String(maxNumericSku + 1);
+}
+
+/**
+ * Membership robusto.
  */
 async function getMembershipIds() {
   const supabase = await createSupabaseServerClient();
 
-  // 1) Tenta pegar membership do helper (fluxo atual/validado)
   const membership = await getActiveMembershipOrRedirect();
   const establishmentFromHelper = normalizeId(
     (membership as any)?.establishment_id,
   );
   const userIdFromHelper = normalizeId((membership as any)?.user_id) ?? null;
 
-  // ✅ Debug: ajuda a enxergar no Vercel logs quando der erro
   console.log(
     "[products.membership] helper",
     safeJson({
@@ -141,7 +178,6 @@ async function getMembershipIds() {
     }),
   );
 
-  // 2) Se veio do helper, ok
   if (establishmentFromHelper) {
     return {
       establishmentId: establishmentFromHelper as string,
@@ -149,7 +185,6 @@ async function getMembershipIds() {
     };
   }
 
-  // 3) Fallback: pegar user_id do auth + consultar memberships diretamente
   const { data: authData, error: authError } = await supabase.auth.getUser();
 
   if (authError) {
@@ -162,7 +197,6 @@ async function getMembershipIds() {
     redirect("/dashboard/produtos?error=usuario_nao_autenticado");
   }
 
-  // Busca o membership ativo mais recente do usuário
   const { data: mData, error: mError } = await supabase
     .from("memberships")
     .select("establishment_id, user_id, role, is_active, created_at")
@@ -212,14 +246,14 @@ export async function createProduct(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
 
-  // ✅ Unidade normalizada e forçada em maiúsculo
   const default_unit_label =
     normalizeUnit(formData.get("default_unit_label")) ?? "UN";
 
   const skuRaw = formData.get("sku");
+  const brandRaw = formData.get("brand");
   const categoryRaw = formData.get("category");
-  const sectorCategoryRaw = formData.get("sector_category"); // ✅ já existente
-  const shelfLifeRaw = formData.get("shelf_life_days"); // ✅ NOVO
+  const sectorCategoryRaw = formData.get("sector_category");
+  const shelfLifeRaw = formData.get("shelf_life_days");
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
   const qtyPerPackageRaw = formData.get("qty_per_package");
@@ -232,12 +266,20 @@ export async function createProduct(formData: FormData) {
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
   const conversion_factor = parseNumber(conversionRaw, 4);
-
-  // ✅ NOVO: shelf life (inteiro)
   const shelf_life_days = parseIntSafe(shelfLifeRaw);
 
-  const sku =
+  let sku =
     skuRaw && String(skuRaw).trim().length > 0 ? String(skuRaw).trim() : null;
+
+  if (!sku) {
+    try {
+      sku = await generateNextSku(supabase, establishmentId);
+    } catch (err: any) {
+      redirectWithError(err?.message ?? "Falha ao gerar SKU automático.");
+    }
+  }
+
+  const brand = normalizeText(brandRaw);
 
   const category =
     categoryRaw && String(categoryRaw).trim().length > 0
@@ -249,25 +291,20 @@ export async function createProduct(formData: FormData) {
       ? String(qtyPerPackageRaw).trim()
       : null;
 
-  // Setor/categoria — vira null quando vazio
   const sector_category = normalizeText(sectorCategoryRaw);
 
   const insertData: any = {
     establishment_id: establishmentId,
     name,
     sku,
+    brand,
     product_type,
     default_unit_label,
     package_qty: package_qty ?? null,
     qty_per_package,
     category,
-
-    // ✅ Setor
     sector_category,
-
-    // ✅ NOVO: shelf life
     shelf_life_days,
-
     conversion_factor: conversion_factor ?? 1,
     price: price ?? 0,
     standard_cost: null,
@@ -310,7 +347,15 @@ export async function createProduct(formData: FormData) {
 
   console.log(
     "[products.create] ok",
-    safeJson({ id: data?.id, establishmentId, userId, sector_category, shelf_life_days }),
+    safeJson({
+      id: data?.id,
+      establishmentId,
+      userId,
+      sku,
+      brand,
+      sector_category,
+      shelf_life_days,
+    }),
   );
 
   revalidatePath("/dashboard/produtos");
@@ -333,14 +378,14 @@ export async function updateProduct(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
 
-  // ✅ Unidade normalizada e forçada em maiúsculo
   const default_unit_label =
     normalizeUnit(formData.get("default_unit_label")) ?? "UN";
 
   const skuRaw = formData.get("sku");
+  const brandRaw = formData.get("brand");
   const categoryRaw = formData.get("category");
   const sectorCategoryRaw = formData.get("sector_category");
-  const shelfLifeRaw = formData.get("shelf_life_days"); // ✅ NOVO
+  const shelfLifeRaw = formData.get("shelf_life_days");
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
   const qtyPerPackageRaw = formData.get("qty_per_package");
@@ -354,12 +399,12 @@ export async function updateProduct(formData: FormData) {
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
   const conversion_factor = parseNumber(conversionRaw, 4);
-
-  // ✅ NOVO: shelf life (inteiro)
   const shelf_life_days = parseIntSafe(shelfLifeRaw);
 
   const sku =
     skuRaw && String(skuRaw).trim().length > 0 ? String(skuRaw).trim() : null;
+
+  const brand = normalizeText(brandRaw);
 
   const category =
     categoryRaw && String(categoryRaw).trim().length > 0
@@ -372,25 +417,19 @@ export async function updateProduct(formData: FormData) {
       : null;
 
   const is_active = parseBoolean(isActiveRaw);
-
-  // Setor/categoria (dropdown)
   const sector_category = normalizeText(sectorCategoryRaw);
 
   const updateData: any = {
     name,
     sku,
+    brand,
     product_type,
     default_unit_label,
     package_qty: package_qty ?? null,
     qty_per_package,
     category,
-
-    // Setor
     sector_category,
-
-    // ✅ NOVO: shelf life
     shelf_life_days,
-
     price: price ?? 0,
     conversion_factor: conversion_factor ?? 1,
     is_active,
@@ -402,7 +441,6 @@ export async function updateProduct(formData: FormData) {
       : {}),
   };
 
-  // ✅ Mantido como você já tinha validado (sem .eq(establishment_id))
   const { data, error } = await supabase
     .from("products")
     .update(updateData)
@@ -446,7 +484,14 @@ export async function updateProduct(formData: FormData) {
 
   console.log(
     "[products.update] ok",
-    safeJson({ id: data?.id, establishmentId, userId, sector_category, shelf_life_days }),
+    safeJson({
+      id: data?.id,
+      establishmentId,
+      userId,
+      brand,
+      sector_category,
+      shelf_life_days,
+    }),
   );
 
   revalidatePath("/dashboard/produtos");

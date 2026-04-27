@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { listSuppliers } from "@/lib/compras/suppliers";
 import { listPurchaseOrders } from "@/lib/compras/orders";
 import { listGoodsReceipts } from "@/lib/compras/receipts";
 import { calculateSupplierScore } from "@/lib/compras/supplier-score";
+import { isLegacyTableMissingError } from "@/lib/legacy/supabase";
 import type {
   Supplier,
   PurchaseOrder,
@@ -88,6 +89,7 @@ export default function DashboardFornecedoresPage() {
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [safeMode, setSafeMode] = useState(false);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"todos" | "ativos" | "inativos">("todos");
@@ -95,27 +97,59 @@ export default function DashboardFornecedoresPage() {
     "todos" | "excelente" | "bom" | "atencao" | "critico"
   >("todos");
 
-  async function loadData() {
+  const loadListWithFallback = useCallback(
+    async <T,>(loader: () => Promise<T[]>, label: string) => {
+      try {
+        return {
+          data: await loader(),
+          usedFallback: false,
+        };
+      } catch (err) {
+        if (!isLegacyTableMissingError(err)) {
+          throw err;
+        }
+
+        console.warn(
+          `[fornecedores.dashboard] tabela legada ausente para ${label}; usando fallback vazio.`,
+          err
+        );
+
+        return {
+          data: [] as T[],
+          usedFallback: true,
+        };
+      }
+    },
+    []
+  );
+
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
+      setSafeMode(false);
 
-      const [suppliersData, ordersData, receiptsData] = await Promise.all([
-        listSuppliers(),
-        listPurchaseOrders(),
-        listGoodsReceipts(),
+      const [suppliersResult, ordersResult, receiptsResult] = await Promise.all([
+        loadListWithFallback(listSuppliers, "fornecedores"),
+        loadListWithFallback(listPurchaseOrders, "pedidos"),
+        loadListWithFallback(listGoodsReceipts, "recebimentos"),
       ]);
 
-      setSuppliers(suppliersData);
-      setOrders(ordersData);
-      setReceipts(receiptsData);
+      setSuppliers(suppliersResult.data);
+      setOrders(ordersResult.data);
+      setReceipts(receiptsResult.data);
+      setSafeMode(
+        suppliersResult.usedFallback ||
+          ordersResult.usedFallback ||
+          receiptsResult.usedFallback
+      );
     } catch (err) {
       console.error(err);
       setError("Não foi possível carregar o dashboard de fornecedores.");
     } finally {
       setLoading(false);
     }
-  }
+  }, [loadListWithFallback]);
 
   const dashboardRows = useMemo(() => {
     return suppliers.map((supplier) => {
@@ -237,8 +271,8 @@ export default function DashboardFornecedoresPage() {
   }, [filteredRows]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [loadData]);
 
   return (
     <div className="space-y-6 p-6">
@@ -277,6 +311,17 @@ export default function DashboardFornecedoresPage() {
         </div>
       ) : (
         <>
+          {safeMode ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+              <p className="text-sm text-amber-900">
+                O dashboard foi carregado em modo seguro porque as tabelas legadas
+                de fornecedores, pedidos ou recebimentos ainda não estão totalmente
+                provisionadas neste banco. Os indicadores podem aparecer zerados
+                até essa estrutura existir.
+              </p>
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
               <div className="text-sm text-gray-500">Fornecedores</div>

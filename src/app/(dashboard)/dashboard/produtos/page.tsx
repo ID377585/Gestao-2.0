@@ -52,24 +52,23 @@ const SECTOR_CATEGORIES = [
   "Produto de Limpeza",
   "Descartáveis",
   "Bebidas",
+  "Laticínios",
+  "Frutos do Mar",
+  "Peixaria",
 ] as const;
 
 type ProductRow = {
   id: string;
   sku: string | null;
   name: string;
+  brand: string | null;
   product_type: "INSU" | "PREP" | "PROD" | string;
   default_unit_label: string | null;
-  package_qty: number | null; // Qtd total da embalagem (peso/volume) - NUMÉRICO
-  qty_per_package: string | null; // Qtd por embalagem - TEXTO LIVRE
-  category: string | null; // agora será usado como categoria de armazenamento (Resfriado/Congelado/Temp. Ambiente)
-
-  // ✅ Setor (Categoria)
+  package_qty: number | null;
+  qty_per_package: string | null;
+  category: string | null;
   sector_category: string | null;
-
-  // ✅ NOVO: Shelf life em dias
   shelf_life_days: number | null;
-
   is_active: boolean | null;
   price: number | null;
   created_at: string | null;
@@ -127,7 +126,9 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   const { data, error } = await supabase
     .from("products")
     .select(
-      "id, sku, name, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, shelf_life_days, is_active, price, created_at, created_by",
+      .select(
+    "id, sku, name, brand, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, shelf_life_days, is_active, price, created_at, created_by",
+)
     )
     .order("product_type", { ascending: true })
     .order("name", { ascending: true });
@@ -296,6 +297,16 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                       name="name"
                       placeholder="Ex.: Farinha de Trigo, Creme Base Chocolate..."
                       required
+                    />
+                  </div>
+
+                  {/* Marca */}
+                  <div className="md:col-span-2 space-y-2">
+                    <Label htmlFor="brand">Marca</Label>
+                    <Input
+                      id="brand"
+                      name="brand"
+                      placeholder="Ex.: Nestlé, Seara, Sadia"
                     />
                   </div>
 
@@ -548,7 +559,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
                       {/* ✅ AJUSTE: Nome com largura mínima para quebrar linha */}
                       <TableHead className="min-w-[260px]">Nome</TableHead>
-
+                      <TableHead className="w-[160px]">Marca</TableHead>
                       <TableHead className="w-[110px] text-center">Qtd</TableHead>
                       <TableHead className="w-[80px]">Unidade</TableHead>
                       <TableHead className="w-[160px] text-center">
@@ -598,6 +609,15 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                           </div>
                         </TableCell>
 
+                        {/* Marca */}
+                        <TableCell>
+                          {product.brand?.trim() ? (
+                            product.brand
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+
                         {/* Qtd total da embalagem (NUMÉRICO) */}
                         <TableCell className="text-center">
                           {formatQty(product.package_qty)}
@@ -635,7 +655,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                           )}
                         </TableCell>
 
-                        {/* ✅ Shelf life */}
+                        {/* Shelf life */}
                         <TableCell className="text-center">
                           {product.shelf_life_days ?? (
                             <span className="text-muted-foreground">—</span>
@@ -721,6 +741,19 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                       name="name"
                                       defaultValue={product.name}
                                       required
+                                    />
+                                  </div>
+
+                                  {/* Marca */}
+                                  <div className="md:col-span-2 space-y-2">
+                                    <Label htmlFor={`brand-${product.id}`}>
+                                      Marca
+                                    </Label>
+                                    <Input
+                                      id={`brand-${product.id}`}
+                                      name="brand"
+                                      defaultValue={product.brand ?? ""}
+                                      placeholder="Ex.: Nestlé, Seara, Sadia"
                                     />
                                   </div>
 

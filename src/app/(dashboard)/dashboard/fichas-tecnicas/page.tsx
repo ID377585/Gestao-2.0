@@ -161,7 +161,7 @@ function calcularLucroUnitario(precoVenda: number, custoPorPorcao: number) {
 function calcularCustos(
   ingredientes: Ingrediente[],
   rendimento: number,
-  margemLucro: number
+  cmvAlvo: number
 ) {
   const custoTotal = ingredientes.reduce(
     (acc, item) => acc + (item.custoIngrediente || 0),
@@ -172,8 +172,10 @@ function calcularCustos(
     rendimento > 0 ? Number((custoTotal / rendimento).toFixed(2)) : 0;
 
   const precoVenda =
-    margemLucro >= 0
-      ? Number((custoPorPorcao * (1 + margemLucro / 100)).toFixed(2))
+  cmvAlvo > 0 && cmvAlvo < 100
+    ? Number((custoPorPorcao / (cmvAlvo / 100)).toFixed(2))
+    : cmvAlvo >= 100
+      ? Number((custoPorPorcao * (1 + cmvAlvo / 100)).toFixed(2))
       : 0;
 
   return {
@@ -975,7 +977,7 @@ export default function FichasTecnicasPage() {
   const [rendimento, setRendimento] = useState<number>(1);
   const [pesoPorcao, setPesoPorcao] = useState<number>(0);
   const [tempoPreparo, setTempoPreparo] = useState<number>(0);
-  const [margemLucro, setMargemLucro] = useState<number>(200);
+  const [cmvAlvo, setCmvAlvo] = useState<number>(30);
   const [modoPreparo, setModoPreparo] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
@@ -1208,7 +1210,7 @@ export default function FichasTecnicasPage() {
     );
   }, [fichasTecnicas]);
 
-  const margemMedia = useMemo(() => {
+  const cmvAlvoMedio = useMemo(() => {
     if (!fichasTecnicas.length) return 0;
     return (
       fichasTecnicas.reduce((acc, f) => acc + f.margemLucro, 0) /
@@ -1236,7 +1238,7 @@ export default function FichasTecnicasPage() {
     setRendimento(1);
     setPesoPorcao(0);
     setTempoPreparo(0);
-    setMargemLucro(200);
+    setCmvAlvo(30);
     setModoPreparo("");
     setImageUrl(null);
     setImagePath(null);
@@ -1342,7 +1344,7 @@ export default function FichasTecnicasPage() {
       return;
     }
 
-    const custos = calcularCustos(ingredientes, rendimento, margemLucro);
+    const custos = calcularCustos(ingredientes, rendimento, cmvAlvo);
 
     const payload = toActionPayload({
       nome: nome.trim(),
@@ -1352,7 +1354,7 @@ export default function FichasTecnicasPage() {
       tempoPreparo: toNumber(tempoPreparo, 0),
       custoTotal: custos.custoTotal,
       custoPorPorcao: custos.custoPorPorcao,
-      margemLucro: toNumber(margemLucro, 0),
+      margemLucro: toNumber(cmvAlvo, 0),
       precoVenda: custos.precoVenda,
       modoPreparo: modoPreparo.trim(),
       imageUrl,
@@ -1585,7 +1587,7 @@ export default function FichasTecnicasPage() {
       "custo_por_porcao",
       "preco_venda",
       "cmv",
-      "margem_lucro",
+      "cmv_alvo",
       "lucro_unitario",
       "ingredientes",
     ];
@@ -1786,12 +1788,12 @@ export default function FichasTecnicasPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Margem Média</CardTitle>
+            <CardTitle className="text-sm font-medium">CMV Alvo Médio</CardTitle>
             <span className="text-2xl">📈</span>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{margemMedia.toFixed(0)}%</div>
-            <p className="text-xs text-muted-foreground">Margem de lucro</p>
+            <p className="text-xs text-muted-foreground">CMV alvo</p>
           </CardContent>
         </Card>
       </div>
@@ -2070,12 +2072,12 @@ export default function FichasTecnicasPage() {
               </div>
 
               <div>
-                <Label>Margem de lucro (%)</Label>
+                <Label>CMV alvo (%)</Label>
                 <Input
                   type="number"
                   min={0}
-                  value={margemLucro}
-                  onChange={(e) => setMargemLucro(toNumber(e.target.value, 0))}
+                  value={cmvAlvo}
+                  onChange={(e) => setCmvAlvo(toNumber(e.target.value, 0))}
                 />
               </div>
 
@@ -2428,7 +2430,7 @@ export default function FichasTecnicasPage() {
                 </div>
 
                 <div>
-                  <Label>Margem de lucro (%)</Label>
+                  <Label>CMV alvo (%)</Label>
                   <Input
                     type="number"
                     min={0}

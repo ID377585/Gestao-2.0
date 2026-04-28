@@ -497,3 +497,81 @@ export async function updateProduct(formData: FormData) {
   revalidatePath("/dashboard/produtos");
   redirect("/dashboard/produtos?success=updated");
 }
+
+/* =========================================================
+   DELETE PRODUCT
+   ========================================================= */
+
+export async function deleteProduct(formData: FormData) {
+  const { establishmentId, userId } = await getMembershipIds();
+  const supabase = await createSupabaseServerClient();
+
+  const id = String(formData.get("id") ?? "").trim();
+
+  if (!id) {
+    redirectWithError("ID do produto é obrigatório para exclusão.");
+  }
+
+  const { data, error } = await supabase
+    .from("products")
+    .delete()
+    .eq("id", id)
+    .eq("establishment_id", establishmentId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error(
+      "[products.delete] error",
+      safeJson({
+        message: error.message,
+        code: (error as any).code,
+        details: (error as any).details,
+        hint: (error as any).hint,
+        establishmentId,
+        userId,
+        id,
+      }),
+    );
+
+    const errorText = supabaseErrorText(error);
+
+    if (
+      errorText.toLowerCase().includes("foreign key") ||
+      errorText.toLowerCase().includes("violates foreign key constraint")
+    ) {
+      redirectWithError(
+        "Não foi possível excluir: este insumo já está vinculado a outros registros do sistema."
+      );
+    }
+
+    redirectWithError(errorText);
+  }
+
+  if (!data?.id) {
+    console.error(
+      "[products.delete] no-row-deleted",
+      safeJson({
+        establishmentId,
+        userId,
+        id,
+        note: "Nenhuma linha excluída. Possível RLS/policy bloqueando ou produto não pertence ao usuário.",
+      }),
+    );
+    redirectWithError(
+      "Não foi possível excluir: produto não encontrado ou sem permissão."
+    );
+  }
+
+  console.log(
+    "[products.delete] ok",
+    safeJson({
+      id: data?.id,
+      establishmentId,
+      userId,
+    }),
+  );
+
+  revalidatePath("/dashboard/produtos");
+  redirect("/dashboard/produtos?success=deleted");
+}

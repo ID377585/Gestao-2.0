@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -20,6 +21,9 @@ interface SidebarProps {
   className?: string;
 }
 
+const SUBMENU_VIEWPORT_MARGIN = 16;
+const SUBMENU_BRIDGE_HEIGHT = 56;
+
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
 
@@ -28,8 +32,11 @@ export function Sidebar({ className }: SidebarProps) {
   const [previewSectionKey, setPreviewSectionKey] =
     useState<MenuSectionKey | null>(null);
   const [submenuTop, setSubmenuTop] = useState(0);
+  const [submenuMaxHeight, setSubmenuMaxHeight] = useState<number | null>(null);
+
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const desktopContainerRef = useRef<HTMLDivElement | null>(null);
+  const submenuPanelRef = useRef<HTMLDivElement | null>(null);
   const sectionRefs = useRef<
     Partial<Record<MenuSectionKey, HTMLDivElement | null>>
   >({});
@@ -72,14 +79,38 @@ export function Sidebar({ className }: SidebarProps) {
   const updateSubmenuPosition = (sectionKey: MenuSectionKey) => {
     const container = desktopContainerRef.current;
     const sectionElement = sectionRefs.current[sectionKey];
+    const submenuElement = submenuPanelRef.current;
 
     if (!container || !sectionElement) return;
 
     const containerRect = container.getBoundingClientRect();
     const sectionRect = sectionElement.getBoundingClientRect();
-    const relativeTop = sectionRect.top - containerRect.top;
 
-    setSubmenuTop(Math.max(0, relativeTop));
+    const viewportTop = SUBMENU_VIEWPORT_MARGIN;
+    const viewportBottom = window.innerHeight - SUBMENU_VIEWPORT_MARGIN;
+    const availableHeight = Math.max(160, viewportBottom - viewportTop);
+
+    const naturalTop = sectionRect.top - containerRect.top;
+    const submenuHeight =
+      submenuElement?.getBoundingClientRect().height ?? availableHeight;
+
+    let adjustedTop = naturalTop;
+
+    const submenuViewportTop = containerRect.top + adjustedTop;
+    const submenuViewportBottom = submenuViewportTop + submenuHeight;
+
+    if (submenuViewportBottom > viewportBottom) {
+      adjustedTop -= submenuViewportBottom - viewportBottom;
+    }
+
+    const adjustedViewportTop = containerRect.top + adjustedTop;
+
+    if (adjustedViewportTop < viewportTop) {
+      adjustedTop += viewportTop - adjustedViewportTop;
+    }
+
+    setSubmenuTop(Math.max(0, adjustedTop));
+    setSubmenuMaxHeight(availableHeight);
   };
 
   const openDesktopMenu = () => {
@@ -90,7 +121,9 @@ export function Sidebar({ className }: SidebarProps) {
     setPreviewSectionKey(nextSectionKey);
 
     if (nextSectionKey) {
-      updateSubmenuPosition(nextSectionKey);
+      requestAnimationFrame(() => {
+        updateSubmenuPosition(nextSectionKey);
+      });
     }
   };
 
@@ -103,7 +136,10 @@ export function Sidebar({ className }: SidebarProps) {
     clearCloseTimer();
     setDesktopHovered(true);
     setPreviewSectionKey(sectionKey);
-    updateSubmenuPosition(sectionKey);
+
+    requestAnimationFrame(() => {
+      updateSubmenuPosition(sectionKey);
+    });
   };
 
   const handleDesktopNavigate = () => {
@@ -126,7 +162,9 @@ export function Sidebar({ className }: SidebarProps) {
 
   useEffect(() => {
     if (desktopHovered && displayedSectionKey) {
-      updateSubmenuPosition(displayedSectionKey);
+      requestAnimationFrame(() => {
+        updateSubmenuPosition(displayedSectionKey);
+      });
     }
   }, [desktopHovered, displayedSectionKey]);
 
@@ -365,7 +403,7 @@ export function Sidebar({ className }: SidebarProps) {
                 top: `${submenuTop}px`,
                 left: "calc(var(--sidebar-w) - 0.25rem)",
                 width: "1.25rem",
-                height: "4rem",
+                height: `${SUBMENU_BRIDGE_HEIGHT}px`,
               }}
               onMouseEnter={keepDesktopMenuOpen}
               onMouseLeave={scheduleClose}
@@ -380,7 +418,15 @@ export function Sidebar({ className }: SidebarProps) {
               onMouseEnter={keepDesktopMenuOpen}
               onMouseLeave={scheduleClose}
             >
-              <div className="ml-2 w-80 rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+              <div
+                ref={submenuPanelRef}
+                className="ml-2 w-80 overflow-y-auto rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl dark:border-slate-800 dark:bg-slate-950"
+                style={{
+                  maxHeight: submenuMaxHeight
+                    ? `${submenuMaxHeight}px`
+                    : undefined,
+                }}
+              >
                 <div className="px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
                   {displayedSection.label}
                 </div>

@@ -157,6 +157,39 @@ async function getAuthUsersSnapshotMap(
   };
 }
 
+async function findAuthUserByEmail(
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
+  email: string
+) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const perPage = 200;
+
+  for (let page = 1; page <= 20; page++) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) {
+      console.error("Erro ao buscar usuário por email no Auth:", error);
+      throw new Error("Erro ao validar e-mail do usuário.");
+    }
+
+    const users = data?.users ?? [];
+    const found = users.find(
+      (user) => String(user.email ?? "").trim().toLowerCase() === normalizedEmail
+    );
+
+    if (found) {
+      return found;
+    }
+
+    if (users.length < perPage) break;
+  }
+
+  return null;
+}
+
 async function writeUserAuditLog(params: {
   supabaseAdmin: ReturnType<typeof getSupabaseAdmin>;
   establishmentId: string;
@@ -438,20 +471,28 @@ export async function createCollaborator(formData: FormData) {
     throw new Error("A senha inicial deve ter pelo menos 6 caracteres.");
   }
 
-  const { data: userResp, error: userErr } =
-    await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name },
-    });
+  const existingAuthUser = await findAuthUserByEmail(supabaseAdmin, email);
 
-  if (userErr || !userResp?.user) {
-    console.error("Erro ao criar usuário no Auth:", userErr);
-    throw new Error(userErr?.message ?? "Erro ao criar usuário.");
+  let userId: string;
+
+  if (existingAuthUser?.id) {
+    userId = String(existingAuthUser.id);
+  } else {
+    const { data: userResp, error: userErr } =
+      await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name },
+      });
+
+    if (userErr || !userResp?.user) {
+      console.error("Erro ao criar usuário no Auth:", userErr);
+      throw new Error(userErr?.message ?? "Erro ao criar usuário.");
+    }
+
+    userId = userResp.user.id;
   }
-
-  const userId = userResp.user.id;
 
   const { error: profileErr } = await supabaseAdmin.from("profiles").upsert(
     {

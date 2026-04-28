@@ -1,10 +1,7 @@
 import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
-import {
-  createNotification,
-  type NotificationType,
-} from "@/lib/notifications";
+import { type NotificationType } from "@/lib/notifications";
 import { DEFAULT_USER_SETTINGS } from "@/lib/user-settings";
 import { buildAlertEmailHtml, sendAlertEmail } from "@/lib/alerts/email";
 
@@ -71,9 +68,13 @@ function uniqueRecipients(recipients: AlertRecipient[]) {
   return Array.from(map.values());
 }
 
-export function buildAlertEventKey(...parts: Array<string | number | null | undefined>) {
+export function buildAlertEventKey(
+  ...parts: Array<string | number | null | undefined>
+) {
   return parts
-    .filter((part) => part !== null && part !== undefined && String(part).trim() !== "")
+    .filter(
+      (part) => part !== null && part !== undefined && String(part).trim() !== ""
+    )
     .map((part) => String(part).trim())
     .join(":");
 }
@@ -107,6 +108,53 @@ async function listAuthEmailsByUserIds(userIds: string[]) {
   }
 
   return emailById;
+}
+
+async function createNotificationAsAdmin(params: {
+  userId: string;
+  titulo: string;
+  mensagem: string;
+  tipo: NotificationType;
+  href?: string | null;
+  eventKey?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  metadata?: Record<string, unknown> | null;
+  emailSent?: boolean;
+}) {
+  const supabaseAdmin = getSupabaseAdminForAlerts();
+
+  const richPayload = {
+    user_id: params.userId,
+    title: params.titulo,
+    message: params.mensagem,
+    read: false,
+    type: params.tipo,
+    href: params.href ?? null,
+    event_key: params.eventKey ?? null,
+    entity_type: params.entityType ?? null,
+    entity_id: params.entityId ?? null,
+    metadata: params.metadata ?? null,
+    email_sent: params.emailSent ?? false,
+  };
+
+  let { error } = await supabaseAdmin.from("notifications").insert(richPayload);
+
+  if (!error) return;
+
+  const basicPayload = {
+    userId: params.userId,
+    title: params.titulo,
+    message: params.mensagem,
+    read: false,
+  };
+
+  ({ error } = await supabaseAdmin.from("notifications").insert(basicPayload));
+
+  if (error) {
+    console.error("Erro ao criar notificação com service role:", error);
+    throw error;
+  }
 }
 
 export async function getNotificationPreferencesByUserIds(userIds: string[]) {
@@ -222,7 +270,7 @@ export async function dispatchAlert(input: DispatchAlertInput) {
   for (const recipient of recipients) {
     const preferences = preferencesMap.get(recipient.userId);
 
-    await createNotification({
+    await createNotificationAsAdmin({
       userId: recipient.userId,
       titulo: input.titulo,
       mensagem: input.mensagem,

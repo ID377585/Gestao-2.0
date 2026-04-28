@@ -2,7 +2,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
-import { createProduct, updateProduct } from "./actions";
+import { createProduct, deleteProduct, updateProduct } from "./actions";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -225,6 +225,12 @@ export default async function ProductsPage({ searchParams }: PageProps) {
       {success === "updated" && (
         <div className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
           Produto ajustado com sucesso!
+        </div>
+      )}
+
+      {success === "deleted" && (
+        <div className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
+          Produto excluído com sucesso!
         </div>
       )}
 
@@ -887,6 +893,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                       type="number"
                                       step="0.0001"
                                       min="0"
+                                      defaultValue={1}
                                       placeholder="1"
                                     />
                                   </div>
@@ -910,7 +917,23 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                   </div>
                                 </div>
 
-                                <div className="flex justify-end gap-2 pt-2">
+                                <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-between">
+                                  <form action={deleteProduct}>
+                                    <input
+                                      type="hidden"
+                                      name="id"
+                                      value={product.id}
+                                    />
+                                    <Button
+                                      type="submit"
+                                      variant="destructive"
+                                      className="w-full sm:w-auto"
+                                      formAction={deleteProduct}
+                                    >
+                                      Excluir
+                                    </Button>
+                                  </form>
+
                                   <Button type="submit">Gravar alterações</Button>
                                 </div>
                               </form>

@@ -918,24 +918,17 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                 </div>
 
                                 <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-between">
-                                  <form action={deleteProduct}>
-                                    <input
-                                      type="hidden"
-                                      name="id"
-                                      value={product.id}
-                                    />
-                                    <Button
-                                      type="submit"
-                                      variant="destructive"
-                                      className="w-full sm:w-auto"
-                                      formAction={deleteProduct}
-                                    >
-                                      Excluir
-                                    </Button>
-                                  </form>
+                                <Button
+                                  type="submit"
+                                  variant="destructive"
+                                  className="w-full sm:w-auto"
+                                  formAction={deleteProduct}
+                                >
+                                  Excluir
+                                </Button>
 
-                                  <Button type="submit">Gravar alterações</Button>
-                                </div>
+                                <Button type="submit">Gravar alterações</Button>
+                              </div>
                               </form>
                             </DialogContent>
                           </Dialog>

@@ -700,236 +700,246 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                 </DialogTitle>
                               </DialogHeader>
 
-                              <form action={updateProduct} className="space-y-4">
-                                {/* ID oculto */}
-                                <input type="hidden" name="id" value={product.id} />
+                              <form
+  id={`update-product-form-${product.id}`}
+  action={updateProduct}
+  className="space-y-4"
+>
+  {/* ID oculto */}
+  <input type="hidden" name="id" value={product.id} />
 
-                                <div className="grid gap-4 md:grid-cols-2">
-                                  {/* SKU */}
-                                  <div className="space-y-2">
-                                    <Label htmlFor={`sku-${product.id}`}>
-                                      SKU / Código do item
-                                    </Label>
-                                    <Input
-                                      id={`sku-${product.id}`}
-                                      name="sku"
-                                      defaultValue={product.sku ?? ""}
-                                    />
-                                  </div>
+  <div className="grid gap-4 md:grid-cols-2">
+    {/* SKU */}
+    <div className="space-y-2">
+      <Label htmlFor={`sku-${product.id}`}>
+        SKU / Código do item
+      </Label>
+      <Input
+        id={`sku-${product.id}`}
+        name="sku"
+        defaultValue={product.sku ?? ""}
+      />
+    </div>
 
-                                  {/* Tipo */}
-                                  <div className="space-y-2">
-                                    <Label htmlFor={`product_type-${product.id}`}>
-                                      Tipo
-                                    </Label>
-                                    <select
-                                      id={`product_type-${product.id}`}
-                                      name="product_type"
-                                      defaultValue={product.product_type}
-                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                      <option value="INSU">INSU — Insumo</option>
-                                      <option value="PREP">PREP — Pré-preparo</option>
-                                      <option value="PROD">PROD — Produto acabado</option>
-                                    </select>
-                                  </div>
+    {/* Tipo */}
+    <div className="space-y-2">
+      <Label htmlFor={`product_type-${product.id}`}>
+        Tipo
+      </Label>
+      <select
+        id={`product_type-${product.id}`}
+        name="product_type"
+        defaultValue={product.product_type}
+        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <option value="INSU">INSU — Insumo</option>
+        <option value="PREP">PREP — Pré-preparo</option>
+        <option value="PROD">PROD — Produto acabado</option>
+      </select>
+    </div>
 
-                                  {/* Nome */}
-                                  <div className="md:col-span-2 space-y-2">
-                                    <Label htmlFor={`name-${product.id}`}>
-                                      Nome do item
-                                    </Label>
-                                    <Input
-                                      id={`name-${product.id}`}
-                                      name="name"
-                                      defaultValue={product.name}
-                                      required
-                                    />
-                                  </div>
+    {/* Nome */}
+    <div className="md:col-span-2 space-y-2">
+      <Label htmlFor={`name-${product.id}`}>
+        Nome do item
+      </Label>
+      <Input
+        id={`name-${product.id}`}
+        name="name"
+        defaultValue={product.name}
+        required
+      />
+    </div>
 
-                                  {/* Marca */}
-                                  <div className="md:col-span-2 space-y-2">
-                                    <Label htmlFor={`brand-${product.id}`}>
-                                      Marca
-                                    </Label>
-                                    <Input
-                                      id={`brand-${product.id}`}
-                                      name="brand"
-                                      defaultValue={product.brand ?? ""}
-                                      placeholder="Ex.: Nestlé, Seara, Sadia"
-                                    />
-                                  </div>
+    {/* Marca */}
+    <div className="md:col-span-2 space-y-2">
+      <Label htmlFor={`brand-${product.id}`}>
+        Marca
+      </Label>
+      <Input
+        id={`brand-${product.id}`}
+        name="brand"
+        defaultValue={product.brand ?? ""}
+        placeholder="Ex.: Nestlé, Seara, Sadia"
+      />
+    </div>
 
-                                  {/* Qtd total da embalagem */}
-                                  <div className="space-y-2">
-                                    <Label htmlFor={`package_qty-${product.id}`}>
-                                      Qtd (peso/volume da embalagem)
-                                    </Label>
-                                    <Input
-                                      id={`package_qty-${product.id}`}
-                                      name="package_qty"
-                                      type="number"
-                                      step="0.001"
-                                      min="0"
-                                      defaultValue={product.package_qty ?? undefined}
-                                    />
-                                  </div>
+    {/* Qtd total da embalagem */}
+    <div className="space-y-2">
+      <Label htmlFor={`package_qty-${product.id}`}>
+        Qtd (peso/volume da embalagem)
+      </Label>
+      <Input
+        id={`package_qty-${product.id}`}
+        name="package_qty"
+        type="number"
+        step="0.001"
+        min="0"
+        defaultValue={product.package_qty ?? undefined}
+      />
+    </div>
 
-                                  {/* ✅ Unidade (agora SELECT) */}
-                                  <div className="space-y-2">
-                                    <Label htmlFor={`default_unit_label-${product.id}`}>
-                                      Unidade padrão
-                                    </Label>
-                                    <select
-                                      id={`default_unit_label-${product.id}`}
-                                      name="default_unit_label"
-                                      defaultValue={
-                                        (product.default_unit_label?.toUpperCase() as any) ??
-                                        "UN"
-                                      }
-                                      required
-                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                      {UNIT_OPTIONS.map((u) => (
-                                        <option key={u} value={u}>
-                                          {u}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
+    {/* Unidade */}
+    <div className="space-y-2">
+      <Label htmlFor={`default_unit_label-${product.id}`}>
+        Unidade padrão
+      </Label>
+      <select
+        id={`default_unit_label-${product.id}`}
+        name="default_unit_label"
+        defaultValue={
+          (product.default_unit_label?.toUpperCase() as any) ?? "UN"
+        }
+        required
+        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {UNIT_OPTIONS.map((u) => (
+          <option key={u} value={u}>
+            {u}
+          </option>
+        ))}
+      </select>
+    </div>
 
-                                  {/* Qtd por embalagem */}
-                                  <div className="space-y-2">
-                                    <Label htmlFor={`qty_per_package-${product.id}`}>
-                                      Qtd. por Emb.
-                                    </Label>
-                                    <Input
-                                      id={`qty_per_package-${product.id}`}
-                                      name="qty_per_package"
-                                      defaultValue={product.qty_per_package ?? ""}
-                                      placeholder="Ex.: 12 unidades, BDJ C/ 30 UNID"
-                                    />
-                                  </div>
+    {/* Qtd por embalagem */}
+    <div className="space-y-2">
+      <Label htmlFor={`qty_per_package-${product.id}`}>
+        Qtd. por Emb.
+      </Label>
+      <Input
+        id={`qty_per_package-${product.id}`}
+        name="qty_per_package"
+        defaultValue={product.qty_per_package ?? ""}
+        placeholder="Ex.: 12 unidades, BDJ C/ 30 UNID"
+      />
+    </div>
 
-                                  {/* ✅ Categoria (armazenamento) (agora SELECT) */}
-                                  <div className="space-y-2">
-                                    <Label htmlFor={`category-${product.id}`}>
-                                      Categoria (armazenamento)
-                                    </Label>
-                                    <select
-                                      id={`category-${product.id}`}
-                                      name="category"
-                                      defaultValue={product.category ?? ""}
-                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                      <option value="">— Selecione —</option>
-                                      {STORAGE_CATEGORIES.map((c) => (
-                                        <option key={c} value={c}>
-                                          {c}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
+    {/* Categoria */}
+    <div className="space-y-2">
+      <Label htmlFor={`category-${product.id}`}>
+        Categoria (armazenamento)
+      </Label>
+      <select
+        id={`category-${product.id}`}
+        name="category"
+        defaultValue={product.category ?? ""}
+        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <option value="">— Selecione —</option>
+        {STORAGE_CATEGORIES.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </select>
+    </div>
 
-                                  {/* Setor (Categoria) */}
-                                  <div className="space-y-2 md:col-span-2">
-                                    <Label htmlFor={`sector_category-${product.id}`}>
-                                      Setor (Categoria)
-                                    </Label>
-                                    <select
-                                      id={`sector_category-${product.id}`}
-                                      name="sector_category"
-                                      defaultValue={product.sector_category ?? ""}
-                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                      <option value="">— Selecione —</option>
-                                      {SECTOR_CATEGORIES.map((c) => (
-                                        <option key={c} value={c}>
-                                          {c}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
+    {/* Setor */}
+    <div className="space-y-2 md:col-span-2">
+      <Label htmlFor={`sector_category-${product.id}`}>
+        Setor (Categoria)
+      </Label>
+      <select
+        id={`sector_category-${product.id}`}
+        name="sector_category"
+        defaultValue={product.sector_category ?? ""}
+        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <option value="">— Selecione —</option>
+        {SECTOR_CATEGORIES.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </select>
+    </div>
 
-                                  {/* ✅ NOVO: Shelf life */}
-                                  <div className="space-y-2">
-                                    <Label htmlFor={`shelf_life_days-${product.id}`}>
-                                      Shelf life (dias)
-                                    </Label>
-                                    <Input
-                                      id={`shelf_life_days-${product.id}`}
-                                      name="shelf_life_days"
-                                      type="number"
-                                      min="0"
-                                      step="1"
-                                      defaultValue={product.shelf_life_days ?? undefined}
-                                      placeholder="Ex.: 3"
-                                    />
-                                  </div>
+    {/* Shelf life */}
+    <div className="space-y-2">
+      <Label htmlFor={`shelf_life_days-${product.id}`}>
+        Shelf life (dias)
+      </Label>
+      <Input
+        id={`shelf_life_days-${product.id}`}
+        name="shelf_life_days"
+        type="number"
+        min="0"
+        step="1"
+        defaultValue={product.shelf_life_days ?? undefined}
+        placeholder="Ex.: 3"
+      />
+    </div>
 
-                                  {/* Preço */}
-                                  <div className="space-y-2">
-                                    <Label htmlFor={`price-${product.id}`}>
-                                      Preço / Custo padrão
-                                    </Label>
-                                    <Input
-                                      id={`price-${product.id}`}
-                                      name="price"
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      defaultValue={product.price ?? undefined}
-                                    />
-                                  </div>
+    {/* Preço */}
+    <div className="space-y-2">
+      <Label htmlFor={`price-${product.id}`}>
+        Preço / Custo padrão
+      </Label>
+      <Input
+        id={`price-${product.id}`}
+        name="price"
+        type="number"
+        step="0.01"
+        min="0"
+        defaultValue={product.price ?? undefined}
+      />
+    </div>
 
-                                  {/* Fator de conversão */}
-                                  <div className="space-y-2">
-                                    <Label htmlFor={`conversion_factor-${product.id}`}>
-                                      Fator de conversão (opcional)
-                                    </Label>
-                                    <Input
-                                      id={`conversion_factor-${product.id}`}
-                                      name="conversion_factor"
-                                      type="number"
-                                      step="0.0001"
-                                      min="0"
-                                      defaultValue={1}
-                                      placeholder="1"
-                                    />
-                                  </div>
+    {/* Fator de conversão */}
+    <div className="space-y-2">
+      <Label htmlFor={`conversion_factor-${product.id}`}>
+        Fator de conversão (opcional)
+      </Label>
+      <Input
+        id={`conversion_factor-${product.id}`}
+        name="conversion_factor"
+        type="number"
+        step="0.0001"
+        min="0"
+        defaultValue={1}
+        placeholder="1"
+      />
+    </div>
 
-                                  {/* Status */}
-                                  <div className="space-y-2 md:col-span-2">
-                                    <Label htmlFor={`is_active-${product.id}`}>
-                                      Status
-                                    </Label>
-                                    <div className="flex items-center gap-2">
-                                      <input
-                                        id={`is_active-${product.id}`}
-                                        name="is_active"
-                                        type="checkbox"
-                                        defaultChecked={product.is_active ?? true}
-                                      />
-                                      <span className="text-sm text-muted-foreground">
-                                        Ativo
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
+    {/* Status */}
+    <div className="space-y-2 md:col-span-2">
+      <Label htmlFor={`is_active-${product.id}`}>
+        Status
+      </Label>
+      <div className="flex items-center gap-2">
+        <input
+          id={`is_active-${product.id}`}
+          name="is_active"
+          type="checkbox"
+          defaultChecked={product.is_active ?? true}
+        />
+        <span className="text-sm text-muted-foreground">
+          Ativo
+        </span>
+      </div>
+    </div>
+  </div>
+</form>
 
-                                <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-between">
-                                <Button
-                                  type="submit"
-                                  variant="destructive"
-                                  className="w-full sm:w-auto"
-                                  formAction={deleteProduct}
-                                >
-                                  Excluir
-                                </Button>
+<div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-between">
+  <form action={deleteProduct}>
+    <input type="hidden" name="id" value={product.id} />
+    <Button
+      type="submit"
+      variant="destructive"
+      className="w-full sm:w-auto"
+    >
+      Excluir
+    </Button>
+  </form>
 
-                                <Button type="submit">Gravar alterações</Button>
-                              </div>
-                              </form>
+  <Button
+    type="submit"
+    form={`update-product-form-${product.id}`}
+  >
+    Gravar alterações
+  </Button>
+</div>
                             </DialogContent>
                           </Dialog>
                         </TableCell>

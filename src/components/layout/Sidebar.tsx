@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
-
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -28,8 +27,12 @@ export function Sidebar({ className }: SidebarProps) {
   const [desktopHovered, setDesktopHovered] = useState(false);
   const [previewSectionKey, setPreviewSectionKey] =
     useState<MenuSectionKey | null>(null);
-
+  const [submenuTop, setSubmenuTop] = useState(0);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const desktopContainerRef = useRef<HTMLDivElement | null>(null);
+  const sectionRefs = useRef<
+    Partial<Record<MenuSectionKey, HTMLDivElement | null>>
+  >({});
 
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(href + "/");
@@ -66,10 +69,29 @@ export function Sidebar({ className }: SidebarProps) {
     }, 140);
   };
 
+  const updateSubmenuPosition = (sectionKey: MenuSectionKey) => {
+    const container = desktopContainerRef.current;
+    const sectionElement = sectionRefs.current[sectionKey];
+
+    if (!container || !sectionElement) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const sectionRect = sectionElement.getBoundingClientRect();
+    const relativeTop = sectionRect.top - containerRect.top;
+
+    setSubmenuTop(Math.max(0, relativeTop));
+  };
+
   const openDesktopMenu = () => {
     clearCloseTimer();
     setDesktopHovered(true);
-    setPreviewSectionKey(currentSectionKey ?? menuSections[0]?.key ?? null);
+
+    const nextSectionKey = currentSectionKey ?? menuSections[0]?.key ?? null;
+    setPreviewSectionKey(nextSectionKey);
+
+    if (nextSectionKey) {
+      updateSubmenuPosition(nextSectionKey);
+    }
   };
 
   const keepDesktopMenuOpen = () => {
@@ -81,6 +103,7 @@ export function Sidebar({ className }: SidebarProps) {
     clearCloseTimer();
     setDesktopHovered(true);
     setPreviewSectionKey(sectionKey);
+    updateSubmenuPosition(sectionKey);
   };
 
   const handleDesktopNavigate = () => {
@@ -100,6 +123,23 @@ export function Sidebar({ className }: SidebarProps) {
     setPreviewSectionKey(null);
     clearCloseTimer();
   }, [pathname]);
+
+  useEffect(() => {
+    if (desktopHovered && displayedSectionKey) {
+      updateSubmenuPosition(displayedSectionKey);
+    }
+  }, [desktopHovered, displayedSectionKey]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (desktopHovered && displayedSectionKey) {
+        updateSubmenuPosition(displayedSectionKey);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [desktopHovered, displayedSectionKey]);
 
   useEffect(() => {
     return () => {
@@ -250,6 +290,9 @@ export function Sidebar({ className }: SidebarProps) {
             {menuSections.map((section, index) => (
               <div
                 key={section.key}
+                ref={(element) => {
+                  sectionRefs.current[section.key] = element;
+                }}
                 className="space-y-2"
                 onMouseEnter={() => {
                   if (isDesktop) handleSectionEnter(section.key);
@@ -305,6 +348,7 @@ export function Sidebar({ className }: SidebarProps) {
       </div>
 
       <div
+        ref={desktopContainerRef}
         className={cn("relative hidden md:block", className)}
         onMouseEnter={openDesktopMenu}
         onMouseLeave={scheduleClose}
@@ -318,22 +362,25 @@ export function Sidebar({ className }: SidebarProps) {
             <div
               className="absolute z-20"
               style={{
-                top: "5rem",
+                top: `${submenuTop}px`,
                 left: "calc(var(--sidebar-w) - 0.25rem)",
                 width: "1.25rem",
-                height: "calc(100% - 5rem)",
+                height: "4rem",
               }}
               onMouseEnter={keepDesktopMenuOpen}
               onMouseLeave={scheduleClose}
             />
 
             <div
-              className="absolute top-0 z-30"
-              style={{ left: "calc(var(--sidebar-w) - 0.35rem)" }}
+              className="absolute z-30"
+              style={{
+                top: `${submenuTop}px`,
+                left: "calc(var(--sidebar-w) - 0.35rem)",
+              }}
               onMouseEnter={keepDesktopMenuOpen}
               onMouseLeave={scheduleClose}
             >
-              <div className="ml-2 mt-20 w-80 rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+              <div className="ml-2 w-80 rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
                 <div className="px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
                   {displayedSection.label}
                 </div>

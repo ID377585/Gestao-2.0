@@ -31,7 +31,10 @@ export async function GET() {
         standard_cost,
         category,
         sector_category,
-        shelf_life_days
+        shelf_life_days,
+        package_qty,
+        qty_per_package,
+        conversion_factor
       `)
       .eq("establishment_id", establishmentId)
       .eq("is_active", true)

@@ -750,8 +750,8 @@ function buildPrintHtml(
       </div>
 
       <div class="metric-card primary">
-        <div class="metric-label">Custo por porção</div>
-        <div class="metric-value">${formatCurrency(custoPorPorcao)}</div>
+        <div class="metric-label">Rendimento</div>
+        <div class="metric-value">${ficha.correctionFactorGrams ?? 0} g</div>
       </div>
 
       <div class="metric-card success">

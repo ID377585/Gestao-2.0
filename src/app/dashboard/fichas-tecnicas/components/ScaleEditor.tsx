@@ -52,10 +52,11 @@ type ScaleEditorProps = {
 };
 
 function formatNumber(value: number) {
-  if (!Number.isFinite(value)) return "0";
+  if (!Number.isFinite(value)) return "0,000";
 
   return new Intl.NumberFormat("pt-BR", {
-    maximumFractionDigits: value % 1 === 0 ? 0 : 3,
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
   }).format(value);
 }
 
@@ -276,21 +277,23 @@ export default function ScaleEditor({
                 <div className="rounded-lg bg-yellow-300 p-2 italic">
                   Grau de dificuldade
                   <div className="mt-1 text-[12px] normal-case">
-                    {difficultyLevel || "—"}
+                    {difficultyLevel || ""}
                   </div>
                 </div>
 
                 <div>
                   Temperatura
                   <div className="mt-1 text-[16px] font-black normal-case">
-                    {temperatureCelsius ?? 0}º
+                    {temperatureCelsius !== null && temperatureCelsius !== undefined
+                    ? formatNumber(temperatureCelsius)
+                    : "—"}º
                   </div>
                 </div>
 
                 <div>
                   Tempo de prep.
                   <div className="mt-1 text-[16px] font-black normal-case">
-                    {prepTimeMinutes || 0}
+                    {prepTimeMinutes ? formatNumber(prepTimeMinutes) : ""}
                     <span className="ml-1 text-[9px] font-semibold">min</span>
                   </div>
                 </div>
@@ -298,7 +301,9 @@ export default function ScaleEditor({
                 <div>
                   Tempo cocção
                   <div className="mt-1 text-[16px] font-black normal-case">
-                    {cookingTimeMinutes ?? 0}
+                    {cookingTimeMinutes !== null && cookingTimeMinutes !== undefined
+                      ? formatNumber(cookingTimeMinutes)
+                      : ""}
                     <span className="ml-1 text-[9px] font-semibold">min</span>
                   </div>
                 </div>

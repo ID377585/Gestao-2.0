@@ -1043,8 +1043,8 @@ export default function FichasTecnicasPage() {
   const [nome, setNome] = useState("");
   const [categoria, setCategoria] = useState("");
   const [rendimento, setRendimento] = useState<number>(1);
-  const [pesoPorcao, setPesoPorcao] = useState<number>(0);
-  const [tempoPreparo, setTempoPreparo] = useState<number>(0);
+  const [pesoPorcao, setPesoPorcao] = useState<number | "">("");
+  const [tempoPreparo, setTempoPreparo] = useState<number | "">("");
   const [cmvAlvo, setCmvAlvo] = useState<number>(30);
   const [modoPreparo, setModoPreparo] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -1304,13 +1304,12 @@ export default function FichasTecnicasPage() {
     setNome("");
     setCategoria("");
     setRendimento(1);
-    setPesoPorcao(0);
-    setTempoPreparo(0);
+    setPesoPorcao("");
+    setTempoPreparo("");
     setCmvAlvo(14);
     setModoPreparo("");
     setImageUrl(null);
     setImagePath(null);
-
     setDifficultyLevel("");
     setTemperatureCelsius("");
     setCookingTimeMinutes("");
@@ -1326,7 +1325,6 @@ export default function FichasTecnicasPage() {
     setSourceUpdatedAt("");
     setVideoUrl("");
     setEscalas([]);
-
     setIngredientes([]);
   };
 
@@ -1457,8 +1455,8 @@ const convertedBlob = await heic2any({
       nome: nome.trim(),
       categoria: categoria.trim(),
       rendimento: toNumber(rendimento, 1),
-      pesoPorcao: toNumber(pesoPorcao, 0),
-      tempoPreparo: toNumber(tempoPreparo, 0),
+      pesoPorcao: pesoPorcao === "" ? 0 : toNumber(pesoPorcao, 0),
+      tempoPreparo: tempoPreparo === "" ? 0 : toNumber(tempoPreparo, 0),
       custoTotal: custos.custoTotal,
       custoPorPorcao: custos.custoPorPorcao,
       margemLucro: toNumber(cmvAlvo, 0),
@@ -1561,7 +1559,6 @@ const convertedBlob = await heic2any({
       modoPreparo: fichaEditando.modoPreparo,
       imageUrl: fichaEditando.imageUrl,
       imagePath: fichaEditando.imagePath,
-
       difficultyLevel: fichaEditando.difficultyLevel,
       temperatureCelsius: fichaEditando.temperatureCelsius,
       cookingTimeMinutes: fichaEditando.cookingTimeMinutes,

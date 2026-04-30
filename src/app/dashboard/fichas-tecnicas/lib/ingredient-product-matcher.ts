@@ -9,6 +9,7 @@ export type ProductOption = {
   category?: string | null;
   package_qty?: number | null;
   qty_per_package?: string | null;
+  allergens?: string[] | string | null;
   alternate_names?: string[] | string | null;
   aliases?: string[] | string | null;
 };

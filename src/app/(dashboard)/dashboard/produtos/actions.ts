@@ -111,10 +111,13 @@ function parseBoolean(value: FormDataEntryValue | null): boolean {
   return s === "on" || s === "true" || s === "1" || s === "yes";
 }
 
-/**
- * Gera o próximo SKU numérico disponível dentro do establishment.
- * Mantém a lógica isolada para não mexer no restante do fluxo validado.
- */
+function parseAllergens(formData: FormData): string[] {
+  return formData
+    .getAll("allergens")
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+}
+
 async function generateNextSku(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   establishmentId: string,
@@ -235,20 +238,14 @@ async function getMembershipIds() {
   };
 }
 
-/* =========================================================
-   CREATE PRODUCT
-   ========================================================= */
 
 export async function createProduct(formData: FormData) {
   const { establishmentId, userId } = await getMembershipIds();
   const supabase = await createSupabaseServerClient();
-
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
-
   const default_unit_label =
     normalizeUnit(formData.get("default_unit_label")) ?? "UN";
-
   const skuRaw = formData.get("sku");
   const brandRaw = formData.get("brand");
   const categoryRaw = formData.get("category");
@@ -258,11 +255,10 @@ export async function createProduct(formData: FormData) {
   const packageQtyRaw = formData.get("package_qty");
   const qtyPerPackageRaw = formData.get("qty_per_package");
   const conversionRaw = formData.get("conversion_factor");
-
+  const allergens = parseAllergens(formData);
   if (!name) {
     redirectWithError("Nome do produto é obrigatório.");
   }
-
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
   const conversion_factor = parseNumber(conversionRaw, 4);
@@ -308,6 +304,7 @@ export async function createProduct(formData: FormData) {
     conversion_factor: conversion_factor ?? 1,
     price: price ?? 0,
     standard_cost: null,
+    allergens,
     is_active: true,
     ...(userId ? { created_by: userId } : {}),
   };
@@ -362,25 +359,17 @@ export async function createProduct(formData: FormData) {
   redirect("/dashboard/produtos?success=new");
 }
 
-/* =========================================================
-   UPDATE PRODUCT
-   ========================================================= */
-
 export async function updateProduct(formData: FormData) {
   const { establishmentId, userId } = await getMembershipIds();
   const supabase = await createSupabaseServerClient();
-
   const id = String(formData.get("id") ?? "").trim();
   if (!id) {
     redirectWithError("ID do produto é obrigatório para edição.");
   }
-
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
-
   const default_unit_label =
     normalizeUnit(formData.get("default_unit_label")) ?? "UN";
-
   const skuRaw = formData.get("sku");
   const brandRaw = formData.get("brand");
   const categoryRaw = formData.get("category");
@@ -391,7 +380,7 @@ export async function updateProduct(formData: FormData) {
   const qtyPerPackageRaw = formData.get("qty_per_package");
   const conversionRaw = formData.get("conversion_factor");
   const isActiveRaw = formData.get("is_active");
-
+  const allergens = parseAllergens(formData);
   if (!name) {
     redirectWithError("Nome do produto é obrigatório.");
   }
@@ -432,6 +421,7 @@ export async function updateProduct(formData: FormData) {
     shelf_life_days,
     price: price ?? 0,
     conversion_factor: conversion_factor ?? 1,
+    allergens,
     is_active,
     ...(userId
       ? {

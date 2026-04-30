@@ -1,9 +1,7 @@
 // src/app/(dashboard)/dashboard/produtos/page.tsx
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
-
 import { createProduct, deleteProduct, updateProduct } from "./actions";
-
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -31,13 +29,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-/**
- * ✅ Melhorias de formulário (sem mexer em lógica já validada):
- * - Unidade padrão: select (UN, KG, G, L, ML)  ✅ (forçado em maiúsculo)
- * - Categoria (armazenamento): select (Resfriado, Congelado, Temp. Ambiente)
- */
 const UNIT_OPTIONS = ["UN", "KG", "G", "L", "ML"] as const;
 const STORAGE_CATEGORIES = ["Resfriado", "Congelado", "Temp. Ambiente"] as const;
+const ALLERGEN_OPTIONS = [
+  "Açúcar",
+  "Glúten",
+  "Lactose",
+  "Castanhas",
+  "Frutos do Mar",
+] as const;
 
 const SECTOR_CATEGORIES = [
   "Confeitaria",
@@ -71,6 +71,7 @@ type ProductRow = {
   shelf_life_days: number | null;
   is_active: boolean | null;
   price: number | null;
+  allergens: string[] | null;
   created_at: string | null;
   created_by: string | null;
 };
@@ -125,7 +126,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   const { data, error } = await supabase
     .from("products")
     .select(
-      "id, sku, name, brand, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, shelf_life_days, is_active, price, created_at, created_by",
+      "id, sku, name, brand, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, shelf_life_days, allergens, is_active, price, created_at, created_by",
     )
     .order("product_type", { ascending: true })
     .order("name", { ascending: true });
@@ -136,7 +137,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
     console.error("Erro ao carregar produtos:", error);
   }
 
-  // ✅ NOVO: resumo por setor (sempre mostra todos os setores, mesmo com 0)
   const sectorCounts = SECTOR_CATEGORIES.map((sector) => {
     const count = products.filter(
       (p) => (p.sector_category ?? "").trim() === sector,
@@ -162,7 +162,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
     );
 
     if (userIds.length > 0) {
-      // ✅ ROBUSTO: seu banco não tem profiles.email (no log deu erro).
       const { data: profilesData, error: profilesError } = await supabase
         .from("profiles")
         .select("id, full_name")
@@ -182,7 +181,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
     }
   }
 
-  // Produto com última data de criação (como referência de "último upload")
   const lastUploadProduct = products.reduce<ProductRow | null>(
     (latest, current) => {
       if (!current.created_at) return latest;
@@ -394,6 +392,18 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                       Use isso para identificar o setor responsável (e futuramente
                       vamos usar em Pedidos).
                     </p>
+                  </div>
+
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Alergênico</Label>
+                    <div className="grid grid-cols-1 gap-2 rounded-md border p-3 sm:grid-cols-2">
+                      {ALLERGEN_OPTIONS.map((item) => (
+                        <label key={item} className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" name="allergens" value={item} />
+                          <span>{item}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
 
                   {/* ✅ NOVO: Shelf life (dias) */}
@@ -830,6 +840,23 @@ export default async function ProductsPage({ searchParams }: PageProps) {
               ))}
             </select>
           </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label>Alergênico</Label>
+                <div className="grid grid-cols-1 gap-2 rounded-md border p-3 sm:grid-cols-2">
+                  {ALLERGEN_OPTIONS.map((item) => (
+                    <label key={item} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        name="allergens"
+                        value={item}
+                        defaultChecked={(product.allergens ?? []).includes(item)}
+                      />
+                      <span>{item}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
 
           <div className="space-y-2">
             <Label htmlFor={`shelf_life_days-${product.id}`}>

@@ -175,19 +175,28 @@ async function tryAddHeaderImage(
 
   try {
     const pageWidth = doc.internal.pageSize.getWidth();
-    const maxWidth = pageWidth - marginX * 2;
-    const maxHeight = 180;
+    const maxWidth = 160;
+    const maxHeight = 130;
 
     const props = doc.getImageProperties(dataUrl);
     const ratio = Math.min(maxWidth / props.width, maxHeight / props.height);
 
     const renderWidth = props.width * ratio;
     const renderHeight = props.height * ratio;
-    const x = (pageWidth - renderWidth) / 2;
+    const x = pageWidth - marginX - renderWidth;
 
-    doc.addImage(dataUrl, props.fileType || "JPEG", x, startY, renderWidth, renderHeight);
+    doc.setDrawColor(230, 230, 230);
+    doc.roundedRect(x - 6, startY - 6, renderWidth + 12, renderHeight + 12, 8, 8);
+    doc.addImage(
+      dataUrl,
+      props.fileType || "JPEG",
+      x,
+      startY,
+      renderWidth,
+      renderHeight
+    );
 
-    return startY + renderHeight + 18;
+    return startY;
   } catch (error) {
     console.error("Erro ao inserir imagem no PDF:", error);
     return startY;
@@ -196,7 +205,7 @@ async function tryAddHeaderImage(
 
 function ensureSpace(doc: jsPDF, currentY: number, neededHeight = 40, topY = 40) {
   const pageHeight = doc.internal.pageSize.getHeight();
-  const bottomLimit = pageHeight - 40;
+  const bottomLimit = pageHeight - 50;
 
   if (currentY + neededHeight > bottomLimit) {
     doc.addPage();
@@ -207,12 +216,43 @@ function ensureSpace(doc: jsPDF, currentY: number, neededHeight = 40, topY = 40)
 }
 
 function drawSectionTitle(doc: jsPDF, title: string, y: number) {
+  doc.setTextColor(15, 23, 42);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text(title, 40, y);
-  doc.setDrawColor(220, 220, 220);
-  doc.line(40, y + 6, doc.internal.pageSize.getWidth() - 40, y + 6);
-  return y + 18;
+
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.8);
+  doc.line(40, y + 7, doc.internal.pageSize.getWidth() - 40, y + 7);
+
+  return y + 20;
+}
+
+function drawMetricCard(
+  doc: jsPDF,
+  label: string,
+  value: string,
+  x: number,
+  y: number,
+  width: number,
+  accent: [number, number, number] = [15, 23, 42]
+) {
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(x, y, width, 46, 8, 8, "FD");
+
+  doc.setFillColor(...accent);
+  doc.roundedRect(x, y, 4, 46, 2, 2, "F");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139);
+  doc.text(label.toUpperCase(), x + 13, y + 15);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(15, 23, 42);
+  doc.text(value, x + 13, y + 33);
 }
 
 function addWrappedText(
@@ -239,6 +279,29 @@ function getLastAutoTableY(doc: jsPDF, fallback: number) {
   return docWithTable.lastAutoTable?.finalY ?? fallback;
 }
 
+function applyTableDefaults() {
+  return {
+    theme: "plain" as const,
+    styles: {
+      fontSize: 8.5,
+      cellPadding: 6,
+      overflow: "linebreak" as const,
+      valign: "middle" as const,
+      textColor: [30, 41, 59] as [number, number, number],
+      lineColor: [226, 232, 240] as [number, number, number],
+      lineWidth: 0.4,
+    },
+    headStyles: {
+      fillColor: [15, 23, 42] as [number, number, number],
+      textColor: [255, 255, 255] as [number, number, number],
+      fontStyle: "bold" as const,
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252] as [number, number, number],
+    },
+  };
+}
+
 export async function exportTechnicalSheetPdf(
   ficha: TechnicalSheetPdfData,
   desiredServings: number
@@ -251,125 +314,194 @@ export async function exportTechnicalSheetPdf(
 
   const marginX = 40;
   const pageWidth = doc.internal.pageSize.getWidth();
-  let currentY = 40;
+  let currentY = 42;
 
   const scaled = getScaledFicha(ficha, desiredServings);
   const cmv = calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
   const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
 
-  currentY = await tryAddHeaderImage(doc, ficha.imageUrl, marginX, currentY);
+  await tryAddHeaderImage(doc, ficha.imageUrl, marginX, currentY);
+
+  doc.setDrawColor(15, 23, 42);
+  doc.setLineWidth(1.4);
+  doc.line(marginX, currentY, pageWidth - marginX, currentY);
+
+  currentY += 24;
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.text(ficha.nome || "Ficha Técnica", marginX, currentY);
-  currentY += 20;
+  doc.setFontSize(23);
+  doc.setTextColor(15, 23, 42);
+
+  const titleLines = doc.splitTextToSize(
+    ficha.nome || "Ficha Técnica",
+    ficha.imageUrl ? pageWidth - marginX * 2 - 180 : pageWidth - marginX * 2
+  );
+
+  doc.text(titleLines, marginX, currentY);
+  currentY += titleLines.length * 25;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(71, 85, 105);
+  doc.text((ficha.categoria || "Sem categoria").toUpperCase(), marginX, currentY);
+
+  currentY += 16;
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  doc.setTextColor(100, 100, 100);
-  doc.text(
-    `${ficha.categoria || "Sem categoria"} • Gerado em ${formatDate(new Date().toISOString())}`,
-    marginX,
-    currentY
-  );
+  doc.setFontSize(9);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Gerado em ${formatDate(new Date().toISOString())}`, marginX, currentY);
+
   currentY += 18;
 
-  doc.setTextColor(0, 0, 0);
-  doc.setFontSize(10);
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(marginX, currentY, pageWidth - marginX * 2, 36, 8, 8, "FD");
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
   doc.text(
     `Rendimento original: ${ficha.rendimento} porções${
       ficha.yieldLabel ? ` • ${ficha.yieldLabel}` : ""
     }`,
-    marginX,
-    currentY
+    marginX + 12,
+    currentY + 14
   );
-  currentY += 14;
 
   doc.text(
     `Rendimento exportado: ${scaled.servings} porções • Fator aplicado: ${scaled.factor.toFixed(
       3
     )}x`,
-    marginX,
-    currentY
+    marginX + 12,
+    currentY + 28
   );
-  currentY += 18;
 
-  autoTable(doc, {
-    startY: currentY,
-    theme: "grid",
-    styles: {
-      fontSize: 9,
-      cellPadding: 6,
-      overflow: "linebreak",
-      valign: "middle",
-    },
-    headStyles: {
-      fillColor: [245, 245, 245],
-      textColor: [30, 30, 30],
-      fontStyle: "bold",
-    },
-    body: [
-      [
-        "Custo total ajustado",
-        formatCurrency(scaled.custoTotal),
-        "Custo por porção",
-        formatCurrency(ficha.custoPorPorcao),
-      ],
-      [
-        "Preço de venda",
-        formatCurrency(ficha.precoVenda),
-        "CMV",
-        `${cmv.toFixed(1)}%`,
-      ],
-      [
-        "Lucro unitário",
-        formatCurrency(lucro),
-        "Margem de lucro",
-        `${Number(ficha.margemLucro || 0).toFixed(0)}%`,
-      ],
-      [
-        "Peso por porção",
-        `${ficha.pesoPorcao} ${ficha.portionWeightUnit || "G"}`,
-        "Tempo de preparo",
-        `${ficha.tempoPreparo} min`,
-      ],
-    ],
-    columnStyles: {
-      0: { fontStyle: "bold", cellWidth: 115 },
-      1: { cellWidth: 120 },
-      2: { fontStyle: "bold", cellWidth: 115 },
-      3: { cellWidth: 120 },
-    },
-    margin: { left: marginX, right: marginX },
-  });
+  currentY += 52;
 
-  currentY = getLastAutoTableY(doc, currentY) + 18;
-  currentY = ensureSpace(doc, currentY, 80);
+  const cardWidth = (pageWidth - marginX * 2 - 16) / 2;
+
+  drawMetricCard(
+    doc,
+    "Custo total",
+    formatCurrency(scaled.custoTotal),
+    marginX,
+    currentY,
+    cardWidth,
+    [185, 28, 28]
+  );
+
+  drawMetricCard(
+    doc,
+    "Custo por porção",
+    formatCurrency(ficha.custoPorPorcao),
+    marginX + cardWidth + 16,
+    currentY,
+    cardWidth,
+    [37, 99, 235]
+  );
+
+  currentY += 56;
+
+  drawMetricCard(
+    doc,
+    "Preço de venda",
+    formatCurrency(ficha.precoVenda),
+    marginX,
+    currentY,
+    cardWidth,
+    [22, 163, 74]
+  );
+
+  drawMetricCard(
+    doc,
+    "CMV",
+    `${cmv.toFixed(1)}%`,
+    marginX + cardWidth + 16,
+    currentY,
+    cardWidth,
+    [15, 23, 42]
+  );
+
+  currentY += 56;
+
+  drawMetricCard(
+    doc,
+    "Lucro unitário",
+    formatCurrency(lucro),
+    marginX,
+    currentY,
+    cardWidth,
+    [124, 58, 237]
+  );
+
+  drawMetricCard(
+    doc,
+    "Margem",
+    `${Number(ficha.margemLucro || 0).toFixed(0)}%`,
+    marginX + cardWidth + 16,
+    currentY,
+    cardWidth,
+    [234, 88, 12]
+  );
+
+  currentY += 66;
+  currentY = ensureSpace(doc, currentY, 90);
 
   currentY = drawSectionTitle(doc, "Dados complementares", currentY);
 
   autoTable(doc, {
     startY: currentY,
-    theme: "grid",
-    styles: {
-      fontSize: 9,
-      cellPadding: 6,
-      overflow: "linebreak",
-      valign: "middle",
-    },
-    headStyles: {
-      fillColor: [245, 245, 245],
-      textColor: [30, 30, 30],
-      fontStyle: "bold",
-    },
+    ...applyTableDefaults(),
     body: [
-      ["Dificuldade", ficha.difficultyLevel || "—", "Temperatura", ficha.temperatureCelsius !== null ? `${ficha.temperatureCelsius} ºC` : "—"],
-      ["Tempo de cocção", ficha.cookingTimeMinutes !== null ? `${ficha.cookingTimeMinutes} min` : "—", "Fator de cocção", ficha.cookingFactorGrams !== null ? `${ficha.cookingFactorGrams} g` : "—"],
-      ["Fator de correção", ficha.correctionFactorGrams !== null ? `${ficha.correctionFactorGrams} g` : "—", "Armazenamento", ficha.storageInstructions || "—"],
-      ["Validade congelado", ficha.shelfLifeFrozen || "—", "Validade refrigerado", ficha.shelfLifeRefrigerated || "—"],
-      ["Validade ambiente", ficha.shelfLifeRoomTemp || "—", "Alergênicos", ficha.allergens || "—"],
-      ["Atualizado em", formatDate(ficha.sourceUpdatedAt || ficha.updatedAt), "Origem", ficha.importOrigin || "Cadastro manual"],
-      ["Arquivo de origem", ficha.sourceFileName || "—", "Página", ficha.sourcePageNumber !== null ? String(ficha.sourcePageNumber) : "—"],
+      [
+        "Dificuldade",
+        ficha.difficultyLevel || "—",
+        "Temperatura",
+        ficha.temperatureCelsius !== null ? `${ficha.temperatureCelsius} ºC` : "—",
+      ],
+      [
+        "Tempo de cocção",
+        ficha.cookingTimeMinutes !== null
+          ? `${ficha.cookingTimeMinutes} min`
+          : "—",
+        "Fator de cocção",
+        ficha.cookingFactorGrams !== null
+          ? `${ficha.cookingFactorGrams} g`
+          : "—",
+      ],
+      [
+        "Fator de correção",
+        ficha.correctionFactorGrams !== null
+          ? `${ficha.correctionFactorGrams} g`
+          : "—",
+        "Armazenamento",
+        ficha.storageInstructions || "—",
+      ],
+      [
+        "Validade congelado",
+        ficha.shelfLifeFrozen || "—",
+        "Validade refrigerado",
+        ficha.shelfLifeRefrigerated || "—",
+      ],
+      [
+        "Validade ambiente",
+        ficha.shelfLifeRoomTemp || "—",
+        "Alergênicos",
+        ficha.allergens || "—",
+      ],
+      [
+        "Atualizado em",
+        formatDate(ficha.sourceUpdatedAt || ficha.updatedAt),
+        "Origem",
+        ficha.importOrigin || "Cadastro manual",
+      ],
+      [
+        "Arquivo de origem",
+        ficha.sourceFileName || "—",
+        "Página",
+        ficha.sourcePageNumber !== null ? String(ficha.sourcePageNumber) : "—",
+      ],
       ["Vídeo", ficha.videoUrl || "—", "Imagem", ficha.imageUrl ? "Sim" : "Não"],
     ],
     columnStyles: {
@@ -381,33 +513,22 @@ export async function exportTechnicalSheetPdf(
     margin: { left: marginX, right: marginX },
   });
 
-  currentY = getLastAutoTableY(doc, currentY) + 18;
-  currentY = ensureSpace(doc, currentY, 80);
+  currentY = getLastAutoTableY(doc, currentY) + 22;
+  currentY = ensureSpace(doc, currentY, 90);
 
   currentY = drawSectionTitle(doc, "Ingredientes", currentY);
 
   autoTable(doc, {
     startY: currentY,
-    theme: "grid",
-    styles: {
-      fontSize: 8.5,
-      cellPadding: 5,
-      overflow: "linebreak",
-      valign: "middle",
-    },
-    headStyles: {
-      fillColor: [245, 245, 245],
-      textColor: [30, 30, 30],
-      fontStyle: "bold",
-    },
+    ...applyTableDefaults(),
     head: [
       [
         "Ingrediente",
-        "Uso ajustado",
-        "Compra",
+        "Qtd. utilizada",
+        "Qtd. embalagem",
         "Preço compra",
         "Custo unit.",
-        "Custo final",
+        "Preço qtd utilizada",
       ],
     ],
     body:
@@ -422,53 +543,80 @@ export async function exportTechnicalSheetPdf(
           ])
         : [["Nenhum ingrediente cadastrado.", "", "", "", "", ""]],
     columnStyles: {
-      0: { cellWidth: 170 },
-      1: { cellWidth: 82 },
-      2: { cellWidth: 72 },
-      3: { cellWidth: 75 },
-      4: { cellWidth: 70 },
-      5: { cellWidth: 72 },
+      0: { cellWidth: 160, fontStyle: "bold" },
+      1: { cellWidth: 78 },
+      2: { cellWidth: 78 },
+      3: { cellWidth: 74 },
+      4: { cellWidth: 68 },
+      5: { cellWidth: 84 },
     },
     margin: { left: marginX, right: marginX },
   });
 
-  currentY = getLastAutoTableY(doc, currentY) + 18;
-  currentY = ensureSpace(doc, currentY, 120);
+  currentY = getLastAutoTableY(doc, currentY) + 22;
+  currentY = ensureSpace(doc, currentY, 140);
 
   currentY = drawSectionTitle(doc, "Modo de preparo", currentY);
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  currentY = addWrappedText(
-    doc,
-    ficha.modoPreparo || "Não informado.",
-    marginX,
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+
+  const preparoBoxX = marginX;
+  const preparoBoxWidth = pageWidth - marginX * 2;
+  const preparoText = ficha.modoPreparo || "Não informado.";
+  const preparoLines = doc.splitTextToSize(preparoText, preparoBoxWidth - 24);
+  const preparoBoxHeight = Math.max(48, preparoLines.length * 15 + 24);
+
+  if (currentY + preparoBoxHeight > doc.internal.pageSize.getHeight() - 55) {
+    doc.addPage();
+    currentY = 40;
+    currentY = drawSectionTitle(doc, "Modo de preparo", currentY);
+  }
+
+  doc.roundedRect(
+    preparoBoxX,
     currentY,
-    pageWidth - marginX * 2,
-    14
+    preparoBoxWidth,
+    preparoBoxHeight,
+    8,
+    8,
+    "FD"
   );
 
-  currentY += 18;
-  currentY = ensureSpace(doc, currentY, 80);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(30, 41, 59);
+  doc.text(preparoLines, preparoBoxX + 12, currentY + 20);
+
+  currentY += preparoBoxHeight + 24;
+  currentY = ensureSpace(doc, currentY, 90);
 
   currentY = drawSectionTitle(doc, "Escalas", currentY);
 
   if (!ficha.escalas.length) {
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(marginX, currentY, pageWidth - marginX * 2, 34, 8, 8, "FD");
+
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
-    doc.text("Nenhuma escala cadastrada.", marginX, currentY);
-    currentY += 20;
+    doc.setTextColor(71, 85, 105);
+    doc.text("Nenhuma escala cadastrada.", marginX + 12, currentY + 21);
+
+    currentY += 44;
   } else {
     for (const scale of ficha.escalas) {
-      currentY = ensureSpace(doc, currentY, 100);
+      currentY = ensureSpace(doc, currentY, 120);
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42);
       doc.text(scale.label || "Escala", marginX, currentY);
       currentY += 14;
 
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(9.5);
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
       doc.text(
         `Rendimento: ${scale.rendimentoDescricao || "—"} • Peso líquido: ${
           scale.pesoLiquido !== null ? `${scale.pesoLiquido} g` : "—"
@@ -476,22 +624,12 @@ export async function exportTechnicalSheetPdf(
         marginX,
         currentY
       );
-      currentY += 10;
+
+      currentY += 12;
 
       autoTable(doc, {
         startY: currentY + 6,
-        theme: "grid",
-        styles: {
-          fontSize: 8.5,
-          cellPadding: 5,
-          overflow: "linebreak",
-          valign: "middle",
-        },
-        headStyles: {
-          fillColor: [245, 245, 245],
-          textColor: [30, 30, 30],
-          fontStyle: "bold",
-        },
+        ...applyTableDefaults(),
         head: [["Ingrediente", "Quantidade", "Unidade"]],
         body:
           scale.ingredientes.length > 0
@@ -502,14 +640,14 @@ export async function exportTechnicalSheetPdf(
               ])
             : [["Sem ingredientes cadastrados nesta escala.", "", ""]],
         columnStyles: {
-          0: { cellWidth: 300 },
-          1: { cellWidth: 100 },
-          2: { cellWidth: 100 },
+          0: { cellWidth: 315, fontStyle: "bold" },
+          1: { cellWidth: 105 },
+          2: { cellWidth: 95 },
         },
         margin: { left: marginX, right: marginX },
       });
 
-      currentY = getLastAutoTableY(doc, currentY) + 18;
+      currentY = getLastAutoTableY(doc, currentY) + 22;
     }
   }
 
@@ -517,16 +655,22 @@ export async function exportTechnicalSheetPdf(
 
   for (let page = 1; page <= totalPages; page++) {
     doc.setPage(page);
+
+    const pageHeight = doc.internal.pageSize.getHeight();
+
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.6);
+    doc.line(marginX, pageHeight - 34, pageWidth - marginX, pageHeight - 34);
+
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.setTextColor(120, 120, 120);
-    doc.text(
-      `Ficha técnica • ${ficha.nome} • Página ${page} de ${totalPages}`,
-      marginX,
-      doc.internal.pageSize.getHeight() - 18
-    );
+    doc.setTextColor(100, 116, 139);
+    doc.text(`${ficha.nome} • Página ${page}/${totalPages}`, marginX, pageHeight - 18);
   }
 
-  const fileName = sanitizeFileName(`ficha-tecnica-${ficha.nome || "receita"}`) || "ficha-tecnica";
+  const fileName =
+    sanitizeFileName(`ficha-tecnica-${ficha.nome || "receita"}`) ||
+    "ficha-tecnica";
+
   doc.save(`${fileName}.pdf`);
 }

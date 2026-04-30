@@ -1,5 +1,6 @@
 "use client";
 
+import heic2any from "heic2any";
 import Image from "next/image";
 import {
   useCallback,
@@ -965,9 +966,6 @@ function RecipeViewerInline({
             >
               📑 Duplicar
             </Button>
-            <Button type="button" onClick={() => onFullscreen(ficha)}>
-              ⛶ Tela cheia
-            </Button>
             <Button
               type="button"
               variant="destructive"
@@ -1332,6 +1330,40 @@ export default function FichasTecnicasPage() {
 
     setIngredientes([]);
   };
+
+  async function normalizeImageFileForUpload(file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  const isHeic =
+    extension === "heic" ||
+    extension === "heif" ||
+    file.type === "image/heic" ||
+    file.type === "image/heif";
+
+  const allowedExtensions = ["jpg", "jpeg", "png", "heic", "heif"];
+
+  if (!extension || !allowedExtensions.includes(extension)) {
+    throw new Error("Envie uma imagem nos formatos JPG, JPEG, PNG ou HEIC.");
+  }
+
+  if (!isHeic) return file;
+
+  const convertedBlob = await heic2any({
+    blob: file,
+    toType: "image/jpeg",
+    quality: 0.92,
+  });
+
+  const jpegBlob = Array.isArray(convertedBlob)
+    ? convertedBlob[0]
+    : convertedBlob;
+
+  return new File(
+    [jpegBlob],
+    file.name.replace(/\.(heic|heif)$/i, ".jpg"),
+    { type: "image/jpeg" }
+  );
+}
+
     const handleNewImageSelected = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -1342,7 +1374,8 @@ export default function FichasTecnicasPage() {
       setUploadingImage(true);
 
       const formData = new FormData();
-      formData.append("file", file);
+      const normalizedFile = await normalizeImageFileForUpload(file);
+      formData.append("file", normalizedFile);
 
       const result = await uploadTechnicalSheetImageAction(formData);
       setImageUrl(result.imageUrl);
@@ -1368,7 +1401,8 @@ export default function FichasTecnicasPage() {
       const oldImagePath = fichaEditando.imagePath;
 
       const formData = new FormData();
-      formData.append("file", file);
+      const normalizedFile = await normalizeImageFileForUpload(file);
+      formData.append("file", normalizedFile);
 
       const result = await uploadTechnicalSheetImageAction(formData);
 
@@ -2324,7 +2358,7 @@ export default function FichasTecnicasPage() {
                   <input
                     ref={newImageInputRef}
                     type="file"
-                    accept="image/*"
+                    accept=".jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
                     className="hidden"
                     onChange={handleNewImageSelected}
                   />
@@ -2826,7 +2860,7 @@ export default function FichasTecnicasPage() {
               <input
                 ref={editImageInputRef}
                 type="file"
-                accept="image/*"
+                accept=".jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
                 className="hidden"
                 onChange={handleEditImageSelected}
               />

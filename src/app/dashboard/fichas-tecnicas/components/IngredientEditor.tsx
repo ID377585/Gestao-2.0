@@ -365,7 +365,7 @@ export default function IngredientEditor({
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setEditandoFicha(null)}
+                  onClick={() => setEditandoIngredienteId(null)}
                   className="border-red-500 text-red-600 font-semibold shadow-md hover:bg-red-50 hover:text-red-700 hover:border-red-600 hover:shadow-lg transition-all duration-200"
                 >
                   Cancelar edição

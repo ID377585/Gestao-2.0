@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X } from "lucide-react";
+import { ChevronDown, Menu, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,8 @@ export function Sidebar({ className }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopHovered, setDesktopHovered] = useState(false);
   const [previewSectionKey, setPreviewSectionKey] =
+    useState<MenuSectionKey | null>(null);
+  const [mobileExpandedSection, setMobileExpandedSection] =
     useState<MenuSectionKey | null>(null);
   const [submenuTop, setSubmenuTop] = useState(0);
   const [submenuMaxHeight, setSubmenuMaxHeight] = useState<number | null>(null);
@@ -148,6 +150,12 @@ export function Sidebar({ className }: SidebarProps) {
     setPreviewSectionKey(null);
   };
 
+  const handleMobileSectionToggle = (sectionKey: MenuSectionKey) => {
+    setMobileExpandedSection((current) =>
+      current === sectionKey ? null : sectionKey
+    );
+  };
+
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty("--sidebar-w", desktopHovered ? "15rem" : "5rem");
@@ -157,8 +165,15 @@ export function Sidebar({ className }: SidebarProps) {
     setMobileOpen(false);
     setDesktopHovered(false);
     setPreviewSectionKey(null);
+    setMobileExpandedSection(currentSectionKey);
     clearCloseTimer();
-  }, [pathname]);
+  }, [pathname, currentSectionKey]);
+
+  useEffect(() => {
+    if (mobileOpen && currentSectionKey) {
+      setMobileExpandedSection(currentSectionKey);
+    }
+  }, [mobileOpen, currentSectionKey]);
 
   useEffect(() => {
     if (desktopHovered && displayedSectionKey) {
@@ -200,7 +215,7 @@ export function Sidebar({ className }: SidebarProps) {
           "transition-all duration-200 ease-out",
           variant === "desktop" && desktopHovered
             ? "translate-x-0 opacity-100"
-            : "translate-x-1 opacity-100"
+            : "translate-x-0 opacity-100"
         )}
         style={
           variant === "desktop"
@@ -244,37 +259,64 @@ export function Sidebar({ className }: SidebarProps) {
     const hasActiveChild = section.items.some((item) => isActive(item.href));
     const isDesktop = variant === "desktop";
     const isPreviewed = displayedSectionKey === section.key;
+    const isMobileExpanded = mobileExpandedSection === section.key;
 
     return (
       <button
         type="button"
+        onClick={() => {
+          if (!isDesktop) {
+            handleMobileSectionToggle(section.key);
+          }
+        }}
         className={cn(
           "group flex h-12 w-full items-center rounded-xl border transition-all duration-200",
           isDesktop
             ? desktopHovered
               ? "justify-start gap-3 px-4"
               : "justify-center px-3"
-            : "justify-start gap-3 px-4",
-          hasActiveChild || isPreviewed
+            : "justify-between px-4",
+          hasActiveChild || isPreviewed || isMobileExpanded
             ? "border-blue-200 bg-blue-50 text-blue-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             : "border-transparent text-gray-700 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-100"
         )}
         aria-label={section.label}
+        aria-expanded={!isDesktop ? isMobileExpanded : undefined}
       >
-        <Icon className="h-4 w-4 shrink-0" />
-
-        <span
+        <div
           className={cn(
-            "overflow-hidden whitespace-nowrap text-sm font-medium transition-all duration-200 ease-out",
+            "flex min-w-0 items-center",
             isDesktop
               ? desktopHovered
-                ? "max-w-[160px] translate-x-0 opacity-100"
-                : "max-w-0 -translate-x-1 opacity-0"
-              : "max-w-[160px] translate-x-0 opacity-100"
+                ? "gap-3"
+                : "justify-center"
+              : "gap-3"
           )}
         >
-          {section.label}
-        </span>
+          <Icon className="h-4 w-4 shrink-0" />
+
+          <span
+            className={cn(
+              "overflow-hidden whitespace-nowrap text-sm font-medium transition-all duration-200 ease-out",
+              isDesktop
+                ? desktopHovered
+                  ? "max-w-[160px] translate-x-0 opacity-100"
+                  : "max-w-0 -translate-x-1 opacity-0"
+                : "max-w-[200px] translate-x-0 opacity-100"
+            )}
+          >
+            {section.label}
+          </span>
+        </div>
+
+        {!isDesktop && (
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 transition-transform duration-200",
+              isMobileExpanded ? "rotate-180" : "rotate-0"
+            )}
+          />
+        )}
       </button>
     );
   }
@@ -288,7 +330,7 @@ export function Sidebar({ className }: SidebarProps) {
           "flex h-full flex-col bg-white text-gray-900 dark:bg-slate-950 dark:text-slate-100",
           isDesktop
             ? "min-h-screen w-[var(--sidebar-w)] border-r border-gray-200 transition-[width] duration-200 ease-out dark:border-slate-800"
-            : "w-full"
+            : "h-[100dvh] w-full"
         )}
       >
         <div
@@ -323,39 +365,43 @@ export function Sidebar({ className }: SidebarProps) {
           )}
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <nav className="flex-1 overflow-y-auto overscroll-contain px-3 py-4 [webkit-overflow-scrolling:touch]">
           <div className="space-y-3">
-            {menuSections.map((section, index) => (
-              <div
-                key={section.key}
-                ref={(element) => {
-                  sectionRefs.current[section.key] = element;
-                }}
-                className="space-y-2"
-                onMouseEnter={() => {
-                  if (isDesktop) handleSectionEnter(section.key);
-                }}
-                onFocusCapture={() => {
-                  if (isDesktop) handleSectionEnter(section.key);
-                }}
-              >
-                {renderSectionButton(section, variant)}
+            {menuSections.map((section, index) => {
+              const isMobileExpanded = mobileExpandedSection === section.key;
 
-                {!isDesktop && (
-                  <div className="space-y-2 pl-3">
-                    {section.items.map((item, itemIndex) =>
-                      renderSubItem(item, "mobile", itemIndex)
-                    )}
-                  </div>
-                )}
+              return (
+                <div
+                  key={section.key}
+                  ref={(element) => {
+                    sectionRefs.current[section.key] = element;
+                  }}
+                  className="space-y-2"
+                  onMouseEnter={() => {
+                    if (isDesktop) handleSectionEnter(section.key);
+                  }}
+                  onFocusCapture={() => {
+                    if (isDesktop) handleSectionEnter(section.key);
+                  }}
+                >
+                  {renderSectionButton(section, variant)}
 
-                {index < menuSections.length - 1 && (
-                  <div className="pt-2">
-                    <Separator className="bg-gray-200 dark:bg-slate-800" />
-                  </div>
-                )}
-              </div>
-            ))}
+                  {!isDesktop && isMobileExpanded && (
+                    <div className="space-y-2 pl-3">
+                      {section.items.map((item, itemIndex) =>
+                        renderSubItem(item, "mobile", itemIndex)
+                      )}
+                    </div>
+                  )}
+
+                  {index < menuSections.length - 1 && (
+                    <div className="pt-2">
+                      <Separator className="bg-gray-200 dark:bg-slate-800" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </nav>
       </div>
@@ -378,7 +424,8 @@ export function Sidebar({ className }: SidebarProps) {
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent
             side="left"
-            className="w-[300px] overflow-y-auto border-r border-gray-200 bg-white p-0 dark:border-slate-800 dark:bg-slate-950"
+            onOpenAutoFocus={(event) => event.preventDefault()}
+            className="w-[300px] border-r border-gray-200 bg-white p-0 dark:border-slate-800 dark:bg-slate-950"
           >
             <SidebarContent variant="mobile" />
           </SheetContent>

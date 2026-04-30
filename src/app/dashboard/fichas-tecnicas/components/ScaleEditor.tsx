@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 type IngredienteFicha = {
@@ -70,11 +70,9 @@ function formatDate(value?: string | null) {
 
 function getYieldUnit(yieldLabel?: string | null) {
   const cleaned = String(yieldLabel ?? "").trim();
-
   if (!cleaned) return "unidades";
 
   const withoutNumber = cleaned.replace(/^\d+(?:[.,]\d+)?\s*/i, "").trim();
-
   return withoutNumber || "unidades";
 }
 
@@ -90,7 +88,7 @@ function getBaseLiquidWeight(ingredientes: IngredienteFicha[]) {
     if (unit === "KG") return acc + qty * 1000;
     if (unit === "G") return acc + qty;
 
-    return acc;
+    return acc + qty;
   }, 0);
 
   return Number(total.toFixed(3));
@@ -99,13 +97,21 @@ function getBaseLiquidWeight(ingredientes: IngredienteFicha[]) {
 function getPreparationFontSize(text: string) {
   const length = text.trim().length;
 
-  if (length > 2200) return 7.2;
-  if (length > 1800) return 8;
-  if (length > 1400) return 8.8;
-  if (length > 1000) return 9.6;
-  if (length > 700) return 10.5;
+  if (length > 2600) return 7;
+  if (length > 2200) return 7.6;
+  if (length > 1800) return 8.4;
+  if (length > 1400) return 9.2;
+  if (length > 1000) return 10;
+  if (length > 700) return 10.8;
 
-  return 11.5;
+  return 11.2;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export default function ScaleEditor({
@@ -130,6 +136,7 @@ export default function ScaleEditor({
   yieldLabel = null,
 }: ScaleEditorProps) {
   const [showScalePage, setShowScalePage] = useState(false);
+  const printRef = useRef<HTMLDivElement | null>(null);
 
   const scaleNumbers = useMemo(() => {
     return Array.from({ length: 10 }, (_, index) => index + 1);
@@ -142,6 +149,72 @@ export default function ScaleEditor({
       : getBaseLiquidWeight(ingredientes);
 
   const preparationFontSize = getPreparationFontSize(preparationMethod);
+
+  const handlePrintScale = () => {
+    if (!printRef.current) return;
+
+    const printWindow = window.open("", "_blank", "width=1200,height=900");
+
+    if (!printWindow) {
+      alert("Não foi possível abrir a janela de impressão.");
+      return;
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <title>Escala - ${escapeHtml(nome || "Ficha Técnica")}</title>
+          <style>
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+
+            @page {
+              size: A4 portrait;
+              margin: 5mm;
+            }
+
+            html,
+            body {
+              margin: 0;
+              padding: 0;
+              background: #ffffff;
+              font-family: Arial, Helvetica, sans-serif;
+              color: #0f172a;
+            }
+
+            body {
+              display: flex;
+              justify-content: center;
+            }
+
+            .scale-print-page {
+              width: 200mm !important;
+              min-height: 287mm !important;
+              max-height: 287mm !important;
+              padding: 5mm !important;
+              box-shadow: none !important;
+              border: 1px solid #d4d4d4 !important;
+              border-radius: 0 !important;
+              overflow: hidden !important;
+            }
+          </style>
+        </head>
+        <body>${printRef.current.innerHTML}</body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+
+    setTimeout(() => {
+      printWindow.print();
+    }, 300);
+  };
 
   return (
     <div className="space-y-4">
@@ -168,178 +241,203 @@ export default function ScaleEditor({
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border bg-slate-100 p-4">
-          <div className="mx-auto w-[794px] overflow-hidden rounded-md bg-white p-4 text-slate-900 shadow-sm">
-            <div className="mb-3 flex justify-center">
-              <div className="rounded-full bg-yellow-300 px-10 py-3 text-center text-4xl font-black italic text-black shadow-sm">
-                {nome || "Ficha Técnica"}
-              </div>
-            </div>
-
-            <div className="mb-3 grid grid-cols-7 gap-2 text-center text-[10px] font-bold uppercase">
-              <div className="rounded-lg bg-yellow-300 p-2 italic">
-                Grau de dificuldade
-                <div className="mt-1 text-base normal-case">
-                  {difficultyLevel || "—"}
+          <div ref={printRef}>
+            <div className="scale-print-page mx-auto w-[794px] overflow-hidden rounded-xl bg-white p-5 text-slate-900 shadow-sm">
+              <div className="mb-3 flex justify-center">
+                <div className="rounded-full bg-yellow-300 px-12 py-3 text-center text-[30px] font-extrabold italic tracking-wide text-black shadow-sm">
+                  {nome || "Ficha Técnica"}
                 </div>
               </div>
 
-              <div>
-                Temperatura
-                <div className="mt-1 text-xl font-black normal-case">
-                  {temperatureCelsius ?? 0}º
+              <div className="mb-3 grid grid-cols-7 gap-2 text-center text-[9px] font-bold uppercase">
+                <div className="rounded-lg bg-yellow-300 p-2 italic">
+                  Grau de dificuldade
+                  <div className="mt-1 text-[13px] normal-case">
+                    {difficultyLevel || "—"}
+                  </div>
+                </div>
+
+                <div>
+                  Temperatura
+                  <div className="mt-1 text-[17px] font-black normal-case">
+                    {temperatureCelsius ?? 0}º
+                  </div>
+                </div>
+
+                <div>
+                  Tempo de prep.
+                  <div className="mt-1 text-[17px] font-black normal-case">
+                    {prepTimeMinutes || 0}
+                    <span className="ml-1 text-[10px] font-semibold">min</span>
+                  </div>
+                </div>
+
+                <div>
+                  Tempo cocção
+                  <div className="mt-1 text-[17px] font-black normal-case">
+                    {cookingTimeMinutes ?? 0}
+                    <span className="ml-1 text-[10px] font-semibold">min</span>
+                  </div>
+                </div>
+
+                <div>
+                  Fator cocção
+                  <div className="mt-1 text-[17px] font-black normal-case">
+                    {formatNumber(cookingFactorGrams ?? 0)}
+                    <span className="ml-1 text-[10px] font-semibold">g</span>
+                  </div>
+                </div>
+
+                <div>
+                  Fator correção
+                  <div className="mt-1 text-[17px] font-black normal-case">
+                    {formatNumber(correctionFactorGrams ?? 0)}
+                    <span className="ml-1 text-[10px] font-semibold">g</span>
+                  </div>
+                </div>
+
+                <div>
+                  Peso da porção
+                  <div className="mt-1 text-[17px] font-black normal-case">
+                    {formatNumber(portionWeight || 0)}
+                    <span className="ml-1 text-[10px] font-semibold">
+                      {portionWeightUnit || "G"}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <div>
-                Tempo de prep.
-                <div className="mt-1 text-xl font-black normal-case">
-                  {prepTimeMinutes || 0}
-                  <span className="ml-1 text-xs font-semibold">min</span>
-                </div>
-              </div>
-
-              <div>
-                Tempo cocção
-                <div className="mt-1 text-xl font-black normal-case">
-                  {cookingTimeMinutes ?? 0}
-                  <span className="ml-1 text-xs font-semibold">min</span>
-                </div>
-              </div>
-
-              <div>
-                Fator cocção
-                <div className="mt-1 text-xl font-black normal-case">
-                  {formatNumber(cookingFactorGrams ?? 0)}
-                  <span className="ml-1 text-xs font-semibold">g</span>
-                </div>
-              </div>
-
-              <div>
-                Fator correção
-                <div className="mt-1 text-xl font-black normal-case">
-                  {formatNumber(correctionFactorGrams ?? 0)}
-                  <span className="ml-1 text-xs font-semibold">g</span>
-                </div>
-              </div>
-
-              <div>
-                Peso da porção
-                <div className="mt-1 text-xl font-black normal-case">
-                  {formatNumber(portionWeight || 0)}
-                  <span className="ml-1 text-xs font-semibold">
-                    {portionWeightUnit || "G"}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <table className="w-full table-fixed border-collapse text-center text-[11px]">
-              <thead>
-                <tr>
-                  <th className="w-[150px] border bg-white p-2"></th>
-                  {scaleNumbers.map((scale) => (
-                    <th key={scale} className="border bg-white p-2 text-2xl font-black">
-                      {scale}X
-                    </th>
-                  ))}
-                </tr>
-
-                <tr>
-                  <th className="rounded-l-lg border bg-yellow-300 p-2 text-left text-xl font-black italic">
-                    Ingredientes:
-                  </th>
-                  {scaleNumbers.map((scale) => (
-                    <th key={scale} className="border bg-yellow-300 p-1 text-[9px] font-black">
-                      <div>{formatNumber((rendimento || 1) * scale)}</div>
-                      <div className="uppercase">{yieldUnit}</div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-
-              <tbody>
-                {ingredientes.length > 0 ? (
-                  ingredientes.map((ingredient) => (
-                    <tr key={ingredient.id}>
-                      <td className="border bg-white p-2 text-left text-[11px] font-black uppercase">
-                        {ingredient.nome}
-                      </td>
-
-                      {scaleNumbers.map((scale) => (
-                        <td key={scale} className="border bg-white p-2 font-black">
-                          {formatNumber(Number(ingredient.quantidadeUso || 0) * scale)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                ) : (
+              <table className="w-full table-fixed border-collapse text-center text-[10px] leading-[1.3]">
+                <thead>
                   <tr>
-                    <td
-                      colSpan={11}
-                      className="border bg-white p-4 text-center font-semibold text-slate-500"
-                    >
-                      Nenhum ingrediente cadastrado.
-                    </td>
+                    <th className="w-[150px] border bg-white py-2"></th>
+                    {scaleNumbers.map((scale) => (
+                      <th
+                        key={`scale-title-${scale}`}
+                        className="border bg-white py-2 text-[18px] font-extrabold tracking-tight"
+                      >
+                        {scale}X
+                      </th>
+                    ))}
                   </tr>
-                )}
 
-                <tr>
-                  <td className="border bg-yellow-300 p-2 text-left text-xl font-black uppercase">
-                    Peso líquido:
-                  </td>
-                  {scaleNumbers.map((scale) => (
-                    <td key={scale} className="border bg-yellow-300 p-2 text-lg font-black">
-                      {formatNumber(baseLiquidWeight * scale)}
+                  <tr>
+                    <th className="border bg-yellow-300 px-2 py-2 text-left text-[18px] font-extrabold italic">
+                      Ingredientes:
+                    </th>
+                    {scaleNumbers.map((scale) => (
+                      <th
+                        key={`yield-${scale}`}
+                        className="border bg-yellow-300 py-2 text-[10px] font-bold leading-tight"
+                      >
+                        <div>{formatNumber((rendimento || 1) * scale)}</div>
+                        <div className="uppercase">{yieldUnit}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {ingredientes.length > 0 ? (
+                    ingredientes.map((ingredient) => (
+                      <tr key={ingredient.id}>
+                        <td className="border bg-white px-2 py-2 text-left text-[10px] font-semibold uppercase">
+                          {ingredient.nome}
+                        </td>
+
+                        {scaleNumbers.map((scale) => (
+                          <td
+                            key={`${ingredient.id}-${scale}`}
+                            className="border bg-white py-2 text-[10px] font-semibold"
+                          >
+                            {formatNumber(Number(ingredient.quantidadeUso || 0) * scale)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan={11}
+                        className="border bg-white p-4 text-center font-semibold text-slate-500"
+                      >
+                        Nenhum ingrediente cadastrado.
+                      </td>
+                    </tr>
+                  )}
+
+                  <tr>
+                    <td className="border bg-yellow-300 px-2 py-2 text-left text-[16px] font-extrabold uppercase">
+                      Peso líquido:
                     </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
+                    {scaleNumbers.map((scale) => (
+                      <td
+                        key={`weight-${scale}`}
+                        className="border bg-yellow-300 py-2 text-[14px] font-extrabold"
+                      >
+                        {formatNumber(baseLiquidWeight * scale)}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
 
-            <div className="mt-4 inline-block rounded-lg bg-yellow-300 px-3 py-1 text-xl font-black italic">
-              Modo de Preparo:
+              <div className="mt-4 inline-block rounded-lg bg-yellow-300 px-3 py-1 text-[18px] font-black italic">
+                Modo de Preparo:
+              </div>
+
+              <div
+                className="mt-3 whitespace-pre-line px-4 text-center font-semibold uppercase text-zinc-700"
+                style={{
+                  fontSize: `${preparationFontSize}px`,
+                  lineHeight: "1.4",
+                  letterSpacing: "0.3px",
+                  maxHeight: "300px",
+                  overflow: "hidden",
+                }}
+              >
+                {preparationMethod || "Modo de preparo não informado."}
+              </div>
+
+              <div className="mt-5 flex flex-wrap items-center gap-2 text-[13px] font-black">
+                <span className="rounded-lg bg-yellow-300 px-2 py-1 text-[17px] italic">
+                  Armazenamento:
+                </span>
+                <span>{storageInstructions || "—"}</span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-3 text-center text-[12px] font-semibold text-zinc-700">
+                <div className="rounded bg-slate-50 p-2">
+                  Congelamento: {shelfLifeFrozen || "—"}
+                </div>
+                <div className="rounded bg-slate-50 p-2">
+                  Sob refrigeração: {shelfLifeRefrigerated || "—"}
+                </div>
+                <div className="rounded bg-slate-50 p-2">
+                  Temperatura Ambiente: {shelfLifeRoomTemp || "—"}
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-[140px_1fr_180px] items-center gap-2 text-[13px] font-black">
+                <div className="text-[18px] font-black italic text-red-500">
+                  Alergênicos:
+                </div>
+                <div>{allergens || "—"}</div>
+                <div className="rounded bg-yellow-50 p-2 text-right">
+                  Atualizada em: {formatDate(sourceUpdatedAt)}
+                </div>
+              </div>
             </div>
+          </div>
 
-            <div
-              className="mt-3 whitespace-pre-line text-center font-black uppercase leading-tight text-zinc-700"
-              style={{
-                fontSize: `${preparationFontSize}px`,
-                lineHeight: preparationFontSize <= 8 ? "1.12" : "1.22",
-                maxHeight: "250px",
-                overflow: "hidden",
-              }}
+          <div className="mt-4 flex justify-end">
+            <Button
+              type="button"
+              onClick={handlePrintScale}
+              className="bg-emerald-600 text-white font-semibold shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all duration-200"
             >
-              {preparationMethod || "Modo de preparo não informado."}
-            </div>
-
-            <div className="mt-5 flex flex-wrap items-center gap-2 text-sm font-black">
-              <span className="rounded-lg bg-yellow-300 px-2 py-1 text-lg italic">
-                Armazenamento:
-              </span>
-              <span>{storageInstructions || "—"}</span>
-            </div>
-
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm font-black text-zinc-700">
-              <div className="rounded bg-slate-50 p-2">
-                Congelamento: {shelfLifeFrozen || "—"}
-              </div>
-              <div className="rounded bg-slate-50 p-2">
-                Sob refrigeração: {shelfLifeRefrigerated || "—"}
-              </div>
-              <div className="rounded bg-slate-50 p-2">
-                Temperatura Ambiente: {shelfLifeRoomTemp || "—"}
-              </div>
-            </div>
-
-            <div className="mt-3 grid grid-cols-[140px_1fr_180px] items-center gap-2 text-sm font-black">
-              <div className="text-xl font-black italic text-red-500">
-                Alergênicos:
-              </div>
-              <div>{allergens || "—"}</div>
-              <div className="rounded bg-yellow-50 p-2 text-right">
-                Atualizada em: {formatDate(sourceUpdatedAt)}
-              </div>
-            </div>
+              🖨️ Imprimir escala
+            </Button>
           </div>
         </div>
       )}

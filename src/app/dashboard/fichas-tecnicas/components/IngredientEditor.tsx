@@ -365,12 +365,8 @@ export default function IngredientEditor({
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    resetDraftIngrediente();
-                    if (ingredientes.length > 0) {
-                      setShowIngredientForm(false);
-                    }
-                  }}
+                  onClick={() => setEditandoFicha(null)}
+                  className="border-red-500 text-red-600 font-semibold shadow-md hover:bg-red-50 hover:text-red-700 hover:border-red-600 hover:shadow-lg transition-all duration-200"
                 >
                   Cancelar edição
                 </Button>
@@ -514,11 +510,11 @@ export default function IngredientEditor({
               <div className="md:col-span-4 flex flex-wrap items-end gap-2">
                 <Button
                   type="button"
-                  className="w-full sm:flex-1"
+                  className="w-full sm:flex-1 bg-emerald-600 text-white font-semibold shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all duration-200"
                   onClick={salvarIngrediente}
                 >
                   {editandoIngredienteId ? "Salvar ingrediente" : "Adicionar ingrediente"}
-                </Button>
+              </Button>
 
                 {!editandoIngredienteId && ingredientes.length > 0 ? (
                   <Button

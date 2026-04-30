@@ -2421,9 +2421,9 @@ const convertedBlob = await heic2any({
   nome={nome}
   ingredientes={ingredientes}
   rendimento={rendimento}
-  portionWeight={pesoPorcao}
+  portionWeight={pesoPorcao === "" ? 0 : pesoPorcao}
   portionWeightUnit={portionWeightUnit}
-  prepTimeMinutes={tempoPreparo}
+  prepTimeMinutes={tempoPreparo === "" ? 0 : tempoPreparo}
   temperatureCelsius={
     temperatureCelsius === "" ? null : toNumber(temperatureCelsius, 0)
   }

@@ -956,9 +956,21 @@ export async function uploadTechnicalSheetImageAction(formData: FormData) {
 
   const file = fileEntry;
 
-  if (!file.type.startsWith("image/")) {
-    throw new Error("O arquivo enviado precisa ser uma imagem.");
-  }
+  const extension = file.name.split(".").pop()?.toLowerCase() || "";
+const allowedExtensions = ["jpg", "jpeg", "png", "heic", "heif"];
+const allowedMimeTypes = [
+  "image/jpeg",
+  "image/png",
+  "image/heic",
+  "image/heif",
+];
+
+if (
+  !allowedExtensions.includes(extension) &&
+  !allowedMimeTypes.includes(file.type)
+) {
+  throw new Error("Envie uma imagem nos formatos JPG, JPEG, PNG ou HEIC.");
+}
 
   const maxSizeInBytes = 10 * 1024 * 1024;
   if (file.size > maxSizeInBytes) {

@@ -416,10 +416,10 @@ function buildPrintHtml(
       <thead>
         <tr>
           <th class="col-ingredient">Ingrediente</th>
-          <th class="col-usage">Uso ajustado</th>
-          <th class="col-purchase">Compra</th>
+          <th class="col-usage">Qtd. Utilizada</th>
+          <th class="col-purchase">Qtd. Embalagem</th>
           <th class="col-price right">Preço compra</th>
-          <th class="col-final right">Custo final</th>
+          <th class="col-final right">Preço qtd utilizada</th>
         </tr>
       </thead>
       <tbody>
@@ -737,10 +737,8 @@ function buildPrintHtml(
       <h1 class="title">${ficha.nome}</h1>
       <div class="category">${ficha.categoria || "Sem categoria"}</div>
       <div class="header-meta">
-        Rendimento original: <strong>${ficha.rendimento} porções</strong>
-        &nbsp;|&nbsp;
-        Impressão ajustada para: <strong>${scaled.servings} porções</strong>
-      </div>
+      Rendimento: <strong>${ficha.rendimento} porções</strong>
+  </div>
     </section>
 
     <section class="metrics-grid">
@@ -776,11 +774,6 @@ function buildPrintHtml(
     </section>
 
     ${modoPreparoHtml}
-
-    <div class="footer-note">
-      Lucro unitário: <strong>${formatCurrency(lucro)}</strong>
-    </div>
-  </div>
 
   <script>
     window.onload = function () {

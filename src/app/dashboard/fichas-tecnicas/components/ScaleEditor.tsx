@@ -97,14 +97,14 @@ function getBaseLiquidWeight(ingredientes: IngredienteFicha[]) {
 function getPreparationFontSize(text: string) {
   const length = text.trim().length;
 
-  if (length > 2600) return 7;
-  if (length > 2200) return 7.6;
-  if (length > 1800) return 8.4;
-  if (length > 1400) return 9.2;
-  if (length > 1000) return 10;
-  if (length > 700) return 10.8;
+  if (length > 2600) return 6.8;
+  if (length > 2200) return 7.2;
+  if (length > 1800) return 7.8;
+  if (length > 1400) return 8.5;
+  if (length > 1000) return 9.2;
+  if (length > 700) return 9.8;
 
-  return 11.2;
+  return 10.4;
 }
 
 function escapeHtml(value: string) {
@@ -160,17 +160,24 @@ export default function ScaleEditor({
       return;
     }
 
+    const styles = Array.from(
+      document.querySelectorAll('link[rel="stylesheet"], style')
+    )
+      .map((node) => node.outerHTML)
+      .join("");
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html lang="pt-BR">
         <head>
           <meta charset="utf-8" />
           <title>Escala - ${escapeHtml(nome || "Ficha Técnica")}</title>
+          ${styles}
           <style>
             * {
               box-sizing: border-box;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
 
             @page {
@@ -182,14 +189,15 @@ export default function ScaleEditor({
             body {
               margin: 0;
               padding: 0;
-              background: #ffffff;
-              font-family: Arial, Helvetica, sans-serif;
+              background: #ffffff !important;
               color: #0f172a;
+              font-family: Arial, Helvetica, sans-serif;
             }
 
             body {
               display: flex;
               justify-content: center;
+              align-items: flex-start;
             }
 
             .scale-print-page {
@@ -201,10 +209,25 @@ export default function ScaleEditor({
               border: 1px solid #d4d4d4 !important;
               border-radius: 0 !important;
               overflow: hidden !important;
+              background: #ffffff !important;
+            }
+
+            .scale-print-wrapper {
+              background: #ffffff !important;
+              border: 0 !important;
+              padding: 0 !important;
+            }
+
+            .scale-print-button {
+              display: none !important;
             }
           </style>
         </head>
-        <body>${printRef.current.innerHTML}</body>
+        <body>
+          <div class="scale-print-wrapper">
+            ${printRef.current.innerHTML}
+          </div>
+        </body>
       </html>
     `);
 
@@ -213,7 +236,7 @@ export default function ScaleEditor({
 
     setTimeout(() => {
       printWindow.print();
-    }, 300);
+    }, 500);
   };
 
   return (
@@ -244,77 +267,77 @@ export default function ScaleEditor({
           <div ref={printRef}>
             <div className="scale-print-page mx-auto w-[794px] overflow-hidden rounded-xl bg-white p-5 text-slate-900 shadow-sm">
               <div className="mb-3 flex justify-center">
-                <div className="rounded-full bg-yellow-300 px-12 py-3 text-center text-[30px] font-extrabold italic tracking-wide text-black shadow-sm">
+                <div className="rounded-full bg-yellow-300 px-10 py-2 text-center text-[27px] font-extrabold italic tracking-wide text-black shadow-sm">
                   {nome || "Ficha Técnica"}
                 </div>
               </div>
 
-              <div className="mb-3 grid grid-cols-7 gap-2 text-center text-[9px] font-bold uppercase">
+              <div className="mb-3 grid grid-cols-7 gap-2 text-center text-[8.5px] font-bold uppercase">
                 <div className="rounded-lg bg-yellow-300 p-2 italic">
                   Grau de dificuldade
-                  <div className="mt-1 text-[13px] normal-case">
+                  <div className="mt-1 text-[12px] normal-case">
                     {difficultyLevel || "—"}
                   </div>
                 </div>
 
                 <div>
                   Temperatura
-                  <div className="mt-1 text-[17px] font-black normal-case">
+                  <div className="mt-1 text-[16px] font-black normal-case">
                     {temperatureCelsius ?? 0}º
                   </div>
                 </div>
 
                 <div>
                   Tempo de prep.
-                  <div className="mt-1 text-[17px] font-black normal-case">
+                  <div className="mt-1 text-[16px] font-black normal-case">
                     {prepTimeMinutes || 0}
-                    <span className="ml-1 text-[10px] font-semibold">min</span>
+                    <span className="ml-1 text-[9px] font-semibold">min</span>
                   </div>
                 </div>
 
                 <div>
                   Tempo cocção
-                  <div className="mt-1 text-[17px] font-black normal-case">
+                  <div className="mt-1 text-[16px] font-black normal-case">
                     {cookingTimeMinutes ?? 0}
-                    <span className="ml-1 text-[10px] font-semibold">min</span>
+                    <span className="ml-1 text-[9px] font-semibold">min</span>
                   </div>
                 </div>
 
                 <div>
                   Fator cocção
-                  <div className="mt-1 text-[17px] font-black normal-case">
+                  <div className="mt-1 text-[16px] font-black normal-case">
                     {formatNumber(cookingFactorGrams ?? 0)}
-                    <span className="ml-1 text-[10px] font-semibold">g</span>
+                    <span className="ml-1 text-[9px] font-semibold">g</span>
                   </div>
                 </div>
 
                 <div>
                   Fator correção
-                  <div className="mt-1 text-[17px] font-black normal-case">
+                  <div className="mt-1 text-[16px] font-black normal-case">
                     {formatNumber(correctionFactorGrams ?? 0)}
-                    <span className="ml-1 text-[10px] font-semibold">g</span>
+                    <span className="ml-1 text-[9px] font-semibold">g</span>
                   </div>
                 </div>
 
                 <div>
                   Peso da porção
-                  <div className="mt-1 text-[17px] font-black normal-case">
+                  <div className="mt-1 text-[16px] font-black normal-case">
                     {formatNumber(portionWeight || 0)}
-                    <span className="ml-1 text-[10px] font-semibold">
+                    <span className="ml-1 text-[9px] font-semibold">
                       {portionWeightUnit || "G"}
                     </span>
                   </div>
                 </div>
               </div>
 
-              <table className="w-full table-fixed border-collapse text-center text-[10px] leading-[1.3]">
+              <table className="w-full table-fixed border-collapse text-center text-[9px] leading-[1.15]">
                 <thead>
                   <tr>
-                    <th className="w-[150px] border bg-white py-2"></th>
+                    <th className="w-[150px] border bg-white py-1"></th>
                     {scaleNumbers.map((scale) => (
                       <th
                         key={`scale-title-${scale}`}
-                        className="border bg-white py-2 text-[18px] font-extrabold tracking-tight"
+                        className="border bg-white py-1 text-[16px] font-extrabold tracking-tight"
                       >
                         {scale}X
                       </th>
@@ -322,13 +345,13 @@ export default function ScaleEditor({
                   </tr>
 
                   <tr>
-                    <th className="border bg-yellow-300 px-2 py-2 text-left text-[18px] font-extrabold italic">
+                    <th className="border bg-yellow-300 px-2 py-1 text-left text-[14px] font-extrabold italic">
                       Ingredientes:
                     </th>
                     {scaleNumbers.map((scale) => (
                       <th
                         key={`yield-${scale}`}
-                        className="border bg-yellow-300 py-2 text-[10px] font-bold leading-tight"
+                        className="border bg-yellow-300 py-1 text-[8px] font-bold leading-tight"
                       >
                         <div>{formatNumber((rendimento || 1) * scale)}</div>
                         <div className="uppercase">{yieldUnit}</div>
@@ -341,14 +364,14 @@ export default function ScaleEditor({
                   {ingredientes.length > 0 ? (
                     ingredientes.map((ingredient) => (
                       <tr key={ingredient.id}>
-                        <td className="border bg-white px-2 py-2 text-left text-[10px] font-semibold uppercase">
+                        <td className="border bg-white px-2 py-1 text-left text-[9px] font-semibold uppercase">
                           {ingredient.nome}
                         </td>
 
                         {scaleNumbers.map((scale) => (
                           <td
                             key={`${ingredient.id}-${scale}`}
-                            className="border bg-white py-2 text-[10px] font-semibold"
+                            className="border bg-white py-1 text-[9px] font-semibold"
                           >
                             {formatNumber(Number(ingredient.quantidadeUso || 0) * scale)}
                           </td>
@@ -359,7 +382,7 @@ export default function ScaleEditor({
                     <tr>
                       <td
                         colSpan={11}
-                        className="border bg-white p-4 text-center font-semibold text-slate-500"
+                        className="border bg-white p-3 text-center font-semibold text-slate-500"
                       >
                         Nenhum ingrediente cadastrado.
                       </td>
@@ -367,13 +390,13 @@ export default function ScaleEditor({
                   )}
 
                   <tr>
-                    <td className="border bg-yellow-300 px-2 py-2 text-left text-[16px] font-extrabold uppercase">
+                    <td className="border bg-yellow-300 px-2 py-1 text-left text-[14px] font-extrabold uppercase">
                       Peso líquido:
                     </td>
                     {scaleNumbers.map((scale) => (
                       <td
                         key={`weight-${scale}`}
-                        className="border bg-yellow-300 py-2 text-[14px] font-extrabold"
+                        className="border bg-yellow-300 py-1 text-[12px] font-extrabold"
                       >
                         {formatNumber(baseLiquidWeight * scale)}
                       </td>
@@ -382,7 +405,7 @@ export default function ScaleEditor({
                 </tbody>
               </table>
 
-              <div className="mt-4 inline-block rounded-lg bg-yellow-300 px-3 py-1 text-[18px] font-black italic">
+              <div className="mt-4 inline-block rounded-lg bg-yellow-300 px-3 py-1 text-[15px] font-black italic">
                 Modo de Preparo:
               </div>
 
@@ -390,9 +413,9 @@ export default function ScaleEditor({
                 className="mt-3 whitespace-pre-line px-4 text-center font-semibold uppercase text-zinc-700"
                 style={{
                   fontSize: `${preparationFontSize}px`,
-                  lineHeight: "1.4",
-                  letterSpacing: "0.3px",
-                  maxHeight: "300px",
+                  lineHeight: "1.38",
+                  letterSpacing: "0.25px",
+                  maxHeight: "310px",
                   overflow: "hidden",
                 }}
               >
@@ -400,7 +423,7 @@ export default function ScaleEditor({
               </div>
 
               <div className="mt-5 flex flex-wrap items-center gap-2 text-[13px] font-black">
-                <span className="rounded-lg bg-yellow-300 px-2 py-1 text-[17px] italic">
+                <span className="rounded-lg bg-yellow-300 px-2 py-1 text-[16px] italic">
                   Armazenamento:
                 </span>
                 <span>{storageInstructions || "—"}</span>
@@ -430,7 +453,7 @@ export default function ScaleEditor({
             </div>
           </div>
 
-          <div className="mt-4 flex justify-end">
+          <div className="scale-print-button mt-4 flex justify-end">
             <Button
               type="button"
               onClick={handlePrintScale}

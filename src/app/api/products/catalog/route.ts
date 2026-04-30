@@ -34,7 +34,8 @@ export async function GET() {
         shelf_life_days,
         package_qty,
         qty_per_package,
-        conversion_factor
+        conversion_factor,
+        allergens
       `)
       .eq("establishment_id", establishmentId)
       .eq("is_active", true)

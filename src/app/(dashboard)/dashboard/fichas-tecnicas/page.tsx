@@ -1073,8 +1073,31 @@ export default function FichasTecnicasPage() {
   const [escalas, setEscalas] = useState<EscalaFicha[]>([]);
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const autoAllergens = useMemo(() => {
-  return detectAllergens(ingredientes, products) || "Não contém";
-        }, [ingredientes, products]);
+  const selected = new Set<string>();
+
+  ingredientes.forEach((ingrediente) => {
+    const product = ingrediente.productId
+      ? products.find((item) => item.id === ingrediente.productId)
+      : products.find(
+          (item) =>
+            item.name.trim().toLowerCase() ===
+            ingrediente.nome.trim().toLowerCase()
+        );
+
+    const allergensList = Array.isArray(product?.allergens)
+      ? product.allergens
+      : product?.allergens
+        ? String(product.allergens)
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : [];
+
+    allergensList.forEach((item) => selected.add(item));
+  });
+
+  return selected.size > 0 ? Array.from(selected).join(", ") : "Não contém";
+}, [ingredientes, products]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [uploadedBy, setUploadedBy] = useState("");
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -1155,6 +1178,11 @@ export default function FichasTecnicasPage() {
             alternate_names: Array.isArray(p.alternate_names)
               ? p.alternate_names
               : p.alternate_names ?? null,
+              allergens: Array.isArray(p.allergens)
+              ? p.allergens
+              : p.allergens
+              ? String(p.allergens).split(",").map((item) => item.trim()).filter(Boolean)
+              : [],
             aliases: Array.isArray(p.aliases) ? p.aliases : p.aliases ?? null,
           }))
         : [];
@@ -1457,7 +1485,7 @@ const convertedBlob = await heic2any({
 
     const custos = calcularCustos(ingredientes, rendimento, cmvAlvo);
     const updatedDate = getTodayIsoDate();
-    const detectedAllergens = detectAllergens(ingredientes, products) || "Não contém";
+    const detectedAllergens = autoAllergens;
     const payload = toActionPayload({
       nome: nome.trim(),
       categoria: categoria.trim(),
@@ -1471,7 +1499,6 @@ const convertedBlob = await heic2any({
       modoPreparo: modoPreparo.trim(),
       imageUrl,
       imagePath,
-
       difficultyLevel: difficultyLevel.trim() || null,
       temperatureCelsius:
         temperatureCelsius === "" ? null : toNumber(temperatureCelsius, 0),
@@ -1583,7 +1610,6 @@ const convertedBlob = await heic2any({
       sourceFileName: fichaEditando.sourceFileName,
       sourcePageNumber: fichaEditando.sourcePageNumber,
       videoUrl: fichaEditando.videoUrl,
-
       ingredientes: fichaEditando.ingredientes,
       escalas: fichaEditando.escalas,
     });

@@ -26,8 +26,7 @@ import NotificationsModal from "@/components/modals/NotificationsModal";
 import { ProfileModal } from "@/components/modals/ProfileModal";
 import { SettingsModal } from "@/components/modals/SettingsModal";
 import { HelpModal } from "@/components/modals/HelpModal";
-
-import { SidebarMobile } from "@/components/layout/SidebarMobile";
+import { Sidebar } from "@/components/layout/Sidebar";
 
 import { clearSession } from "@/lib/auth/session";
 import {
@@ -197,12 +196,12 @@ export function Topbar({ className }: TopbarProps) {
         Notification.permission === "granted"
       ) {
         if ("Notification" in window && Notification.permission === "granted") {
-            newNotifications.forEach((item) => {
+          newNotifications.forEach((item) => {
             new Notification(item.title ?? "Notificação", {
               body: item.message ?? "",
             });
           });
-          }
+        }
       }
 
       previousIdsRef.current = currentIds;
@@ -276,7 +275,7 @@ export function Topbar({ className }: TopbarProps) {
       >
         <div className="flex h-16 items-center justify-between px-4 md:px-6">
           <div className="flex items-center gap-2 md:gap-3">
-            <SidebarMobile />
+            <Sidebar />
           </div>
 
           <div className="flex items-center gap-2">

@@ -6,12 +6,10 @@ import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { GestifyMark } from "@/components/brand/GestifyMark";
-import {
-  principalMenuItems,
-  administracaoMenuItems,
-} from "@/components/layout/menu-items";
+import { menuSections } from "@/components/layout/menu-items";
 
 export function SidebarMobile() {
   const pathname = usePathname();
@@ -25,14 +23,10 @@ export function SidebarMobile() {
     if (!open) return;
 
     const prevOverflow = document.body.style.overflow;
-    const prevPaddingRight = document.body.style.paddingRight;
-
     document.body.style.overflow = "hidden";
-    document.body.style.paddingRight = prevPaddingRight;
 
     return () => {
       document.body.style.overflow = prevOverflow;
-      document.body.style.paddingRight = prevPaddingRight;
     };
   }, [open]);
 
@@ -41,9 +35,7 @@ export function SidebarMobile() {
       if (e.key === "Escape") setOpen(false);
     };
 
-    if (open) {
-      window.addEventListener("keydown", onKeyDown);
-    }
+    if (open) window.addEventListener("keydown", onKeyDown);
 
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open]);
@@ -57,11 +49,11 @@ export function SidebarMobile() {
         type="button"
         variant="ghost"
         size="icon"
-        className="md:hidden"
+        className="md:hidden h-10 w-10 text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-800"
         aria-label="Abrir menu"
         onClick={() => setOpen(true)}
       >
-        <Menu className="h-6 w-6" />
+        <Menu className="h-5 w-5" />
       </Button>
 
       {open && (
@@ -73,11 +65,9 @@ export function SidebarMobile() {
             onClick={() => setOpen(false)}
           />
 
-          <div className="fixed left-0 top-0 flex h-full w-[300px] flex-col bg-white shadow-xl dark:bg-slate-900 dark:shadow-black/40">
-            <div className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200 px-4 dark:border-slate-700">
-              <div className="flex items-center">
-                <GestifyMark size={40} compact />
-              </div>
+          <aside className="fixed left-0 top-0 flex h-full w-[300px] flex-col border-r border-gray-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200 px-4 dark:border-slate-800">
+              <GestifyMark size={40} compact />
 
               <Button
                 type="button"
@@ -85,67 +75,75 @@ export function SidebarMobile() {
                 size="icon"
                 aria-label="Fechar menu"
                 onClick={() => setOpen(false)}
+                className="h-8 w-8 text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-800"
               >
                 <X className="h-5 w-5" />
               </Button>
             </div>
 
-            <nav className="flex-1 overflow-y-auto px-4 py-4">
+            <nav className="flex-1 overflow-y-auto px-3 py-4">
               <div className="space-y-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                  Menu Principal
-                </div>
+                {menuSections.map((section, sectionIndex) => {
+                  const SectionIcon = section.icon;
+                  const sectionActive = section.items.some((item) =>
+                    isActive(item.href)
+                  );
 
-                <div className="space-y-2">
-                  {principalMenuItems.map((item) => {
-                    const Icon = item.icon;
-                    const active = isActive(item.href);
+                  return (
+                    <div key={section.key} className="space-y-2">
+                      <div
+                        className={cn(
+                          "flex h-12 w-full items-center gap-3 rounded-xl border px-4 text-sm font-medium",
+                          sectionActive
+                            ? "border-blue-200 bg-blue-50 text-blue-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                            : "border-transparent text-gray-700 dark:text-slate-300"
+                        )}
+                      >
+                        <SectionIcon className="h-4 w-4 shrink-0" />
+                        <span>{section.label}</span>
+                      </div>
 
-                    return (
-                      <Link key={item.href} href={item.href}>
-                        <Button
-                          variant={active ? "secondary" : "ghost"}
-                          className={cn(
-                            "h-12 w-full justify-start gap-3 rounded-xl px-4"
-                          )}
-                        >
-                          <Icon className="h-4 w-4 shrink-0" />
-                          <span className="text-sm font-medium">{item.label}</span>
-                        </Button>
-                      </Link>
-                    );
-                  })}
-                </div>
+                      <div className="space-y-2 pl-3">
+                        {section.items.map((item) => {
+                          const Icon = item.icon;
+                          const active = isActive(item.href);
 
-                <div className="py-4">
-                  <div className="border-t border-gray-200 dark:border-slate-700" />
-                </div>
+                          return (
+                            <Link
+                              key={item.href}
+                              href={item.href}
+                              onClick={() => setOpen(false)}
+                            >
+                              <Button
+                                variant="ghost"
+                                className={cn(
+                                  "h-12 w-full justify-start gap-3 rounded-xl border px-4 transition-all duration-200",
+                                  active
+                                    ? "border-blue-200 bg-blue-50 text-blue-700 shadow-sm hover:bg-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-800"
+                                    : "border-transparent text-gray-700 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                                )}
+                              >
+                                <Icon className="h-4 w-4 shrink-0" />
+                                <span className="text-sm font-medium">
+                                  {item.label}
+                                </span>
+                              </Button>
+                            </Link>
+                          );
+                        })}
+                      </div>
 
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                  Administração
-                </div>
-
-                <div className="space-y-2">
-                  {administracaoMenuItems.map((item) => {
-                    const Icon = item.icon;
-                    const active = isActive(item.href);
-
-                    return (
-                      <Link key={item.href} href={item.href}>
-                        <Button
-                          variant={active ? "secondary" : "ghost"}
-                          className="h-12 w-full justify-start gap-3 rounded-xl px-4"
-                        >
-                          <Icon className="h-4 w-4 shrink-0" />
-                          <span className="text-sm font-medium">{item.label}</span>
-                        </Button>
-                      </Link>
-                    );
-                  })}
-                </div>
+                      {sectionIndex < menuSections.length - 1 && (
+                        <div className="pt-2">
+                          <Separator className="bg-gray-200 dark:bg-slate-800" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </nav>
-          </div>
+          </aside>
         </div>
       )}
     </>

@@ -58,6 +58,7 @@ import {
   toNumber,
 } from "@/app/dashboard/fichas-tecnicas/lib/ingredient-product-matcher";
 import { detectAllergens } from "@/app/dashboard/fichas-tecnicas/utils/allergens";
+import { normalizeAllergenList } from "@/lib/allergens";
 type ProductOption = MatcherProductOption;
 type Ingrediente = MatcherIngrediente;
 
@@ -1067,18 +1068,17 @@ export default function FichasTecnicasPage() {
   const [shelfLifeFrozen, setShelfLifeFrozen] = useState("");
   const [shelfLifeRefrigerated, setShelfLifeRefrigerated] = useState("");
   const [shelfLifeRoomTemp, setShelfLifeRoomTemp] = useState("");
-  const [allergens, setAllergens] = useState("");
   const [sourceUpdatedAt, setSourceUpdatedAt] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [escalas, setEscalas] = useState<EscalaFicha[]>([]);
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const autoAllergens = useMemo(() => {
-  return detectAllergens(ingredientes, products);
-}, [ingredientes, products]);
+    return detectAllergens(ingredientes, products);
+  }, [ingredientes, products]);
 
-const autoEditAllergens = useMemo(() => {
-  return detectAllergens(fichaEditando?.ingredientes ?? [], products);
-}, [fichaEditando?.ingredientes, products]);
+  const autoEditAllergens = useMemo(() => {
+    return detectAllergens(fichaEditando?.ingredientes ?? [], products);
+  }, [fichaEditando?.ingredientes, products]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [uploadedBy, setUploadedBy] = useState("");
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -1159,11 +1159,7 @@ const autoEditAllergens = useMemo(() => {
             alternate_names: Array.isArray(p.alternate_names)
               ? p.alternate_names
               : p.alternate_names ?? null,
-              allergens: Array.isArray(p.allergens)
-              ? p.allergens
-              : p.allergens
-              ? String(p.allergens).split(",").map((item) => item.trim()).filter(Boolean)
-              : [],
+            allergens: normalizeAllergenList(p.allergens),
             aliases: Array.isArray(p.aliases) ? p.aliases : p.aliases ?? null,
           }))
         : [];
@@ -1337,7 +1333,6 @@ const autoEditAllergens = useMemo(() => {
     setShelfLifeFrozen("");
     setShelfLifeRefrigerated("");
     setShelfLifeRoomTemp("");
-    setAllergens("");
     setVideoUrl("");
     setEscalas([]);
     setIngredientes([]);
@@ -2338,7 +2333,7 @@ const convertedBlob = await heic2any({
         <div className="xl:col-span-2">
           <Label>Alergênicos</Label>
           <Input
-            value={autoEditAllergens}
+            value={autoAllergens}
             disabled
             className="bg-slate-100 font-semibold text-slate-700"
           />
@@ -2826,7 +2821,7 @@ const convertedBlob = await heic2any({
           <div className="xl:col-span-2">
             <Label>Alergênicos</Label>
             <Input
-              value={autoAllergens}
+              value={autoEditAllergens}
               disabled
               className="bg-slate-100 font-semibold text-slate-700"
             />

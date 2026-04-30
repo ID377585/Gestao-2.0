@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { normalizeAllergenList } from "@/lib/allergens";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -168,6 +169,10 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 function normalizeHeader(h: string) {
   const cleaned = cleanTextFromExcel(String(h ?? ""));
   return cleaned.replace(/^\uFEFF/, "").trim().toLowerCase();
+}
+
+function findOptionalHeader(headers: string[], candidates: string[]) {
+  return candidates.find((candidate) => headers.includes(candidate)) ?? null;
 }
 
 async function loadAllowedSectorCategoriesFromDb(
@@ -454,6 +459,14 @@ export async function POST(request: Request) {
       records.push(rec);
     }
 
+    const allergensHeader = findOptionalHeader(headers, [
+      "allergens",
+      "alergenico",
+      "alergenicos",
+      "alergênico",
+      "alergênicos",
+    ]);
+
     const csvEstabSet = new Set<string>();
     for (const rec of records) {
       const csvEstab = normalizeId(rec["establishment_id"]);
@@ -613,6 +626,10 @@ export async function POST(request: Request) {
         conversion_factor,
         is_active,
       };
+
+      if (allergensHeader) {
+        basePayload.allergens = normalizeAllergenList(rec[allergensHeader]);
+      }
 
       if (id) {
         withIdPayloads.push({

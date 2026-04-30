@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { normalizeAllergenList } from "@/lib/allergens";
 
 export type ProductType = "INSU" | "PREP" | "PROD";
 
@@ -112,10 +113,7 @@ function parseBoolean(value: FormDataEntryValue | null): boolean {
 }
 
 function parseAllergens(formData: FormData): string[] {
-  return formData
-    .getAll("allergens")
-    .map((item) => String(item).trim())
-    .filter(Boolean);
+  return normalizeAllergenList(formData.getAll("allergens"));
 }
 
 async function generateNextSku(

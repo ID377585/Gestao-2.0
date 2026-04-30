@@ -7,6 +7,7 @@ import {
 } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { Buffer } from "node:buffer";
+import { formatAllergenList } from "@/lib/allergens";
 
 const TECHNICAL_SHEET_BUCKET = "technical-sheet-images";
 
@@ -195,6 +196,89 @@ function normalizeSpaces(value: string) {
 function normalizeUnit(value: string | null | undefined, fallback = "G") {
   const unit = String(value ?? "").trim().toUpperCase();
   return unit || fallback;
+}
+
+function normalizeProductLookupName(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+async function resolveCatalogAllergensForIngredients(
+  supabase: Awaited<ReturnType<typeof createSupabaseAdminClient>>,
+  establishmentId: string,
+  ingredients: TechnicalSheetIngredientInput[],
+) {
+  const productIds = Array.from(
+    new Set(
+      ingredients
+        .map((ingredient) => ingredient.product_id)
+        .filter(Boolean) as string[],
+    ),
+  );
+  const allergenSources: unknown[] = [];
+
+  if (productIds.length > 0) {
+    const { data: products, error: productsError } = await supabase
+      .from("products")
+      .select("id, establishment_id, allergens")
+      .in("id", productIds);
+
+    if (productsError) {
+      console.error("Erro ao validar produtos da ficha:", productsError);
+      throw new Error("Não foi possível validar os produtos da ficha.");
+    }
+
+    const productById = new Map(
+      (products ?? []).map((product: any) => [String(product.id), product]),
+    );
+
+    for (const productId of productIds) {
+      const product = productById.get(productId);
+
+      if (!product || product.establishment_id !== establishmentId) {
+        throw new Error(
+          "Há ingrediente vinculado a produto inválido para este estabelecimento.",
+        );
+      }
+
+      allergenSources.push(product.allergens);
+    }
+  }
+
+  const unlinkedIngredientNames = ingredients
+    .filter((ingredient) => !ingredient.product_id)
+    .map((ingredient) => ingredient.ingredient_name)
+    .filter((name) => normalizeProductLookupName(name));
+
+  if (unlinkedIngredientNames.length > 0) {
+    const { data: catalogProducts, error: catalogError } = await supabase
+      .from("products")
+      .select("name, allergens")
+      .eq("establishment_id", establishmentId)
+      .limit(5000);
+
+    if (catalogError) {
+      console.error("Erro ao buscar alergênicos do catálogo:", catalogError);
+      throw new Error("Não foi possível buscar alergênicos do catálogo.");
+    }
+
+    const productByName = new Map(
+      (catalogProducts ?? []).map((product: any) => [
+        normalizeProductLookupName(product.name),
+        product,
+      ]),
+    );
+
+    for (const ingredientName of unlinkedIngredientNames) {
+      const product = productByName.get(normalizeProductLookupName(ingredientName));
+      if (product) allergenSources.push(product.allergens);
+    }
+  }
+
+  return formatAllergenList(allergenSources);
 }
 
 function shouldIgnoreLine(line: string) {
@@ -1113,35 +1197,11 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
     throw new Error("Adicione pelo menos um ingrediente.");
   }
 
-  const productIds = input.ingredients
-    .map((i) => i.product_id)
-    .filter(Boolean) as string[];
-
-  if (productIds.length > 0) {
-    const { data: products, error: productsError } = await supabase
-      .from("products")
-      .select("id, establishment_id")
-      .in("id", productIds);
-
-    if (productsError) {
-      console.error("Erro ao validar produtos da ficha:", productsError);
-      throw new Error("Não foi possível validar os produtos da ficha.");
-    }
-
-    const validSet = new Set(
-      (products ?? [])
-        .filter((p: any) => p.establishment_id === establishmentId)
-        .map((p: any) => p.id)
-    );
-
-    for (const productId of productIds) {
-      if (!validSet.has(productId)) {
-        throw new Error(
-          "Há ingrediente vinculado a produto inválido para este estabelecimento."
-        );
-      }
-    }
-  }
+  const catalogAllergens = await resolveCatalogAllergensForIngredients(
+    supabase,
+    establishmentId,
+    input.ingredients,
+  );
 
   const { data: sheet, error: sheetError } = await supabase
     .from("technical_sheets")
@@ -1170,7 +1230,7 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
       shelf_life_frozen: input.shelf_life_frozen?.trim() || null,
       shelf_life_refrigerated: input.shelf_life_refrigerated?.trim() || null,
       shelf_life_room_temp: input.shelf_life_room_temp?.trim() || null,
-      allergens: input.allergens?.trim() || null,
+      allergens: catalogAllergens,
       source_updated_at: input.source_updated_at || null,
       import_origin: input.import_origin?.trim() || null,
       source_file_name: input.source_file_name?.trim() || null,
@@ -1246,6 +1306,11 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
 
   const currentImagePath = (current as any).image_path as string | null;
   const newImagePath = input.image_path?.trim() || null;
+  const catalogAllergens = await resolveCatalogAllergensForIngredients(
+    supabase,
+    establishmentId,
+    input.ingredients,
+  );
 
   const { error: updateError } = await supabase
     .from("technical_sheets")
@@ -1273,7 +1338,7 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
       shelf_life_frozen: input.shelf_life_frozen?.trim() || null,
       shelf_life_refrigerated: input.shelf_life_refrigerated?.trim() || null,
       shelf_life_room_temp: input.shelf_life_room_temp?.trim() || null,
-      allergens: input.allergens?.trim() || null,
+      allergens: catalogAllergens,
       source_updated_at: input.source_updated_at || null,
       import_origin: input.import_origin?.trim() || null,
       source_file_name: input.source_file_name?.trim() || null,

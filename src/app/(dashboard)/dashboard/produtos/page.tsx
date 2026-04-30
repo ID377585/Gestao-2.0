@@ -28,16 +28,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  ALLERGEN_OPTIONS,
+  normalizeAllergenList,
+} from "@/lib/allergens";
 
 const UNIT_OPTIONS = ["UN", "KG", "G", "L", "ML"] as const;
 const STORAGE_CATEGORIES = ["Resfriado", "Congelado", "Temp. Ambiente"] as const;
-const ALLERGEN_OPTIONS = [
-  "Açúcar",
-  "Glúten",
-  "Lactose",
-  "Castanhas",
-  "Frutos do Mar",
-] as const;
 
 const SECTOR_CATEGORIES = [
   "Confeitaria",
@@ -71,7 +68,7 @@ type ProductRow = {
   shelf_life_days: number | null;
   is_active: boolean | null;
   price: number | null;
-  allergens: string[] | null;
+  allergens: string[] | string | null;
   created_at: string | null;
   created_by: string | null;
 };
@@ -850,7 +847,9 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                         type="checkbox"
                         name="allergens"
                         value={item}
-                        defaultChecked={(product.allergens ?? []).includes(item)}
+                        defaultChecked={normalizeAllergenList(
+                          product.allergens,
+                        ).includes(item)}
                       />
                       <span>{item}</span>
                     </label>

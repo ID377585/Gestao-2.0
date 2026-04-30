@@ -2,6 +2,10 @@ import type {
   Ingrediente,
   ProductOption,
 } from "@/app/dashboard/fichas-tecnicas/lib/ingredient-product-matcher";
+import {
+  ALLERGEN_OPTIONS,
+  normalizeAllergenList,
+} from "@/lib/allergens";
 
 function normalizeText(value: unknown) {
   return String(value ?? "")
@@ -9,21 +13,6 @@ function normalizeText(value: unknown) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
-}
-
-function parseProductAllergens(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item).trim()).filter(Boolean);
-  }
-
-  if (typeof value === "string") {
-    return value
-      .split(/[;,|]/g)
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-
-  return [];
 }
 
 function findLinkedProduct(
@@ -59,10 +48,14 @@ export function detectAllergens(
   ingredients.forEach((ingredient) => {
     const product = findLinkedProduct(ingredient, products);
 
-    parseProductAllergens(product?.allergens).forEach((allergen) => {
+    normalizeAllergenList(product?.allergens).forEach((allergen) => {
       allergens.add(allergen);
     });
   });
 
-  return allergens.size > 0 ? Array.from(allergens).join(", ") : "Não contém";
+  const ordered = ALLERGEN_OPTIONS.filter((allergen) =>
+    allergens.has(allergen)
+  );
+
+  return ordered.length > 0 ? ordered.join(", ") : "Não contém";
 }

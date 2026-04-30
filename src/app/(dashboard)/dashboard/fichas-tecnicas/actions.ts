@@ -973,15 +973,14 @@ if (
 }
 
   const maxSizeInBytes = 10 * 1024 * 1024;
-  if (file.size > maxSizeInBytes) {
-    throw new Error("A imagem deve ter no máximo 10MB.");
-  }
+if (file.size > maxSizeInBytes) {
+  throw new Error("A imagem deve ter no máximo 10MB.");
+}
 
-  const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-  const safeName = sanitizeFileName(file.name);
-  const filePath = `${establishmentId}/${userId}/${Date.now()}-${
-    safeName || `imagem.${extension}`
-  }`;
+const safeName = sanitizeFileName(file.name);
+const filePath = `${establishmentId}/${userId}/${Date.now()}-${
+  safeName || `imagem.${extension}`
+}`;
 
   const { error: uploadError } = await supabase.storage
     .from(TECHNICAL_SHEET_BUCKET)

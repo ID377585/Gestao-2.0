@@ -57,7 +57,7 @@ import {
   normalizeUnit,
   toNumber,
 } from "@/app/dashboard/fichas-tecnicas/lib/ingredient-product-matcher";
-
+import { detectAllergens } from "@/app/dashboard/fichas-tecnicas/utils/allergens";
 type ProductOption = MatcherProductOption;
 type Ingrediente = MatcherIngrediente;
 
@@ -137,6 +137,13 @@ function formatDate(value?: string | null) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
+}
+
+const PORTION_WEIGHT_UNIT_OPTIONS = ["KG", "L", "UNI"];
+const STORAGE_OPTIONS = ["Temp. Ambiente", "Resfriado", "Congelado"];
+
+function getTodayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function compareFichaByNome(a: FichaTecnica, b: FichaTecnica) {
@@ -1055,7 +1062,7 @@ export default function FichasTecnicasPage() {
   const [cookingFactorGrams, setCookingFactorGrams] = useState<number | "">("");
   const [correctionFactorGrams, setCorrectionFactorGrams] = useState<number | "">("");
   const [yieldLabel, setYieldLabel] = useState("");
-  const [portionWeightUnit, setPortionWeightUnit] = useState("G");
+  const [portionWeightUnit, setPortionWeightUnit] = useState("KG");
   const [storageInstructions, setStorageInstructions] = useState("");
   const [shelfLifeFrozen, setShelfLifeFrozen] = useState("");
   const [shelfLifeRefrigerated, setShelfLifeRefrigerated] = useState("");
@@ -1064,16 +1071,15 @@ export default function FichasTecnicasPage() {
   const [sourceUpdatedAt, setSourceUpdatedAt] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [escalas, setEscalas] = useState<EscalaFicha[]>([]);
-
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
-
+  const autoAllergens = useMemo(() => {
+  return detectAllergens(ingredientes, products) || "Não contém";
+        }, [ingredientes, products]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [uploadedBy, setUploadedBy] = useState("");
-
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
   const editImageInputRef = useRef<HTMLInputElement | null>(null);
   const viewerRef = useRef<HTMLDivElement | null>(null);
-
   const loadCurrentContext = useCallback(async () => {
     try {
       const response = await fetch("/api/user/me", {
@@ -1316,13 +1322,13 @@ export default function FichasTecnicasPage() {
     setCookingFactorGrams("");
     setCorrectionFactorGrams("");
     setYieldLabel("");
-    setPortionWeightUnit("G");
+    setPortionWeightUnit("KG");
+    setSourceUpdatedAt(getTodayIsoDate());
     setStorageInstructions("");
     setShelfLifeFrozen("");
     setShelfLifeRefrigerated("");
     setShelfLifeRoomTemp("");
     setAllergens("");
-    setSourceUpdatedAt("");
     setVideoUrl("");
     setEscalas([]);
     setIngredientes([]);
@@ -1450,7 +1456,8 @@ const convertedBlob = await heic2any({
     }
 
     const custos = calcularCustos(ingredientes, rendimento, cmvAlvo);
-
+    const updatedDate = getTodayIsoDate();
+    const detectedAllergens = detectAllergens(ingredientes, products) || "Não contém";
     const payload = toActionPayload({
       nome: nome.trim(),
       categoria: categoria.trim(),
@@ -1475,13 +1482,13 @@ const convertedBlob = await heic2any({
       correctionFactorGrams:
         correctionFactorGrams === "" ? null : toNumber(correctionFactorGrams, 0),
       yieldLabel: yieldLabel.trim() || null,
-      portionWeightUnit: normalizeUnit(portionWeightUnit, "G"),
+      portionWeightUnit: normalizeUnit(portionWeightUnit, "KG"),
       storageInstructions: storageInstructions.trim() || null,
+      allergens: detectedAllergens,
+      sourceUpdatedAt: updatedDate,
       shelfLifeFrozen: shelfLifeFrozen.trim() || null,
       shelfLifeRefrigerated: shelfLifeRefrigerated.trim() || null,
       shelfLifeRoomTemp: shelfLifeRoomTemp.trim() || null,
-      allergens: allergens.trim() || null,
-      sourceUpdatedAt: sourceUpdatedAt || null,
       importOrigin: null,
       sourceFileName: null,
       sourcePageNumber: null,
@@ -2182,12 +2189,17 @@ const convertedBlob = await heic2any({
 
         <div>
           <Label>Unidade peso porção</Label>
-          <Input
+          <select
             value={portionWeightUnit}
-            onChange={(e) =>
-              setPortionWeightUnit(normalizeUnit(e.target.value, "G"))
-            }
-          />
+            onChange={(e) => setPortionWeightUnit(e.target.value)}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            {PORTION_WEIGHT_UNIT_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>
@@ -2272,7 +2284,7 @@ const convertedBlob = await heic2any({
         </div>
 
         <div>
-          <Label>Yield label</Label>
+          <Label>Tipo de rendimento</Label>
           <Input
             value={yieldLabel}
             onChange={(e) => setYieldLabel(e.target.value)}
@@ -2319,9 +2331,9 @@ const convertedBlob = await heic2any({
         <div className="xl:col-span-2">
           <Label>Alergênicos</Label>
           <Input
-            value={allergens}
-            onChange={(e) => setAllergens(e.target.value)}
-            placeholder="Ex.: Contém leite e ovos"
+            value={autoAllergens}
+            disabled
+            className="bg-slate-100 font-semibold text-slate-700"
           />
         </div>
 
@@ -2736,20 +2748,18 @@ const convertedBlob = await heic2any({
 
           <div className="xl:col-span-2">
             <Label>Armazenamento</Label>
-            <Input
-              value={fichaEditando.storageInstructions || ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        storageInstructions: e.target.value || null,
-                      }
-                    : prev
-                )
-              }
-              placeholder="Ex.: Refrigerado"
-            />
+            <select
+              value={storageInstructions}
+              onChange={(e) => setStorageInstructions(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">— Selecione —</option>
+              {STORAGE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -2809,18 +2819,9 @@ const convertedBlob = await heic2any({
           <div className="xl:col-span-2">
             <Label>Alergênicos</Label>
             <Input
-              value={fichaEditando.allergens || ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        allergens: e.target.value || null,
-                      }
-                    : prev
-                )
-              }
-              placeholder="Ex.: Contém leite e ovos"
+              value={autoAllergens}
+              disabled
+              className="bg-slate-100 font-semibold text-slate-700"
             />
           </div>
 
@@ -2843,22 +2844,14 @@ const convertedBlob = await heic2any({
           </div>
 
           <div>
-            <Label>Atualizada em</Label>
-            <Input
-              type="date"
-              value={fichaEditando.sourceUpdatedAt || ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        sourceUpdatedAt: e.target.value || null,
-                      }
-                    : prev
-                )
-              }
-            />
-          </div>
+              <Label>Atualizada em</Label>
+              <Input
+                type="date"
+                value={sourceUpdatedAt || getTodayIsoDate()}
+                disabled
+                className="bg-slate-100 font-semibold text-slate-700"
+              />
+            </div>
 
           <div className="xl:col-span-4">
             <Label>Modo de preparo</Label>

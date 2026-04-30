@@ -2338,7 +2338,7 @@ const convertedBlob = await heic2any({
         <div className="xl:col-span-2">
           <Label>Alergênicos</Label>
           <Input
-            value={autoAllergens}
+            value={autoEditAllergens}
             disabled
             className="bg-slate-100 font-semibold text-slate-700"
           />

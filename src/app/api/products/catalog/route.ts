@@ -24,18 +24,18 @@ export async function GET() {
       .from("products")
       .select(`
         id,
-        name,
         sku,
-        default_unit_label,
+        name,
         price,
         standard_cost,
-        category,
+        default_unit_label,
         sector_category,
-        shelf_life_days,
+        category,
         package_qty,
         qty_per_package,
-        conversion_factor,
-        allergens
+        allergens,
+        alternate_names,
+        aliases
       `)
       .eq("establishment_id", establishmentId)
       .eq("is_active", true)

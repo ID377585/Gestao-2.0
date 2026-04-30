@@ -1,6 +1,5 @@
 "use client";
 
-import heic2any from "heic2any";
 import Image from "next/image";
 import {
   useCallback,
@@ -1347,11 +1346,14 @@ export default function FichasTecnicasPage() {
 
   if (!isHeic) return file;
 
-  const convertedBlob = await heic2any({
-    blob: file,
-    toType: "image/jpeg",
-    quality: 0.92,
-  });
+  const heic2anyModule = await import("heic2any");
+const heic2any = heic2anyModule.default;
+
+const convertedBlob = await heic2any({
+  blob: file,
+  toType: "image/jpeg",
+  quality: 0.92,
+});
 
   const jpegBlob = Array.isArray(convertedBlob)
     ? convertedBlob[0]

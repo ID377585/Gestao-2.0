@@ -139,6 +139,105 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
+const PORTION_WEIGHT_UNIT_OPTIONS = ["KG", "L", "UNID"] as const;
+const STORAGE_OPTIONS = ["Temp. Ambiente", "Resfriado", "Congelado"] as const;
+
+function getTodayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeTextForAllergens(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function detectRecipeAllergens(
+  ingredientes: Ingrediente[],
+  products: ProductOption[]
+) {
+  const productMap = new Map(products.map((product) => [product.id, product]));
+  const detected = new Set<string>();
+
+  ingredientes.forEach((ingrediente) => {
+    const product = ingrediente.productId
+      ? productMap.get(ingrediente.productId)
+      : null;
+
+    const text = normalizeTextForAllergens([
+      ingrediente.nome,
+      product?.name,
+      product?.category,
+      product?.sector_category,
+    ].filter(Boolean).join(" "));
+
+    if (
+      text.includes("leite") ||
+      text.includes("creme de leite") ||
+      text.includes("cream cheese") ||
+      text.includes("manteiga") ||
+      text.includes("iogurte") ||
+      text.includes("laticinio") ||
+      text.includes("laticinios")
+    ) {
+      detected.add("Lactose");
+    }
+
+    if (text.includes("ovo")) {
+      detected.add("Ovos");
+    }
+
+    if (
+      text.includes("amendoim") ||
+      text.includes("castanha") ||
+      text.includes("caju") ||
+      text.includes("para") ||
+      text.includes("nozes") ||
+      text.includes("avelã") ||
+      text.includes("avela") ||
+      text.includes("pistache") ||
+      text.includes("amendoa")
+    ) {
+      detected.add("Castanhas");
+    }
+
+    if (
+      text.includes("camarao") ||
+      text.includes("camarão") ||
+      text.includes("ostra") ||
+      text.includes("mexilhao") ||
+      text.includes("mexilhão") ||
+      text.includes("vongole") ||
+      text.includes("vieira") ||
+      text.includes("frutos do mar") ||
+      text.includes("peixaria")
+    ) {
+      detected.add("Frutos do Mar");
+    }
+
+    if (
+      text.includes("farinha de trigo") ||
+      text.includes("trigo") ||
+      text.includes("gluten") ||
+      text.includes("glúten")
+    ) {
+      detected.add("Glúten");
+    }
+
+    if (
+      text.includes("acucar") ||
+      text.includes("açucar") ||
+      text.includes("açúcar") ||
+      text.includes("acuçar")
+    ) {
+      detected.add("Açúcar");
+    }
+  });
+
+  return Array.from(detected).join(", ");
+}
+
 function compareFichaByNome(a: FichaTecnica, b: FichaTecnica) {
   const nomeA = a.nome?.trim() || "";
   const nomeB = b.nome?.trim() || "";
@@ -1064,16 +1163,19 @@ export default function FichasTecnicasPage() {
   const [sourceUpdatedAt, setSourceUpdatedAt] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [escalas, setEscalas] = useState<EscalaFicha[]>([]);
-
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
-
+  const autoAllergens = useMemo(() => {
+  return detectRecipeAllergens(ingredientes, products);
+  }, [ingredientes, products]);
+const autoEditAllergens = useMemo(() => {
+  if (!fichaEditando) return "";
+  return detectRecipeAllergens(fichaEditando.ingredientes, products);
+}, [fichaEditando, products]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [uploadedBy, setUploadedBy] = useState("");
-
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
   const editImageInputRef = useRef<HTMLInputElement | null>(null);
   const viewerRef = useRef<HTMLDivElement | null>(null);
-
   const loadCurrentContext = useCallback(async () => {
     try {
       const response = await fetch("/api/user/me", {
@@ -1316,13 +1418,13 @@ export default function FichasTecnicasPage() {
     setCookingFactorGrams("");
     setCorrectionFactorGrams("");
     setYieldLabel("");
-    setPortionWeightUnit("G");
+    setPortionWeightUnit("KG");
     setStorageInstructions("");
     setShelfLifeFrozen("");
     setShelfLifeRefrigerated("");
     setShelfLifeRoomTemp("");
     setAllergens("");
-    setSourceUpdatedAt("");
+    setSourceUpdatedAt(getTodayIsoDate());
     setVideoUrl("");
     setEscalas([]);
     setIngredientes([]);
@@ -1450,7 +1552,8 @@ const convertedBlob = await heic2any({
     }
 
     const custos = calcularCustos(ingredientes, rendimento, cmvAlvo);
-
+    const detectedEditAllergens = autoEditAllergens || "Não contém";
+    const updatedEditDate = getTodayIsoDate();
     const payload = toActionPayload({
       nome: nome.trim(),
       categoria: categoria.trim(),
@@ -1475,13 +1578,13 @@ const convertedBlob = await heic2any({
       correctionFactorGrams:
         correctionFactorGrams === "" ? null : toNumber(correctionFactorGrams, 0),
       yieldLabel: yieldLabel.trim() || null,
-      portionWeightUnit: normalizeUnit(portionWeightUnit, "G"),
+      portionWeightUnit: normalizeUnit(portionWeightUnit, "KG"),
       storageInstructions: storageInstructions.trim() || null,
+      allergens: detectedEditAllergens,
+      sourceUpdatedAt: updatedEditDate,
       shelfLifeFrozen: shelfLifeFrozen.trim() || null,
       shelfLifeRefrigerated: shelfLifeRefrigerated.trim() || null,
       shelfLifeRoomTemp: shelfLifeRoomTemp.trim() || null,
-      allergens: allergens.trim() || null,
-      sourceUpdatedAt: sourceUpdatedAt || null,
       importOrigin: null,
       sourceFileName: null,
       sourcePageNumber: null,
@@ -2282,11 +2385,18 @@ const convertedBlob = await heic2any({
 
         <div className="xl:col-span-2">
           <Label>Armazenamento</Label>
-          <Input
+          <select
             value={storageInstructions}
             onChange={(e) => setStorageInstructions(e.target.value)}
-            placeholder="Ex.: Refrigerado"
-          />
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">— Selecione —</option>
+            {STORAGE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>
@@ -2559,21 +2669,17 @@ const convertedBlob = await heic2any({
           <div>
             <Label>Unidade peso porção</Label>
             <Input
-              value={fichaEditando.portionWeightUnit || "G"}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        portionWeightUnit: normalizeUnit(
-                          e.target.value,
-                          "G"
-                        ),
-                      }
-                    : prev
-                )
-              }
-            />
+              <select
+            value={portionWeightUnit || "KG"}
+            onChange={(e) => setPortionWeightUnit(e.target.value)}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            {PORTION_WEIGHT_UNIT_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
           </div>
 
           <div>
@@ -2717,7 +2823,7 @@ const convertedBlob = await heic2any({
           </div>
 
           <div>
-            <Label>Yield label</Label>
+            <Label>Tipo de rendimento</Label>
             <Input
               value={fichaEditando.yieldLabel || ""}
               onChange={(e) =>
@@ -2809,18 +2915,9 @@ const convertedBlob = await heic2any({
           <div className="xl:col-span-2">
             <Label>Alergênicos</Label>
             <Input
-              value={fichaEditando.allergens || ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        allergens: e.target.value || null,
-                      }
-                    : prev
-                )
-              }
-              placeholder="Ex.: Contém leite e ovos"
+              value={autoAllergens || "Não contém"}
+              disabled
+              className="bg-slate-100 font-semibold text-slate-700"
             />
           </div>
 
@@ -2846,17 +2943,9 @@ const convertedBlob = await heic2any({
             <Label>Atualizada em</Label>
             <Input
               type="date"
-              value={fichaEditando.sourceUpdatedAt || ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        sourceUpdatedAt: e.target.value || null,
-                      }
-                    : prev
-                )
-              }
+              value={sourceUpdatedAt || getTodayIsoDate()}
+              disabled
+              className="bg-slate-100 font-semibold text-slate-700"
             />
           </div>
 

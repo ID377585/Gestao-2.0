@@ -33,6 +33,15 @@ type IngredientEditorProps = {
   formatCurrency: (value: number) => string;
 };
 
+function formatDecimal3(value: number) {
+  if (!Number.isFinite(value)) return "0,000";
+
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  }).format(value);
+}
+
 export default function IngredientEditor({
   products,
   ingredientes,
@@ -583,10 +592,10 @@ export default function IngredientEditor({
                       </div>
                     </TableCell>
                     <TableCell>
-                      {item.quantidadeUso} {item.unidadeUso}
+                      {formatDecimal3(item.quantidadeUso)} {item.unidadeUso}
                     </TableCell>
                     <TableCell>
-                      {item.quantidadeCompra} {item.unidadeCompra}
+                      {formatDecimal3(item.quantidadeCompra)} {item.unidadeCompra}
                     </TableCell>
                     <TableCell>{formatCurrency(item.precoCompra)}</TableCell>
                     <TableCell>{formatCurrency(item.custoUnitarioBase)}</TableCell>

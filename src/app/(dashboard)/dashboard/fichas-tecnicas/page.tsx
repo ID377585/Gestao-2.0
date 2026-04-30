@@ -2416,12 +2416,39 @@ const convertedBlob = await heic2any({
       </div>
 
       <ScaleEditor
-        scales={escalas}
-        onChange={setEscalas}
-        uid={uid}
-        toNumber={toNumber}
-        normalizeUnit={normalizeUnit}
-      />
+  scales={escalas}
+  onChange={setEscalas}
+  uid={uid}
+  toNumber={toNumber}
+  normalizeUnit={normalizeUnit}
+  nome={nome}
+  ingredientes={ingredientes}
+  rendimento={rendimento}
+  portionWeight={pesoPorcao}
+  portionWeightUnit={portionWeightUnit}
+  prepTimeMinutes={tempoPreparo}
+  temperatureCelsius={
+    temperatureCelsius === "" ? null : toNumber(temperatureCelsius, 0)
+  }
+  cookingTimeMinutes={
+    cookingTimeMinutes === "" ? null : toNumber(cookingTimeMinutes, 0)
+  }
+  cookingFactorGrams={
+    cookingFactorGrams === "" ? null : toNumber(cookingFactorGrams, 0)
+  }
+  correctionFactorGrams={
+    correctionFactorGrams === "" ? null : toNumber(correctionFactorGrams, 0)
+  }
+  difficultyLevel={difficultyLevel}
+  preparationMethod={modoPreparo}
+  storageInstructions={storageInstructions}
+  shelfLifeFrozen={shelfLifeFrozen}
+  shelfLifeRefrigerated={shelfLifeRefrigerated}
+  shelfLifeRoomTemp={shelfLifeRoomTemp}
+  allergens={allergens}
+  sourceUpdatedAt={sourceUpdatedAt}
+  yieldLabel={yieldLabel}
+/>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button
@@ -2899,16 +2926,35 @@ const convertedBlob = await heic2any({
         </div>
 
         <ScaleEditor
-          scales={fichaEditando.escalas}
-          onChange={(escalasAtualizadas) =>
-            setFichaEditando((prev) =>
-              prev ? { ...prev, escalas: escalasAtualizadas } : prev
-            )
-          }
-          uid={uid}
-          toNumber={toNumber}
-          normalizeUnit={normalizeUnit}
-        />
+  scales={fichaEditando.escalas}
+  onChange={(escalasAtualizadas) =>
+    setFichaEditando((prev) =>
+      prev ? { ...prev, escalas: escalasAtualizadas } : prev
+    )
+  }
+  uid={uid}
+  toNumber={toNumber}
+  normalizeUnit={normalizeUnit}
+  nome={fichaEditando.nome}
+  ingredientes={fichaEditando.ingredientes}
+  rendimento={fichaEditando.rendimento}
+  portionWeight={fichaEditando.pesoPorcao}
+  portionWeightUnit={fichaEditando.portionWeightUnit}
+  prepTimeMinutes={fichaEditando.tempoPreparo}
+  temperatureCelsius={fichaEditando.temperatureCelsius}
+  cookingTimeMinutes={fichaEditando.cookingTimeMinutes}
+  cookingFactorGrams={fichaEditando.cookingFactorGrams}
+  correctionFactorGrams={fichaEditando.correctionFactorGrams}
+  difficultyLevel={fichaEditando.difficultyLevel}
+  preparationMethod={fichaEditando.modoPreparo}
+  storageInstructions={fichaEditando.storageInstructions}
+  shelfLifeFrozen={fichaEditando.shelfLifeFrozen}
+  shelfLifeRefrigerated={fichaEditando.shelfLifeRefrigerated}
+  shelfLifeRoomTemp={fichaEditando.shelfLifeRoomTemp}
+  allergens={fichaEditando.allergens}
+  sourceUpdatedAt={fichaEditando.sourceUpdatedAt}
+  yieldLabel={fichaEditando.yieldLabel}
+/>
 
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button

@@ -2916,12 +2916,13 @@ const convertedBlob = await heic2any({
             Cancelar
           </Button>
           <Button
-            type="button"
-            onClick={salvarEdicaoFicha}
-            disabled={isPending}
-          >
-            {isPending ? "Salvando..." : "Salvar alterações"}
-          </Button>
+          type="button"
+          onClick={salvarEdicaoFicha}
+          disabled={isPending}
+          className="bg-emerald-600 text-white font-semibold shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {isPending ? "Salvando..." : "Salvar alterações"}
+        </Button>
         </div>
       </div>
     ) : null}

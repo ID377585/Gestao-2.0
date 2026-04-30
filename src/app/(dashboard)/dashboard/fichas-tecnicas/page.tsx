@@ -2126,321 +2126,325 @@ const convertedBlob = await heic2any({
       </div>
       <Dialog open={showNovaFicha} onOpenChange={setShowNovaFicha}>
   <DialogContent className="max-h-[92vh] overflow-y-auto bg-white text-slate-900 shadow-2xl border border-slate-200 sm:max-w-6xl">
-          <DialogHeader>
-            <DialogTitle>Nova Ficha Técnica</DialogTitle>
-            <DialogDescription>
-              Cadastre uma nova ficha técnica sem alterar o restante da página.
-            </DialogDescription>
-          </DialogHeader>
+    <DialogHeader>
+      <DialogTitle>Nova Ficha Técnica</DialogTitle>
+      <DialogDescription>
+        Cadastre uma nova ficha técnica sem alterar o restante da página.
+      </DialogDescription>
+    </DialogHeader>
 
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="xl:col-span-2">
-                <Label>Nome da receita</Label>
-                <Input
-                  value={nome}
-                  onChange={(e) => setNome(e.target.value)}
-                  placeholder="Ex.: Bolo de Cenoura"
-                />
-              </div>
+    <div className="space-y-6 rounded-xl bg-white text-slate-900">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="xl:col-span-2">
+          <Label>Nome da receita</Label>
+          <Input
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            placeholder="Ex.: Bolo de Cenoura"
+          />
+        </div>
 
-              <div>
-                <Label>Categoria</Label>
-                <Input
-                  value={categoria}
-                  onChange={(e) => setCategoria(e.target.value)}
-                  placeholder="Ex.: Bolos"
-                />
-              </div>
+        <div>
+          <Label>Categoria</Label>
+          <Input
+            value={categoria}
+            onChange={(e) => setCategoria(e.target.value)}
+            placeholder="Ex.: Bolos"
+          />
+        </div>
 
-              <div>
-                <Label>Rendimento</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={rendimento}
-                  onChange={(e) => setRendimento(toNumber(e.target.value, 1))}
-                />
-              </div>
+        <div>
+          <Label>Rendimento</Label>
+          <Input
+            type="number"
+            min={1}
+            value={rendimento}
+            onChange={(e) => setRendimento(toNumber(e.target.value, 1))}
+          />
+        </div>
+      </div>
 
-              <div>
-                <Label>Peso por porção</Label>
-                <Input
-                  type="number"
-                  step="0.001"
-                  value={pesoPorcao}
-                  onChange={(e) => setPesoPorcao(toNumber(e.target.value, 0))}
-                />
-              </div>
+      <IngredientEditor
+        products={products}
+        ingredientes={ingredientes}
+        onChange={setIngredientes}
+        uid={uid}
+        formatCurrency={formatCurrency}
+      />
 
-              <div>
-                <Label>Unidade peso porção</Label>
-                <Input
-                  value={portionWeightUnit}
-                  onChange={(e) =>
-                    setPortionWeightUnit(normalizeUnit(e.target.value, "G"))
-                  }
-                />
-              </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div>
+          <Label>Peso por porção</Label>
+          <Input
+            type="number"
+            step="0.001"
+            value={pesoPorcao}
+            onChange={(e) => setPesoPorcao(toNumber(e.target.value, 0))}
+          />
+        </div>
 
-              <div>
-                <Label>Tempo de preparo (min)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={tempoPreparo}
-                  onChange={(e) => setTempoPreparo(toNumber(e.target.value, 0))}
-                />
-              </div>
+        <div>
+          <Label>Unidade peso porção</Label>
+          <Input
+            value={portionWeightUnit}
+            onChange={(e) =>
+              setPortionWeightUnit(normalizeUnit(e.target.value, "G"))
+            }
+          />
+        </div>
 
-              <div>
-                <Label>CMV alvo (%)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={cmvAlvo}
-                  onChange={(e) => setCmvAlvo(toNumber(e.target.value, 0))}
-                />
-              </div>
+        <div>
+          <Label>Tempo de preparo (min)</Label>
+          <Input
+            type="number"
+            min={0}
+            value={tempoPreparo}
+            onChange={(e) => setTempoPreparo(toNumber(e.target.value, 0))}
+          />
+        </div>
 
-              <div>
-                <Label>Dificuldade</Label>
-                <Input
-                  value={difficultyLevel}
-                  onChange={(e) => setDifficultyLevel(e.target.value)}
-                  placeholder="Ex.: Média"
-                />
-              </div>
+        <div>
+          <Label>CMV alvo (%)</Label>
+          <Input
+            type="number"
+            min={0}
+            value={cmvAlvo}
+            onChange={(e) => setCmvAlvo(toNumber(e.target.value, 0))}
+          />
+        </div>
 
-              <div>
-                <Label>Temperatura (°C)</Label>
-                <Input
-                  type="number"
-                  value={temperatureCelsius}
-                  onChange={(e) =>
-                    setTemperatureCelsius(
-                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
-                    )
-                  }
-                />
-              </div>
+        <div>
+          <Label>Dificuldade</Label>
+          <Input
+            value={difficultyLevel}
+            onChange={(e) => setDifficultyLevel(e.target.value)}
+            placeholder="Ex.: Média"
+          />
+        </div>
 
-              <div>
-                <Label>Tempo de cocção (min)</Label>
-                <Input
-                  type="number"
-                  value={cookingTimeMinutes}
-                  onChange={(e) =>
-                    setCookingTimeMinutes(
-                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
-                    )
-                  }
-                />
-              </div>
+        <div>
+          <Label>Temperatura (°C)</Label>
+          <Input
+            type="number"
+            value={temperatureCelsius}
+            onChange={(e) =>
+              setTemperatureCelsius(
+                e.target.value === "" ? "" : toNumber(e.target.value, 0)
+              )
+            }
+          />
+        </div>
 
-              <div>
-                <Label>Fator de cocção (g)</Label>
-                <Input
-                  type="number"
-                  value={cookingFactorGrams}
-                  onChange={(e) =>
-                    setCookingFactorGrams(
-                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
-                    )
-                  }
-                />
-              </div>
+        <div>
+          <Label>Tempo de cocção (min)</Label>
+          <Input
+            type="number"
+            value={cookingTimeMinutes}
+            onChange={(e) =>
+              setCookingTimeMinutes(
+                e.target.value === "" ? "" : toNumber(e.target.value, 0)
+              )
+            }
+          />
+        </div>
 
-              <div>
-                <Label>Fator de correção (g)</Label>
-                <Input
-                  type="number"
-                  value={correctionFactorGrams}
-                  onChange={(e) =>
-                    setCorrectionFactorGrams(
-                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
-                    )
-                  }
-                />
-              </div>
+        <div>
+          <Label>Fator de cocção (g)</Label>
+          <Input
+            type="number"
+            value={cookingFactorGrams}
+            onChange={(e) =>
+              setCookingFactorGrams(
+                e.target.value === "" ? "" : toNumber(e.target.value, 0)
+              )
+            }
+          />
+        </div>
 
-              <div>
-                <Label>Yield label</Label>
-                <Input
-                  value={yieldLabel}
-                  onChange={(e) => setYieldLabel(e.target.value)}
-                  placeholder="Ex.: 1 assadeira"
-                />
-              </div>
+        <div>
+          <Label>Fator de correção (g)</Label>
+          <Input
+            type="number"
+            value={correctionFactorGrams}
+            onChange={(e) =>
+              setCorrectionFactorGrams(
+                e.target.value === "" ? "" : toNumber(e.target.value, 0)
+              )
+            }
+          />
+        </div>
 
-              <div className="xl:col-span-2">
-                <Label>Armazenamento</Label>
-                <Input
-                  value={storageInstructions}
-                  onChange={(e) => setStorageInstructions(e.target.value)}
-                  placeholder="Ex.: Refrigerado"
-                />
-              </div>
+        <div>
+          <Label>Yield label</Label>
+          <Input
+            value={yieldLabel}
+            onChange={(e) => setYieldLabel(e.target.value)}
+            placeholder="Ex.: 1 assadeira"
+          />
+        </div>
 
-              <div>
-                <Label>Validade congelado</Label>
-                <Input
-                  value={shelfLifeFrozen}
-                  onChange={(e) => setShelfLifeFrozen(e.target.value)}
-                  placeholder="Ex.: 90 dias"
-                />
-              </div>
+        <div className="xl:col-span-2">
+          <Label>Armazenamento</Label>
+          <Input
+            value={storageInstructions}
+            onChange={(e) => setStorageInstructions(e.target.value)}
+            placeholder="Ex.: Refrigerado"
+          />
+        </div>
 
-              <div>
-                <Label>Validade refrigerado</Label>
-                <Input
-                  value={shelfLifeRefrigerated}
-                  onChange={(e) => setShelfLifeRefrigerated(e.target.value)}
-                  placeholder="Ex.: 5 dias"
-                />
-              </div>
+        <div>
+          <Label>Validade congelado</Label>
+          <Input
+            value={shelfLifeFrozen}
+            onChange={(e) => setShelfLifeFrozen(e.target.value)}
+            placeholder="Ex.: 90 dias"
+          />
+        </div>
 
-              <div>
-                <Label>Validade ambiente</Label>
-                <Input
-                  value={shelfLifeRoomTemp}
-                  onChange={(e) => setShelfLifeRoomTemp(e.target.value)}
-                  placeholder="Ex.: 1 dia"
-                />
-              </div>
+        <div>
+          <Label>Validade refrigerado</Label>
+          <Input
+            value={shelfLifeRefrigerated}
+            onChange={(e) => setShelfLifeRefrigerated(e.target.value)}
+            placeholder="Ex.: 5 dias"
+          />
+        </div>
 
-              <div className="xl:col-span-2">
-                <Label>Alergênicos</Label>
-                <Input
-                  value={allergens}
-                  onChange={(e) => setAllergens(e.target.value)}
-                  placeholder="Ex.: Contém leite e ovos"
-                />
-              </div>
+        <div>
+          <Label>Validade ambiente</Label>
+          <Input
+            value={shelfLifeRoomTemp}
+            onChange={(e) => setShelfLifeRoomTemp(e.target.value)}
+            placeholder="Ex.: 1 dia"
+          />
+        </div>
 
-              <div className="xl:col-span-2">
-                <Label>Vídeo (URL)</Label>
-                <Input
-                  value={videoUrl}
-                  onChange={(e) => setVideoUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
+        <div className="xl:col-span-2">
+          <Label>Alergênicos</Label>
+          <Input
+            value={allergens}
+            onChange={(e) => setAllergens(e.target.value)}
+            placeholder="Ex.: Contém leite e ovos"
+          />
+        </div>
 
-              <div>
-                <Label>Atualizada em</Label>
-                <Input
-                  type="date"
-                  value={sourceUpdatedAt}
-                  onChange={(e) => setSourceUpdatedAt(e.target.value)}
-                />
-              </div>
+        <div className="xl:col-span-2">
+          <Label>Vídeo (URL)</Label>
+          <Input
+            value={videoUrl}
+            onChange={(e) => setVideoUrl(e.target.value)}
+            placeholder="https://..."
+          />
+        </div>
 
-              <div className="xl:col-span-4">
-                <Label>Modo de preparo</Label>
-                <Textarea
-                  value={modoPreparo}
-                  onChange={(e) => setModoPreparo(e.target.value)}
-                  placeholder="Descreva o modo de preparo..."
-                  rows={6}
-                />
-              </div>
-            </div>
+        <div>
+          <Label>Atualizada em</Label>
+          <Input
+            type="date"
+            value={sourceUpdatedAt}
+            onChange={(e) => setSourceUpdatedAt(e.target.value)}
+          />
+        </div>
 
-            <div className="space-y-3 rounded-xl border p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h4 className="font-semibold">Imagem do prato</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Envie uma imagem sem alterar a lógica validada de cadastro.
-                  </p>
-                </div>
+        <div className="xl:col-span-4">
+          <Label>Modo de preparo</Label>
+          <Textarea
+            value={modoPreparo}
+            onChange={(e) => setModoPreparo(e.target.value)}
+            placeholder="Descreva o modo de preparo..."
+            rows={6}
+          />
+        </div>
+      </div>
 
-                <div className="flex flex-wrap gap-2">
-                  <input
-                    ref={newImageInputRef}
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
-                    className="hidden"
-                    onChange={handleNewImageSelected}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => newImageInputRef.current?.click()}
-                    disabled={uploadingImage}
-                  >
-                    {uploadingImage ? "Enviando imagem..." : "Enviar imagem"}
-                  </Button>
-
-                  {imageUrl ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => {
-                        setImageUrl(null);
-                        setImagePath(null);
-                      }}
-                    >
-                      Remover imagem
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-
-              {imageUrl ? (
-                <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
-                  <Image
-                    src={imageUrl}
-                    alt="Pré-visualização da receita"
-                    fill
-                    className="object-cover"
-                    unoptimized
-                  />
-                </div>
-              ) : (
-                <div className="flex h-40 items-center justify-center rounded-xl border border-dashed bg-slate-50 text-sm text-muted-foreground">
-                  Nenhuma imagem selecionada
-                </div>
-              )}
-            </div>
-
-            <IngredientEditor
-              products={products}
-              ingredientes={ingredientes}
-              onChange={setIngredientes}
-              uid={uid}
-              formatCurrency={formatCurrency}
-            />
-
-            <ScaleEditor
-              scales={escalas}
-              onChange={setEscalas}
-              uid={uid}
-              toNumber={toNumber}
-              normalizeUnit={normalizeUnit}
-            />
-
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowNovaFicha(false)}
-                disabled={isPending}
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="button"
-                onClick={salvarNovaFicha}
-                disabled={isPending}
-              >
-                {isPending ? "Salvando..." : "Salvar ficha técnica"}
-              </Button>
-            </div>
+      <div className="space-y-3 rounded-xl border p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h4 className="font-semibold">Imagem do prato</h4>
+            <p className="text-sm text-muted-foreground">
+              Envie uma imagem sem alterar a lógica validada de cadastro.
+            </p>
           </div>
-        </DialogContent>
-      </Dialog>
+
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={newImageInputRef}
+              type="file"
+              accept=".jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
+              className="hidden"
+              onChange={handleNewImageSelected}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => newImageInputRef.current?.click()}
+              disabled={uploadingImage}
+            >
+              {uploadingImage ? "Enviando imagem..." : "Enviar imagem"}
+            </Button>
+
+            {imageUrl ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setImageUrl(null);
+                  setImagePath(null);
+                }}
+              >
+                Remover imagem
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {imageUrl ? (
+          <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
+            <Image
+              src={imageUrl}
+              alt="Pré-visualização da receita"
+              fill
+              className="object-cover"
+              unoptimized
+            />
+          </div>
+        ) : (
+          <div className="flex h-40 items-center justify-center rounded-xl border border-dashed bg-slate-50 text-sm text-muted-foreground">
+            Nenhuma imagem selecionada
+          </div>
+        )}
+      </div>
+
+      <ScaleEditor
+        scales={escalas}
+        onChange={setEscalas}
+        uid={uid}
+        toNumber={toNumber}
+        normalizeUnit={normalizeUnit}
+      />
+
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setShowNovaFicha(false)}
+          disabled={isPending}
+        >
+          Cancelar
+        </Button>
+
+        <Button
+          type="button"
+          onClick={salvarNovaFicha}
+          disabled={isPending}
+          className="bg-emerald-600 text-white font-semibold shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {isPending ? "Salvando..." : "Salvar ficha técnica"}
+        </Button>
+      </div>
+    </div>
+  </DialogContent>
+</Dialog>
 
       <Dialog open={showEditarFicha} onOpenChange={setShowEditarFicha}>
   <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl !bg-white !text-slate-900 border border-slate-200 shadow-2xl">

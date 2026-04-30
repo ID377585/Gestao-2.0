@@ -10,6 +10,21 @@ function normalizeAllergenText(value: unknown) {
     .toLowerCase();
 }
 
+function parseProductAllergens(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/[;,|]/g)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
 export function detectAllergens(
   ingredients: Ingrediente[],
   products: ProductOption[] = []
@@ -20,7 +35,15 @@ export function detectAllergens(
   ingredients.forEach((ingredient) => {
     const product = ingredient.productId
       ? productMap.get(ingredient.productId)
-      : null;
+      : products.find(
+          (item) =>
+            item.name.trim().toLowerCase() ===
+            ingredient.nome.trim().toLowerCase()
+        );
+
+    parseProductAllergens(product?.allergens).forEach((item) => {
+      allergens.add(item);
+    });
 
     const text = normalizeAllergenText(
       [
@@ -89,5 +112,5 @@ export function detectAllergens(
     }
   });
 
-  return Array.from(allergens).join(", ");
+  return allergens.size > 0 ? Array.from(allergens).join(", ") : "Não contém";
 }

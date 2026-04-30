@@ -1073,31 +1073,12 @@ export default function FichasTecnicasPage() {
   const [escalas, setEscalas] = useState<EscalaFicha[]>([]);
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const autoAllergens = useMemo(() => {
-  const selected = new Set<string>();
-
-  ingredientes.forEach((ingrediente) => {
-    const product = ingrediente.productId
-      ? products.find((item) => item.id === ingrediente.productId)
-      : products.find(
-          (item) =>
-            item.name.trim().toLowerCase() ===
-            ingrediente.nome.trim().toLowerCase()
-        );
-
-    const allergensList = Array.isArray(product?.allergens)
-      ? product.allergens
-      : product?.allergens
-        ? String(product.allergens)
-            .split(",")
-            .map((item) => item.trim())
-            .filter(Boolean)
-        : [];
-
-    allergensList.forEach((item) => selected.add(item));
-  });
-
-  return selected.size > 0 ? Array.from(selected).join(", ") : "Não contém";
+  return detectAllergens(ingredientes, products);
 }, [ingredientes, products]);
+
+const autoEditAllergens = useMemo(() => {
+  return detectAllergens(fichaEditando?.ingredientes ?? [], products);
+}, [fichaEditando?.ingredientes, products]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [uploadedBy, setUploadedBy] = useState("");
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -1604,7 +1585,7 @@ const convertedBlob = await heic2any({
       shelfLifeFrozen: fichaEditando.shelfLifeFrozen,
       shelfLifeRefrigerated: fichaEditando.shelfLifeRefrigerated,
       shelfLifeRoomTemp: fichaEditando.shelfLifeRoomTemp,
-      allergens: fichaEditando.allergens,
+      allergens: autoEditAllergens,
       sourceUpdatedAt: fichaEditando.sourceUpdatedAt,
       importOrigin: fichaEditando.importOrigin,
       sourceFileName: fichaEditando.sourceFileName,
@@ -2480,7 +2461,7 @@ const convertedBlob = await heic2any({
   shelfLifeFrozen={shelfLifeFrozen}
   shelfLifeRefrigerated={shelfLifeRefrigerated}
   shelfLifeRoomTemp={shelfLifeRoomTemp}
-  allergens={allergens}
+  allergens={autoAllergens}
   sourceUpdatedAt={sourceUpdatedAt}
   yieldLabel={yieldLabel}
 />
@@ -2967,7 +2948,7 @@ const convertedBlob = await heic2any({
   shelfLifeFrozen={fichaEditando.shelfLifeFrozen}
   shelfLifeRefrigerated={fichaEditando.shelfLifeRefrigerated}
   shelfLifeRoomTemp={fichaEditando.shelfLifeRoomTemp}
-  allergens={fichaEditando.allergens}
+  allergens={autoEditAllergens}
   sourceUpdatedAt={fichaEditando.sourceUpdatedAt}
   yieldLabel={fichaEditando.yieldLabel}
 />

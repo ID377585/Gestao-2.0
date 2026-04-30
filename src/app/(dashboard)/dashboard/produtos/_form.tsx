@@ -2,6 +2,10 @@
 
 import { useTransition } from "react";
 import { createProduct, updateProduct } from "./actions";
+import {
+  ALLERGEN_OPTIONS,
+  normalizeAllergenList,
+} from "@/lib/allergens";
 
 type ProductType = "INSU" | "PREP" | "PROD";
 type StorageCategory = "Resfriado" | "Congelado" | "Temp. Ambiente";
@@ -34,6 +38,7 @@ type ProductFormProps = {
 
     // (Opcional) aparece no seu modal
     shelf_life_days?: number | null;
+    allergens?: string[] | string | null;
   };
 };
 
@@ -195,6 +200,25 @@ export function ProductForm({ product }: ProductFormProps) {
         <p className="mt-1 text-xs text-muted-foreground">
           Use isso para identificar o setor responsável (e futuramente usar em Pedidos).
         </p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium">Alergênico</label>
+        <div className="mt-2 grid grid-cols-1 gap-2 rounded border px-3 py-2 sm:grid-cols-2">
+          {ALLERGEN_OPTIONS.map((item) => (
+            <label key={item} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="allergens"
+                value={item}
+                defaultChecked={normalizeAllergenList(
+                  product?.allergens,
+                ).includes(item)}
+              />
+              <span>{item}</span>
+            </label>
+          ))}
+        </div>
       </div>
 
       {/* (Opcional) Shelf life */}

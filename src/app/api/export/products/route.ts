@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { normalizeAllergenList } from "@/lib/allergens";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +44,7 @@ type ProductExportRow = {
   shelf_life_days: number | string | null;
   price: number | string | null;
   conversion_factor: number | string | null;
+  allergens: string[] | string | null;
   is_active: boolean | null;
 };
 
@@ -177,6 +179,7 @@ export async function GET(_request: Request) {
       "shelf_life_days",
       "price",
       "conversion_factor",
+      "allergens",
       "is_active",
     ].join(", ");
 
@@ -212,6 +215,7 @@ export async function GET(_request: Request) {
       "shelf_life_days",
       "price",
       "conversion_factor",
+      "allergens",
       "is_active",
     ];
 
@@ -254,6 +258,7 @@ export async function GET(_request: Request) {
         p.sector_category !== null && p.sector_category !== undefined
           ? String(p.sector_category)
           : "";
+      const allergensText = normalizeAllergenList(p.allergens).join(", ");
 
       const row = [
         csvField(p.id ?? ""),
@@ -270,6 +275,7 @@ export async function GET(_request: Request) {
         csvField(shelfLifeFormatted),
         csvField(priceFormatted),
         csvField(conversionFormatted),
+        csvField(allergensText),
         csvField(p.is_active ? 1 : 0),
       ];
 

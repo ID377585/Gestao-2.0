@@ -12,6 +12,8 @@ type FichaTecnica = {
   rendimento: number;
   custoTotal: number;
   custoPorPorcao: number;
+  cmvAlvo: number;
+  precoVenda: number;
   ativo: boolean;
 };
 
@@ -39,6 +41,11 @@ function getBarWidth(value: number, max: number) {
   return `${Math.max(8, Math.round((value / max) * 100))}%`;
 }
 
+function calcularCMV(custoPorPorcao: number, precoVenda: number) {
+  if (!precoVenda || precoVenda <= 0) return 0;
+  return (custoPorPorcao / precoVenda) * 100;
+}
+
 export default function EngenhariaDashboardPage() {
   const [fichas, setFichas] = useState<FichaTecnica[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,24 +59,30 @@ export default function EngenhariaDashboardPage() {
       const fichasRes = await listTechnicalSheets();
 
       setFichas(
-  (fichasRes ?? []).map((item: any) => {
-    const rendimento = Number(item.yield_portions ?? 0);
-    const custoTotal = Number(item.total_cost ?? 0);
-    const custoPorPorcao =
-      rendimento > 0 ? custoTotal / rendimento : custoTotal;
+        (fichasRes ?? []).map((item: any) => {
+          const rendimento = Number(item.yield_portions ?? 0);
+          const custoTotal = Number(item.total_cost ?? 0);
+          const custoPorPorcao =
+            Number(item.cost_per_portion ?? 0) > 0
+              ? Number(item.cost_per_portion ?? 0)
+              : rendimento > 0
+                ? custoTotal / rendimento
+                : custoTotal;
 
-    return {
-      id: String(item.id),
-      nome: String(item.name ?? ""),
-      categoria: String(item.category ?? "").trim(),
-      setor: normalizeSector(String(item.sector ?? "")),
-      rendimento,
-      custoTotal,
-      custoPorPorcao,
-      ativo: item.active !== false,
-    };
-  })
-);
+          return {
+            id: String(item.id),
+            nome: String(item.name ?? ""),
+            categoria: String(item.category ?? "").trim(),
+            setor: normalizeSector(String(item.sector ?? "")),
+            rendimento,
+            custoTotal,
+            custoPorPorcao,
+            cmvAlvo: Number(item.profit_margin_percent ?? 0),
+            precoVenda: Number(item.sale_price ?? 0),
+            ativo: item.active !== false,
+          };
+        })
+      );
     } catch (err) {
       console.error("Erro ao carregar dashboard de engenharia:", err);
       setError("Não foi possível carregar o dashboard de engenharia.");
@@ -109,12 +122,27 @@ export default function EngenhariaDashboardPage() {
 
     const semCusto = fichasAtivas.filter((item) => item.custoTotal <= 0).length;
 
+    const cmvMedio =
+      total > 0
+        ? fichasAtivas.reduce(
+            (sum, item) => sum + calcularCMV(item.custoPorPorcao, item.precoVenda),
+            0
+          ) / total
+        : 0;
+
+    const cmvAlvoMedio =
+      total > 0
+        ? fichasAtivas.reduce((sum, item) => sum + item.cmvAlvo, 0) / total
+        : 0;
+
     return {
       total,
       custoTotalMedio,
       custoPorPorcaoMedio,
       semRendimento,
       semCusto,
+      cmvMedio,
+      cmvAlvoMedio,
     };
   }, [fichasAtivas]);
 
@@ -143,44 +171,44 @@ export default function EngenhariaDashboardPage() {
   }, [fichasAtivas]);
 
   const porSetor = useMemo(() => {
-  const grouped = fichasAtivas.reduce<Record<string, number>>((acc, item) => {
-    const key = normalizeSector(item.setor);
-    acc[key] = (acc[key] ?? 0) + 1;
-    return acc;
-  }, {});
+    const grouped = fichasAtivas.reduce<Record<string, number>>((acc, item) => {
+      const key = normalizeSector(item.setor);
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
 
-  return Object.entries(grouped)
-    .map(([setor, quantidade]) => ({ setor, quantidade }))
-    .sort((a, b) => b.quantidade - a.quantidade);
-}, [fichasAtivas]);
+    return Object.entries(grouped)
+      .map(([setor, quantidade]) => ({ setor, quantidade }))
+      .sort((a, b) => b.quantidade - a.quantidade);
+  }, [fichasAtivas]);
 
   const custoPorSetor = useMemo(() => {
-  const grouped = fichasAtivas.reduce<
-    Record<string, { quantidade: number; custoTotal: number; custoPorPorcao: number }>
-  >((acc, item) => {
-    const key = normalizeSector(item.setor);
+    const grouped = fichasAtivas.reduce<
+      Record<string, { quantidade: number; custoTotal: number; custoPorPorcao: number }>
+    >((acc, item) => {
+      const key = normalizeSector(item.setor);
 
-    if (!acc[key]) {
-      acc[key] = { quantidade: 0, custoTotal: 0, custoPorPorcao: 0 };
-    }
+      if (!acc[key]) {
+        acc[key] = { quantidade: 0, custoTotal: 0, custoPorPorcao: 0 };
+      }
 
-    acc[key].quantidade += 1;
-    acc[key].custoTotal += item.custoTotal;
-    acc[key].custoPorPorcao += item.custoPorPorcao;
+      acc[key].quantidade += 1;
+      acc[key].custoTotal += item.custoTotal;
+      acc[key].custoPorPorcao += item.custoPorPorcao;
 
-    return acc;
-  }, {});
+      return acc;
+    }, {});
 
-  return Object.entries(grouped)
-    .map(([setor, data]) => ({
-      setor,
-      quantidade: data.quantidade,
-      custoTotalMedio: data.quantidade > 0 ? data.custoTotal / data.quantidade : 0,
-      custoPorPorcaoMedio:
-        data.quantidade > 0 ? data.custoPorPorcao / data.quantidade : 0,
-    }))
-    .sort((a, b) => b.custoTotalMedio - a.custoTotalMedio);
-}, [fichasAtivas]);
+    return Object.entries(grouped)
+      .map(([setor, data]) => ({
+        setor,
+        quantidade: data.quantidade,
+        custoTotalMedio: data.quantidade > 0 ? data.custoTotal / data.quantidade : 0,
+        custoPorPorcaoMedio:
+          data.quantidade > 0 ? data.custoPorPorcao / data.quantidade : 0,
+      }))
+      .sort((a, b) => b.custoTotalMedio - a.custoTotalMedio);
+  }, [fichasAtivas]);
 
   const maxSetorQuantidade = Math.max(...porSetor.map((item) => item.quantidade), 0);
   const maxCustoSetor = Math.max(
@@ -204,12 +232,6 @@ export default function EngenhariaDashboardPage() {
             className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white"
           >
             Fichas técnicas
-          </Link>
-          <Link
-            href="/dashboard/etiquetas"
-            className="rounded-xl border px-4 py-2 text-sm font-medium hover:bg-gray-50"
-          >
-            Etiquetas
           </Link>
         </div>
       </div>
@@ -264,6 +286,40 @@ export default function EngenhariaDashboardPage() {
             </div>
           </div>
 
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+              <div className="text-sm text-gray-500">Total de Receitas</div>
+              <div className="mt-2 text-2xl font-bold">{metrics.total}</div>
+              <p className="mt-1 text-xs text-gray-500">Receitas cadastradas</p>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+              <div className="text-sm text-gray-500">Custo Médio</div>
+              <div className="mt-2 text-2xl font-bold">
+                {formatMoney(metrics.custoPorPorcaoMedio)}
+              </div>
+              <p className="mt-1 text-xs text-gray-500">Por porção</p>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+              <div className="text-sm text-gray-500">CMV Médio</div>
+              <div className="mt-2 text-2xl font-bold">
+                {formatNumber(metrics.cmvMedio, 1)}%
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Custo da mercadoria vendida
+              </p>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+              <div className="text-sm text-gray-500">CMV Alvo Médio</div>
+              <div className="mt-2 text-2xl font-bold">
+                {formatNumber(metrics.cmvAlvoMedio, 0)}%
+              </div>
+              <p className="mt-1 text-xs text-gray-500">CMV alvo</p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
               <h2 className="mb-4 text-lg font-semibold">Receitas mais caras</h2>
@@ -273,17 +329,14 @@ export default function EngenhariaDashboardPage() {
               ) : (
                 <div className="space-y-3">
                   {topMaisCaras.map((item, index) => (
-                    <div
-                      key={item.id}
-                      className="rounded-xl border px-4 py-3"
-                    >
+                    <div key={item.id} className="rounded-xl border px-4 py-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="font-medium">
                             {index + 1}. {item.nome || "-"}
                           </div>
                           <div className="mt-1 text-xs text-gray-500">
-                            {item.categoria || "Sem setor"} • rendimento{" "}
+                            {item.setor || "Sem setor"} • {item.categoria || "Sem categoria"} • rendimento{" "}
                             {formatNumber(item.rendimento)}
                           </div>
                         </div>
@@ -304,26 +357,21 @@ export default function EngenhariaDashboardPage() {
             </div>
 
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold">
-                Receitas mais vantajosas
-              </h2>
+              <h2 className="mb-4 text-lg font-semibold">Receitas mais vantajosas</h2>
 
               {topMaisVantajosas.length === 0 ? (
                 <p className="text-sm text-gray-500">Nenhuma ficha encontrada.</p>
               ) : (
                 <div className="space-y-3">
                   {topMaisVantajosas.map((item, index) => (
-                    <div
-                      key={item.id}
-                      className="rounded-xl border px-4 py-3"
-                    >
+                    <div key={item.id} className="rounded-xl border px-4 py-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="font-medium">
                             {index + 1}. {item.nome || "-"}
                           </div>
                           <div className="mt-1 text-xs text-gray-500">
-                            {item.categoria || "Sem setor"} • rendimento{" "}
+                            {item.setor || "Sem setor"} • {item.categoria || "Sem categoria"} • rendimento{" "}
                             {formatNumber(item.rendimento)}
                           </div>
                         </div>
@@ -346,9 +394,7 @@ export default function EngenhariaDashboardPage() {
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold">
-                Quantidade de fichas por setor
-              </h2>
+              <h2 className="mb-4 text-lg font-semibold">Quantidade de fichas por setor</h2>
 
               {porSetor.length === 0 ? (
                 <p className="text-sm text-gray-500">Nenhum setor encontrado.</p>
@@ -373,9 +419,7 @@ export default function EngenhariaDashboardPage() {
             </div>
 
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold">
-                Custo médio por setor
-              </h2>
+              <h2 className="mb-4 text-lg font-semibold">Custo médio por setor</h2>
 
               {custoPorSetor.length === 0 ? (
                 <p className="text-sm text-gray-500">Nenhum setor encontrado.</p>
@@ -407,9 +451,7 @@ export default function EngenhariaDashboardPage() {
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold">
-                Fichas que precisam de atenção
-              </h2>
+              <h2 className="mb-4 text-lg font-semibold">Fichas que precisam de atenção</h2>
 
               {fichasAtencao.length === 0 ? (
                 <p className="text-sm text-gray-500">
@@ -418,10 +460,7 @@ export default function EngenhariaDashboardPage() {
               ) : (
                 <div className="space-y-3">
                   {fichasAtencao.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-xl border px-4 py-3"
-                    >
+                    <div key={item.id} className="rounded-xl border px-4 py-3">
                       <div className="font-medium">{item.nome || "-"}</div>
                       <div className="mt-1 text-xs text-gray-500">
                         {item.setor || "Sem setor"} • {item.categoria || "Sem categoria"} • rendimento{" "}
@@ -436,9 +475,7 @@ export default function EngenhariaDashboardPage() {
             </div>
 
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold">
-                Resumo estratégico
-              </h2>
+              <h2 className="mb-4 text-lg font-semibold">Resumo estratégico</h2>
 
               <div className="space-y-4 text-sm text-gray-700">
                 <div className="rounded-xl border p-4">

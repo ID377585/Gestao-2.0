@@ -57,7 +57,7 @@ export default function IngredientEditor({
   );
   const [draftIngredienteId, setDraftIngredienteId] = useState("");
   const [draftIngredienteNome, setDraftIngredienteNome] = useState("");
-  const [draftQuantidadeUso, setDraftQuantidadeUso] = useState<number>(0);
+  const [draftQuantidadeUso, setDraftQuantidadeUso] = useState<number | "">("");
   const [draftUnidadeUso, setDraftUnidadeUso] = useState("UN");
   const [draftPrecoCompra, setDraftPrecoCompra] = useState<number>(0);
   const [draftQuantidadeCompra, setDraftQuantidadeCompra] = useState<number>(1);
@@ -102,7 +102,7 @@ export default function IngredientEditor({
       : draftUnidadeCompra;
 
     return calcularCustoIngrediente({
-      quantidadeUso: draftQuantidadeUso,
+      quantidadeUso: toNumber(draftQuantidadeUso, 0),
       unidadeUso: unidadeUsoPreview,
       precoCompra: snapshot ? snapshot.precoCompra : draftPrecoCompra,
       quantidadeCompra: snapshot ? snapshot.quantidadeCompra : draftQuantidadeCompra,
@@ -173,7 +173,7 @@ export default function IngredientEditor({
     setEditandoIngredienteId(null);
     setDraftIngredienteId("");
     setDraftIngredienteNome("");
-    setDraftQuantidadeUso(0);
+    setDraftQuantidadeUso("");
     setDraftUnidadeUso("UN");
     setDraftPrecoCompra(0);
     setDraftQuantidadeCompra(1);
@@ -420,13 +420,19 @@ export default function IngredientEditor({
                 ) : null}
               </div>
 
-              <div className="md:col-span-2">
+              <div>
                 <Label>Qtd de uso</Label>
                 <Input
                   type="number"
+                  min="0"
                   step="0.001"
-                  value={draftQuantidadeUso}
-                  onChange={(e) => setDraftQuantidadeUso(toNumber(e.target.value, 0))}
+                  placeholder=""
+                  value={draftQuantidadeUso === "" ? "" : draftQuantidadeUso}
+                  onChange={(e) =>
+                    setDraftQuantidadeUso(
+                      e.target.value === "" ? "" : Number(e.target.value)
+                    )
+                  }
                 />
               </div>
 

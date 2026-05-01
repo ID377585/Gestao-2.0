@@ -1902,54 +1902,6 @@ const convertedBlob = await heic2any({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4 xl:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total de Receitas</CardTitle>
-            <span className="text-2xl">📝</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{fichasTecnicas.length}</div>
-            <p className="text-xs text-muted-foreground">Receitas cadastradas</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Custo Médio</CardTitle>
-            <span className="text-2xl">💰</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(custoMedio)}</div>
-            <p className="text-xs text-muted-foreground">Por porção</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">CMV Médio</CardTitle>
-            <span className="text-2xl">📉</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{cmvMedio.toFixed(1)}%</div>
-            <p className="text-xs text-muted-foreground">
-              Custo da mercadoria vendida
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">CMV Alvo Médio</CardTitle>
-            <span className="text-2xl">📈</span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{cmvAlvoMedio.toFixed(0)}%</div>
-            <p className="text-xs text-muted-foreground">CMV alvo</p>
-          </CardContent>
-        </Card>
-      </div>
-
       <div className="space-y-6">
         <Card>
           <CardHeader className="space-y-4">

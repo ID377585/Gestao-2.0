@@ -45,9 +45,14 @@ export function normalizeProductSectorCategory(
 export function isProductSectorConstraintError(error: unknown) {
   const err = error as { code?: string; message?: string; details?: string };
   const text = `${err?.message ?? ""} ${err?.details ?? ""}`;
+  const normalizedText = text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 
   return (
     err?.code === "23514" &&
-    /products_sector_category_check|sector_category/i.test(text)
+    /products_sector_category_check|verificacao_categoria_setor_produ|categoria_setor|sector_category/i.test(
+      normalizedText,
+    )
   );
 }

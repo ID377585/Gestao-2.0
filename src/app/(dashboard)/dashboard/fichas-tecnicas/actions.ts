@@ -66,6 +66,7 @@ export type TechnicalSheetInput = {
   shelf_life_frozen?: string | null;
   shelf_life_refrigerated?: string | null;
   shelf_life_room_temp?: string | null;
+  sector?: string | null;
   allergens?: string | null;
   source_updated_at?: string | null;
   import_origin?: string | null;
@@ -1135,6 +1136,7 @@ export async function listTechnicalSheets() {
       shelf_life_frozen,
       shelf_life_refrigerated,
       shelf_life_room_temp,
+      sector,
       allergens,
       source_updated_at,
       import_origin,
@@ -1230,6 +1232,7 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
       shelf_life_frozen: input.shelf_life_frozen?.trim() || null,
       shelf_life_refrigerated: input.shelf_life_refrigerated?.trim() || null,
       shelf_life_room_temp: input.shelf_life_room_temp?.trim() || null,
+      sector: input.sector?.trim() || null,
       allergens: catalogAllergens,
       source_updated_at: input.source_updated_at || null,
       import_origin: input.import_origin?.trim() || null,
@@ -1338,6 +1341,7 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
       shelf_life_frozen: input.shelf_life_frozen?.trim() || null,
       shelf_life_refrigerated: input.shelf_life_refrigerated?.trim() || null,
       shelf_life_room_temp: input.shelf_life_room_temp?.trim() || null,
+      sector: input.sector?.trim() || null,
       allergens: catalogAllergens,
       source_updated_at: input.source_updated_at || null,
       import_origin: input.import_origin?.trim() || null,

@@ -91,7 +91,6 @@ type FichaTecnica = {
   modoPreparo: string;
   imageUrl: string | null;
   imagePath: string | null;
-
   difficultyLevel: string | null;
   temperatureCelsius: number | null;
   cookingTimeMinutes: number | null;
@@ -103,6 +102,7 @@ type FichaTecnica = {
   shelfLifeFrozen: string | null;
   shelfLifeRefrigerated: string | null;
   shelfLifeRoomTemp: string | null;
+  setor: string;
   allergens: string | null;
   sourceUpdatedAt: string | null;
   importOrigin: string | null;
@@ -142,6 +142,17 @@ function formatDate(value?: string | null) {
 
 const PORTION_WEIGHT_UNIT_OPTIONS = ["KG", "L", "UNI"];
 const STORAGE_OPTIONS = ["Temp. Ambiente", "Resfriado", "Congelado"];
+const CATEGORY_OPTIONS = ["Pré-Preparo", "Empratamento"];
+const SECTOR_OPTIONS = [
+  "Produção",
+  "Massaria",
+  "Confeitaria",
+  "Burrataria",
+  "Padaria",
+  "Peixaria",
+  "Bar",
+  "Cozinha",
+];
 
 function getTodayIsoDate() {
   return new Date().toISOString().slice(0, 10);
@@ -242,6 +253,7 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
     shelfLifeRoomTemp: raw.shelf_life_room_temp
       ? String(raw.shelf_life_room_temp)
       : null,
+    setor: String(raw.sector ?? ""),
     allergens: raw.allergens ? String(raw.allergens) : null,
     sourceUpdatedAt: raw.source_updated_at ? String(raw.source_updated_at) : null,
     importOrigin: raw.import_origin ? String(raw.import_origin) : null,
@@ -323,7 +335,6 @@ function toActionPayload(
     preparation_method: ficha.modoPreparo,
     image_url: ficha.imageUrl || null,
     image_path: ficha.imagePath || null,
-
     difficulty_level: ficha.difficultyLevel,
     temperature_celsius: ficha.temperatureCelsius,
     cooking_time_minutes: ficha.cookingTimeMinutes,
@@ -335,6 +346,7 @@ function toActionPayload(
     shelf_life_frozen: ficha.shelfLifeFrozen,
     shelf_life_refrigerated: ficha.shelfLifeRefrigerated,
     shelf_life_room_temp: ficha.shelfLifeRoomTemp,
+    sector: ficha.setor,
     allergens: ficha.allergens,
     source_updated_at: ficha.sourceUpdatedAt,
     import_origin: ficha.importOrigin,
@@ -1068,6 +1080,7 @@ export default function FichasTecnicasPage() {
   const [shelfLifeFrozen, setShelfLifeFrozen] = useState("");
   const [shelfLifeRefrigerated, setShelfLifeRefrigerated] = useState("");
   const [shelfLifeRoomTemp, setShelfLifeRoomTemp] = useState("");
+  const [setor, setSetor] = useState("");
   const [sourceUpdatedAt, setSourceUpdatedAt] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [escalas, setEscalas] = useState<EscalaFicha[]>([]);
@@ -1075,7 +1088,6 @@ export default function FichasTecnicasPage() {
   const autoAllergens = useMemo(() => {
     return detectAllergens(ingredientes, products);
   }, [ingredientes, products]);
-
   const autoEditAllergens = useMemo(() => {
     return detectAllergens(fichaEditando?.ingredientes ?? [], products);
   }, [fichaEditando?.ingredientes, products]);
@@ -1333,6 +1345,7 @@ export default function FichasTecnicasPage() {
     setShelfLifeFrozen("");
     setShelfLifeRefrigerated("");
     setShelfLifeRoomTemp("");
+    setSetor("");
     setVideoUrl("");
     setEscalas([]);
     setIngredientes([]);
@@ -1449,6 +1462,11 @@ const convertedBlob = await heic2any({
       return;
     }
 
+    if (!setor.trim()) {
+      alert("Informe o setor.");
+      return;
+    }
+
     if (rendimento <= 0) {
       alert("Informe um rendimento válido.");
       return;
@@ -1492,11 +1510,11 @@ const convertedBlob = await heic2any({
       shelfLifeFrozen: shelfLifeFrozen.trim() || null,
       shelfLifeRefrigerated: shelfLifeRefrigerated.trim() || null,
       shelfLifeRoomTemp: shelfLifeRoomTemp.trim() || null,
+      setor: setor.trim(),
       importOrigin: null,
       sourceFileName: null,
       sourcePageNumber: null,
       videoUrl: videoUrl.trim() || null,
-
       ingredientes,
       escalas,
     });
@@ -1536,6 +1554,11 @@ const convertedBlob = await heic2any({
 
     if (!fichaEditando.categoria.trim()) {
       alert("Informe a categoria.");
+      return;
+    }
+
+    if (!fichaEditando.setor.trim()) {
+      alert("Informe o setor.");
       return;
     }
 
@@ -1580,6 +1603,7 @@ const convertedBlob = await heic2any({
       shelfLifeFrozen: fichaEditando.shelfLifeFrozen,
       shelfLifeRefrigerated: fichaEditando.shelfLifeRefrigerated,
       shelfLifeRoomTemp: fichaEditando.shelfLifeRoomTemp,
+      setor: fichaEditando.setor,
       allergens: autoEditAllergens,
       sourceUpdatedAt: fichaEditando.sourceUpdatedAt,
       importOrigin: fichaEditando.importOrigin,
@@ -2152,11 +2176,18 @@ const convertedBlob = await heic2any({
 
         <div>
           <Label>Categoria</Label>
-          <Input
+          <select
+            className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             value={categoria}
             onChange={(e) => setCategoria(e.target.value)}
-            placeholder="Ex.: Bolos"
-          />
+          >
+            <option value="">— Selecione —</option>
+            {CATEGORY_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>
@@ -2328,6 +2359,22 @@ const convertedBlob = await heic2any({
             onChange={(e) => setShelfLifeRoomTemp(e.target.value)}
             placeholder="Ex.: 1 dia"
           />
+        </div>
+
+        <div>
+        <Label>Setor</Label>
+        <select
+          className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          value={setor}
+          onChange={(e) => setSetor(e.target.value)}
+        >
+        <option value="">— Selecione —</option>
+            {SECTOR_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="xl:col-span-2">
@@ -2511,15 +2558,22 @@ const convertedBlob = await heic2any({
 
           <div>
             <Label>Categoria</Label>
-            <Input
+            <select
+              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={fichaEditando.categoria}
               onChange={(e) =>
                 setFichaEditando((prev) =>
                   prev ? { ...prev, categoria: e.target.value } : prev
                 )
               }
-              placeholder="Ex.: Bolos"
-            />
+            >
+              <option value="">— Selecione —</option>
+              {CATEGORY_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -2817,6 +2871,26 @@ const convertedBlob = await heic2any({
               placeholder="Ex.: 1 dia"
             />
           </div>
+
+             <div>
+            <Label>Setor</Label>
+            <select
+              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={fichaEditando.setor}
+              onChange={(e) =>
+                setFichaEditando((prev) =>
+                  prev ? { ...prev, setor: e.target.value } : prev
+                )
+              }
+            >
+              <option value="">— Selecione —</option>
+              {SECTOR_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div> 
 
           <div className="xl:col-span-2">
             <Label>Alergênicos</Label>

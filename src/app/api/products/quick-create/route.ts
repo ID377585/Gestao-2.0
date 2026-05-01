@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import {
+  isProductSectorConstraintError,
+  normalizeProductSectorCategory,
+} from "@/lib/product-sectors";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +48,7 @@ export async function POST(req: NextRequest) {
     const sku = normalizeText(body.sku) || null;
     const defaultUnitLabel = normalizeUnit(body.default_unit_label);
     const category = normalizeText(body.category) || null;
-    const sectorCategory = normalizeText(body.sector_category) || null;
+    const sectorCategory = normalizeProductSectorCategory(body.sector_category);
     const price = toNumber(body.price, 0);
     const standardCost = toNumber(body.standard_cost, 0);
 
@@ -52,20 +56,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Nome do produto é obrigatório." }, { status: 400 });
     }
 
-    const { data, error } = await supabase
+    const insertPayload = {
+      establishment_id: establishmentId,
+      name,
+      sku,
+      default_unit_label: defaultUnitLabel,
+      category,
+      sector_category: sectorCategory,
+      price,
+      standard_cost: standardCost,
+      created_by: user.id,
+      is_active: true,
+    };
+
+    let { data, error } = await supabase
       .from("products")
-      .insert({
-        establishment_id: establishmentId,
-        name,
-        sku,
-        default_unit_label: defaultUnitLabel,
-        category,
-        sector_category: sectorCategory,
-        price,
-        standard_cost: standardCost,
-        created_by: user.id,
-        is_active: true,
-      })
+      .insert(insertPayload)
       .select(`
         id,
         name,
@@ -78,6 +84,27 @@ export async function POST(req: NextRequest) {
         shelf_life_days
       `)
       .single();
+
+    if (isProductSectorConstraintError(error) && insertPayload.sector_category) {
+      ({ data, error } = await supabase
+        .from("products")
+        .insert({
+          ...insertPayload,
+          sector_category: null,
+        })
+        .select(`
+          id,
+          name,
+          sku,
+          default_unit_label,
+          price,
+          standard_cost,
+          category,
+          sector_category,
+          shelf_life_days
+        `)
+        .single());
+    }
 
     if (error || !data) {
       console.error("Erro ao criar produto rapidamente:", error);

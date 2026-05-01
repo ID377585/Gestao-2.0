@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { normalizeAllergenList } from "@/lib/allergens";
+import {
+  PRODUCT_SECTOR_CATEGORIES,
+  normalizeProductSectorCategory,
+} from "@/lib/product-sectors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,21 +63,6 @@ function normalizeUnitCsv(
   const raw = String(value ?? "").trim().toUpperCase();
   return UNIT_ALIASES[raw] ?? "UN";
 }
-
-const SECTOR_CATEGORIES_FALLBACK = [
-  "Confeitaria",
-  "Padaria",
-  "Açougue",
-  "Produção",
-  "Massaria",
-  "Burrataria",
-  "Secos",
-  "Embalagens",
-  "Hortifruti",
-  "Produto de Limpeza",
-  "Descartáveis",
-  "Bebidas",
-] as const;
 
 function cleanTextFromExcel(value: string) {
   return value.replace(/\u00A0/g, " ").trim();
@@ -187,7 +176,7 @@ async function loadAllowedSectorCategoriesFromDb(
 
   if (error) {
     console.error("[import.products] load sector_category from db error:", error);
-    return [...SECTOR_CATEGORIES_FALLBACK];
+    return [...PRODUCT_SECTOR_CATEGORIES];
   }
 
   const set = new Set<string>();
@@ -198,7 +187,7 @@ async function loadAllowedSectorCategoriesFromDb(
     if (v) set.add(v);
   }
 
-  if (set.size === 0) return [...SECTOR_CATEGORIES_FALLBACK];
+  if (set.size === 0) return [...PRODUCT_SECTOR_CATEGORIES];
 
   return Array.from(set.values());
 }
@@ -207,6 +196,9 @@ function normalizeSectorCategoryWithAllowed(
   value: string | null | undefined,
   allowed: string[],
 ): string | null {
+  const normalized = normalizeProductSectorCategory(value);
+  if (normalized) return normalized;
+
   const raw = cleanTextFromExcel(String(value ?? ""));
   if (!raw) return null;
 

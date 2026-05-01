@@ -6,6 +6,10 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { normalizeAllergenList } from "@/lib/allergens";
+import {
+  isProductSectorConstraintError,
+  normalizeProductSectorCategory,
+} from "@/lib/product-sectors";
 
 export type ProductType = "INSU" | "PREP" | "PROD";
 
@@ -286,6 +290,8 @@ export async function createProduct(formData: FormData) {
       : null;
 
   const sector_category = normalizeText(sectorCategoryRaw);
+  const normalizedSectorCategory =
+    normalizeProductSectorCategory(sector_category);
 
   const insertData: any = {
     establishment_id: establishmentId,
@@ -297,7 +303,7 @@ export async function createProduct(formData: FormData) {
     package_qty: package_qty ?? null,
     qty_per_package,
     category,
-    sector_category,
+    sector_category: normalizedSectorCategory,
     shelf_life_days,
     conversion_factor: conversion_factor ?? 1,
     price: price ?? 0,
@@ -307,11 +313,33 @@ export async function createProduct(formData: FormData) {
     ...(userId ? { created_by: userId } : {}),
   };
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("products")
     .insert(insertData)
     .select("id")
     .maybeSingle();
+
+  if (isProductSectorConstraintError(error) && insertData.sector_category) {
+    console.warn(
+      "[products.create] sector_category rejected by database; retrying without sector",
+      safeJson({ sector_category: insertData.sector_category, sku, name }),
+    );
+
+    const retryData = {
+      ...insertData,
+      sector_category: null,
+    };
+
+    ({ data, error } = await supabase
+      .from("products")
+      .insert(retryData)
+      .select("id")
+      .maybeSingle());
+
+    if (!error) {
+      insertData.sector_category = null;
+    }
+  }
 
   if (error) {
     console.error(
@@ -348,7 +376,7 @@ export async function createProduct(formData: FormData) {
       userId,
       sku,
       brand,
-      sector_category,
+      sector_category: insertData.sector_category,
       shelf_life_days,
     }),
   );
@@ -405,6 +433,8 @@ export async function updateProduct(formData: FormData) {
 
   const is_active = parseBoolean(isActiveRaw);
   const sector_category = normalizeText(sectorCategoryRaw);
+  const normalizedSectorCategory =
+    normalizeProductSectorCategory(sector_category);
 
   const updateData: any = {
     name,
@@ -415,7 +445,7 @@ export async function updateProduct(formData: FormData) {
     package_qty: package_qty ?? null,
     qty_per_package,
     category,
-    sector_category,
+    sector_category: normalizedSectorCategory,
     shelf_life_days,
     price: price ?? 0,
     conversion_factor: conversion_factor ?? 1,
@@ -429,12 +459,35 @@ export async function updateProduct(formData: FormData) {
       : {}),
   };
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("products")
     .update(updateData)
     .eq("id", id)
     .select("id")
     .maybeSingle();
+
+  if (isProductSectorConstraintError(error) && updateData.sector_category) {
+    console.warn(
+      "[products.update] sector_category rejected by database; retrying without sector",
+      safeJson({ id, sector_category: updateData.sector_category, sku, name }),
+    );
+
+    const retryData = {
+      ...updateData,
+      sector_category: null,
+    };
+
+    ({ data, error } = await supabase
+      .from("products")
+      .update(retryData)
+      .eq("id", id)
+      .select("id")
+      .maybeSingle());
+
+    if (!error) {
+      updateData.sector_category = null;
+    }
+  }
 
   if (error) {
     console.error(
@@ -477,7 +530,7 @@ export async function updateProduct(formData: FormData) {
       establishmentId,
       userId,
       brand,
-      sector_category,
+      sector_category: updateData.sector_category,
       shelf_life_days,
     }),
   );

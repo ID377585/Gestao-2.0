@@ -6,6 +6,10 @@ import {
   ALLERGEN_OPTIONS,
   normalizeAllergenList,
 } from "@/lib/allergens";
+import {
+  PRODUCT_SECTOR_CATEGORIES,
+  normalizeProductSectorCategory,
+} from "@/lib/product-sectors";
 
 type ProductType = "INSU" | "PREP" | "PROD";
 type StorageCategory = "Resfriado" | "Congelado" | "Temp. Ambiente";
@@ -49,28 +53,6 @@ const STORAGE_CATEGORIES: StorageCategory[] = [
   "Congelado",
   "Temp. Ambiente",
 ];
-
-const SECTOR_CATEGORIES = [
-  "Confeitaria",
-  "Padaria",
-  "Açougue",
-  "Produção",
-  "Massaria",
-  "Burrataria",
-
-  "Hortifruti", // ✅ NOVO
-  "Laticínios",
-  "Pescados",
-  "Frutos do Mar",
-  "Carnes",
-
-  "Secos", // ✅ ALTERADO (antes era “Estoque Secos”)
-
-  "Embalagens",
-  "Produto de Limpeza",
-  "Descartáveis",
-  "Bebidas",
-] as const;
 
 export function ProductForm({ product }: ProductFormProps) {
   const [isPending, startTransition] = useTransition();
@@ -186,11 +168,13 @@ export function ProductForm({ product }: ProductFormProps) {
         <label className="block text-sm font-medium">Setor (Categoria)</label>
         <select
           name="sector_category"
-          defaultValue={product?.sector_category ?? ""}
+          defaultValue={
+            normalizeProductSectorCategory(product?.sector_category) ?? ""
+          }
           className="w-full rounded border px-3 py-2"
         >
           <option value="">— Selecione —</option>
-          {SECTOR_CATEGORIES.map((c) => (
+          {PRODUCT_SECTOR_CATEGORIES.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>

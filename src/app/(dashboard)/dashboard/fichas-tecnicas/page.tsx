@@ -109,10 +109,8 @@ type FichaTecnica = {
   sourceFileName: string | null;
   sourcePageNumber: number | null;
   videoUrl: string | null;
-
   ingredientes: Ingrediente[];
   escalas: EscalaFicha[];
-
   createdAt: string;
   updatedAt: string;
 };
@@ -143,6 +141,7 @@ function formatDate(value?: string | null) {
 const PORTION_WEIGHT_UNIT_OPTIONS = ["KG", "L", "UNI"];
 const STORAGE_OPTIONS = ["Temp. Ambiente", "Resfriado", "Congelado"];
 const CATEGORY_OPTIONS = ["Pré-Preparo", "Empratamento"];
+const DIFFICULTY_OPTIONS = ["Fácil", "Médio", "Difícil"];
 const SECTOR_OPTIONS = [
   "Produção",
   "Massaria",
@@ -219,7 +218,6 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
     modoPreparo: String(raw.preparation_method ?? ""),
     imageUrl: raw.image_url ? String(raw.image_url) : null,
     imagePath: raw.image_path ? String(raw.image_path) : null,
-
     difficultyLevel: raw.difficulty_level ? String(raw.difficulty_level) : null,
     temperatureCelsius:
       raw.temperature_celsius !== null && raw.temperature_celsius !== undefined
@@ -2209,11 +2207,18 @@ const convertedBlob = await heic2any({
 
         <div>
           <Label>Dificuldade</Label>
-          <Input
+          <select
+            className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             value={difficultyLevel}
             onChange={(e) => setDifficultyLevel(e.target.value)}
-            placeholder="Ex.: Média"
-          />
+          >
+            <option value="">— Selecione —</option>
+            {DIFFICULTY_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>
@@ -2636,20 +2641,22 @@ const convertedBlob = await heic2any({
 
           <div>
             <Label>Dificuldade</Label>
-            <Input
-              value={fichaEditando.difficultyLevel || ""}
+            <select
+              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={fichaEditando.difficultyLevel ?? ""}
               onChange={(e) =>
                 setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        difficultyLevel: e.target.value || null,
-                      }
-                    : prev
+                  prev ? { ...prev, difficultyLevel: e.target.value } : prev
                 )
               }
-              placeholder="Ex.: Média"
-            />
+            >
+              <option value="">— Selecione —</option>
+              {DIFFICULTY_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>

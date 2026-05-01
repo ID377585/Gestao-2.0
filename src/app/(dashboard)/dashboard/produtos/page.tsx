@@ -32,27 +32,13 @@ import {
   ALLERGEN_OPTIONS,
   normalizeAllergenList,
 } from "@/lib/allergens";
+import {
+  PRODUCT_SECTOR_CATEGORIES,
+  normalizeProductSectorCategory,
+} from "@/lib/product-sectors";
 
 const UNIT_OPTIONS = ["UN", "KG", "G", "L", "ML"] as const;
 const STORAGE_CATEGORIES = ["Resfriado", "Congelado", "Temp. Ambiente"] as const;
-
-const SECTOR_CATEGORIES = [
-  "Confeitaria",
-  "Padaria",
-  "Açougue",
-  "Produção",
-  "Massaria",
-  "Burrataria",
-  "Secos",
-  "Embalagens",
-  "Hortifruti",
-  "Produto de Limpeza",
-  "Descartáveis",
-  "Bebidas",
-  "Laticínios",
-  "Frutos do Mar",
-  "Peixaria",
-] as const;
 
 type ProductRow = {
   id: string;
@@ -134,7 +120,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
     console.error("Erro ao carregar produtos:", error);
   }
 
-  const sectorCounts = SECTOR_CATEGORIES.map((sector) => {
+  const sectorCounts = PRODUCT_SECTOR_CATEGORIES.map((sector) => {
     const count = products.filter(
       (p) => (p.sector_category ?? "").trim() === sector,
     ).length;
@@ -379,7 +365,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                       className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="">— Selecione —</option>
-                      {SECTOR_CATEGORIES.map((c) => (
+                      {PRODUCT_SECTOR_CATEGORIES.map((c) => (
                         <option key={c} value={c}>
                           {c}
                         </option>
@@ -826,11 +812,13 @@ export default async function ProductsPage({ searchParams }: PageProps) {
             <select
               id={`sector_category-${product.id}`}
               name="sector_category"
-              defaultValue={product.sector_category ?? ""}
+              defaultValue={
+                normalizeProductSectorCategory(product.sector_category) ?? ""
+              }
               className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="">— Selecione —</option>
-              {SECTOR_CATEGORIES.map((c) => (
+              {PRODUCT_SECTOR_CATEGORIES.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>

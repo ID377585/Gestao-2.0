@@ -220,7 +220,7 @@ export default function EngenhariaDashboardPage() {
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard de Engenharia</h1>
+          <h1 className="text-2xl font-bold">Dados de Engenharia de Cardápio</h1>
           <p className="text-sm text-gray-500">
             Visão executiva das fichas técnicas com foco em custo, rendimento e distribuição por setor.
           </p>

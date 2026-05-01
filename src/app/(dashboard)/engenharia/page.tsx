@@ -8,6 +8,7 @@ type FichaTecnica = {
   id: string;
   nome: string;
   categoria: string;
+  setor: string;
   rendimento: number;
   custoTotal: number;
   custoPorPorcao: number;
@@ -28,7 +29,7 @@ function formatNumber(value: number, fractionDigits = 2) {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
-function normalizeCategory(value: string) {
+function normalizeSector(value: string) {
   const normalized = String(value ?? "").trim();
   return normalized || "Sem setor";
 }
@@ -51,23 +52,24 @@ export default function EngenhariaDashboardPage() {
       const fichasRes = await listTechnicalSheets();
 
       setFichas(
-        (fichasRes ?? []).map((item: any) => {
-          const rendimento = Number(item.yield_portions ?? 0);
-          const custoTotal = Number(item.total_cost ?? 0);
-          const custoPorPorcao =
-            rendimento > 0 ? custoTotal / rendimento : custoTotal;
+  (fichasRes ?? []).map((item: any) => {
+    const rendimento = Number(item.yield_portions ?? 0);
+    const custoTotal = Number(item.total_cost ?? 0);
+    const custoPorPorcao =
+      rendimento > 0 ? custoTotal / rendimento : custoTotal;
 
-          return {
-            id: String(item.id),
-            nome: String(item.name ?? ""),
-            categoria: normalizeCategory(String(item.category ?? "")),
-            rendimento,
-            custoTotal,
-            custoPorPorcao,
-            ativo: item.active !== false,
-          };
-        })
-      );
+    return {
+      id: String(item.id),
+      nome: String(item.name ?? ""),
+      categoria: String(item.category ?? "").trim(),
+      setor: normalizeSector(String(item.sector ?? "")),
+      rendimento,
+      custoTotal,
+      custoPorPorcao,
+      ativo: item.active !== false,
+    };
+  })
+);
     } catch (err) {
       console.error("Erro ao carregar dashboard de engenharia:", err);
       setError("Não foi possível carregar o dashboard de engenharia.");
@@ -141,44 +143,44 @@ export default function EngenhariaDashboardPage() {
   }, [fichasAtivas]);
 
   const porSetor = useMemo(() => {
-    const grouped = fichasAtivas.reduce<Record<string, number>>((acc, item) => {
-      const key = normalizeCategory(item.categoria);
-      acc[key] = (acc[key] ?? 0) + 1;
-      return acc;
-    }, {});
+  const grouped = fichasAtivas.reduce<Record<string, number>>((acc, item) => {
+    const key = normalizeSector(item.setor);
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
 
-    return Object.entries(grouped)
-      .map(([setor, quantidade]) => ({ setor, quantidade }))
-      .sort((a, b) => b.quantidade - a.quantidade);
-  }, [fichasAtivas]);
+  return Object.entries(grouped)
+    .map(([setor, quantidade]) => ({ setor, quantidade }))
+    .sort((a, b) => b.quantidade - a.quantidade);
+}, [fichasAtivas]);
 
   const custoPorSetor = useMemo(() => {
-    const grouped = fichasAtivas.reduce<
-      Record<string, { quantidade: number; custoTotal: number; custoPorPorcao: number }>
-    >((acc, item) => {
-      const key = normalizeCategory(item.categoria);
+  const grouped = fichasAtivas.reduce<
+    Record<string, { quantidade: number; custoTotal: number; custoPorPorcao: number }>
+  >((acc, item) => {
+    const key = normalizeSector(item.setor);
 
-      if (!acc[key]) {
-        acc[key] = { quantidade: 0, custoTotal: 0, custoPorPorcao: 0 };
-      }
+    if (!acc[key]) {
+      acc[key] = { quantidade: 0, custoTotal: 0, custoPorPorcao: 0 };
+    }
 
-      acc[key].quantidade += 1;
-      acc[key].custoTotal += item.custoTotal;
-      acc[key].custoPorPorcao += item.custoPorPorcao;
+    acc[key].quantidade += 1;
+    acc[key].custoTotal += item.custoTotal;
+    acc[key].custoPorPorcao += item.custoPorPorcao;
 
-      return acc;
-    }, {});
+    return acc;
+  }, {});
 
-    return Object.entries(grouped)
-      .map(([setor, data]) => ({
-        setor,
-        quantidade: data.quantidade,
-        custoTotalMedio: data.quantidade > 0 ? data.custoTotal / data.quantidade : 0,
-        custoPorPorcaoMedio:
-          data.quantidade > 0 ? data.custoPorPorcao / data.quantidade : 0,
-      }))
-      .sort((a, b) => b.custoTotalMedio - a.custoTotalMedio);
-  }, [fichasAtivas]);
+  return Object.entries(grouped)
+    .map(([setor, data]) => ({
+      setor,
+      quantidade: data.quantidade,
+      custoTotalMedio: data.quantidade > 0 ? data.custoTotal / data.quantidade : 0,
+      custoPorPorcaoMedio:
+        data.quantidade > 0 ? data.custoPorPorcao / data.quantidade : 0,
+    }))
+    .sort((a, b) => b.custoTotalMedio - a.custoTotalMedio);
+}, [fichasAtivas]);
 
   const maxSetorQuantidade = Math.max(...porSetor.map((item) => item.quantidade), 0);
   const maxCustoSetor = Math.max(
@@ -422,7 +424,7 @@ export default function EngenhariaDashboardPage() {
                     >
                       <div className="font-medium">{item.nome || "-"}</div>
                       <div className="mt-1 text-xs text-gray-500">
-                        {item.categoria || "Sem setor"} • rendimento{" "}
+                        {item.setor || "Sem setor"} • {item.categoria || "Sem categoria"} • rendimento{" "}
                         {formatNumber(item.rendimento)} • custo total{" "}
                         {formatMoney(item.custoTotal)} • custo por porção{" "}
                         {formatMoney(item.custoPorPorcao)}

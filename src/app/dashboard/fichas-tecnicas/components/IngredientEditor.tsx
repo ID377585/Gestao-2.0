@@ -530,6 +530,23 @@ export default function IngredientEditor({
                 >
                   {editandoIngredienteId ? "Salvar ingrediente" : "Adicionar ingrediente"}
               </Button>
+                
+                {editandoIngredienteId ? (
+              <Button
+                type="button"
+                variant="destructive"
+                className="w-full sm:w-auto bg-red-600 text-white font-semibold shadow-md hover:bg-red-700 hover:shadow-lg transition-all duration-200"
+                onClick={() => {
+                  if (!confirm("Deseja realmente excluir este ingrediente da receita?")) return;
+                  removerIngrediente(editandoIngredienteId);
+                  setShowIngredientForm(true);
+                }}
+              >
+                Excluir ingrediente
+              </Button>
+            ) : null}
+
+            {editandoIngredienteId ? "Salvar ingrediente" : "Adicionar ingrediente"}
 
                 {!editandoIngredienteId && ingredientes.length > 0 ? (
                   <Button

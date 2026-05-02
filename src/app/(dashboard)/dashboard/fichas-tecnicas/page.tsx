@@ -59,6 +59,7 @@ import {
 } from "@/app/dashboard/fichas-tecnicas/lib/ingredient-product-matcher";
 import { detectAllergens } from "@/app/dashboard/fichas-tecnicas/utils/allergens";
 import { normalizeAllergenList } from "@/lib/allergens";
+
 type ProductOption = MatcherProductOption;
 type Ingrediente = MatcherIngrediente;
 
@@ -153,6 +154,15 @@ const SECTOR_OPTIONS = [
   "Cozinha",
 ];
 
+const GLASS_PANEL =
+  "border border-white/20 bg-white/12 supports-[backdrop-filter]:bg-white/12 backdrop-blur-xl shadow-[0_10px_40px_rgba(15,23,42,0.18)]";
+const GLASS_PANEL_STRONG =
+  "border border-white/25 bg-white/16 supports-[backdrop-filter]:bg-white/16 backdrop-blur-2xl shadow-[0_12px_48px_rgba(15,23,42,0.22)]";
+const GLASS_INPUT =
+  "border border-white/20 bg-white/70 backdrop-blur-md shadow-sm";
+const GLASS_METRIC =
+  "border border-white/20 bg-white/16 supports-[backdrop-filter]:bg-white/16 backdrop-blur-xl shadow-[0_8px_30px_rgba(15,23,42,0.14)]";
+
 function getTodayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -190,9 +200,9 @@ function calcularCustos(
     rendimento > 0 ? Number((custoTotal / rendimento).toFixed(2)) : 0;
 
   const precoVenda =
-  cmvAlvo > 0 && cmvAlvo < 100
-    ? Number((custoPorPorcao / (cmvAlvo / 100)).toFixed(2))
-    : cmvAlvo >= 100
+    cmvAlvo > 0 && cmvAlvo < 100
+      ? Number((custoPorPorcao / (cmvAlvo / 100)).toFixed(2))
+      : cmvAlvo >= 100
       ? Number((custoPorPorcao * (1 + cmvAlvo / 100)).toFixed(2))
       : 0;
 
@@ -228,8 +238,7 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
         ? Number(raw.cooking_time_minutes)
         : null,
     cookingFactorGrams:
-      raw.cooking_factor_grams !== null &&
-      raw.cooking_factor_grams !== undefined
+      raw.cooking_factor_grams !== null && raw.cooking_factor_grams !== undefined
         ? Number(raw.cooking_factor_grams)
         : null,
     correctionFactorGrams:
@@ -809,7 +818,9 @@ function buildPrintHtml(
 function EscalasViewer({ escalas }: { escalas: EscalaFicha[] }) {
   if (!escalas.length) {
     return (
-      <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+      <div
+        className={`rounded-2xl border border-dashed p-6 text-sm text-slate-600 ${GLASS_PANEL}`}
+      >
         Nenhuma escala cadastrada para esta ficha.
       </div>
     );
@@ -818,11 +829,11 @@ function EscalasViewer({ escalas }: { escalas: EscalaFicha[] }) {
   return (
     <div className="space-y-4">
       {escalas.map((scale) => (
-        <div key={scale.id} className="rounded-xl border p-4">
+        <div key={scale.id} className={`rounded-2xl p-4 ${GLASS_PANEL}`}>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h4 className="text-lg font-semibold">{scale.label}</h4>
-              <p className="text-sm text-muted-foreground">
+              <h4 className="text-lg font-semibold text-slate-900">{scale.label}</h4>
+              <p className="text-sm text-slate-600">
                 Rendimento: {scale.rendimentoDescricao || "—"} • Peso líquido:{" "}
                 {scale.pesoLiquido !== null ? `${scale.pesoLiquido} g` : "—"}
               </p>
@@ -834,10 +845,10 @@ function EscalasViewer({ escalas }: { escalas: EscalaFicha[] }) {
           </div>
 
           {scale.ingredientes.length > 0 ? (
-            <div className="mt-4 overflow-x-auto">
+            <div className="mt-4 overflow-x-auto rounded-2xl border border-white/20 bg-white/60 backdrop-blur-md">
               <Table>
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="border-white/20">
                     <TableHead>Ingrediente</TableHead>
                     <TableHead>Quantidade</TableHead>
                     <TableHead>Unidade</TableHead>
@@ -845,7 +856,7 @@ function EscalasViewer({ escalas }: { escalas: EscalaFicha[] }) {
                 </TableHeader>
                 <TableBody>
                   {scale.ingredientes.map((ing) => (
-                    <TableRow key={ing.id}>
+                    <TableRow key={ing.id} className="border-white/15">
                       <TableCell className="font-medium">{ing.nome}</TableCell>
                       <TableCell>{ing.quantidade}</TableCell>
                       <TableCell>{ing.unidade}</TableCell>
@@ -855,7 +866,7 @@ function EscalasViewer({ escalas }: { escalas: EscalaFicha[] }) {
               </Table>
             </div>
           ) : (
-            <p className="mt-4 text-sm text-muted-foreground">
+            <p className="mt-4 text-sm text-slate-600">
               Sem ingredientes cadastrados nesta escala.
             </p>
           )}
@@ -892,12 +903,14 @@ function RecipeViewerInline({
 }) {
   if (!ficha) {
     return (
-      <Card className="min-h-[520px] border-dashed bg-white text-slate-900">
+      <Card
+        className={`min-h-[520px] border-dashed text-slate-900 ${GLASS_PANEL_STRONG}`}
+      >
         <CardContent className="flex h-full min-h-[520px] items-center justify-center p-8">
           <div className="max-w-md text-center">
             <div className="mb-3 text-4xl">📄</div>
             <h3 className="text-lg font-semibold">Selecione uma ficha técnica</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-2 text-sm text-slate-600">
               Escolha uma ficha na grade abaixo para visualizar ingredientes, modo de
               preparo, escalas, custos, vídeo, impressão, exportação em PDF,
               duplicação, foto do prato e visualização em tela cheia.
@@ -913,9 +926,11 @@ function RecipeViewerInline({
   const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
 
   return (
-    <Card className="overflow-hidden border border-slate-200 bg-white text-slate-900 shadow-sm">
+    <Card
+      className={`overflow-hidden text-slate-900 transition-all duration-500 ${GLASS_PANEL_STRONG}`}
+    >
       {ficha.imageUrl ? (
-        <div className="relative h-[260px] w-full border-b border-slate-200 bg-slate-100 sm:h-[320px]">
+        <div className="relative h-[260px] w-full border-b border-white/20 bg-slate-100 sm:h-[320px]">
           <Image
             src={ficha.imageUrl}
             alt={ficha.nome}
@@ -923,14 +938,15 @@ function RecipeViewerInline({
             className="object-cover"
             unoptimized
           />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/25 via-transparent to-transparent" />
         </div>
       ) : (
-        <div className="flex h-[180px] items-center justify-center border-b border-slate-200 bg-slate-100 text-sm text-slate-700">
+        <div className="flex h-[180px] items-center justify-center border-b border-white/20 bg-white/20 text-sm text-slate-700 backdrop-blur-md">
           Sem imagem do prato
         </div>
       )}
 
-      <div className="border-b border-slate-200 bg-white p-4 text-slate-900 sm:p-6">
+      <div className="border-b border-white/20 bg-white/10 p-4 text-slate-900 backdrop-blur-xl sm:p-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -944,7 +960,7 @@ function RecipeViewerInline({
                 </Badge>
               ) : null}
             </div>
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-2 text-sm text-slate-600">
               Última atualização:{" "}
               {formatDate(ficha.sourceUpdatedAt || ficha.updatedAt)}
             </p>
@@ -955,6 +971,7 @@ function RecipeViewerInline({
               <Button
                 type="button"
                 variant="outline"
+                className="border-white/20 bg-white/40 backdrop-blur-md hover:bg-white/55"
                 onClick={() =>
                   window.open(ficha.videoUrl || "", "_blank", "noopener,noreferrer")
                 }
@@ -963,15 +980,26 @@ function RecipeViewerInline({
               </Button>
             ) : null}
 
-            <Button type="button" variant="outline" onClick={() => onEdit(ficha)}>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-white/20 bg-white/40 backdrop-blur-md hover:bg-white/55"
+              onClick={() => onEdit(ficha)}
+            >
               ✏️ Editar
             </Button>
-            <Button type="button" variant="outline" onClick={() => onPrint(ficha)}>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-white/20 bg-white/40 backdrop-blur-md hover:bg-white/55"
+              onClick={() => onPrint(ficha)}
+            >
               🖨️ Imprimir
             </Button>
             <Button
               type="button"
               variant="outline"
+              className="border-white/20 bg-white/40 backdrop-blur-md hover:bg-white/55"
               onClick={() => onExportPdf(ficha)}
             >
               📄 Exportar PDF
@@ -979,6 +1007,7 @@ function RecipeViewerInline({
             <Button
               type="button"
               variant="outline"
+              className="border-white/20 bg-white/40 backdrop-blur-md hover:bg-white/55"
               onClick={() => onDuplicate(ficha)}
             >
               📑 Duplicar
@@ -986,7 +1015,7 @@ function RecipeViewerInline({
             <Button
               type="button"
               variant="destructive"
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="border border-red-400/40 bg-red-600/90 text-white backdrop-blur-md hover:bg-red-700"
               onClick={() => onDelete(ficha)}
             >
               🗑️ Excluir
@@ -995,42 +1024,249 @@ function RecipeViewerInline({
         </div>
       </div>
 
-      <CardContent className="space-y-6 bg-white p-4 text-slate-900 sm:p-6">
+      <CardContent className="space-y-6 bg-transparent p-4 text-slate-900 sm:p-6">
         <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
             <p className="text-xs text-slate-500">Custo total</p>
             <p className="mt-1 text-2xl font-bold text-red-600">
               {formatCurrency(scaled.custoTotal)}
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
             <p className="text-xs text-slate-500">Custo por porção</p>
             <p className="mt-1 text-2xl font-bold text-slate-900">
               {formatCurrency(ficha.custoPorPorcao)}
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
             <p className="text-xs text-slate-500">Preço de venda</p>
             <p className="mt-1 text-2xl font-bold text-green-600">
               {formatCurrency(ficha.precoVenda)}
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
             <p className="text-xs text-slate-500">CMV</p>
             <p className="mt-1 text-2xl font-bold text-slate-900">
               {cmv.toFixed(1)}%
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
             <p className="text-xs text-slate-500">Lucro unitário</p>
             <p className="mt-1 text-2xl font-bold text-blue-600">
               {formatCurrency(lucro)}
             </p>
           </div>
+        </div>
+
+        <div className={`rounded-2xl p-4 ${GLASS_PANEL}`}>
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">
+                Ajuste de rendimento
+              </h3>
+              <p className="text-sm text-slate-600">
+                Recalcule os ingredientes e o custo total com base no número de
+                porções desejadas.
+              </p>
+            </div>
+
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-end">
+              <div className="sm:min-w-[180px]">
+                <Label htmlFor="desired-servings">Porções desejadas</Label>
+                <Input
+                  id="desired-servings"
+                  type="number"
+                  min={1}
+                  value={desiredServings}
+                  onChange={(e) =>
+                    setDesiredServings(Math.max(1, toNumber(e.target.value, 1)))
+                  }
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="border-white/20 bg-white/45 backdrop-blur-md hover:bg-white/55"
+                onClick={() =>
+                  setDesiredServings(Math.max(1, ficha.rendimento || 1))
+                }
+              >
+                Restaurar rendimento original
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
+              <p className="text-xs text-slate-500">Rendimento original</p>
+              <p className="mt-1 text-xl font-bold text-slate-900">
+                {ficha.rendimento} porções
+              </p>
+            </div>
+
+            <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
+              <p className="text-xs text-slate-500">Fator de escala</p>
+              <p className="mt-1 text-xl font-bold text-violet-700">
+                {scaled.factor.toFixed(2)}x
+              </p>
+            </div>
+
+            <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
+              <p className="text-xs text-slate-500">Novo custo total</p>
+              <p className="mt-1 text-xl font-bold text-rose-600">
+                {formatCurrency(scaled.custoTotal)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className={`rounded-2xl p-4 ${GLASS_PANEL}`}>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant={currentTab === "ingredientes" ? "default" : "outline"}
+              className={
+                currentTab === "ingredientes"
+                  ? "shadow-md"
+                  : "border-white/20 bg-white/40 backdrop-blur-md hover:bg-white/55"
+              }
+              onClick={() => setCurrentTab("ingredientes")}
+            >
+              Ingredientes
+            </Button>
+
+            <Button
+              type="button"
+              variant={currentTab === "preparo" ? "default" : "outline"}
+              className={
+                currentTab === "preparo"
+                  ? "shadow-md"
+                  : "border-white/20 bg-white/40 backdrop-blur-md hover:bg-white/55"
+              }
+              onClick={() => setCurrentTab("preparo")}
+            >
+              Preparo
+            </Button>
+
+            <Button
+              type="button"
+              variant={currentTab === "escalas" ? "default" : "outline"}
+              className={
+                currentTab === "escalas"
+                  ? "shadow-md"
+                  : "border-white/20 bg-white/40 backdrop-blur-md hover:bg-white/55"
+              }
+              onClick={() => setCurrentTab("escalas")}
+            >
+              Escalas
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="ml-auto border-white/20 bg-white/40 backdrop-blur-md hover:bg-white/55"
+              onClick={() => onFullscreen(ficha)}
+            >
+              ⛶ Tela cheia
+            </Button>
+          </div>
+
+          {currentTab === "ingredientes" ? (
+            <div className="overflow-x-auto rounded-2xl border border-white/20 bg-white/60 backdrop-blur-md">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-white/20">
+                    <TableHead>Ingrediente</TableHead>
+                    <TableHead>Qtd. Utilizada</TableHead>
+                    <TableHead>Qtd. Embalagem</TableHead>
+                    <TableHead>Preço compra</TableHead>
+                    <TableHead>Preço qtd utilizada</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {scaled.ingredientes.length > 0 ? (
+                    scaled.ingredientes.map((item) => (
+                      <TableRow key={item.id} className="border-white/15">
+                        <TableCell className="font-medium">{item.nome}</TableCell>
+                        <TableCell>
+                          {item.quantidadeUso} {item.unidadeUso}
+                        </TableCell>
+                        <TableCell>
+                          {item.quantidadeCompra} {item.unidadeCompra}
+                        </TableCell>
+                        <TableCell>{formatCurrency(item.precoCompra)}</TableCell>
+                        <TableCell className="font-semibold text-red-600">
+                          {formatCurrency(item.custoIngrediente)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow className="border-white/15">
+                      <TableCell
+                        colSpan={5}
+                        className="py-8 text-center text-sm text-slate-500"
+                      >
+                        Nenhum ingrediente cadastrado.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          ) : null}
+
+          {currentTab === "preparo" ? (
+            <div className={`rounded-2xl p-5 ${GLASS_METRIC}`}>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <div className="space-y-3 lg:col-span-2">
+                  <div>
+                    <h4 className="font-semibold text-slate-900">Modo de preparo</h4>
+                    <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">
+                      {ficha.modoPreparo || "Não informado."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
+                    <p className="text-xs text-slate-500">Tempo de preparo</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+                      {ficha.tempoPreparo || 0} min
+                    </p>
+                  </div>
+
+                  <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
+                    <p className="text-xs text-slate-500">Peso por porção</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+                      {ficha.pesoPorcao || 0} {ficha.portionWeightUnit || "G"}
+                    </p>
+                  </div>
+
+                  <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
+                    <p className="text-xs text-slate-500">Setor</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+                      {ficha.setor || "—"}
+                    </p>
+                  </div>
+
+                  <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
+                    <p className="text-xs text-slate-500">Armazenamento</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+                      {ficha.storageInstructions || "—"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {currentTab === "escalas" ? <EscalasViewer escalas={ficha.escalas} /> : null}
         </div>
       </CardContent>
     </Card>
@@ -1083,6 +1319,7 @@ export default function FichasTecnicasPage() {
   const [videoUrl, setVideoUrl] = useState("");
   const [escalas, setEscalas] = useState<EscalaFicha[]>([]);
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
+  const [visibleFichaIds, setVisibleFichaIds] = useState<Record<string, boolean>>({});
   const autoAllergens = useMemo(() => {
     return detectAllergens(ingredientes, products);
   }, [ingredientes, products]);
@@ -1094,6 +1331,8 @@ export default function FichasTecnicasPage() {
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
   const editImageInputRef = useRef<HTMLInputElement | null>(null);
   const viewerRef = useRef<HTMLDivElement | null>(null);
+  const fichasGridRef = useRef<HTMLDivElement | null>(null);
+
   const loadCurrentContext = useCallback(async () => {
     try {
       const response = await fetch("/api/user/me", {
@@ -1246,6 +1485,46 @@ export default function FichasTecnicasPage() {
     }
   }, [fichaSelecionada]);
 
+  useEffect(() => {
+    const grid = fichasGridRef.current;
+    if (!grid) return;
+
+    const cards = Array.from(
+      grid.querySelectorAll<HTMLElement>("[data-ficha-card='true']")
+    );
+
+    if (!cards.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setVisibleFichaIds((prev) => {
+          const next = { ...prev };
+          let changed = false;
+
+          entries.forEach((entry) => {
+            const id = entry.target.getAttribute("data-ficha-id");
+            if (!id) return;
+            if (entry.isIntersecting && !next[id]) {
+              next[id] = true;
+              changed = true;
+            }
+          });
+
+          return changed ? next : prev;
+        });
+      },
+      {
+        root: null,
+        threshold: 0.16,
+        rootMargin: "0px 0px -40px 0px",
+      }
+    );
+
+    cards.forEach((card) => observer.observe(card));
+
+    return () => observer.disconnect();
+  }, [fichasFiltradasKey(fichasTecnicas, searchTerm, categoryFilter)]);
+
   const categoriasDisponiveis = useMemo(() => {
     const unique = Array.from(
       new Set(
@@ -1300,12 +1579,12 @@ export default function FichasTecnicasPage() {
   }, [fichasTecnicas]);
 
   const cmvAlvoMedio = useMemo(() => {
-  if (!fichasTecnicas.length) return 0;
-  return (
-    fichasTecnicas.reduce((acc, f) => acc + f.margemLucro, 0) /
-    fichasTecnicas.length
-  );
-}, [fichasTecnicas]);
+    if (!fichasTecnicas.length) return 0;
+    return (
+      fichasTecnicas.reduce((acc, f) => acc + f.margemLucro, 0) /
+      fichasTecnicas.length
+    );
+  }, [fichasTecnicas]);
 
   const handleSelecionarFicha = useCallback((ficha: FichaTecnica) => {
     setFichaSelecionada(ficha);
@@ -1350,42 +1629,42 @@ export default function FichasTecnicasPage() {
   };
 
   async function normalizeImageFileForUpload(file: File) {
-  const extension = file.name.split(".").pop()?.toLowerCase();
-  const isHeic =
-    extension === "heic" ||
-    extension === "heif" ||
-    file.type === "image/heic" ||
-    file.type === "image/heif";
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    const isHeic =
+      extension === "heic" ||
+      extension === "heif" ||
+      file.type === "image/heic" ||
+      file.type === "image/heif";
 
-  const allowedExtensions = ["jpg", "jpeg", "png", "heic", "heif"];
+    const allowedExtensions = ["jpg", "jpeg", "png", "heic", "heif"];
 
-  if (!extension || !allowedExtensions.includes(extension)) {
-    throw new Error("Envie uma imagem nos formatos JPG, JPEG, PNG ou HEIC.");
+    if (!extension || !allowedExtensions.includes(extension)) {
+      throw new Error("Envie uma imagem nos formatos JPG, JPEG, PNG ou HEIC.");
+    }
+
+    if (!isHeic) return file;
+
+    const heic2anyModule = await import("heic2any");
+    const heic2any = heic2anyModule.default;
+
+    const convertedBlob = await heic2any({
+      blob: file,
+      toType: "image/jpeg",
+      quality: 0.92,
+    });
+
+    const jpegBlob = Array.isArray(convertedBlob)
+      ? convertedBlob[0]
+      : convertedBlob;
+
+    return new File(
+      [jpegBlob],
+      file.name.replace(/\.(heic|heif)$/i, ".jpg"),
+      { type: "image/jpeg" }
+    );
   }
 
-  if (!isHeic) return file;
-
-  const heic2anyModule = await import("heic2any");
-const heic2any = heic2anyModule.default;
-
-const convertedBlob = await heic2any({
-  blob: file,
-  toType: "image/jpeg",
-  quality: 0.92,
-});
-
-  const jpegBlob = Array.isArray(convertedBlob)
-    ? convertedBlob[0]
-    : convertedBlob;
-
-  return new File(
-    [jpegBlob],
-    file.name.replace(/\.(heic|heif)$/i, ".jpg"),
-    { type: "image/jpeg" }
-  );
-}
-
-    const handleNewImageSelected = async (
+  const handleNewImageSelected = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = event.target.files?.[0];
@@ -1783,32 +2062,32 @@ const convertedBlob = await heic2any({
   };
 
   const handleImprimirFicha = (ficha: FichaTecnica) => {
-  const html = buildPrintHtml(ficha, desiredServings, viewerTab);
+    const html = buildPrintHtml(ficha, desiredServings, viewerTab);
 
-  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-  const printUrl = URL.createObjectURL(blob);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const printUrl = URL.createObjectURL(blob);
 
-  const printWindow = window.open(
-    printUrl,
-    "_blank",
-    "width=1200,height=900"
-  );
+    const printWindow = window.open(
+      printUrl,
+      "_blank",
+      "width=1200,height=900"
+    );
 
-  if (!printWindow) {
-    URL.revokeObjectURL(printUrl);
-    alert("Não foi possível abrir a janela de impressão.");
-    return;
-  }
-
-  const cleanup = () => {
-    setTimeout(() => {
+    if (!printWindow) {
       URL.revokeObjectURL(printUrl);
-    }, 10000);
-  };
+      alert("Não foi possível abrir a janela de impressão.");
+      return;
+    }
 
-  printWindow.addEventListener?.("load", cleanup);
-  setTimeout(cleanup, 12000);
-};
+    const cleanup = () => {
+      setTimeout(() => {
+        URL.revokeObjectURL(printUrl);
+      }, 10000);
+    };
+
+    printWindow.addEventListener?.("load", cleanup);
+    setTimeout(cleanup, 12000);
+  };
 
   const fichaSelecionadaFiltrada = useMemo(() => {
     if (!fichaSelecionada) return null;
@@ -1843,226 +2122,324 @@ const convertedBlob = await heic2any({
     resetForm();
     setShowNovaFicha(true);
   };
-    return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Fichas Técnicas</h1>
-          <p className="text-gray-600">
-            Visualização avançada, foto do prato, vídeo, escalas, tela cheia,
-            impressão e cálculo automático de custos.
-          </p>
-        </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={exportarRelatorioCustos}>
-            📊 Relatório de Custos
-          </Button>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              if (!establishmentId) {
-                alert(
-                  "Não foi possível identificar o estabelecimento atual para a importação."
-                );
-                return;
-              }
-              setShowImportModal(true);
-            }}
-          >
-            📥 Importar Ficha Técnica
-          </Button>
-
-          <Button type="button" onClick={openNovaFicha}>
-            ➕ Nova Ficha Técnica
-          </Button>
-        </div>
-      </div>
-
-      {exportingPdfId ? (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
-          Gerando PDF da ficha técnica...
-        </div>
-      ) : null}
-
-      {(loadingProducts || loadingFichas) && (
-        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800">
-          Carregando fichas técnicas...
-        </div>
-      )}
-
-      {!loadingProducts && products.length === 0 && (
-        <div className="rounded-md border border-yellow-200 bg-yellow-50 px-4 py-2 text-sm text-yellow-800">
-          Nenhum produto foi carregado da base. Você ainda pode cadastrar fichas
-          com ingredientes manuais, mas o ideal é ter produtos cadastrados antes.
-        </div>
-      )}
+  return (
+    <div className="relative min-h-screen overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.20),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(168,85,247,0.18),_transparent_28%),radial-gradient(circle_at_bottom_left,_rgba(16,185,129,0.16),_transparent_28%),linear-gradient(180deg,_#f8fbff_0%,_#eef4ff_45%,_#f8fafc_100%)]" />
+      <div className="pointer-events-none absolute -left-20 top-20 -z-10 h-72 w-72 rounded-full bg-cyan-300/20 blur-3xl" />
+      <div className="pointer-events-none absolute right-0 top-0 -z-10 h-80 w-80 rounded-full bg-fuchsia-300/15 blur-3xl" />
 
       <div className="space-y-6">
-        <Card>
-          <CardHeader className="space-y-4">
-            <div>
-              <CardTitle>Fichas cadastradas</CardTitle>
-              <CardDescription>
-                Todas as fichas ficam exibidas lado a lado. Clique em uma ficha
-                para expandir os detalhes completos abaixo.
-              </CardDescription>
-            </div>
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <h1 className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 bg-clip-text text-3xl font-bold text-transparent">
+              Fichas Técnicas
+            </h1>
+            <p className="text-slate-600">
+              Visualização avançada, foto do prato, vídeo, escalas, tela cheia,
+              impressão e cálculo automático de custos.
+            </p>
+          </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <div className="xl:col-span-2">
-                <Label htmlFor="search-fichas">Buscar</Label>
-                <Input
-                  id="search-fichas"
-                  placeholder="Nome, categoria, ingrediente ou escala..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="border-white/20 bg-white/55 backdrop-blur-md hover:bg-white/70"
+              onClick={exportarRelatorioCustos}
+            >
+              📊 Relatório de Custos
+            </Button>
 
-              <div className="xl:col-span-1">
-                <Label htmlFor="category-filter">Categoria</Label>
-                <select
-                  id="category-filter"
-                  className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                >
-                  {categoriasDisponiveis.map((item) => (
-                    <option key={item} value={item}>
-                      {item === "TODAS" ? "Todas as categorias" : item}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => {
-                    setSearchTerm("");
-                    setCategoryFilter("TODAS");
-                  }}
-                >
-                  Limpar filtros
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-
-          <CardContent>
-            {fichasFiltradas.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                Nenhuma ficha encontrada com os filtros informados.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {fichasFiltradas.map((ficha) => {
-                  const ativa = fichaSelecionada?.id === ficha.id;
-                  const cmv = calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
-
-                  return (
-                    <button
-                      key={ficha.id}
-                      type="button"
-                      onClick={() => handleSelecionarFicha(ficha)}
-                      className={`overflow-hidden rounded-2xl border text-left transition hover:-translate-y-0.5 hover:shadow-md ${
-                        ativa
-                          ? "border-primary bg-primary/5 ring-2 ring-primary/20"
-                          : "border-border bg-white hover:bg-slate-50"
-                      }`}
-                    >
-                      {ficha.imageUrl ? (
-                        <div className="relative h-40 w-full bg-slate-100">
-                          <Image
-                            src={ficha.imageUrl}
-                            alt={ficha.nome}
-                            fill
-                            className="object-cover"
-                            unoptimized
-                          />
-                        </div>
-                      ) : (
-                        <div className="flex h-40 items-center justify-center bg-slate-100 text-xs text-muted-foreground">
-                          Sem imagem
-                        </div>
-                      )}
-
-                      <div className="space-y-4 p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate font-semibold text-gray-900">
-                              {ficha.nome}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {ficha.categoria || "Sem categoria"}
-                            </p>
-                          </div>
-
-                          <Badge variant={ativa ? "default" : "secondary"}>
-                            {ficha.rendimento} porções
-                          </Badge>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3 text-xs">
-                          <div>
-                            <p className="text-muted-foreground">
-                              Custo por porção
-                            </p>
-                            <p className="font-bold text-red-600">
-                              {formatCurrency(ficha.custoPorPorcao)}
-                            </p>
-                          </div>
-
-                          <div>
-                            <p className="text-muted-foreground">Preço sugerido</p>
-                            <p className="font-bold text-green-600">
-                              {formatCurrency(ficha.precoVenda)}
-                            </p>
-                          </div>
-
-                          <div>
-                            <p className="text-muted-foreground">CMV</p>
-                            <p className="font-bold">{cmv.toFixed(1)}%</p>
-                          </div>
-
-                          <div>
-                            <p className="text-muted-foreground">Escalas</p>
-                            <p className="font-bold">{ficha.escalas.length}</p>
-                          </div>
-                        </div>
-
-                        <div className="text-xs text-muted-foreground">
-                          ⏱️ {ficha.tempoPreparo} min • ⚖️ {ficha.pesoPorcao}{" "}
-                          {ficha.portionWeightUnit || "G"}
-                        </div>
-                      </div>
-                    </button>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-white/20 bg-white/55 backdrop-blur-md hover:bg-white/70"
+              onClick={() => {
+                if (!establishmentId) {
+                  alert(
+                    "Não foi possível identificar o estabelecimento atual para a importação."
                   );
-                })}
+                  return;
+                }
+                setShowImportModal(true);
+              }}
+            >
+              📥 Importar Ficha Técnica
+            </Button>
+
+            <Button type="button" onClick={openNovaFicha} className="shadow-lg">
+              ➕ Nova Ficha Técnica
+            </Button>
+          </div>
+        </div>
+
+        {exportingPdfId ? (
+          <div
+            className={`rounded-2xl px-4 py-2 text-sm text-emerald-900 ${GLASS_PANEL}`}
+          >
+            Gerando PDF da ficha técnica...
+          </div>
+        ) : null}
+
+        {(loadingProducts || loadingFichas) && (
+          <div
+            className={`rounded-2xl px-4 py-2 text-sm text-blue-900 ${GLASS_PANEL}`}
+          >
+            Carregando fichas técnicas...
+          </div>
+        )}
+
+        {!loadingProducts && products.length === 0 && (
+          <div
+            className={`rounded-2xl px-4 py-2 text-sm text-yellow-900 ${GLASS_PANEL}`}
+          >
+            Nenhum produto foi carregado da base. Você ainda pode cadastrar fichas
+            com ingredientes manuais, mas o ideal é ter produtos cadastrados antes.
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <Card className={`${GLASS_PANEL_STRONG} xl:col-span-1`}>
+            <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3 xl:grid-cols-1">
+              <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Total de fichas
+                </p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">
+                  {fichasTecnicas.length}
+                </p>
               </div>
-            )}
-          </CardContent>
-        </Card>
+
+              <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Custo médio
+                </p>
+                <p className="mt-1 text-2xl font-bold text-rose-600">
+                  {formatCurrency(custoMedio)}
+                </p>
+              </div>
+
+              <div className={`rounded-2xl p-4 ${GLASS_METRIC}`}>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  CMV médio
+                </p>
+                <p className="mt-1 text-2xl font-bold text-violet-700">
+                  {cmvMedio.toFixed(1)}%
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Meta média: {cmvAlvoMedio.toFixed(1)}%
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className={`${GLASS_PANEL_STRONG} xl:col-span-2`}>
+            <CardHeader className="space-y-4">
+              <div>
+                <CardTitle>Fichas cadastradas</CardTitle>
+                <CardDescription className="text-slate-600">
+                  Cards com visual em vidro fosco e transição suave ao rolar a
+                  página e ao selecionar uma ficha.
+                </CardDescription>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="xl:col-span-2">
+                  <Label htmlFor="search-fichas">Buscar</Label>
+                  <Input
+                    id="search-fichas"
+                    placeholder="Nome, categoria, ingrediente ou escala..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div className="xl:col-span-1">
+                  <Label htmlFor="category-filter">Categoria</Label>
+                  <select
+                    id="category-filter"
+                    className={`mt-2 flex h-10 w-full rounded-md px-3 py-2 text-sm ${GLASS_INPUT}`}
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                  >
+                    {categoriasDisponiveis.map((item) => (
+                      <option key={item} value={item}>
+                        {item === "TODAS" ? "Todas as categorias" : item}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-white/20 bg-white/55 backdrop-blur-md hover:bg-white/70"
+                    onClick={() => {
+                      setSearchTerm("");
+                      setCategoryFilter("TODAS");
+                    }}
+                  >
+                    Limpar filtros
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent>
+              {fichasFiltradas.length === 0 ? (
+                <div
+                  className={`rounded-2xl border border-dashed p-6 text-center text-sm text-slate-600 ${GLASS_PANEL}`}
+                >
+                  Nenhuma ficha encontrada com os filtros informados.
+                </div>
+              ) : (
+                <div
+                  ref={fichasGridRef}
+                  className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+                >
+                  {fichasFiltradas.map((ficha, index) => {
+                    const ativa = fichaSelecionada?.id === ficha.id;
+                    const cmv = calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
+                    const revealed = visibleFichaIds[ficha.id];
+
+                    return (
+                      <button
+                        key={ficha.id}
+                        type="button"
+                        data-ficha-card="true"
+                        data-ficha-id={ficha.id}
+                        onClick={() => handleSelecionarFicha(ficha)}
+                        className={[
+                          "group overflow-hidden rounded-[26px] border text-left",
+                          "transform-gpu transition-all duration-700 ease-out",
+                          "hover:-translate-y-1 hover:scale-[1.012] hover:shadow-[0_16px_45px_rgba(15,23,42,0.22)]",
+                          ativa
+                            ? "border-primary/40 bg-white/18 ring-2 ring-primary/25 backdrop-blur-2xl"
+                            : "border-white/20 bg-white/14 backdrop-blur-xl",
+                          revealed
+                            ? "translate-y-0 opacity-100"
+                            : "translate-y-8 opacity-0",
+                        ].join(" ")}
+                        style={{
+                          transitionDelay: `${Math.min(index * 55, 280)}ms`,
+                          boxShadow: ativa
+                            ? "0 16px 48px rgba(59,130,246,0.18)"
+                            : "0 10px 35px rgba(15,23,42,0.12)",
+                        }}
+                      >
+                        {ficha.imageUrl ? (
+                          <div className="relative h-40 w-full bg-slate-100">
+                            <Image
+                              src={ficha.imageUrl}
+                              alt={ficha.nome}
+                              fill
+                              className="object-cover transition-transform duration-700 group-hover:scale-105"
+                              unoptimized
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/35 via-transparent to-white/10" />
+                            <div className="absolute inset-x-4 bottom-3 flex items-center justify-between gap-2">
+                              <Badge
+                                className="border border-white/25 bg-white/20 text-white backdrop-blur-md"
+                                variant="secondary"
+                              >
+                                {ficha.rendimento} porções
+                              </Badge>
+
+                              {ativa ? (
+                                <span className="rounded-full border border-white/25 bg-white/20 px-3 py-1 text-[11px] font-medium text-white backdrop-blur-md">
+                                  Selecionada
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex h-40 items-center justify-center bg-white/20 text-xs text-slate-600 backdrop-blur-md">
+                            Sem imagem
+                          </div>
+                        )}
+
+                        <div className="space-y-4 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-slate-900">
+                                {ficha.nome}
+                              </p>
+                              <p className="truncate text-xs text-slate-500">
+                                {ficha.categoria || "Sem categoria"}
+                              </p>
+                            </div>
+
+                            {!ficha.imageUrl ? (
+                              <Badge variant={ativa ? "default" : "secondary"}>
+                                {ficha.rendimento} porções
+                              </Badge>
+                            ) : null}
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div className={`rounded-xl p-3 ${GLASS_METRIC}`}>
+                              <p className="text-slate-500">Custo por porção</p>
+                              <p className="font-bold text-red-600">
+                                {formatCurrency(ficha.custoPorPorcao)}
+                              </p>
+                            </div>
+
+                            <div className={`rounded-xl p-3 ${GLASS_METRIC}`}>
+                              <p className="text-slate-500">Preço sugerido</p>
+                              <p className="font-bold text-green-600">
+                                {formatCurrency(ficha.precoVenda)}
+                              </p>
+                            </div>
+
+                            <div className={`rounded-xl p-3 ${GLASS_METRIC}`}>
+                              <p className="text-slate-500">CMV</p>
+                              <p className="font-bold">{cmv.toFixed(1)}%</p>
+                            </div>
+
+                            <div className={`rounded-xl p-3 ${GLASS_METRIC}`}>
+                              <p className="text-slate-500">Escalas</p>
+                              <p className="font-bold">{ficha.escalas.length}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
+                            <span>
+                              ⏱️ {ficha.tempoPreparo} min
+                            </span>
+                            <span>
+                              ⚖️ {ficha.pesoPorcao} {ficha.portionWeightUnit || "G"}
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         <div ref={viewerRef} className="space-y-3">
           {showFichaDetalhe && fichaSelecionada ? (
             <>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="text-xl font-semibold">Visualização detalhada</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Abaixo está a mesma ficha técnica completa no layout atual.
+                  <h3 className="text-xl font-semibold text-slate-900">
+                    Visualização detalhada
+                  </h3>
+                  <p className="text-sm text-slate-600">
+                    Abaixo está a ficha técnica completa com o novo visual.
                   </p>
                 </div>
 
                 <Button
                   type="button"
                   variant="outline"
+                  className="border-white/20 bg-white/55 backdrop-blur-md hover:bg-white/70"
                   onClick={() => setShowFichaDetalhe(false)}
                 >
                   Recolher detalhes
@@ -2087,16 +2464,15 @@ const convertedBlob = await heic2any({
               />
             </>
           ) : (
-            <Card className="border-dashed">
+            <Card className={`border-dashed ${GLASS_PANEL_STRONG}`}>
               <CardContent className="flex min-h-[220px] items-center justify-center p-8">
                 <div className="text-center">
                   <div className="mb-3 text-4xl">📄</div>
-                  <h3 className="text-lg font-semibold">
+                  <h3 className="text-lg font-semibold text-slate-900">
                     Clique em uma ficha para expandir
                   </h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    A visualização detalhada será aberta abaixo, mantendo o mesmo
-                    layout atual.
+                  <p className="mt-2 text-sm text-slate-600">
+                    A visualização detalhada será aberta abaixo com transição suave.
                   </p>
                 </div>
               </CardContent>
@@ -2104,932 +2480,983 @@ const convertedBlob = await heic2any({
           )}
         </div>
       </div>
+
       <Dialog open={showNovaFicha} onOpenChange={setShowNovaFicha}>
-  <DialogContent className="max-h-[92vh] overflow-y-auto bg-white text-slate-900 shadow-2xl border border-slate-200 sm:max-w-6xl">
-    <DialogHeader>
-      <DialogTitle>Nova Ficha Técnica</DialogTitle>
-      <DialogDescription>
-        Cadastre uma nova ficha técnica sem alterar o restante da página.
-      </DialogDescription>
-    </DialogHeader>
-
-    <div className="space-y-6 rounded-xl bg-white text-slate-900">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="xl:col-span-2">
-          <Label>Nome da receita</Label>
-          <Input
-            value={nome}
-            onChange={(e) => setNome(e.target.value)}
-            placeholder="Ex.: Bolo de Cenoura"
-          />
-        </div>
-
-        <div>
-          <Label>Categoria</Label>
-          <select
-            className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            value={categoria}
-            onChange={(e) => setCategoria(e.target.value)}
-          >
-            <option value="">— Selecione —</option>
-            {CATEGORY_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <Label>Rendimento</Label>
-          <Input
-            type="number"
-            min={1}
-            value={rendimento}
-            onChange={(e) => setRendimento(toNumber(e.target.value, 1))}
-          />
-        </div>
-      </div>
-
-      <IngredientEditor
-        products={products}
-        ingredientes={ingredientes}
-        onChange={setIngredientes}
-        uid={uid}
-        formatCurrency={formatCurrency}
-      />
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div>
-          <Label>Peso por porção</Label>
-          <Input
-            type="number"
-            step="0.001"
-            value={pesoPorcao}
-            onChange={(e) => setPesoPorcao(toNumber(e.target.value, 0))}
-          />
-        </div>
-
-        <div>
-          <Label>Unidade peso porção</Label>
-          <select
-            value={portionWeightUnit}
-            onChange={(e) => setPortionWeightUnit(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          >
-            {PORTION_WEIGHT_UNIT_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <Label>Tempo de preparo (min)</Label>
-          <Input
-            type="number"
-            min={0}
-            value={tempoPreparo}
-            onChange={(e) => setTempoPreparo(toNumber(e.target.value, 0))}
-          />
-        </div>
-
-        <div>
-          <Label>CMV alvo (%)</Label>
-          <Input
-            type="number"
-            min={0}
-            value={cmvAlvo}
-            onChange={(e) => setCmvAlvo(toNumber(e.target.value, 0))}
-          />
-        </div>
-
-        <div>
-          <Label>Dificuldade</Label>
-          <select
-            className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            value={difficultyLevel}
-            onChange={(e) => setDifficultyLevel(e.target.value)}
-          >
-            <option value="">— Selecione —</option>
-            {DIFFICULTY_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <Label>Temperatura (°C)</Label>
-          <Input
-            type="number"
-            value={temperatureCelsius}
-            onChange={(e) =>
-              setTemperatureCelsius(
-                e.target.value === "" ? "" : toNumber(e.target.value, 0)
-              )
-            }
-          />
-        </div>
-
-        <div>
-          <Label>Tempo de cocção (min)</Label>
-          <Input
-            type="number"
-            value={cookingTimeMinutes}
-            onChange={(e) =>
-              setCookingTimeMinutes(
-                e.target.value === "" ? "" : toNumber(e.target.value, 0)
-              )
-            }
-          />
-        </div>
-
-        <div>
-          <Label>Fator de cocção (g)</Label>
-          <Input
-            type="number"
-            value={cookingFactorGrams}
-            onChange={(e) =>
-              setCookingFactorGrams(
-                e.target.value === "" ? "" : toNumber(e.target.value, 0)
-              )
-            }
-          />
-        </div>
-
-        <div>
-          <Label>Fator de correção (g)</Label>
-          <Input
-            type="number"
-            value={correctionFactorGrams}
-            onChange={(e) =>
-              setCorrectionFactorGrams(
-                e.target.value === "" ? "" : toNumber(e.target.value, 0)
-              )
-            }
-          />
-        </div>
-
-        <div>
-          <Label>Tipo de rendimento</Label>
-          <Input
-            value={yieldLabel}
-            onChange={(e) => setYieldLabel(e.target.value)}
-            placeholder="Ex.: 1 assadeira"
-          />
-        </div>
-
-        <div className="xl:col-span-2">
-          <Label>Armazenamento</Label>
-          <Input
-            value={storageInstructions}
-            onChange={(e) => setStorageInstructions(e.target.value)}
-            placeholder="Ex.: Refrigerado"
-          />
-        </div>
-
-        <div>
-          <Label>Validade congelado</Label>
-          <Input
-            value={shelfLifeFrozen}
-            onChange={(e) => setShelfLifeFrozen(e.target.value)}
-            placeholder="Ex.: 90 dias"
-          />
-        </div>
-
-        <div>
-          <Label>Validade refrigerado</Label>
-          <Input
-            value={shelfLifeRefrigerated}
-            onChange={(e) => setShelfLifeRefrigerated(e.target.value)}
-            placeholder="Ex.: 5 dias"
-          />
-        </div>
-
-        <div>
-          <Label>Validade ambiente</Label>
-          <Input
-            value={shelfLifeRoomTemp}
-            onChange={(e) => setShelfLifeRoomTemp(e.target.value)}
-            placeholder="Ex.: 1 dia"
-          />
-        </div>
-
-        <div>
-        <Label>Setor</Label>
-        <select
-          className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={setor}
-          onChange={(e) => setSetor(e.target.value)}
+        <DialogContent
+          className={`max-h-[92vh] overflow-y-auto text-slate-900 sm:max-w-6xl ${GLASS_PANEL_STRONG}`}
         >
-        <option value="">— Selecione —</option>
-            {SECTOR_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </div>
+          <DialogHeader>
+            <DialogTitle>Nova Ficha Técnica</DialogTitle>
+            <DialogDescription className="text-slate-600">
+              Cadastre uma nova ficha técnica sem alterar o restante da página.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="xl:col-span-2">
-          <Label>Alergênicos</Label>
-          <Input
-            value={autoAllergens}
-            disabled
-            className="bg-slate-100 font-semibold text-slate-700"
-          />
-        </div>
+          <div className="space-y-6 rounded-xl text-slate-900">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="xl:col-span-2">
+                <Label>Nome da receita</Label>
+                <Input
+                  value={nome}
+                  onChange={(e) => setNome(e.target.value)}
+                  placeholder="Ex.: Bolo de Cenoura"
+                  className={GLASS_INPUT}
+                />
+              </div>
 
-        <div className="xl:col-span-2">
-          <Label>Vídeo (URL)</Label>
-          <Input
-            value={videoUrl}
-            onChange={(e) => setVideoUrl(e.target.value)}
-            placeholder="https://..."
-          />
-        </div>
+              <div>
+                <Label>Categoria</Label>
+                <select
+                  className={`mt-2 flex h-10 w-full rounded-md px-3 py-2 text-sm ${GLASS_INPUT}`}
+                  value={categoria}
+                  onChange={(e) => setCategoria(e.target.value)}
+                >
+                  <option value="">— Selecione —</option>
+                  {CATEGORY_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-        <div>
-          <Label>Atualizada em</Label>
-          <Input
-            type="date"
-            value={sourceUpdatedAt}
-            onChange={(e) => setSourceUpdatedAt(e.target.value)}
-          />
-        </div>
-
-        <div className="xl:col-span-4">
-          <Label>Modo de preparo</Label>
-          <Textarea
-            value={modoPreparo}
-            onChange={(e) => setModoPreparo(e.target.value)}
-            placeholder="Descreva o modo de preparo..."
-            rows={6}
-          />
-        </div>
-      </div>
-
-      <div className="space-y-3 rounded-xl border p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h4 className="font-semibold">Imagem do prato</h4>
-            <p className="text-sm text-muted-foreground">
-              Envie uma imagem sem alterar a lógica validada de cadastro.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <input
-              ref={newImageInputRef}
-              type="file"
-              accept=".jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
-              className="hidden"
-              onChange={handleNewImageSelected}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => newImageInputRef.current?.click()}
-              disabled={uploadingImage}
-            >
-              {uploadingImage ? "Enviando imagem..." : "Enviar imagem"}
-            </Button>
-
-            {imageUrl ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setImageUrl(null);
-                  setImagePath(null);
-                }}
-              >
-                Remover imagem
-              </Button>
-            ) : null}
-          </div>
-        </div>
-
-        {imageUrl ? (
-          <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
-            <Image
-              src={imageUrl}
-              alt="Pré-visualização da receita"
-              fill
-              className="object-cover"
-              unoptimized
-            />
-          </div>
-        ) : (
-          <div className="flex h-40 items-center justify-center rounded-xl border border-dashed bg-slate-50 text-sm text-muted-foreground">
-            Nenhuma imagem selecionada
-          </div>
-        )}
-      </div>
-
-      <ScaleEditor
-  scales={escalas}
-  onChange={setEscalas}
-  uid={uid}
-  toNumber={toNumber}
-  normalizeUnit={normalizeUnit}
-  nome={nome}
-  ingredientes={ingredientes}
-  rendimento={rendimento}
-  portionWeight={pesoPorcao === "" ? 0 : pesoPorcao}
-  portionWeightUnit={portionWeightUnit}
-  prepTimeMinutes={tempoPreparo === "" ? 0 : tempoPreparo}
-  temperatureCelsius={
-    temperatureCelsius === "" ? null : toNumber(temperatureCelsius, 0)
-  }
-  cookingTimeMinutes={
-    cookingTimeMinutes === "" ? null : toNumber(cookingTimeMinutes, 0)
-  }
-  cookingFactorGrams={
-    cookingFactorGrams === "" ? null : toNumber(cookingFactorGrams, 0)
-  }
-  correctionFactorGrams={
-    correctionFactorGrams === "" ? null : toNumber(correctionFactorGrams, 0)
-  }
-  difficultyLevel={difficultyLevel}
-  preparationMethod={modoPreparo}
-  storageInstructions={storageInstructions}
-  shelfLifeFrozen={shelfLifeFrozen}
-  shelfLifeRefrigerated={shelfLifeRefrigerated}
-  shelfLifeRoomTemp={shelfLifeRoomTemp}
-  allergens={autoAllergens}
-  sourceUpdatedAt={sourceUpdatedAt}
-  yieldLabel={yieldLabel}
-/>
-
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => setShowNovaFicha(false)}
-          disabled={isPending}
-        >
-          Cancelar
-        </Button>
-
-        <Button
-          type="button"
-          onClick={salvarNovaFicha}
-          disabled={isPending}
-          className="bg-emerald-600 text-white font-semibold shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          {isPending ? "Salvando..." : "Salvar ficha técnica"}
-        </Button>
-      </div>
-    </div>
-  </DialogContent>
-</Dialog>
-
-      <Dialog open={showEditarFicha} onOpenChange={setShowEditarFicha}>
-  <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl !bg-white !text-slate-900 border border-slate-200 shadow-2xl">
-    <DialogHeader>
-      <DialogTitle>Editar Ficha Técnica</DialogTitle>
-      <DialogDescription>
-        Atualize a ficha selecionada preservando a estrutura já validada.
-      </DialogDescription>
-    </DialogHeader>
-
-    {fichaEditando ? (
-      <div className="space-y-6 rounded-xl bg-white text-slate-900">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="xl:col-span-2">
-            <Label>Nome da receita</Label>
-            <Input
-              value={fichaEditando.nome}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev ? { ...prev, nome: e.target.value } : prev
-                )
-              }
-              placeholder="Ex.: Bolo de Cenoura"
-            />
-          </div>
-
-          <div>
-            <Label>Categoria</Label>
-            <select
-              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={fichaEditando.categoria}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev ? { ...prev, categoria: e.target.value } : prev
-                )
-              }
-            >
-              <option value="">— Selecione —</option>
-              {CATEGORY_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <Label>Rendimento</Label>
-            <Input
-              type="number"
-              min={1}
-              value={fichaEditando.rendimento}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? { ...prev, rendimento: toNumber(e.target.value, 1) }
-                    : prev
-                )
-              }
-            />
-          </div>
-        </div>
-
-        <IngredientEditor
-          products={products}
-          ingredientes={fichaEditando.ingredientes}
-          onChange={(ingredientesAtualizados) =>
-            setFichaEditando((prev) =>
-              prev
-                ? { ...prev, ingredientes: ingredientesAtualizados }
-                : prev
-            )
-          }
-          uid={uid}
-          formatCurrency={formatCurrency}
-        />
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div>
-            <Label>Peso por porção</Label>
-            <Input
-              type="number"
-              step="0.001"
-              value={fichaEditando.pesoPorcao}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? { ...prev, pesoPorcao: toNumber(e.target.value, 0) }
-                    : prev
-                )
-              }
-            />
-          </div>
-
-          <div>
-            <Label>Unidade peso porção</Label>
-            <Input
-              value={fichaEditando.portionWeightUnit || "G"}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        portionWeightUnit: normalizeUnit(
-                          e.target.value,
-                          "G"
-                        ),
-                      }
-                    : prev
-                )
-              }
-            />
-          </div>
-
-          <div>
-            <Label>Tempo de preparo (min)</Label>
-            <Input
-              type="number"
-              min={0}
-              value={fichaEditando.tempoPreparo}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        tempoPreparo: toNumber(e.target.value, 0),
-                      }
-                    : prev
-                )
-              }
-            />
-          </div>
-
-          <div>
-            <Label>CMV alvo (%)</Label>
-            <Input
-              type="number"
-              min={0}
-              value={fichaEditando.margemLucro}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        margemLucro: toNumber(e.target.value, 0),
-                      }
-                    : prev
-                )
-              }
-            />
-          </div>
-
-          <div>
-            <Label>Dificuldade</Label>
-            <select
-              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={fichaEditando.difficultyLevel ?? ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev ? { ...prev, difficultyLevel: e.target.value } : prev
-                )
-              }
-            >
-              <option value="">— Selecione —</option>
-              {DIFFICULTY_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <Label>Temperatura (°C)</Label>
-            <Input
-              type="number"
-              value={fichaEditando.temperatureCelsius ?? ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        temperatureCelsius:
-                          e.target.value === ""
-                            ? null
-                            : toNumber(e.target.value, 0),
-                      }
-                    : prev
-                )
-              }
-            />
-          </div>
-
-          <div>
-            <Label>Tempo de cocção (min)</Label>
-            <Input
-              type="number"
-              value={fichaEditando.cookingTimeMinutes ?? ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        cookingTimeMinutes:
-                          e.target.value === ""
-                            ? null
-                            : toNumber(e.target.value, 0),
-                      }
-                    : prev
-                )
-              }
-            />
-          </div>
-
-          <div>
-            <Label>Fator de cocção (g)</Label>
-            <Input
-              type="number"
-              value={fichaEditando.cookingFactorGrams ?? ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        cookingFactorGrams:
-                          e.target.value === ""
-                            ? null
-                            : toNumber(e.target.value, 0),
-                      }
-                    : prev
-                )
-              }
-            />
-          </div>
-
-          <div>
-            <Label>Fator de correção (g)</Label>
-            <Input
-              type="number"
-              value={fichaEditando.correctionFactorGrams ?? ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        correctionFactorGrams:
-                          e.target.value === ""
-                            ? null
-                            : toNumber(e.target.value, 0),
-                      }
-                    : prev
-                )
-              }
-            />
-          </div>
-
-          <div>
-            <Label>Yield label</Label>
-            <Input
-              value={fichaEditando.yieldLabel || ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        yieldLabel: e.target.value || null,
-                      }
-                    : prev
-                )
-              }
-              placeholder="Ex.: 1 assadeira"
-            />
-          </div>
-
-          <div className="xl:col-span-2">
-            <Label>Armazenamento</Label>
-            <select
-              value={storageInstructions}
-              onChange={(e) => setStorageInstructions(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              <option value="">— Selecione —</option>
-              {STORAGE_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <Label>Validade congelado</Label>
-            <Input
-              value={fichaEditando.shelfLifeFrozen || ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        shelfLifeFrozen: e.target.value || null,
-                      }
-                    : prev
-                )
-              }
-              placeholder="Ex.: 90 dias"
-            />
-          </div>
-
-          <div>
-            <Label>Validade refrigerado</Label>
-            <Input
-              value={fichaEditando.shelfLifeRefrigerated || ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        shelfLifeRefrigerated: e.target.value || null,
-                      }
-                    : prev
-                )
-              }
-              placeholder="Ex.: 5 dias"
-            />
-          </div>
-
-          <div>
-            <Label>Validade ambiente</Label>
-            <Input
-              value={fichaEditando.shelfLifeRoomTemp || ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        shelfLifeRoomTemp: e.target.value || null,
-                      }
-                    : prev
-                )
-              }
-              placeholder="Ex.: 1 dia"
-            />
-          </div>
-
-             <div>
-            <Label>Setor</Label>
-            <select
-              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={fichaEditando.setor}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev ? { ...prev, setor: e.target.value } : prev
-                )
-              }
-            >
-              <option value="">— Selecione —</option>
-              {SECTOR_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div> 
-
-          <div className="xl:col-span-2">
-            <Label>Alergênicos</Label>
-            <Input
-              value={autoEditAllergens}
-              disabled
-              className="bg-slate-100 font-semibold text-slate-700"
-            />
-          </div>
-
-          <div className="xl:col-span-2">
-            <Label>Vídeo (URL)</Label>
-            <Input
-              value={fichaEditando.videoUrl || ""}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        videoUrl: e.target.value || null,
-                      }
-                    : prev
-                )
-              }
-              placeholder="https://..."
-            />
-          </div>
-
-          <div>
-              <Label>Atualizada em</Label>
-              <Input
-                type="date"
-                value={sourceUpdatedAt || getTodayIsoDate()}
-                disabled
-                className="bg-slate-100 font-semibold text-slate-700"
-              />
+              <div>
+                <Label>Rendimento</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={rendimento}
+                  onChange={(e) => setRendimento(toNumber(e.target.value, 1))}
+                  className={GLASS_INPUT}
+                />
+              </div>
             </div>
 
-          <div className="xl:col-span-4">
-            <Label>Modo de preparo</Label>
-            <Textarea
-              value={fichaEditando.modoPreparo}
-              onChange={(e) =>
-                setFichaEditando((prev) =>
-                  prev
-                    ? { ...prev, modoPreparo: e.target.value }
-                    : prev
-                )
-              }
-              placeholder="Descreva o modo de preparo..."
-              rows={6}
+            <IngredientEditor
+              products={products}
+              ingredientes={ingredientes}
+              onChange={setIngredientes}
+              uid={uid}
+              formatCurrency={formatCurrency}
             />
-          </div>
-        </div>
 
-        <div className="space-y-3 rounded-xl border p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h4 className="font-semibold">Imagem do prato</h4>
-              <p className="text-sm text-muted-foreground">
-                Atualize a imagem sem alterar os demais dados da ficha.
-              </p>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <Label>Peso por porção</Label>
+                <Input
+                  type="number"
+                  step="0.001"
+                  value={pesoPorcao}
+                  onChange={(e) => setPesoPorcao(toNumber(e.target.value, 0))}
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>Unidade peso porção</Label>
+                <select
+                  value={portionWeightUnit}
+                  onChange={(e) => setPortionWeightUnit(e.target.value)}
+                  className={`flex h-10 w-full rounded-md px-3 py-2 text-sm ${GLASS_INPUT}`}
+                >
+                  {PORTION_WEIGHT_UNIT_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <Label>Tempo de preparo (min)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={tempoPreparo}
+                  onChange={(e) => setTempoPreparo(toNumber(e.target.value, 0))}
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>CMV alvo (%)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={cmvAlvo}
+                  onChange={(e) => setCmvAlvo(toNumber(e.target.value, 0))}
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>Dificuldade</Label>
+                <select
+                  className={`mt-2 flex h-10 w-full rounded-md px-3 py-2 text-sm ${GLASS_INPUT}`}
+                  value={difficultyLevel}
+                  onChange={(e) => setDifficultyLevel(e.target.value)}
+                >
+                  <option value="">— Selecione —</option>
+                  {DIFFICULTY_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <Label>Temperatura (°C)</Label>
+                <Input
+                  type="number"
+                  value={temperatureCelsius}
+                  onChange={(e) =>
+                    setTemperatureCelsius(
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                    )
+                  }
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>Tempo de cocção (min)</Label>
+                <Input
+                  type="number"
+                  value={cookingTimeMinutes}
+                  onChange={(e) =>
+                    setCookingTimeMinutes(
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                    )
+                  }
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>Fator de cocção (g)</Label>
+                <Input
+                  type="number"
+                  value={cookingFactorGrams}
+                  onChange={(e) =>
+                    setCookingFactorGrams(
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                    )
+                  }
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>Fator de correção (g)</Label>
+                <Input
+                  type="number"
+                  value={correctionFactorGrams}
+                  onChange={(e) =>
+                    setCorrectionFactorGrams(
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                    )
+                  }
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>Tipo de rendimento</Label>
+                <Input
+                  value={yieldLabel}
+                  onChange={(e) => setYieldLabel(e.target.value)}
+                  placeholder="Ex.: 1 assadeira"
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div className="xl:col-span-2">
+                <Label>Armazenamento</Label>
+                <Input
+                  value={storageInstructions}
+                  onChange={(e) => setStorageInstructions(e.target.value)}
+                  placeholder="Ex.: Refrigerado"
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>Validade congelado</Label>
+                <Input
+                  value={shelfLifeFrozen}
+                  onChange={(e) => setShelfLifeFrozen(e.target.value)}
+                  placeholder="Ex.: 90 dias"
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>Validade refrigerado</Label>
+                <Input
+                  value={shelfLifeRefrigerated}
+                  onChange={(e) => setShelfLifeRefrigerated(e.target.value)}
+                  placeholder="Ex.: 5 dias"
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>Validade ambiente</Label>
+                <Input
+                  value={shelfLifeRoomTemp}
+                  onChange={(e) => setShelfLifeRoomTemp(e.target.value)}
+                  placeholder="Ex.: 1 dia"
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>Setor</Label>
+                <select
+                  className={`mt-2 flex h-10 w-full rounded-md px-3 py-2 text-sm ${GLASS_INPUT}`}
+                  value={setor}
+                  onChange={(e) => setSetor(e.target.value)}
+                >
+                  <option value="">— Selecione —</option>
+                  {SECTOR_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="xl:col-span-2">
+                <Label>Alergênicos</Label>
+                <Input
+                  value={autoAllergens}
+                  disabled
+                  className={`${GLASS_INPUT} font-semibold text-slate-700`}
+                />
+              </div>
+
+              <div className="xl:col-span-2">
+                <Label>Vídeo (URL)</Label>
+                <Input
+                  value={videoUrl}
+                  onChange={(e) => setVideoUrl(e.target.value)}
+                  placeholder="https://..."
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div>
+                <Label>Atualizada em</Label>
+                <Input
+                  type="date"
+                  value={sourceUpdatedAt}
+                  onChange={(e) => setSourceUpdatedAt(e.target.value)}
+                  className={GLASS_INPUT}
+                />
+              </div>
+
+              <div className="xl:col-span-4">
+                <Label>Modo de preparo</Label>
+                <Textarea
+                  value={modoPreparo}
+                  onChange={(e) => setModoPreparo(e.target.value)}
+                  placeholder="Descreva o modo de preparo..."
+                  rows={6}
+                  className={GLASS_INPUT}
+                />
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <input
-                ref={editImageInputRef}
-                type="file"
-                accept=".jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
-                className="hidden"
-                onChange={handleEditImageSelected}
-              />
+            <div className={`space-y-3 rounded-2xl p-4 ${GLASS_PANEL}`}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h4 className="font-semibold">Imagem do prato</h4>
+                  <p className="text-sm text-slate-600">
+                    Envie uma imagem sem alterar a lógica validada de cadastro.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    ref={newImageInputRef}
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
+                    className="hidden"
+                    onChange={handleNewImageSelected}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-white/20 bg-white/45 backdrop-blur-md hover:bg-white/55"
+                    onClick={() => newImageInputRef.current?.click()}
+                    disabled={uploadingImage}
+                  >
+                    {uploadingImage ? "Enviando imagem..." : "Enviar imagem"}
+                  </Button>
+
+                  {imageUrl ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setImageUrl(null);
+                        setImagePath(null);
+                      }}
+                    >
+                      Remover imagem
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
+              {imageUrl ? (
+                <div className="relative h-56 w-full overflow-hidden rounded-2xl border border-white/20 bg-slate-100">
+                  <Image
+                    src={imageUrl}
+                    alt="Pré-visualização da receita"
+                    fill
+                    className="object-cover"
+                    unoptimized
+                  />
+                </div>
+              ) : (
+                <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-white/20 bg-white/20 text-sm text-slate-600 backdrop-blur-md">
+                  Nenhuma imagem selecionada
+                </div>
+              )}
+            </div>
+
+            <ScaleEditor
+              scales={escalas}
+              onChange={setEscalas}
+              uid={uid}
+              toNumber={toNumber}
+              normalizeUnit={normalizeUnit}
+              nome={nome}
+              ingredientes={ingredientes}
+              rendimento={rendimento}
+              portionWeight={pesoPorcao === "" ? 0 : pesoPorcao}
+              portionWeightUnit={portionWeightUnit}
+              prepTimeMinutes={tempoPreparo === "" ? 0 : tempoPreparo}
+              temperatureCelsius={
+                temperatureCelsius === "" ? null : toNumber(temperatureCelsius, 0)
+              }
+              cookingTimeMinutes={
+                cookingTimeMinutes === "" ? null : toNumber(cookingTimeMinutes, 0)
+              }
+              cookingFactorGrams={
+                cookingFactorGrams === "" ? null : toNumber(cookingFactorGrams, 0)
+              }
+              correctionFactorGrams={
+                correctionFactorGrams === "" ? null : toNumber(correctionFactorGrams, 0)
+              }
+              difficultyLevel={difficultyLevel}
+              preparationMethod={modoPreparo}
+              storageInstructions={storageInstructions}
+              shelfLifeFrozen={shelfLifeFrozen}
+              shelfLifeRefrigerated={shelfLifeRefrigerated}
+              shelfLifeRoomTemp={shelfLifeRoomTemp}
+              allergens={autoAllergens}
+              sourceUpdatedAt={sourceUpdatedAt}
+              yieldLabel={yieldLabel}
+            />
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => editImageInputRef.current?.click()}
-                disabled={uploadingImage}
+                className="border-white/20 bg-white/45 backdrop-blur-md hover:bg-white/55"
+                onClick={() => setShowNovaFicha(false)}
+                disabled={isPending}
               >
-                {uploadingImage ? "Enviando imagem..." : "Trocar imagem"}
+                Cancelar
+              </Button>
+
+              <Button
+                type="button"
+                onClick={salvarNovaFicha}
+                disabled={isPending}
+                className="bg-emerald-600 text-white font-semibold shadow-md transition-all duration-200 hover:bg-emerald-700 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isPending ? "Salvando..." : "Salvar ficha técnica"}
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
 
-          {fichaEditando.imageUrl ? (
-            <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
-              <Image
-                src={fichaEditando.imageUrl}
-                alt={fichaEditando.nome}
-                fill
-                className="object-cover"
-                unoptimized
-              />
-            </div>
-          ) : (
-            <div className="flex h-40 items-center justify-center rounded-xl border border-dashed bg-slate-50 text-sm text-muted-foreground">
-              Nenhuma imagem cadastrada
-            </div>
-          )}
-        </div>
-
-        <ScaleEditor
-  scales={fichaEditando.escalas}
-  onChange={(escalasAtualizadas) =>
-    setFichaEditando((prev) =>
-      prev ? { ...prev, escalas: escalasAtualizadas } : prev
-    )
-  }
-  uid={uid}
-  toNumber={toNumber}
-  normalizeUnit={normalizeUnit}
-  nome={fichaEditando.nome}
-  ingredientes={fichaEditando.ingredientes}
-  rendimento={fichaEditando.rendimento}
-  portionWeight={fichaEditando.pesoPorcao}
-  portionWeightUnit={fichaEditando.portionWeightUnit}
-  prepTimeMinutes={fichaEditando.tempoPreparo}
-  temperatureCelsius={fichaEditando.temperatureCelsius}
-  cookingTimeMinutes={fichaEditando.cookingTimeMinutes}
-  cookingFactorGrams={fichaEditando.cookingFactorGrams}
-  correctionFactorGrams={fichaEditando.correctionFactorGrams}
-  difficultyLevel={fichaEditando.difficultyLevel}
-  preparationMethod={fichaEditando.modoPreparo}
-  storageInstructions={fichaEditando.storageInstructions}
-  shelfLifeFrozen={fichaEditando.shelfLifeFrozen}
-  shelfLifeRefrigerated={fichaEditando.shelfLifeRefrigerated}
-  shelfLifeRoomTemp={fichaEditando.shelfLifeRoomTemp}
-  allergens={autoEditAllergens}
-  sourceUpdatedAt={fichaEditando.sourceUpdatedAt}
-  yieldLabel={fichaEditando.yieldLabel}
-/>
-
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setShowEditarFicha(false)}
-            disabled={isPending}
-          >
-            Cancelar
-          </Button>
-          <Button
-          type="button"
-          onClick={salvarEdicaoFicha}
-          disabled={isPending}
-          className="bg-emerald-600 text-white font-semibold shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+      <Dialog open={showEditarFicha} onOpenChange={setShowEditarFicha}>
+        <DialogContent
+          className={`max-h-[92vh] overflow-y-auto text-slate-900 sm:max-w-6xl ${GLASS_PANEL_STRONG}`}
         >
-          {isPending ? "Salvando..." : "Salvar alterações"}
-        </Button>
-        </div>
-      </div>
-    ) : null}
-  </DialogContent>
-</Dialog>
+          <DialogHeader>
+            <DialogTitle>Editar Ficha Técnica</DialogTitle>
+            <DialogDescription className="text-slate-600">
+              Atualize a ficha selecionada preservando a estrutura já validada.
+            </DialogDescription>
+          </DialogHeader>
+
+          {fichaEditando ? (
+            <div className="space-y-6 rounded-xl text-slate-900">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="xl:col-span-2">
+                  <Label>Nome da receita</Label>
+                  <Input
+                    value={fichaEditando.nome}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, nome: e.target.value } : prev
+                      )
+                    }
+                    placeholder="Ex.: Bolo de Cenoura"
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Categoria</Label>
+                  <select
+                    className={`mt-2 flex h-10 w-full rounded-md px-3 py-2 text-sm ${GLASS_INPUT}`}
+                    value={fichaEditando.categoria}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, categoria: e.target.value } : prev
+                      )
+                    }
+                  >
+                    <option value="">— Selecione —</option>
+                    {CATEGORY_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <Label>Rendimento</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={fichaEditando.rendimento}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? { ...prev, rendimento: toNumber(e.target.value, 1) }
+                          : prev
+                      )
+                    }
+                    className={GLASS_INPUT}
+                  />
+                </div>
+              </div>
+
+              <IngredientEditor
+                products={products}
+                ingredientes={fichaEditando.ingredientes}
+                onChange={(ingredientesAtualizados) =>
+                  setFichaEditando((prev) =>
+                    prev
+                      ? { ...prev, ingredientes: ingredientesAtualizados }
+                      : prev
+                  )
+                }
+                uid={uid}
+                formatCurrency={formatCurrency}
+              />
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div>
+                  <Label>Peso por porção</Label>
+                  <Input
+                    type="number"
+                    step="0.001"
+                    value={fichaEditando.pesoPorcao}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? { ...prev, pesoPorcao: toNumber(e.target.value, 0) }
+                          : prev
+                      )
+                    }
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Unidade peso porção</Label>
+                  <Input
+                    value={fichaEditando.portionWeightUnit || "G"}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              portionWeightUnit: normalizeUnit(
+                                e.target.value,
+                                "G"
+                              ),
+                            }
+                          : prev
+                      )
+                    }
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Tempo de preparo (min)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={fichaEditando.tempoPreparo}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              tempoPreparo: toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>CMV alvo (%)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={fichaEditando.margemLucro}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              margemLucro: toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Dificuldade</Label>
+                  <select
+                    className={`mt-2 flex h-10 w-full rounded-md px-3 py-2 text-sm ${GLASS_INPUT}`}
+                    value={fichaEditando.difficultyLevel ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, difficultyLevel: e.target.value } : prev
+                      )
+                    }
+                  >
+                    <option value="">— Selecione —</option>
+                    {DIFFICULTY_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <Label>Temperatura (°C)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.temperatureCelsius ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              temperatureCelsius:
+                                e.target.value === ""
+                                  ? null
+                                  : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Tempo de cocção (min)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.cookingTimeMinutes ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              cookingTimeMinutes:
+                                e.target.value === ""
+                                  ? null
+                                  : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Fator de cocção (g)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.cookingFactorGrams ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              cookingFactorGrams:
+                                e.target.value === ""
+                                  ? null
+                                  : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Fator de correção (g)</Label>
+                  <Input
+                    type="number"
+                    value={fichaEditando.correctionFactorGrams ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              correctionFactorGrams:
+                                e.target.value === ""
+                                  ? null
+                                  : toNumber(e.target.value, 0),
+                            }
+                          : prev
+                      )
+                    }
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Yield label</Label>
+                  <Input
+                    value={fichaEditando.yieldLabel || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              yieldLabel: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="Ex.: 1 assadeira"
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div className="xl:col-span-2">
+                  <Label>Armazenamento</Label>
+                  <select
+                    value={fichaEditando.storageInstructions ?? ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              storageInstructions: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    className={`flex h-10 w-full rounded-md px-3 py-2 text-sm ${GLASS_INPUT}`}
+                  >
+                    <option value="">— Selecione —</option>
+                    {STORAGE_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <Label>Validade congelado</Label>
+                  <Input
+                    value={fichaEditando.shelfLifeFrozen || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              shelfLifeFrozen: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="Ex.: 90 dias"
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Validade refrigerado</Label>
+                  <Input
+                    value={fichaEditando.shelfLifeRefrigerated || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              shelfLifeRefrigerated: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="Ex.: 5 dias"
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Validade ambiente</Label>
+                  <Input
+                    value={fichaEditando.shelfLifeRoomTemp || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              shelfLifeRoomTemp: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="Ex.: 1 dia"
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Setor</Label>
+                  <select
+                    className={`mt-2 flex h-10 w-full rounded-md px-3 py-2 text-sm ${GLASS_INPUT}`}
+                    value={fichaEditando.setor}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, setor: e.target.value } : prev
+                      )
+                    }
+                  >
+                    <option value="">— Selecione —</option>
+                    {SECTOR_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="xl:col-span-2">
+                  <Label>Alergênicos</Label>
+                  <Input
+                    value={autoEditAllergens}
+                    disabled
+                    className={`${GLASS_INPUT} font-semibold text-slate-700`}
+                  />
+                </div>
+
+                <div className="xl:col-span-2">
+                  <Label>Vídeo (URL)</Label>
+                  <Input
+                    value={fichaEditando.videoUrl || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              videoUrl: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
+                    placeholder="https://..."
+                    className={GLASS_INPUT}
+                  />
+                </div>
+
+                <div>
+                  <Label>Atualizada em</Label>
+                  <Input
+                    type="date"
+                    value={fichaEditando.sourceUpdatedAt || getTodayIsoDate()}
+                    disabled
+                    className={`${GLASS_INPUT} font-semibold text-slate-700`}
+                  />
+                </div>
+
+                <div className="xl:col-span-4">
+                  <Label>Modo de preparo</Label>
+                  <Textarea
+                    value={fichaEditando.modoPreparo}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev ? { ...prev, modoPreparo: e.target.value } : prev
+                      )
+                    }
+                    placeholder="Descreva o modo de preparo..."
+                    rows={6}
+                    className={GLASS_INPUT}
+                  />
+                </div>
+              </div>
+
+              <div className={`space-y-3 rounded-2xl p-4 ${GLASS_PANEL}`}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h4 className="font-semibold">Imagem do prato</h4>
+                    <p className="text-sm text-slate-600">
+                      Atualize a imagem sem alterar os demais dados da ficha.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      ref={editImageInputRef}
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
+                      className="hidden"
+                      onChange={handleEditImageSelected}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-white/20 bg-white/45 backdrop-blur-md hover:bg-white/55"
+                      onClick={() => editImageInputRef.current?.click()}
+                      disabled={uploadingImage}
+                    >
+                      {uploadingImage ? "Enviando imagem..." : "Trocar imagem"}
+                    </Button>
+                  </div>
+                </div>
+
+                {fichaEditando.imageUrl ? (
+                  <div className="relative h-56 w-full overflow-hidden rounded-2xl border border-white/20 bg-slate-100">
+                    <Image
+                      src={fichaEditando.imageUrl}
+                      alt={fichaEditando.nome}
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
+                ) : (
+                  <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-white/20 bg-white/20 text-sm text-slate-600 backdrop-blur-md">
+                    Nenhuma imagem cadastrada
+                  </div>
+                )}
+              </div>
+
+              <ScaleEditor
+                scales={fichaEditando.escalas}
+                onChange={(escalasAtualizadas) =>
+                  setFichaEditando((prev) =>
+                    prev ? { ...prev, escalas: escalasAtualizadas } : prev
+                  )
+                }
+                uid={uid}
+                toNumber={toNumber}
+                normalizeUnit={normalizeUnit}
+                nome={fichaEditando.nome}
+                ingredientes={fichaEditando.ingredientes}
+                rendimento={fichaEditando.rendimento}
+                portionWeight={fichaEditando.pesoPorcao}
+                portionWeightUnit={fichaEditando.portionWeightUnit}
+                prepTimeMinutes={fichaEditando.tempoPreparo}
+                temperatureCelsius={fichaEditando.temperatureCelsius}
+                cookingTimeMinutes={fichaEditando.cookingTimeMinutes}
+                cookingFactorGrams={fichaEditando.cookingFactorGrams}
+                correctionFactorGrams={fichaEditando.correctionFactorGrams}
+                difficultyLevel={fichaEditando.difficultyLevel}
+                preparationMethod={fichaEditando.modoPreparo}
+                storageInstructions={fichaEditando.storageInstructions}
+                shelfLifeFrozen={fichaEditando.shelfLifeFrozen}
+                shelfLifeRefrigerated={fichaEditando.shelfLifeRefrigerated}
+                shelfLifeRoomTemp={fichaEditando.shelfLifeRoomTemp}
+                allergens={autoEditAllergens}
+                sourceUpdatedAt={fichaEditando.sourceUpdatedAt}
+                yieldLabel={fichaEditando.yieldLabel}
+              />
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-white/20 bg-white/45 backdrop-blur-md hover:bg-white/55"
+                  onClick={() => setShowEditarFicha(false)}
+                  disabled={isPending}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={salvarEdicaoFicha}
+                  disabled={isPending}
+                  className="bg-emerald-600 text-white font-semibold shadow-md transition-all duration-200 hover:bg-emerald-700 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isPending ? "Salvando..." : "Salvar alterações"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showFullscreenViewer} onOpenChange={setShowFullscreenViewer}>
-  <DialogContent className="max-h-[96vh] overflow-y-auto border border-slate-200 bg-white text-slate-900 shadow-2xl sm:max-w-7xl">
-    <div className="bg-white p-4 text-slate-900 sm:p-6">
-      <DialogHeader className="mb-4">
-        <DialogTitle>Visualização em tela cheia</DialogTitle>
-        <DialogDescription>
-          A mesma ficha técnica completa em um layout ampliado.
-        </DialogDescription>
-      </DialogHeader>
+        <DialogContent
+          className={`max-h-[96vh] overflow-y-auto text-slate-900 sm:max-w-7xl ${GLASS_PANEL_STRONG}`}
+        >
+          <div className="p-4 text-slate-900 sm:p-6">
+            <DialogHeader className="mb-4">
+              <DialogTitle>Visualização em tela cheia</DialogTitle>
+              <DialogDescription className="text-slate-600">
+                A mesma ficha técnica completa em um layout ampliado.
+              </DialogDescription>
+            </DialogHeader>
 
-      <RecipeViewerInline
-        ficha={fichaSelecionada}
-        desiredServings={desiredServings}
-        setDesiredServings={setDesiredServings}
-        currentTab={viewerTab}
-        setCurrentTab={setViewerTab}
-        onEdit={handleEditarFicha}
-        onPrint={handleImprimirFicha}
-        onExportPdf={handleExportarPdf}
-        onDuplicate={duplicarFicha}
-        onFullscreen={() => setShowFullscreenViewer(true)}
-        onDelete={(ficha) => excluirFicha(ficha.id)}
-      />
-    </div>
-  </DialogContent>
-</Dialog>
+            <RecipeViewerInline
+              ficha={fichaSelecionada}
+              desiredServings={desiredServings}
+              setDesiredServings={setDesiredServings}
+              currentTab={viewerTab}
+              setCurrentTab={setViewerTab}
+              onEdit={handleEditarFicha}
+              onPrint={handleImprimirFicha}
+              onExportPdf={handleExportarPdf}
+              onDuplicate={duplicarFicha}
+              onFullscreen={() => setShowFullscreenViewer(true)}
+              onDelete={(ficha) => excluirFicha(ficha.id)}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <PdfImportModal
         open={showImportModal}
@@ -3050,4 +3477,14 @@ const convertedBlob = await heic2any({
       />
     </div>
   );
+}
+
+function fichasFiltradasKey(
+  fichasTecnicas: FichaTecnica[],
+  searchTerm: string,
+  categoryFilter: string
+) {
+  return `${fichasTecnicas.length}-${searchTerm}-${categoryFilter}-${fichasTecnicas
+    .map((f) => f.id)
+    .join(",")}`;
 }

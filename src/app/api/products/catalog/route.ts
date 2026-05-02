@@ -26,6 +26,7 @@ export async function GET() {
         id,
         sku,
         name,
+        brand,
         price,
         standard_cost,
         default_unit_label,

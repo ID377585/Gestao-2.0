@@ -301,6 +301,223 @@ function getIngredienteMaisCaro(ficha: FichaTecnica) {
   )[0];
 }
 
+function collectCurrentStyles() {
+  const styleTags = Array.from(document.querySelectorAll("style"))
+    .map((style) => style.outerHTML)
+    .join("\n");
+
+  const stylesheetLinks = Array.from(
+    document.querySelectorAll('link[rel="stylesheet"]')
+  )
+    .map((link) => {
+      const href = (link as HTMLLinkElement).href;
+      return href ? `<link rel="stylesheet" href="${href}" />` : "";
+    })
+    .join("\n");
+
+  return `${stylesheetLinks}\n${styleTags}`;
+}
+
+function getDashboardPrintStyles() {
+  return `
+    <style>
+      @page {
+        size: A4 landscape;
+        margin: 6mm;
+      }
+
+      * {
+        box-sizing: border-box;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #ffffff;
+        color: #0f172a;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      body {
+        padding: 0;
+      }
+
+      .print-root {
+        width: 100% !important;
+        min-height: auto !important;
+        overflow: visible !important;
+        padding: 0 !important;
+        background: linear-gradient(135deg, #ecfdf5, #f0f9ff, #f5f3ff) !important;
+      }
+
+      .print-root > .pointer-events-none,
+      .print-root > .absolute {
+        display: none !important;
+      }
+
+      .no-print {
+        display: none !important;
+      }
+
+      .scroll-reveal {
+        opacity: 1 !important;
+        transform: none !important;
+        scale: 1 !important;
+      }
+
+      .relative.z-10 {
+        display: block !important;
+        width: 100% !important;
+      }
+
+      .print-page {
+        display: block !important;
+        width: 100% !important;
+        min-height: 185mm !important;
+        break-after: page !important;
+        page-break-after: always !important;
+        padding: 0 !important;
+      }
+
+      .print-page:last-of-type {
+        break-after: auto !important;
+        page-break-after: auto !important;
+      }
+
+      .print-break-before {
+        break-before: page !important;
+        page-break-before: always !important;
+      }
+
+      .print-card {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        box-shadow: none !important;
+        border: 1px solid rgba(15, 23, 42, 0.16) !important;
+        background: rgba(255, 255, 255, 0.9) !important;
+        backdrop-filter: none !important;
+      }
+
+      .print-table-card {
+        break-inside: auto !important;
+        page-break-inside: auto !important;
+      }
+
+      .recharts-wrapper,
+      .recharts-responsive-container,
+      .recharts-surface,
+      svg {
+        max-width: 100% !important;
+      }
+
+      .overflow-x-auto {
+        overflow: visible !important;
+      }
+
+      .print-chart-large {
+        height: 112mm !important;
+        overflow: visible !important;
+      }
+
+      .print-chart-large > div {
+        width: 100% !important;
+        height: 112mm !important;
+      }
+
+      .print-chart-large .recharts-wrapper,
+      .print-chart-large .recharts-responsive-container,
+      .print-chart-large svg {
+        width: 100% !important;
+        height: 100% !important;
+      }
+
+      .print-chart-medium {
+        height: 70mm !important;
+        overflow: visible !important;
+      }
+
+      .print-chart-medium > div {
+        width: 100% !important;
+        height: 70mm !important;
+      }
+
+      .print-chart-medium .recharts-wrapper,
+      .print-chart-medium .recharts-responsive-container,
+      .print-chart-medium svg {
+        width: 100% !important;
+        height: 100% !important;
+      }
+
+      .print-grid-3 {
+        display: grid !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 5mm !important;
+      }
+
+      .print-grid-2 {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 5mm !important;
+      }
+
+      table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        break-inside: auto !important;
+        page-break-inside: auto !important;
+      }
+
+      thead {
+        display: table-header-group !important;
+      }
+
+      tr {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
+
+      .print-table {
+        min-width: 0 !important;
+        font-size: 8.4px !important;
+      }
+
+      .print-table th,
+      .print-table td {
+        padding: 3px 5px !important;
+      }
+
+      .grid {
+        display: grid;
+      }
+
+      .space-y-6 > :not([hidden]) ~ :not([hidden]) {
+        margin-top: 1.5rem;
+      }
+
+      .space-y-3 > :not([hidden]) ~ :not([hidden]) {
+        margin-top: 0.75rem;
+      }
+
+      @media print {
+        html,
+        body {
+          width: auto !important;
+          height: auto !important;
+          min-height: auto !important;
+          overflow: visible !important;
+        }
+
+        .print-root {
+          overflow: visible !important;
+        }
+      }
+    </style>
+  `;
+}
+
 export default function EngenhariaDashboardPage() {
   const pageRef = useRef<HTMLDivElement | null>(null);
 
@@ -309,19 +526,80 @@ export default function EngenhariaDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const handlePrint = useCallback(() => {
-    window.print();
-  }, []);
-
   const productById = useMemo(() => {
-    return new Map(products.map((product) => [product.id, product]));
+    return new Map(
+      products
+        .filter((product) => product.id)
+        .map((product) => [product.id, product])
+    );
   }, [products]);
 
   const productByName = useMemo(() => {
     return new Map(
-      products.map((product) => [product.normalizedName, product])
+      products
+        .filter((product) => product.normalizedName)
+        .map((product) => [product.normalizedName, product])
     );
   }, [products]);
+
+  const handlePrint = useCallback(() => {
+    const source = pageRef.current;
+
+    if (!source) {
+      window.print();
+      return;
+    }
+
+    const printWindow = window.open("", "_blank", "width=1440,height=900");
+
+    if (!printWindow) {
+      window.print();
+      return;
+    }
+
+    const styles = collectCurrentStyles();
+    const printStyles = getDashboardPrintStyles();
+    const content = source.outerHTML;
+
+    printWindow.document.open();
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>Dados de Engenharia de Cardápio</title>
+          <base href="${window.location.origin}" />
+          ${styles}
+          ${printStyles}
+        </head>
+        <body>
+          ${content}
+          <script>
+            let alreadyPrinted = false;
+
+            function printDashboard() {
+              if (alreadyPrinted) return;
+              alreadyPrinted = true;
+
+              window.focus();
+
+              setTimeout(function () {
+                window.print();
+              }, 700);
+            }
+
+            window.addEventListener("load", function () {
+              setTimeout(printDashboard, 900);
+            });
+
+            setTimeout(printDashboard, 1800);
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  }, []);
 
   const loadProductsCatalog = useCallback(async () => {
     try {
@@ -343,16 +621,18 @@ export default function EngenhariaDashboardPage() {
               ? result.items
               : [];
 
-      return list.map((product: any) => {
-        const name = getProductNameFromRaw(product);
+      return list
+        .map((product: any) => {
+          const name = getProductNameFromRaw(product);
 
-        return {
-          id: String(product.id ?? product.product_id ?? product.productId ?? ""),
-          name,
-          brand: getProductBrandFromRaw(product),
-          normalizedName: normalizeText(name),
-        };
-      });
+          return {
+            id: String(product.id ?? product.product_id ?? product.productId ?? ""),
+            name,
+            brand: getProductBrandFromRaw(product),
+            normalizedName: normalizeText(name),
+          };
+        })
+        .filter((product: ProductCatalog) => product.id && product.normalizedName);
     } catch (err) {
       console.error("Erro ao carregar catálogo de produtos:", err);
       return [];
@@ -720,143 +1000,6 @@ export default function EngenhariaDashboardPage() {
       ref={pageRef}
       className="print-root relative min-h-screen overflow-hidden bg-gradient-to-br from-emerald-50 via-sky-50 to-violet-100 p-6"
     >
-      <style jsx global>{`
-        @page {
-          size: A4 landscape;
-          margin: 6mm;
-        }
-
-        @media print {
-          html,
-          body {
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-
-          .no-print {
-            display: none !important;
-          }
-
-          .print-root {
-            position: static !important;
-            width: auto !important;
-            min-height: auto !important;
-            overflow: visible !important;
-            padding: 0 !important;
-            background: white !important;
-          }
-
-          .print-root > div.absolute,
-          .print-root > div.pointer-events-none {
-            display: none !important;
-          }
-
-          .scroll-reveal {
-            opacity: 1 !important;
-            transform: none !important;
-            scale: 1 !important;
-          }
-
-          .print-page {
-            display: block !important;
-            break-after: page !important;
-            page-break-after: always !important;
-            break-inside: auto !important;
-            page-break-inside: auto !important;
-          }
-
-          .print-page:last-of-type {
-            break-after: auto !important;
-            page-break-after: auto !important;
-          }
-
-          .print-break-before {
-            break-before: page !important;
-            page-break-before: always !important;
-          }
-
-          .print-card {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-            box-shadow: none !important;
-            border: 1px solid rgba(15, 23, 42, 0.18) !important;
-            background: rgba(255, 255, 255, 0.92) !important;
-            backdrop-filter: none !important;
-          }
-
-          .recharts-wrapper,
-          .recharts-responsive-container,
-          svg {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-
-          .overflow-x-auto {
-            overflow: visible !important;
-          }
-
-          .print-chart-large {
-            height: 115mm !important;
-            overflow: visible !important;
-          }
-
-          .print-chart-large > div {
-            width: 100% !important;
-            height: 115mm !important;
-          }
-
-          .print-chart-medium {
-            height: 75mm !important;
-            overflow: visible !important;
-          }
-
-          .print-chart-medium > div {
-            width: 100% !important;
-            height: 75mm !important;
-          }
-
-          .print-grid-3 {
-            display: grid !important;
-            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-            gap: 5mm !important;
-          }
-
-          .print-grid-2 {
-            display: grid !important;
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-            gap: 5mm !important;
-          }
-
-          table {
-            width: 100% !important;
-            break-inside: auto !important;
-            page-break-inside: auto !important;
-          }
-
-          thead {
-            display: table-header-group !important;
-          }
-
-          tr {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-
-          .print-table {
-            min-width: 0 !important;
-            font-size: 8.5px !important;
-          }
-
-          .print-table th,
-          .print-table td {
-            padding: 3px 5px !important;
-          }
-        }
-      `}</style>
-
       <div className="pointer-events-none absolute left-[-120px] top-[-120px] h-80 w-80 rounded-full bg-emerald-300/30 blur-3xl" />
       <div className="pointer-events-none absolute right-[-120px] top-40 h-96 w-96 rounded-full bg-blue-300/30 blur-3xl" />
       <div className="pointer-events-none absolute bottom-[-140px] left-1/3 h-96 w-96 rounded-full bg-violet-300/30 blur-3xl" />
@@ -1331,7 +1474,7 @@ export default function EngenhariaDashboardPage() {
                 </div>
               </div>
 
-              <div className={glassCard}>
+              <div className={`${glassCard} print-table-card`}>
                 <h2 className="mb-1 text-lg font-semibold text-slate-950">
                   Ranking - Fichas de Empratamento mais caras devido ao Ingrediente utilizado
                 </h2>
@@ -1512,7 +1655,7 @@ export default function EngenhariaDashboardPage() {
                     </div>
                   </div>
 
-                  <div className={glassCard}>
+                  <div className={`${glassCard} print-table-card`}>
                     <h2 className="mb-1 text-lg font-semibold text-slate-950">
                       Pré-preparos resfriados com Shelf life crítico
                     </h2>

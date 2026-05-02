@@ -367,9 +367,14 @@ export default function EngenhariaDashboardPage() {
 
       setProducts(productsRes);
 
-      const productMapById = new Map(productsRes.map((p) => [p.id, p]));
+      const typedProductsRes = productsRes as ProductCatalog[];
+
+      const productMapById = new Map(
+        typedProductsRes.map((p: ProductCatalog) => [p.id, p])
+      );
+
       const productMapByName = new Map(
-        productsRes.map((p) => [p.normalizedName, p])
+        typedProductsRes.map((p: ProductCatalog) => [p.normalizedName, p])
       );
 
       setFichas(

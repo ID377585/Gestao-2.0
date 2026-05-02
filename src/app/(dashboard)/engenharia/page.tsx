@@ -96,10 +96,10 @@ const ORANGE_GRADIENT = [
 ];
 
 const glassCard =
-  "scroll-reveal rounded-2xl border border-white/40 bg-white/55 p-5 shadow-xl shadow-slate-900/10 backdrop-blur-xl transition-all duration-700 ease-out";
+  "scroll-reveal print-card rounded-2xl border border-white/40 bg-white/55 p-5 shadow-xl shadow-slate-900/10 backdrop-blur-xl transition-all duration-700 ease-out";
 
 const metricCard =
-  "scroll-reveal rounded-2xl border border-white/45 bg-white/60 p-5 shadow-lg shadow-slate-900/10 backdrop-blur-xl transition-all duration-700 ease-out";
+  "scroll-reveal print-card rounded-2xl border border-white/45 bg-white/60 p-5 shadow-lg shadow-slate-900/10 backdrop-blur-xl transition-all duration-700 ease-out";
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -309,6 +309,10 @@ export default function EngenhariaDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const handlePrint = useCallback(() => {
+    window.print();
+  }, []);
+
   const productById = useMemo(() => {
     return new Map(products.map((product) => [product.id, product]));
   }, [products]);
@@ -399,7 +403,7 @@ export default function EngenhariaDashboardPage() {
                   findProductByIngredientName(
                     nome,
                     productMapByName,
-                    productsRes
+                    typedProductsRes
                   );
 
                 return {
@@ -714,8 +718,118 @@ export default function EngenhariaDashboardPage() {
   return (
     <div
       ref={pageRef}
-      className="relative min-h-screen overflow-hidden bg-gradient-to-br from-emerald-50 via-sky-50 to-violet-100 p-6"
+      className="print-root relative min-h-screen overflow-hidden bg-gradient-to-br from-emerald-50 via-sky-50 to-violet-100 p-6"
     >
+      <style jsx global>{`
+        @page {
+          size: A4 landscape;
+          margin: 0;
+        }
+
+        @media print {
+          html,
+          body {
+            width: 297mm;
+            min-height: 210mm;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          body * {
+            visibility: hidden;
+          }
+
+          .print-root,
+          .print-root * {
+            visibility: visible;
+          }
+
+          .print-root {
+            position: absolute !important;
+            inset: 0 !important;
+            width: 297mm !important;
+            min-height: 210mm !important;
+            overflow: visible !important;
+            padding: 6mm !important;
+            background: linear-gradient(135deg, #ecfdf5, #f0f9ff, #f5f3ff) !important;
+          }
+
+          .no-print {
+            display: none !important;
+          }
+
+          .scroll-reveal {
+            opacity: 1 !important;
+            transform: none !important;
+            scale: 1 !important;
+          }
+
+          .print-page {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          .print-break-before {
+            break-before: page !important;
+            page-break-before: always !important;
+          }
+
+          .print-card {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+            box-shadow: none !important;
+            border: 1px solid rgba(255, 255, 255, 0.8) !important;
+            background: rgba(255, 255, 255, 0.7) !important;
+            backdrop-filter: blur(12px) !important;
+          }
+
+          .recharts-wrapper,
+          .recharts-responsive-container,
+          svg,
+          table,
+          thead,
+          tbody,
+          tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          .print-chart-large {
+            height: 118mm !important;
+            overflow: hidden !important;
+          }
+
+          .print-chart-medium {
+            height: 88mm !important;
+            overflow: hidden !important;
+          }
+
+          .print-grid-3 {
+            display: grid !important;
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            gap: 5mm !important;
+          }
+
+          .print-grid-2 {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 5mm !important;
+          }
+
+          .print-table {
+            font-size: 9px !important;
+          }
+
+          .print-table th,
+          .print-table td {
+            padding: 4px 6px !important;
+          }
+        }
+      `}</style>
+
       <div className="pointer-events-none absolute left-[-120px] top-[-120px] h-80 w-80 rounded-full bg-emerald-300/30 blur-3xl" />
       <div className="pointer-events-none absolute right-[-120px] top-40 h-96 w-96 rounded-full bg-blue-300/30 blur-3xl" />
       <div className="pointer-events-none absolute bottom-[-140px] left-1/3 h-96 w-96 rounded-full bg-violet-300/30 blur-3xl" />
@@ -732,12 +846,22 @@ export default function EngenhariaDashboardPage() {
             </p>
           </div>
 
-          <Link
-            href="/dashboard/fichas-tecnicas"
-            className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl"
-          >
-            Fichas técnicas
-          </Link>
+          <div className="no-print flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-emerald-900/20 transition-all duration-300 hover:-translate-y-0.5 hover:bg-emerald-800 hover:shadow-xl"
+            >
+              Imprimir
+            </button>
+
+            <Link
+              href="/dashboard/fichas-tecnicas"
+              className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl"
+            >
+              Fichas técnicas
+            </Link>
+          </div>
         </div>
 
         {loading ? (
@@ -750,657 +874,669 @@ export default function EngenhariaDashboardPage() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className={metricCard}>
-                <div className="text-sm text-slate-600">
-                  Fichas técnicas cadastradas
+            <section className="print-page space-y-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className={metricCard}>
+                  <div className="text-sm text-slate-600">
+                    Fichas técnicas cadastradas
+                  </div>
+                  <div className="mt-2 text-2xl font-bold text-slate-950">
+                    {metrics.total}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Total de receitas ativas registradas no sistema.
+                  </p>
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-950">
-                  {metrics.total}
-                </div>
-                <p className="mt-1 text-xs text-slate-600">
-                  Total de receitas ativas registradas no sistema.
-                </p>
-              </div>
 
-              <div className={metricCard}>
-                <div className="text-sm text-slate-600">Custo total médio</div>
-                <div className="mt-2 text-2xl font-bold text-slate-950">
-                  {formatMoney(metrics.custoTotalMedio)}
+                <div className={metricCard}>
+                  <div className="text-sm text-slate-600">Custo total médio</div>
+                  <div className="mt-2 text-2xl font-bold text-slate-950">
+                    {formatMoney(metrics.custoTotalMedio)}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Média do custo total por ficha técnica.
+                  </p>
                 </div>
-                <p className="mt-1 text-xs text-slate-600">
-                  Média do custo total por ficha técnica.
-                </p>
-              </div>
 
-              <div className={metricCard}>
-                <div className="text-sm text-slate-600">
-                  Custo por porção médio
+                <div className={metricCard}>
+                  <div className="text-sm text-slate-600">
+                    Custo por porção médio
+                  </div>
+                  <div className="mt-2 text-2xl font-bold text-slate-950">
+                    {formatMoney(metrics.custoPorPorcaoMedio)}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Indicador útil para precificação e margem.
+                  </p>
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-950">
-                  {formatMoney(metrics.custoPorPorcaoMedio)}
-                </div>
-                <p className="mt-1 text-xs text-slate-600">
-                  Indicador útil para precificação e margem.
-                </p>
-              </div>
 
-              <div className={metricCard}>
-                <div className="text-sm text-slate-600">Fichas com atenção</div>
-                <div className="mt-2 text-2xl font-bold text-slate-950">
-                  {metrics.semRendimento + metrics.semCusto}
-                </div>
-                <p className="mt-1 text-xs text-slate-600">
-                  Fichas sem rendimento ou sem custo calculado.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-              <div className={glassCard}>
-                <h2 className="mb-1 text-lg font-semibold text-slate-950">
-                  Fichas por categoria
-                </h2>
-                <p className="mb-4 text-sm text-slate-600">
-                  Quantidade de fichas cadastradas em cada categoria.
-                </p>
-
-                <div className="h-[260px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={porCategoria}
-                      margin={{ top: 10, right: 16, left: 0, bottom: 40 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis
-                        dataKey="categoria"
-                        angle={-35}
-                        textAnchor="end"
-                        interval={0}
-                        height={60}
-                        tick={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          fill: "#0f172a",
-                        }}
-                      />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip
-                        formatter={(value) => [
-                          formatNumber(Number(value), 0),
-                          "Fichas",
-                        ]}
-                      />
-                      <Bar
-                        dataKey="quantidade"
-                        name="Fichas"
-                        radius={[8, 8, 0, 0]}
-                        fill="#2563eb"
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
+                <div className={metricCard}>
+                  <div className="text-sm text-slate-600">Fichas com atenção</div>
+                  <div className="mt-2 text-2xl font-bold text-slate-950">
+                    {metrics.semRendimento + metrics.semCusto}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Fichas sem rendimento ou sem custo calculado.
+                  </p>
                 </div>
               </div>
 
-              <div className={glassCard}>
-                <h2 className="mb-1 text-lg font-semibold text-slate-950">
-                  CMV médio x alvo
-                </h2>
-                <p className="mb-4 text-sm text-slate-600">
-                  Participação visual entre CMV médio atual e CMV alvo médio.
-                </p>
+              <div className="print-grid-3 grid grid-cols-1 gap-6 xl:grid-cols-3">
+                <div className={glassCard}>
+                  <h2 className="mb-1 text-lg font-semibold text-slate-950">
+                    Fichas por categoria
+                  </h2>
+                  <p className="mb-4 text-sm text-slate-600">
+                    Quantidade de fichas cadastradas em cada categoria.
+                  </p>
 
-                <div className="h-[260px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={cmvChart}
-                        dataKey="valor"
-                        nameKey="indicador"
-                        cx="50%"
-                        cy="48%"
-                        outerRadius={78}
-                        innerRadius={42}
-                        paddingAngle={4}
-                        label={({ name, value }) =>
-                          `${name}: ${formatNumber(Number(value), 1)}%`
-                        }
-                      >
-                        {cmvChart.map((entry, index) => (
-                          <Cell
-                            key={`cmv-cell-${entry.indicador}`}
-                            fill={PIE_COLORS[index % PIE_COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value) => [
-                          `${formatNumber(Number(value), 1)}%`,
-                          "Percentual",
-                        ]}
-                      />
-                      <Legend verticalAlign="bottom" height={32} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className={glassCard}>
-                <h2 className="mb-1 text-lg font-semibold text-slate-950">
-                  Qtd de Fichas ativas por Setor
-                </h2>
-                <p className="mb-4 text-sm text-slate-600">
-                  Distribuição operacional das fichas por setor.
-                </p>
-
-                <div className="h-[260px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={porSetor}
-                      margin={{ top: 10, right: 16, left: 0, bottom: 50 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis
-                        dataKey="setor"
-                        angle={-35}
-                        textAnchor="end"
-                        interval={0}
-                        height={70}
-                        tick={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          fill: "#0f172a",
-                        }}
-                      />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip
-                        formatter={(value) => [
-                          formatNumber(Number(value), 0),
-                          "Fichas",
-                        ]}
-                      />
-                      <Bar
-                        dataKey="quantidade"
-                        name="Fichas"
-                        radius={[8, 8, 0, 0]}
-                        fill="#7c3aed"
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-
-            <div className={glassCard}>
-              <div className="mb-4 flex flex-col gap-1">
-                <h2 className="text-lg font-semibold text-slate-950">
-                  Custos por porção — Empratamento Geral
-                </h2>
-                <p className="text-sm text-slate-600">
-                  Comparativo em reais do custo por porção de cada ficha técnica
-                  da categoria Empratamento.
-                </p>
-              </div>
-
-              {fichasEmpratamentoChart.length === 0 ? (
-                <p className="text-sm text-slate-600">
-                  Nenhuma ficha técnica da categoria Empratamento encontrada.
-                </p>
-              ) : (
-                <div className="h-[420px] w-full overflow-x-auto">
-                  <div
-                    style={{
-                      width: Math.max(fichasEmpratamentoChart.length * 90, 900),
-                      height: 420,
-                    }}
-                  >
+                  <div className="print-chart-medium h-[260px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
-                        data={fichasEmpratamentoChart}
-                        margin={{ top: 20, right: 24, left: 24, bottom: 90 }}
+                        data={porCategoria}
+                        margin={{ top: 10, right: 16, left: 0, bottom: 40 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
                         <XAxis
-                          dataKey="nome"
-                          angle={-45}
+                          dataKey="categoria"
+                          angle={-35}
                           textAnchor="end"
                           interval={0}
-                          height={100}
+                          height={60}
                           tick={{
                             fontSize: 11,
-                            fontWeight: 800,
-                            fill: "#0f172a",
-                          }}
-                        />
-                        <YAxis
-                          tickFormatter={(value) => formatMoney(Number(value))}
-                          tick={{ fontSize: 12, fill: "#0f172a" }}
-                        />
-                        <Tooltip
-                          formatter={(value) => [
-                            formatMoney(Number(value)),
-                            "Custo por porção",
-                          ]}
-                          labelFormatter={(label) => `Ficha: ${label}`}
-                        />
-                        <Bar
-                          dataKey="custoPorPorcao"
-                          name="Custo por porção"
-                          radius={[8, 8, 0, 0]}
-                          fill="#16a34a"
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <div className={glassCard}>
-                <h2 className="mb-4 text-lg font-semibold text-slate-950">
-                  Receitas mais caras — Empratamento
-                </h2>
-
-                {topMaisCaras.length === 0 ? (
-                  <p className="text-sm text-slate-600">
-                    Nenhuma ficha de Empratamento encontrada.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {topMaisCaras.map((item, index) => (
-                      <div
-                        key={item.id}
-                        className={`rounded-xl border px-4 py-3 shadow-sm ${
-                          RED_GRADIENT[index] ??
-                          RED_GRADIENT[RED_GRADIENT.length - 1]
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="font-bold">
-                              {index + 1}. {item.nome || "-"}
-                            </div>
-                            <div className="mt-1 text-xs opacity-85">
-                              {item.setor || "Sem setor"} •{" "}
-                              {item.categoria || "Sem categoria"} • rendimento{" "}
-                              {formatNumber(item.rendimento)}
-                            </div>
-                          </div>
-
-                          <div className="text-right">
-                            <div className="font-extrabold">
-                              {formatMoney(item.custoTotal)}
-                            </div>
-                            <div className="text-xs opacity-85">
-                              {formatMoney(item.custoPorPorcao)}/porção
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className={glassCard}>
-                <h2 className="mb-4 text-lg font-semibold text-slate-950">
-                  Receitas mais vantajosas — Empratamento
-                </h2>
-
-                {topMaisVantajosas.length === 0 ? (
-                  <p className="text-sm text-slate-600">
-                    Nenhuma ficha de Empratamento encontrada.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {topMaisVantajosas.map((item, index) => (
-                      <div
-                        key={item.id}
-                        className={`rounded-xl border px-4 py-3 shadow-sm ${
-                          BLUE_GRADIENT[index] ??
-                          BLUE_GRADIENT[BLUE_GRADIENT.length - 1]
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="font-bold">
-                              {index + 1}. {item.nome || "-"}
-                            </div>
-                            <div className="mt-1 text-xs opacity-85">
-                              {item.setor || "Sem setor"} •{" "}
-                              {item.categoria || "Sem categoria"} • rendimento{" "}
-                              {formatNumber(item.rendimento)}
-                            </div>
-                          </div>
-
-                          <div className="text-right">
-                            <div className="font-extrabold">
-                              {formatMoney(item.custoPorPorcao)}
-                            </div>
-                            <div className="text-xs opacity-85">
-                              custo por porção
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <div className={glassCard}>
-                <h2 className="mb-4 text-lg font-semibold text-slate-950">
-                  Custo médio por setor
-                </h2>
-
-                {custoPorSetor.length === 0 ? (
-                  <p className="text-sm text-slate-600">Nenhum setor encontrado.</p>
-                ) : (
-                  <div className="h-[360px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={custoPorSetor}
-                        layout="vertical"
-                        margin={{ top: 10, right: 24, left: 70, bottom: 10 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                        <XAxis
-                          type="number"
-                          tickFormatter={(value) => formatMoney(Number(value))}
-                          tick={{ fontSize: 12, fill: "#0f172a" }}
-                        />
-                        <YAxis
-                          type="category"
-                          dataKey="setor"
-                          width={90}
-                          tick={{
-                            fontSize: 12,
                             fontWeight: 700,
                             fill: "#0f172a",
                           }}
                         />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                         <Tooltip
                           formatter={(value) => [
-                            formatMoney(Number(value)),
-                            "Custo médio",
+                            formatNumber(Number(value), 0),
+                            "Fichas",
                           ]}
                         />
                         <Bar
-                          dataKey="custoTotalMedio"
-                          name="Custo médio"
-                          radius={[0, 8, 8, 0]}
-                          fill="#dc2626"
+                          dataKey="quantidade"
+                          name="Fichas"
+                          radius={[8, 8, 0, 0]}
+                          fill="#2563eb"
                         />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
-                )}
-              </div>
+                </div>
 
-              <div className={glassCard}>
-                <h2 className="mb-4 text-lg font-semibold text-slate-950">
-                  Fichas que precisam de atenção
-                </h2>
-
-                {fichasAtencao.length === 0 ? (
-                  <p className="text-sm text-slate-600">
-                    Nenhuma ficha com inconsistência encontrada.
+                <div className={glassCard}>
+                  <h2 className="mb-1 text-lg font-semibold text-slate-950">
+                    CMV médio x alvo
+                  </h2>
+                  <p className="mb-4 text-sm text-slate-600">
+                    Participação visual entre CMV médio atual e CMV alvo médio.
                   </p>
-                ) : (
-                  <div className="space-y-3">
-                    {fichasAtencao.map((item) => (
-                      <div
-                        key={item.id}
-                        className="rounded-xl border border-white/40 bg-white/55 px-4 py-3 shadow-sm backdrop-blur-xl"
-                      >
-                        <div className="font-medium text-slate-950">
-                          {item.nome || "-"}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-600">
-                          {item.setor || "Sem setor"} •{" "}
-                          {item.categoria || "Sem categoria"} • rendimento{" "}
-                          {formatNumber(item.rendimento)} • custo total{" "}
-                          {formatMoney(item.custoTotal)} • custo por porção{" "}
-                          {formatMoney(item.custoPorPorcao)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
 
-            <div className={glassCard}>
-              <h2 className="mb-1 text-lg font-semibold text-slate-950">
-                Ranking - Fichas de Empratamento mais caras devido ao Ingrediente utilizado
-              </h2>
-              <p className="mb-4 text-sm text-slate-600">
-                Ranking por custo por porção, exibindo o ingrediente mais caro da
-                receita com marca buscada no catálogo de produtos.
-              </p>
-
-              <div className="overflow-x-auto">
-                <table className="min-w-[1100px] w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/50 text-left text-slate-700">
-                      <th className="px-3 py-3">#</th>
-                      <th className="px-3 py-3">Nome da Ficha</th>
-                      <th className="px-3 py-3">Ingrediente mais caro</th>
-                      <th className="px-3 py-3">Qtd</th>
-                      <th className="px-3 py-3">Unidade</th>
-                      <th className="px-3 py-3">Marca</th>
-                      <th className="px-3 py-3 text-right">Preço de Custo</th>
-                      <th className="px-3 py-3 text-right">Custo por porção</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rankingEmpratamentoMaisCarasPorIngrediente.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={8}
-                          className="px-3 py-6 text-center text-slate-600"
+                  <div className="print-chart-medium h-[260px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={cmvChart}
+                          dataKey="valor"
+                          nameKey="indicador"
+                          cx="50%"
+                          cy="48%"
+                          outerRadius={78}
+                          innerRadius={42}
+                          paddingAngle={4}
+                          label={({ name, value }) =>
+                            `${name}: ${formatNumber(Number(value), 1)}%`
+                          }
                         >
-                          Nenhuma ficha de Empratamento com custo por porção
-                          superior a R$ 1,00 encontrada.
-                        </td>
-                      </tr>
-                    ) : (
-                      rankingEmpratamentoMaisCarasPorIngrediente.map(
-                        ({ ficha, ingrediente }, index) => {
-                          const produtoCatalogo =
-                            (ingrediente?.productId
-                              ? productById.get(ingrediente.productId)
-                              : null) ??
-                            findProductByIngredientName(
-                              ingrediente?.nome ?? "",
-                              productByName,
-                              products
-                            );
-
-                          const marcaFinal =
-                            normalizeBrand(produtoCatalogo?.brand ?? "") ||
-                            normalizeBrand(ingrediente?.marca ?? "") ||
-                            "Sem marca";
-
-                          return (
-                            <tr
-                              key={ficha.id}
-                              className="border-b border-white/30 bg-white/25"
-                            >
-                              <td className="px-3 py-3 font-bold">
-                                {index + 1}
-                              </td>
-                              <td className="px-3 py-3 font-semibold">
-                                {ficha.nome || "-"}
-                              </td>
-                              <td className="px-3 py-3">
-                                {ingrediente?.nome || "Não informado"}
-                              </td>
-                              <td className="px-3 py-3">
-                                {formatNumber(
-                                  ingrediente?.quantidadeUso ?? 0,
-                                  3
-                                )}
-                              </td>
-                              <td className="px-3 py-3">
-                                {ingrediente?.unidadeUso || "-"}
-                              </td>
-                              <td className="px-3 py-3">{marcaFinal}</td>
-                              <td className="px-3 py-3 text-right font-semibold">
-                                {formatMoney(ingrediente?.precoCompra ?? 0)}
-                              </td>
-                              <td className="px-3 py-3 text-right font-bold text-red-700">
-                                {formatMoney(ficha.custoPorPorcao)}
-                              </td>
-                            </tr>
-                          );
-                        }
-                      )
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <div className={glassCard}>
-                <h2 className="mb-1 text-lg font-semibold text-slate-950">
-                  Receitas de Empratamento com alergênicos
-                </h2>
-                <p className="mb-4 text-sm text-slate-600">
-                  Exibe apenas fichas de Empratamento que possuem alergênicos
-                  cadastrados, ignorando “Não contém”.
-                </p>
-
-                {alergênicosChart.length === 0 ? (
-                  <p className="text-sm text-slate-600">
-                    Nenhuma ficha de Empratamento com alergênicos encontrada.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {alergênicosChart.map((item, index) => (
-                      <div
-                        key={item.nome}
-                        className={`rounded-xl border px-4 py-3 shadow-sm backdrop-blur-xl ${
-                          ORANGE_GRADIENT[index] ??
-                          ORANGE_GRADIENT[ORANGE_GRADIENT.length - 1]
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="font-bold">
-                              {index + 1}. {item.nome}
-                            </div>
-                            <div className="mt-1 text-xs opacity-85">
-                              {item.alergênicos}
-                            </div>
-                          </div>
-
-                          <div className="rounded-full bg-white/30 px-3 py-1 text-xs font-bold shadow-sm backdrop-blur-xl">
-                            {item.quantidade} item
-                            {item.quantidade === 1 ? "" : "s"}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                          {cmvChart.map((entry, index) => (
+                            <Cell
+                              key={`cmv-cell-${entry.indicador}`}
+                              fill={PIE_COLORS[index % PIE_COLORS.length]}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(value) => [
+                            `${formatNumber(Number(value), 1)}%`,
+                            "Percentual",
+                          ]}
+                        />
+                        <Legend verticalAlign="bottom" height={32} />
+                      </PieChart>
+                    </ResponsiveContainer>
                   </div>
-                )}
-              </div>
+                </div>
 
-              <div className={glassCard}>
-                <h2 className="mb-1 text-lg font-semibold text-slate-950">
-                  Fichas por tipo de armazenamento
-                </h2>
-                <p className="mb-4 text-sm text-slate-600">
-                  Distribuição entre Congelado, Resfriado e Temperatura Ambiente.
-                </p>
+                <div className={glassCard}>
+                  <h2 className="mb-1 text-lg font-semibold text-slate-950">
+                    Qtd de Fichas ativas por Setor
+                  </h2>
+                  <p className="mb-4 text-sm text-slate-600">
+                    Distribuição operacional das fichas por setor.
+                  </p>
 
-                <div className="h-[320px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={armazenamentoChart}
-                        dataKey="quantidade"
-                        nameKey="tipo"
-                        cx="50%"
-                        cy="48%"
-                        outerRadius={90}
-                        innerRadius={45}
-                        paddingAngle={4}
-                        label={({ name, value }) => `${name}: ${value}`}
+                  <div className="print-chart-medium h-[260px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={porSetor}
+                        margin={{ top: 10, right: 16, left: 0, bottom: 50 }}
                       >
-                        {armazenamentoChart.map((entry, index) => (
-                          <Cell
-                            key={`storage-cell-${entry.tipo}`}
-                            fill={PIE_COLORS[index % PIE_COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value) => [
-                          formatNumber(Number(value), 0),
-                          "Fichas",
-                        ]}
-                      />
-                      <Legend verticalAlign="bottom" height={36} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis
+                          dataKey="setor"
+                          angle={-35}
+                          textAnchor="end"
+                          interval={0}
+                          height={70}
+                          tick={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            fill: "#0f172a",
+                          }}
+                        />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                        <Tooltip
+                          formatter={(value) => [
+                            formatNumber(Number(value), 0),
+                            "Fichas",
+                          ]}
+                        />
+                        <Bar
+                          dataKey="quantidade"
+                          name="Fichas"
+                          radius={[8, 8, 0, 0]}
+                          fill="#7c3aed"
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div className={glassCard}>
-              <h2 className="mb-1 text-lg font-semibold text-slate-950">
-                Pré-preparos resfriados com Shelf life crítico
-              </h2>
-              <p className="mb-4 text-sm text-slate-600">
-                Lista apenas fichas técnicas de Pré-preparo cadastradas como
-                Refrigerado, com validade entre 1 e 7 dias.
-              </p>
+            <section className="print-page print-break-before space-y-6">
+              <div className={glassCard}>
+                <div className="mb-4 flex flex-col gap-1">
+                  <h2 className="text-lg font-semibold text-slate-950">
+                    Custos por porção — Empratamento Geral
+                  </h2>
+                  <p className="text-sm text-slate-600">
+                    Comparativo em reais do custo por porção de cada ficha técnica
+                    da categoria Empratamento.
+                  </p>
+                </div>
 
-              <div className="overflow-x-auto">
-                <table className="min-w-[560px] w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/50 text-left text-slate-700">
-                      <th className="px-3 py-3">Nome da Ficha</th>
-                      <th className="px-3 py-3">Shelf life resfriado</th>
-                      <th className="px-3 py-3">Armazenamento</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {shelfLifeCritico.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={3}
-                          className="px-3 py-6 text-center text-slate-600"
+                {fichasEmpratamentoChart.length === 0 ? (
+                  <p className="text-sm text-slate-600">
+                    Nenhuma ficha técnica da categoria Empratamento encontrada.
+                  </p>
+                ) : (
+                  <div className="print-chart-large h-[420px] w-full overflow-x-auto">
+                    <div
+                      style={{
+                        width: Math.max(fichasEmpratamentoChart.length * 90, 900),
+                        height: 420,
+                      }}
+                    >
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={fichasEmpratamentoChart}
+                          margin={{ top: 20, right: 24, left: 24, bottom: 90 }}
                         >
-                          Nenhum Pré-preparo refrigerado com shelf life entre 1
-                          e 7 dias.
-                        </td>
-                      </tr>
-                    ) : (
-                      shelfLifeCritico.map(({ ficha, dias }) => (
-                        <tr
-                          key={ficha.id}
-                          className="border-b border-white/30 bg-white/25"
-                        >
-                          <td className="px-3 py-3 font-semibold">
-                            {ficha.nome || "-"}
-                          </td>
-                          <td className="px-3 py-3 font-bold text-red-700">
-                            {dias} dia{dias === 1 ? "" : "s"}
-                          </td>
-                          <td className="px-3 py-3">Refrigerado</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis
+                            dataKey="nome"
+                            angle={-45}
+                            textAnchor="end"
+                            interval={0}
+                            height={100}
+                            tick={{
+                              fontSize: 11,
+                              fontWeight: 800,
+                              fill: "#0f172a",
+                            }}
+                          />
+                          <YAxis
+                            tickFormatter={(value) => formatMoney(Number(value))}
+                            tick={{ fontSize: 12, fill: "#0f172a" }}
+                          />
+                          <Tooltip
+                            formatter={(value) => [
+                              formatMoney(Number(value)),
+                              "Custo por porção",
+                            ]}
+                            labelFormatter={(label) => `Ficha: ${label}`}
+                          />
+                          <Bar
+                            dataKey="custoPorPorcao"
+                            name="Custo por porção"
+                            radius={[8, 8, 0, 0]}
+                            fill="#16a34a"
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+
+              <div className="print-grid-2 grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <div className={glassCard}>
+                  <h2 className="mb-4 text-lg font-semibold text-slate-950">
+                    Receitas mais caras — Empratamento
+                  </h2>
+
+                  {topMaisCaras.length === 0 ? (
+                    <p className="text-sm text-slate-600">
+                      Nenhuma ficha de Empratamento encontrada.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {topMaisCaras.map((item, index) => (
+                        <div
+                          key={item.id}
+                          className={`rounded-xl border px-4 py-3 shadow-sm ${
+                            RED_GRADIENT[index] ??
+                            RED_GRADIENT[RED_GRADIENT.length - 1]
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="font-bold">
+                                {index + 1}. {item.nome || "-"}
+                              </div>
+                              <div className="mt-1 text-xs opacity-85">
+                                {item.setor || "Sem setor"} •{" "}
+                                {item.categoria || "Sem categoria"} • rendimento{" "}
+                                {formatNumber(item.rendimento)}
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="font-extrabold">
+                                {formatMoney(item.custoTotal)}
+                              </div>
+                              <div className="text-xs opacity-85">
+                                {formatMoney(item.custoPorPorcao)}/porção
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className={glassCard}>
+                  <h2 className="mb-4 text-lg font-semibold text-slate-950">
+                    Receitas mais vantajosas — Empratamento
+                  </h2>
+
+                  {topMaisVantajosas.length === 0 ? (
+                    <p className="text-sm text-slate-600">
+                      Nenhuma ficha de Empratamento encontrada.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {topMaisVantajosas.map((item, index) => (
+                        <div
+                          key={item.id}
+                          className={`rounded-xl border px-4 py-3 shadow-sm ${
+                            BLUE_GRADIENT[index] ??
+                            BLUE_GRADIENT[BLUE_GRADIENT.length - 1]
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="font-bold">
+                                {index + 1}. {item.nome || "-"}
+                              </div>
+                              <div className="mt-1 text-xs opacity-85">
+                                {item.setor || "Sem setor"} •{" "}
+                                {item.categoria || "Sem categoria"} • rendimento{" "}
+                                {formatNumber(item.rendimento)}
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="font-extrabold">
+                                {formatMoney(item.custoPorPorcao)}
+                              </div>
+                              <div className="text-xs opacity-85">
+                                custo por porção
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section className="print-page print-break-before space-y-6">
+              <div className="print-grid-2 grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <div className={glassCard}>
+                  <h2 className="mb-4 text-lg font-semibold text-slate-950">
+                    Custo médio por setor
+                  </h2>
+
+                  {custoPorSetor.length === 0 ? (
+                    <p className="text-sm text-slate-600">
+                      Nenhum setor encontrado.
+                    </p>
+                  ) : (
+                    <div className="print-chart-medium h-[360px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={custoPorSetor}
+                          layout="vertical"
+                          margin={{ top: 10, right: 24, left: 70, bottom: 10 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                          <XAxis
+                            type="number"
+                            tickFormatter={(value) => formatMoney(Number(value))}
+                            tick={{ fontSize: 12, fill: "#0f172a" }}
+                          />
+                          <YAxis
+                            type="category"
+                            dataKey="setor"
+                            width={90}
+                            tick={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              fill: "#0f172a",
+                            }}
+                          />
+                          <Tooltip
+                            formatter={(value) => [
+                              formatMoney(Number(value)),
+                              "Custo médio",
+                            ]}
+                          />
+                          <Bar
+                            dataKey="custoTotalMedio"
+                            name="Custo médio"
+                            radius={[0, 8, 8, 0]}
+                            fill="#dc2626"
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
+
+                <div className={glassCard}>
+                  <h2 className="mb-4 text-lg font-semibold text-slate-950">
+                    Fichas que precisam de atenção
+                  </h2>
+
+                  {fichasAtencao.length === 0 ? (
+                    <p className="text-sm text-slate-600">
+                      Nenhuma ficha com inconsistência encontrada.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {fichasAtencao.map((item) => (
+                        <div
+                          key={item.id}
+                          className="rounded-xl border border-white/40 bg-white/55 px-4 py-3 shadow-sm backdrop-blur-xl"
+                        >
+                          <div className="font-medium text-slate-950">
+                            {item.nome || "-"}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-600">
+                            {item.setor || "Sem setor"} •{" "}
+                            {item.categoria || "Sem categoria"} • rendimento{" "}
+                            {formatNumber(item.rendimento)} • custo total{" "}
+                            {formatMoney(item.custoTotal)} • custo por porção{" "}
+                            {formatMoney(item.custoPorPorcao)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className={glassCard}>
+                <h2 className="mb-1 text-lg font-semibold text-slate-950">
+                  Ranking - Fichas de Empratamento mais caras devido ao Ingrediente utilizado
+                </h2>
+                <p className="mb-4 text-sm text-slate-600">
+                  Ranking por custo por porção, exibindo o ingrediente mais caro da
+                  receita com marca buscada no catálogo de produtos.
+                </p>
+
+                <div className="overflow-x-auto">
+                  <table className="print-table min-w-[1100px] w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-white/50 text-left text-slate-700">
+                        <th className="px-3 py-3">#</th>
+                        <th className="px-3 py-3">Nome da Ficha</th>
+                        <th className="px-3 py-3">Ingrediente mais caro</th>
+                        <th className="px-3 py-3">Qtd</th>
+                        <th className="px-3 py-3">Unidade</th>
+                        <th className="px-3 py-3">Marca</th>
+                        <th className="px-3 py-3 text-right">Preço de Custo</th>
+                        <th className="px-3 py-3 text-right">Custo por porção</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rankingEmpratamentoMaisCarasPorIngrediente.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={8}
+                            className="px-3 py-6 text-center text-slate-600"
+                          >
+                            Nenhuma ficha de Empratamento com custo por porção
+                            superior a R$ 1,00 encontrada.
+                          </td>
+                        </tr>
+                      ) : (
+                        rankingEmpratamentoMaisCarasPorIngrediente.map(
+                          ({ ficha, ingrediente }, index) => {
+                            const produtoCatalogo =
+                              (ingrediente?.productId
+                                ? productById.get(ingrediente.productId)
+                                : null) ??
+                              findProductByIngredientName(
+                                ingrediente?.nome ?? "",
+                                productByName,
+                                products
+                              );
+
+                            const marcaFinal =
+                              normalizeBrand(produtoCatalogo?.brand ?? "") ||
+                              normalizeBrand(ingrediente?.marca ?? "") ||
+                              "Sem marca";
+
+                            return (
+                              <tr
+                                key={ficha.id}
+                                className="border-b border-white/30 bg-white/25"
+                              >
+                                <td className="px-3 py-3 font-bold">
+                                  {index + 1}
+                                </td>
+                                <td className="px-3 py-3 font-semibold">
+                                  {ficha.nome || "-"}
+                                </td>
+                                <td className="px-3 py-3">
+                                  {ingrediente?.nome || "Não informado"}
+                                </td>
+                                <td className="px-3 py-3">
+                                  {formatNumber(
+                                    ingrediente?.quantidadeUso ?? 0,
+                                    3
+                                  )}
+                                </td>
+                                <td className="px-3 py-3">
+                                  {ingrediente?.unidadeUso || "-"}
+                                </td>
+                                <td className="px-3 py-3">{marcaFinal}</td>
+                                <td className="px-3 py-3 text-right font-semibold">
+                                  {formatMoney(ingrediente?.precoCompra ?? 0)}
+                                </td>
+                                <td className="px-3 py-3 text-right font-bold text-red-700">
+                                  {formatMoney(ficha.custoPorPorcao)}
+                                </td>
+                              </tr>
+                            );
+                          }
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <section className="print-page print-break-before">
+              <div className="print-grid-2 grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <div className={glassCard}>
+                  <h2 className="mb-1 text-lg font-semibold text-slate-950">
+                    Receitas de Empratamento com alergênicos
+                  </h2>
+                  <p className="mb-4 text-sm text-slate-600">
+                    Exibe apenas fichas de Empratamento que possuem alergênicos
+                    cadastrados, ignorando “Não contém”.
+                  </p>
+
+                  {alergênicosChart.length === 0 ? (
+                    <p className="text-sm text-slate-600">
+                      Nenhuma ficha de Empratamento com alergênicos encontrada.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {alergênicosChart.map((item, index) => (
+                        <div
+                          key={item.nome}
+                          className={`rounded-xl border px-4 py-3 shadow-sm backdrop-blur-xl ${
+                            ORANGE_GRADIENT[index] ??
+                            ORANGE_GRADIENT[ORANGE_GRADIENT.length - 1]
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="font-bold">
+                                {index + 1}. {item.nome}
+                              </div>
+                              <div className="mt-1 text-xs opacity-85">
+                                {item.alergênicos}
+                              </div>
+                            </div>
+
+                            <div className="rounded-full bg-white/30 px-3 py-1 text-xs font-bold shadow-sm backdrop-blur-xl">
+                              {item.quantidade} item
+                              {item.quantidade === 1 ? "" : "s"}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-6">
+                  <div className={glassCard}>
+                    <h2 className="mb-1 text-lg font-semibold text-slate-950">
+                      Fichas por tipo de armazenamento
+                    </h2>
+                    <p className="mb-4 text-sm text-slate-600">
+                      Distribuição entre Congelado, Resfriado e Temperatura Ambiente.
+                    </p>
+
+                    <div className="print-chart-medium h-[320px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={armazenamentoChart}
+                            dataKey="quantidade"
+                            nameKey="tipo"
+                            cx="50%"
+                            cy="48%"
+                            outerRadius={90}
+                            innerRadius={45}
+                            paddingAngle={4}
+                            label={({ name, value }) => `${name}: ${value}`}
+                          >
+                            {armazenamentoChart.map((entry, index) => (
+                              <Cell
+                                key={`storage-cell-${entry.tipo}`}
+                                fill={PIE_COLORS[index % PIE_COLORS.length]}
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value) => [
+                              formatNumber(Number(value), 0),
+                              "Fichas",
+                            ]}
+                          />
+                          <Legend verticalAlign="bottom" height={36} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  <div className={glassCard}>
+                    <h2 className="mb-1 text-lg font-semibold text-slate-950">
+                      Pré-preparos resfriados com Shelf life crítico
+                    </h2>
+                    <p className="mb-4 text-sm text-slate-600">
+                      Lista apenas fichas técnicas de Pré-preparo cadastradas como
+                      Refrigerado, com validade entre 1 e 7 dias.
+                    </p>
+
+                    <div className="overflow-x-auto">
+                      <table className="print-table min-w-[560px] w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-white/50 text-left text-slate-700">
+                            <th className="px-3 py-3">Nome da Ficha</th>
+                            <th className="px-3 py-3">Shelf life resfriado</th>
+                            <th className="px-3 py-3">Armazenamento</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {shelfLifeCritico.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={3}
+                                className="px-3 py-6 text-center text-slate-600"
+                              >
+                                Nenhum Pré-preparo refrigerado com shelf life
+                                entre 1 e 7 dias.
+                              </td>
+                            </tr>
+                          ) : (
+                            shelfLifeCritico.map(({ ficha, dias }) => (
+                              <tr
+                                key={ficha.id}
+                                className="border-b border-white/30 bg-white/25"
+                              >
+                                <td className="px-3 py-3 font-semibold">
+                                  {ficha.nome || "-"}
+                                </td>
+                                <td className="px-3 py-3 font-bold text-red-700">
+                                  {dias} dia{dias === 1 ? "" : "s"}
+                                </td>
+                                <td className="px-3 py-3">Refrigerado</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
           </>
         )}
       </div>

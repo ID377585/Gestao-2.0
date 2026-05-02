@@ -723,14 +723,12 @@ export default function EngenhariaDashboardPage() {
       <style jsx global>{`
         @page {
           size: A4 landscape;
-          margin: 0;
+          margin: 6mm;
         }
 
         @media print {
           html,
           body {
-            width: 297mm;
-            min-height: 210mm;
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
@@ -738,26 +736,21 @@ export default function EngenhariaDashboardPage() {
             print-color-adjust: exact !important;
           }
 
-          body * {
-            visibility: hidden;
-          }
-
-          .print-root,
-          .print-root * {
-            visibility: visible;
+          .no-print {
+            display: none !important;
           }
 
           .print-root {
-            position: absolute !important;
-            inset: 0 !important;
-            width: 297mm !important;
-            min-height: 210mm !important;
+            position: static !important;
+            width: auto !important;
+            min-height: auto !important;
             overflow: visible !important;
-            padding: 6mm !important;
-            background: linear-gradient(135deg, #ecfdf5, #f0f9ff, #f5f3ff) !important;
+            padding: 0 !important;
+            background: white !important;
           }
 
-          .no-print {
+          .print-root > div.absolute,
+          .print-root > div.pointer-events-none {
             display: none !important;
           }
 
@@ -768,8 +761,16 @@ export default function EngenhariaDashboardPage() {
           }
 
           .print-page {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
+            display: block !important;
+            break-after: page !important;
+            page-break-after: always !important;
+            break-inside: auto !important;
+            page-break-inside: auto !important;
+          }
+
+          .print-page:last-of-type {
+            break-after: auto !important;
+            page-break-after: auto !important;
           }
 
           .print-break-before {
@@ -781,30 +782,40 @@ export default function EngenhariaDashboardPage() {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
             box-shadow: none !important;
-            border: 1px solid rgba(255, 255, 255, 0.8) !important;
-            background: rgba(255, 255, 255, 0.7) !important;
-            backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(15, 23, 42, 0.18) !important;
+            background: rgba(255, 255, 255, 0.92) !important;
+            backdrop-filter: none !important;
           }
 
           .recharts-wrapper,
           .recharts-responsive-container,
-          svg,
-          table,
-          thead,
-          tbody,
-          tr {
+          svg {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
           }
 
+          .overflow-x-auto {
+            overflow: visible !important;
+          }
+
           .print-chart-large {
-            height: 118mm !important;
-            overflow: hidden !important;
+            height: 115mm !important;
+            overflow: visible !important;
+          }
+
+          .print-chart-large > div {
+            width: 100% !important;
+            height: 115mm !important;
           }
 
           .print-chart-medium {
-            height: 88mm !important;
-            overflow: hidden !important;
+            height: 75mm !important;
+            overflow: visible !important;
+          }
+
+          .print-chart-medium > div {
+            width: 100% !important;
+            height: 75mm !important;
           }
 
           .print-grid-3 {
@@ -819,13 +830,29 @@ export default function EngenhariaDashboardPage() {
             gap: 5mm !important;
           }
 
+          table {
+            width: 100% !important;
+            break-inside: auto !important;
+            page-break-inside: auto !important;
+          }
+
+          thead {
+            display: table-header-group !important;
+          }
+
+          tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
           .print-table {
-            font-size: 9px !important;
+            min-width: 0 !important;
+            font-size: 8.5px !important;
           }
 
           .print-table th,
           .print-table td {
-            padding: 4px 6px !important;
+            padding: 3px 5px !important;
           }
         }
       `}</style>

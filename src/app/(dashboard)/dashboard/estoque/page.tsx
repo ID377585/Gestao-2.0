@@ -31,6 +31,7 @@ import {
   getLastClosedInventorySession,
   bulkUpdateStockMeta,
   createStockMovementAction,
+  zeroStockBalanceAction,
   updateInventoryItem,
   deleteInventoryItem,
   listRecentStockMovements,
@@ -283,6 +284,7 @@ export default function EstoquePage() {
   const [adjustmentUnit, setAdjustmentUnit] = useState("UN");
   const [adjustmentReason, setAdjustmentReason] = useState("AJUSTE_MANUAL");
   const [savingAdjustment, setSavingAdjustment] = useState(false);
+  const [zeroStockBalance, setZeroStockBalance] = useState(false);
 
   const loadRecentMovements = async () => {
     try {
@@ -614,6 +616,7 @@ export default function EstoquePage() {
     setAdjustmentQty("");
     setAdjustmentUnit("UN");
     setAdjustmentReason("AJUSTE_MANUAL");
+    setZeroStockBalance(false);
   };
 
   const handleSyncStock = async () => {
@@ -823,22 +826,40 @@ export default function EstoquePage() {
       return;
     }
 
-    const qty = Number(adjustmentQty.replace(",", "."));
-
-    if (!Number.isFinite(qty) || qty <= 0) {
-      toast({
-        title: "Quantidade inválida",
-        description: "Informe uma quantidade maior que zero.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     const unit = normalizeUnit(adjustmentUnit);
-    const signedQty = adjustmentType === "OUT" ? -qty : qty;
 
     try {
       setSavingAdjustment(true);
+
+      if (zeroStockBalance) {
+        await zeroStockBalanceAction({
+          product_id: adjustmentProductId,
+          unit_label: unit,
+          reason: adjustmentReason || "ZERAR_SALDO_ESTOQUE",
+        });
+
+        toast({
+          title: "Saldo zerado",
+          description: "O saldo do produto foi ajustado para 0,000.",
+        });
+
+        closeAdjustmentModal();
+        await refreshMainData();
+        return;
+      }
+
+      const qty = Number(adjustmentQty.replace(",", "."));
+
+      if (!Number.isFinite(qty) || qty <= 0) {
+        toast({
+          title: "Quantidade inválida",
+          description: "Informe uma quantidade maior que zero.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const signedQty = adjustmentType === "OUT" ? -qty : qty;
 
       await createStockMovementAction({
         product_id: adjustmentProductId,
@@ -861,7 +882,7 @@ export default function EstoquePage() {
     } catch (e: any) {
       console.error(e);
       toast({
-        title: "Erro no ajuste manual",
+        title: zeroStockBalance ? "Erro ao zerar saldo" : "Erro no ajuste manual",
         description:
           e?.message ?? "Não foi possível registrar o ajuste manual.",
         variant: "destructive",
@@ -1871,6 +1892,26 @@ export default function EstoquePage() {
                 inventário completo.
               </div>
 
+              <label className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={zeroStockBalance}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setZeroStockBalance(checked);
+
+                    if (checked) {
+                      setAdjustmentQty("0");
+                      setAdjustmentType("OUT");
+                      setAdjustmentReason("ZERAR_SALDO_ESTOQUE");
+                    } else {
+                      setAdjustmentReason("AJUSTE_MANUAL");
+                    }
+                  }}
+                />
+                <span>Zerar saldo do estoque deste produto ao aplicar ajuste</span>
+              </label>
+
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="flex flex-col gap-1 md:col-span-2">
                   <Label htmlFor="adjustment-product">Produto</Label>
@@ -1913,6 +1954,7 @@ export default function EstoquePage() {
                     step="0.01"
                     placeholder="0"
                     value={adjustmentQty}
+                    disabled={zeroStockBalance}
                     onChange={(e) => setAdjustmentQty(e.target.value)}
                   />
                 </div>

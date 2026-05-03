@@ -1058,3 +1058,77 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
   revalidatePath("/dashboard/estoque");
   return { ok: true, updated };
 }
+
+export async function zeroStockBalanceAction(input: {
+  product_id: string;
+  unit_label?: string | null;
+  reason?: string;
+}) {
+  const { supabase, establishmentId } = await getSupabaseAndEstablishment();
+
+  const productId = String(input.product_id ?? "").trim();
+  const unit = normalizeUnitLabel(input.unit_label) ?? "UN";
+
+  if (!productId) {
+    throw new Error("Produto inválido para zerar saldo.");
+  }
+
+  await ensureStockBalanceForProduct({
+    supabase,
+    establishmentId,
+    productId,
+    unitLabel: unit,
+  });
+
+  const { data: currentRows, error: currentErr } = await supabase
+    .from("current_stock")
+    .select("qty_balance, unit_label")
+    .eq("establishment_id", establishmentId)
+    .eq("product_id", productId);
+
+  if (currentErr) {
+    console.error("[zeroStockBalanceAction] erro ao consultar current_stock:", currentErr);
+    throw new Error("Não foi possível consultar o saldo atual do produto.");
+  }
+
+  const currentQty = (currentRows ?? []).reduce((acc: number, row: any) => {
+    const rowUnit = normalizeUnitLabel(row.unit_label) ?? "UN";
+    if (rowUnit !== unit) return acc;
+    return acc + normalizeNumber(row.qty_balance, 0);
+  }, 0);
+
+  if (currentQty !== 0) {
+    await moveStock(supabase as any, {
+      establishment_id: establishmentId,
+      product_id: productId,
+      unit_label: unit,
+      qty_delta: -currentQty,
+      reason: input.reason || "ZERAR_SALDO_ESTOQUE",
+      source: "manual_zero_stock_modal",
+    });
+  }
+
+  const { error: mirrorError } = await supabase
+    .from("stock_balances")
+    .update({
+      quantity: 0,
+      unit_label: unit,
+    })
+    .eq("establishment_id", establishmentId)
+    .eq("product_id", productId);
+
+  if (mirrorError) {
+    console.error("[zeroStockBalanceAction] erro ao zerar stock_balances:", mirrorError);
+    throw new Error("Saldo zerado por movimento, mas falhou ao atualizar o espelho do estoque.");
+  }
+
+  await dispatchLowStockAlertsForProducts({
+    establishmentId,
+    productIds: [productId],
+    source: "manual_zero_stock",
+  });
+
+  revalidatePath("/dashboard/estoque");
+
+  return { ok: true, previousQty: currentQty, newQty: 0 };
+}

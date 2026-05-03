@@ -1097,6 +1097,15 @@ export async function zeroStockBalanceAction(input: {
     return acc + normalizeNumber(row.qty_balance, 0);
   }, 0);
 
+  await supabase
+    .from("stock_balances")
+    .update({
+      quantity: currentQty > 0 ? currentQty : 0,
+      unit_label: unit,
+    })
+    .eq("establishment_id", establishmentId)
+    .eq("product_id", productId);
+
   if (currentQty !== 0) {
     await moveStock(supabase as any, {
       establishment_id: establishmentId,

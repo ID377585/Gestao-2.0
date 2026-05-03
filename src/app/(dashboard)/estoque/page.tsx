@@ -4,18 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  Boxes,
-  ClipboardList,
   Package,
   TrendingDown,
   TrendingUp,
-  Scale,
-  Beef,
-  CookingPot,
-  Package2,
   DollarSign,
-  BarChart3,
-  Layers3,
   Sparkles,
 } from "lucide-react";
 import {
@@ -24,6 +16,9 @@ import {
   CartesianGrid,
   Cell,
   LabelList,
+  Legend,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -51,7 +46,6 @@ import { DashboardPageHeader } from "@/components/dashboard/DashboardPageHeader"
 import { DashboardStatGrid } from "@/components/dashboard/DashboardStatGrid";
 import { DashboardTableShell } from "@/components/dashboard/DashboardTableShell";
 import {
-  getLastClosedInventorySession,
   listCurrentStock,
   listRecentStockMovements,
   seedInitialStockFromProducts,
@@ -72,8 +66,11 @@ type StockRow = {
     id: string;
     name: string;
     price: number | null;
+    standard_cost?: number | null;
     sku?: string | null;
     default_unit_label?: string | null;
+    product_type?: "INSU" | "PREP" | "PROD" | string | null;
+    sector_category?: string | null;
   } | null;
 };
 
@@ -84,6 +81,7 @@ type ProductMetaRow = {
   sector_category?: string | null;
   default_unit_label?: string | null;
   price?: number | null;
+  standard_cost?: number | null;
   is_active?: boolean | null;
 };
 
@@ -102,9 +100,32 @@ type ChartDatum = {
   value: number;
 };
 
-type MiniDatum = {
+type StockValuePieDatum = {
   name: string;
-  value: number;
+  quantity: number;
+  amount: number;
+  items: number;
+  fill: string;
+};
+
+type UnitFamily = "KG" | "UNID" | "LT" | "OUTROS";
+
+type ConsolidatedUnitBucket = {
+  quantity: number;
+  amount: number;
+  items: number;
+};
+
+type MovementDiffRow = {
+  productId: string;
+  productName: string;
+  sku: string;
+  currentQty: number;
+  previousQty: number;
+  diffQty: number;
+  currentValue: number;
+  previousValue: number;
+  diffValue: number;
 };
 
 const CHART_BAR_COLORS = [
@@ -121,6 +142,8 @@ const CHART_BAR_COLORS = [
   "#14b8a6",
   "#c084fc",
 ];
+
+const PIE_COLORS = ["#60a5fa", "#34d399", "#f59e0b"];
 
 const GLASS_CARD_CLASS =
   "border border-white/20 bg-white/10 shadow-[0_8px_32px_rgba(15,23,42,0.14)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/12 dark:border-white/10 dark:bg-white/5";
@@ -168,17 +191,6 @@ function formatCurrency(value: number | null | undefined) {
   }).format(Number.isFinite(safe) ? safe : 0);
 }
 
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
-}
-
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
 }
@@ -194,23 +206,76 @@ function isDateInRange(value: string | null | undefined, start: Date, end: Date)
   return date >= start && date <= end;
 }
 
-function formatDelta(current: number, previous: number) {
-  const diff = current - previous;
-  const signal = diff > 0 ? "+" : "";
-  return `${signal}${formatQty(diff)}`;
-}
-
 function normalizeSectorName(value: string | null | undefined) {
   const raw = String(value ?? "").trim();
   return raw || "Sem setor";
 }
 
-function normalizeUnitFamily(value: string | null | undefined) {
-  const unit = String(value ?? "").trim().toUpperCase();
+function getPositiveNumber(value: number | string | null | undefined) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
 
-  if (unit === "KG" || unit === "G") return "KG";
-  if (unit === "UN") return "UNIDADE";
-  return "OUTROS";
+function getProductUnitCost(product: StockRow["product"] | ProductMetaRow | null | undefined) {
+  return (
+    getPositiveNumber(product?.standard_cost) ||
+    getPositiveNumber(product?.price)
+  );
+}
+
+function getUnitNormalization(value: string | null | undefined): {
+  family: UnitFamily;
+  quantityFactor: number;
+  displayUnit: string;
+  sourceUnit: string;
+} {
+  const unit = String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(".", "");
+
+  if (unit === "KG") {
+    return { family: "KG", quantityFactor: 1, displayUnit: "KG", sourceUnit: unit };
+  }
+
+  if (unit === "G" || unit === "GR" || unit === "GRAMA" || unit === "GRAMAS") {
+    return {
+      family: "KG",
+      quantityFactor: 0.001,
+      displayUnit: "KG",
+      sourceUnit: unit,
+    };
+  }
+
+  if (
+    unit === "UN" ||
+    unit === "UNID" ||
+    unit === "UND" ||
+    unit === "UNIDADE" ||
+    unit === "UNIDADES"
+  ) {
+    return { family: "UNID", quantityFactor: 1, displayUnit: "UNID", sourceUnit: unit };
+  }
+
+  if (unit === "LT" || unit === "L" || unit === "LITRO" || unit === "LITROS") {
+    return { family: "LT", quantityFactor: 1, displayUnit: "LT", sourceUnit: unit };
+  }
+
+  if (unit === "ML") {
+    return {
+      family: "LT",
+      quantityFactor: 0.001,
+      displayUnit: "LT",
+      sourceUnit: unit,
+    };
+  }
+
+  return {
+    family: "OUTROS",
+    quantityFactor: 1,
+    displayUnit: unit || "Sem unidade",
+    sourceUnit: unit,
+  };
 }
 
 function buildChartData(rows: EnrichedStockRow[], allowedTypes: string[]) {
@@ -228,11 +293,11 @@ function buildChartData(rows: EnrichedStockRow[], allowedTypes: string[]) {
     };
 
     const qty = Number(row.quantity ?? 0);
-    const price = Number(row.product?.price ?? 0);
+    const cost = getProductUnitCost(row.product);
 
     current.qty += Number.isFinite(qty) ? qty : 0;
     current.value +=
-      (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(price) ? price : 0);
+      (Number.isFinite(qty) ? qty : 0) * cost;
 
     map.set(category, current);
   }
@@ -267,10 +332,6 @@ async function loadProductsMeta(): Promise<ProductMetaRow[]> {
   return [];
 }
 
-function getMiniChartColor(index: number) {
-  return CHART_BAR_COLORS[index % CHART_BAR_COLORS.length];
-}
-
 function GlassPanel({
   title,
   description,
@@ -293,63 +354,6 @@ function GlassPanel({
   );
 }
 
-function MetricBar({
-  label,
-  value,
-  maxValue,
-  colorClass,
-}: {
-  label: string;
-  value: number;
-  maxValue: number;
-  colorClass: string;
-}) {
-  const percentage = maxValue > 0 ? Math.max(6, (value / maxValue) * 100) : 6;
-
-  return (
-    <div className={`${GLASS_INNER_CLASS} p-3`}>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <span className="text-sm font-medium">{label}</span>
-        <span className="text-sm font-semibold">{formatQty(value)}</span>
-      </div>
-      <div className="h-2.5 w-full overflow-hidden rounded-full bg-white/25 dark:bg-white/10">
-        <div
-          className={`h-full rounded-full ${colorClass}`}
-          style={{ width: `${Math.min(100, percentage)}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function MiniHorizontalBars({
-  title,
-  description,
-  data,
-}: {
-  title: string;
-  description: string;
-  data: MiniDatum[];
-}) {
-  const maxValue = Math.max(...data.map((item) => item.value), 0);
-
-  return (
-    <GlassPanel title={title} description={description}>
-      <div className="space-y-3">
-        {data.map((item, index) => (
-          <MetricBar
-            key={item.name}
-            label={item.name}
-            value={item.value}
-            maxValue={maxValue}
-            colorClass={index % 2 === 0 ? "bg-blue-500/80" : "bg-emerald-500/80"}
-          />
-        ))}
-      </div>
-    </GlassPanel>
-  );
-}
-
 function CustomGlassTooltip({
   active,
   payload,
@@ -357,7 +361,7 @@ function CustomGlassTooltip({
   formatter,
 }: {
   active?: boolean;
-  payload?: Array<{ value: number }>;
+  payload?: Array<{ value: number; name?: string }>;
   label?: string;
   formatter: (value: number) => string;
 }) {
@@ -365,7 +369,7 @@ function CustomGlassTooltip({
 
   return (
     <div className="rounded-2xl border border-white/20 bg-slate-950/80 px-3 py-2 text-xs text-white shadow-2xl backdrop-blur-xl">
-      <div className="mb-1 font-medium">{label}</div>
+      <div className="mb-1 font-medium">{label ?? payload[0]?.name}</div>
       <div>{formatter(Number(payload[0]?.value ?? 0))}</div>
     </div>
   );
@@ -476,11 +480,249 @@ function HorizontalStockChart({
   );
 }
 
+function ConsolidatedStockTooltip({
+  active,
+  payload,
+  amountBase,
+  quantityBase,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: StockValuePieDatum & { chartValue: number } }>;
+  amountBase: number;
+  quantityBase: number;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+
+  const item = payload[0]?.payload;
+  if (!item) return null;
+
+  const amountPercent = amountBase > 0 ? (item.amount / amountBase) * 100 : 0;
+  const quantityPercent =
+    quantityBase > 0 ? (item.quantity / quantityBase) * 100 : 0;
+
+  return (
+    <div className="rounded-2xl border border-white/20 bg-slate-950/85 px-3 py-2 text-xs text-white shadow-2xl backdrop-blur-xl">
+      <div className="mb-2 flex items-center gap-2 font-semibold">
+        <span
+          className="h-2.5 w-2.5 rounded-full"
+          style={{ backgroundColor: item.fill }}
+        />
+        {item.name}
+      </div>
+      <div>Quantidade: {formatQty(item.quantity)}</div>
+      <div>Valor: {formatCurrency(item.amount)}</div>
+      <div>Itens: {item.items}</div>
+      <div>
+        Participação:{" "}
+        {(amountBase > 0 ? amountPercent : quantityPercent)
+          .toFixed(1)
+          .replace(".", ",")}
+        %
+      </div>
+    </div>
+  );
+}
+
+function ConsolidatedStockPieChart({
+  data,
+  totalQuantity,
+  totalAmount,
+  unclassified,
+}: {
+  data: StockValuePieDatum[];
+  totalQuantity: number;
+  totalAmount: number;
+  unclassified: ConsolidatedUnitBucket;
+}) {
+  const amountBase = data.reduce((acc, item) => acc + item.amount, 0);
+  const quantityBase = data.reduce((acc, item) => acc + item.quantity, 0);
+  const pieData = data
+    .map((item) => ({
+      ...item,
+      chartValue: amountBase > 0 ? item.amount : item.quantity,
+    }))
+    .filter((item) => item.chartValue > 0);
+
+  const hasChartData = pieData.length > 0;
+
+  return (
+    <GlassPanel
+      title="Saldo consolidado"
+      description="Soma das quantidades atuais e do valor financeiro por unidade monitorada."
+      className="xl:col-span-2"
+    >
+      <div className={`${GLASS_INNER_CLASS} p-4`}>
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="relative min-h-[360px] min-w-0 rounded-3xl border border-white/20 bg-white/20 p-3 backdrop-blur-md dark:border-white/10 dark:bg-white/5">
+            {hasChartData ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Tooltip
+                    content={
+                      <ConsolidatedStockTooltip
+                        amountBase={amountBase}
+                        quantityBase={quantityBase}
+                      />
+                    }
+                  />
+                  <Legend
+                    formatter={(value) => (
+                      <span className="text-xs text-slate-700 dark:text-slate-200">
+                        {value}
+                      </span>
+                    )}
+                  />
+                  <Pie
+                    data={pieData}
+                    dataKey="chartValue"
+                    nameKey="name"
+                    innerRadius={82}
+                    outerRadius={126}
+                    paddingAngle={3}
+                    stroke="rgba(255,255,255,0.35)"
+                    strokeWidth={2}
+                    labelLine={false}
+                    label={({ name, payload }) =>
+                      `${name}: ${formatQty(Number(payload?.quantity ?? 0))}`
+                    }
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell
+                        key={`${entry.name}-${index}`}
+                        fill={entry.fill}
+                        fillOpacity={0.95}
+                      />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[330px] items-center justify-center rounded-3xl border border-dashed border-white/30 bg-white/15 text-center dark:border-white/10 dark:bg-white/5">
+                <div>
+                  <div className="text-sm font-semibold">Sem saldo atual</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    As famílias KG, UNID e LT estão zeradas no estoque monitorado.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="max-w-[190px] rounded-2xl border border-white/35 bg-white/80 px-4 py-3 text-center shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/70">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Valor total em estoque
+                </div>
+                <div className="mt-1 text-xl font-bold">
+                  {formatCurrency(totalAmount)}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Soma das quantidades atuais: {formatQty(totalQuantity)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {data.map((item) => {
+              const amountPercentage =
+                amountBase > 0 ? (item.amount / amountBase) * 100 : 0;
+              const quantityPercentage =
+                quantityBase > 0 ? (item.quantity / quantityBase) * 100 : 0;
+              const barPercentage =
+                amountBase > 0 ? amountPercentage : quantityPercentage;
+
+              return (
+                <div key={item.name} className={`${GLASS_INNER_CLASS} p-3`}>
+                  <div className="mb-2 flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="mt-1 h-3 w-3 rounded-full"
+                        style={{ backgroundColor: item.fill }}
+                      />
+                      <div>
+                        <div className="text-sm font-semibold">{item.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {item.items} item(ns) • qtd atual: {formatQty(item.quantity)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-bold">
+                        {formatCurrency(item.amount)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {barPercentage.toFixed(1).replace(".", ",")}%
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                    <div className="rounded-xl bg-white/20 px-2 py-1 dark:bg-white/5">
+                      Quantidade:{" "}
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatQty(item.quantity)}
+                      </span>
+                    </div>
+                    <div className="rounded-xl bg-white/20 px-2 py-1 dark:bg-white/5">
+                      Valor:{" "}
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatCurrency(item.amount)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-white/25 dark:bg-white/10">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, barPercentage))}%`,
+                        backgroundColor: item.fill,
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+
+            <div className={`${GLASS_INNER_CLASS} p-3`}>
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Total geral monitorado
+              </div>
+              <div className="mt-1 text-2xl font-bold">
+                {formatCurrency(totalAmount)}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Soma financeira calculada por quantidade atual x preço/custo unitário.
+              </div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                Quantidade total somada: {formatQty(totalQuantity)}
+              </div>
+            </div>
+
+            {unclassified.items > 0 ? (
+              <div className="rounded-2xl border border-amber-200/70 bg-amber-50/70 p-3 text-xs text-amber-950 shadow-sm backdrop-blur-md dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
+                <div className="font-semibold">Unidades fora do consolidado</div>
+                <div className="mt-1">
+                  {unclassified.items} item(ns) não entram na pizza KG - R$,
+                  UNID - R$ e LT - R$.
+                </div>
+                <div className="mt-1">
+                  Qtd: {formatQty(unclassified.quantity)} • Valor:{" "}
+                  {formatCurrency(unclassified.amount)}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </GlassPanel>
+  );
+}
+
 export default function EstoqueDashboardPage() {
   const [stock, setStock] = useState<StockRow[]>([]);
   const [recentMovements, setRecentMovements] = useState<RecentStockMovementRow[]>([]);
   const [productsMeta, setProductsMeta] = useState<ProductMetaRow[]>([]);
-  const [lastClosedInventoryAt, setLastClosedInventoryAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -512,16 +754,6 @@ export default function EstoqueDashboardPage() {
         }
 
         try {
-          const lastClosed = await getLastClosedInventorySession();
-          setLastClosedInventoryAt(
-            (lastClosed as any)?.finished_at ?? (lastClosed as any)?.started_at ?? null
-          );
-        } catch (inventoryError) {
-          console.error("Falha ao buscar último inventário:", inventoryError);
-          setLastClosedInventoryAt(null);
-        }
-
-        try {
           const meta = await loadProductsMeta();
           setProductsMeta(meta ?? []);
         } catch (metaError) {
@@ -549,8 +781,14 @@ export default function EstoqueDashboardPage() {
       ...row,
       meta: row.product?.id
         ? {
-            product_type: byId.get(String(row.product.id))?.product_type ?? null,
-            sector_category: byId.get(String(row.product.id))?.sector_category ?? null,
+            product_type:
+              row.product.product_type ??
+              byId.get(String(row.product.id))?.product_type ??
+              null,
+            sector_category:
+              row.product.sector_category ??
+              byId.get(String(row.product.id))?.sector_category ??
+              null,
           }
         : null,
     }));
@@ -558,22 +796,16 @@ export default function EstoqueDashboardPage() {
 
   const metrics = useMemo(() => {
     const totalProdutos = enrichedStock.length;
-    const produtosSemSaldo = enrichedStock.filter((row) => Number(row.quantity ?? 0) <= 0);
     const produtosCriticos = enrichedStock.filter((row) => getStatusFromRow(row) === "critico");
     const produtosBaixos = enrichedStock.filter((row) => getStatusFromRow(row) === "baixo");
     const produtosAcimaMax = enrichedStock.filter(
       (row) => Number(row.max_qty ?? 0) > 0 && Number(row.quantity ?? 0) > Number(row.max_qty ?? 0)
     );
 
-    const saldoTotal = enrichedStock.reduce(
-      (acc, row) => acc + (Number.isFinite(Number(row.quantity)) ? Number(row.quantity) : 0),
-      0
-    );
-
     const valorTotal = enrichedStock.reduce((acc, row) => {
       const qty = Number(row.quantity ?? 0);
-      const price = Number(row.product?.price ?? 0);
-      return acc + (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(price) ? price : 0);
+      const cost = getProductUnitCost(row.product);
+      return acc + (Number.isFinite(qty) ? qty : 0) * cost;
     }, 0);
 
     const itensCriticos = [...enrichedStock]
@@ -591,40 +823,62 @@ export default function EstoqueDashboardPage() {
       .slice(0, 10);
 
     const produtosMaisCaros = [...enrichedStock]
-      .filter((row) => Number(row.quantity ?? 0) > 0 && Number(row.product?.price ?? 0) > 0)
-      .sort((a, b) => Number(b.product?.price ?? 0) - Number(a.product?.price ?? 0))
+      .filter((row) => Number(row.quantity ?? 0) > 0 && getProductUnitCost(row.product) > 0)
+      .sort((a, b) => getProductUnitCost(b.product) - getProductUnitCost(a.product))
       .slice(0, 10);
 
-    const countByType = {
-      INSU: enrichedStock.filter(
-        (row) => String(row.meta?.product_type ?? "").toUpperCase() === "INSU"
-      ).length,
-      PREP: enrichedStock.filter(
-        (row) => String(row.meta?.product_type ?? "").toUpperCase() === "PREP"
-      ).length,
-      PROD: enrichedStock.filter(
-        (row) => String(row.meta?.product_type ?? "").toUpperCase() === "PROD"
-      ).length,
-    };
-
-    const countByUnitFamily = enrichedStock.reduce(
+    const consolidatedByUnit = enrichedStock.reduce<{
+      kg: ConsolidatedUnitBucket;
+      unid: ConsolidatedUnitBucket;
+      lt: ConsolidatedUnitBucket;
+      outros: ConsolidatedUnitBucket;
+    }>(
       (acc, row) => {
-        const family = normalizeUnitFamily(
+        const unitInfo = getUnitNormalization(
           row.product?.default_unit_label ?? row.unit_label ?? ""
         );
+        const qty = Number(row.quantity ?? 0);
+        const cost = getProductUnitCost(row.product);
+        const safeQty = Number.isFinite(qty) ? qty : 0;
+        const normalizedQty = safeQty * unitInfo.quantityFactor;
+        const amount = safeQty * cost;
 
-        if (family === "KG") acc.kg += 1;
-        else if (family === "UNIDADE") acc.un += 1;
-        else acc.outros += 1;
+        if (unitInfo.family === "KG") {
+          acc.kg.quantity += normalizedQty;
+          acc.kg.amount += amount;
+          acc.kg.items += 1;
+        } else if (unitInfo.family === "UNID") {
+          acc.unid.quantity += normalizedQty;
+          acc.unid.amount += amount;
+          acc.unid.items += 1;
+        } else if (unitInfo.family === "LT") {
+          acc.lt.quantity += normalizedQty;
+          acc.lt.amount += amount;
+          acc.lt.items += 1;
+        } else {
+          acc.outros.quantity += normalizedQty;
+          acc.outros.amount += amount;
+          acc.outros.items += 1;
+        }
 
         return acc;
       },
-      { kg: 0, un: 0, outros: 0 }
+      {
+        kg: { quantity: 0, amount: 0, items: 0 },
+        unid: { quantity: 0, amount: 0, items: 0 },
+        lt: { quantity: 0, amount: 0, items: 0 },
+        outros: { quantity: 0, amount: 0, items: 0 },
+      }
     );
+
+    const saldoTotal =
+      consolidatedByUnit.kg.quantity +
+      consolidatedByUnit.unid.quantity +
+      consolidatedByUnit.lt.quantity +
+      consolidatedByUnit.outros.quantity;
 
     return {
       totalProdutos,
-      produtosSemSaldo,
       produtosCriticos,
       produtosBaixos,
       produtosAcimaMax,
@@ -633,8 +887,7 @@ export default function EstoqueDashboardPage() {
       itensCriticos,
       itensAcimaMax,
       produtosMaisCaros,
-      countByType,
-      countByUnitFamily,
+      consolidatedByUnit,
     };
   }, [enrichedStock]);
 
@@ -642,51 +895,99 @@ export default function EstoqueDashboardPage() {
     const now = new Date();
     const currentMonthStart = startOfMonth(now);
     const currentMonthEnd = endOfMonth(now);
-
     const previousMonthBase = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const previousMonthStart = startOfMonth(previousMonthBase);
     const previousMonthEnd = endOfMonth(previousMonthBase);
 
-    const priceByProductId = new Map<string, number>();
+    const productById = new Map<
+      string,
+      { name: string; sku: string; price: number }
+    >();
+
     for (const row of enrichedStock) {
-      if (row.product?.id) {
-        priceByProductId.set(String(row.product.id), Number(row.product?.price ?? 0));
+      const productId = String(row.product?.id ?? "").trim();
+      if (!productId) continue;
+
+	      productById.set(productId, {
+	        name: row.product?.name ?? "Produto sem vínculo",
+	        sku: row.product?.sku ?? "—",
+	        price: getProductUnitCost(row.product),
+	      });
+    }
+
+    const currentByProduct = new Map<string, number>();
+    const previousByProduct = new Map<string, number>();
+
+    for (const movement of recentMovements) {
+      const productId = String(movement.product_id ?? "").trim();
+      if (!productId) continue;
+
+      const qty = Math.abs(Number(movement.qty ?? 0));
+      const safeQty = Number.isFinite(qty) ? qty : 0;
+      if (safeQty <= 0) continue;
+
+      if (isDateInRange(movement.created_at, currentMonthStart, currentMonthEnd)) {
+        currentByProduct.set(
+          productId,
+          (currentByProduct.get(productId) ?? 0) + safeQty
+        );
+      } else if (
+        isDateInRange(movement.created_at, previousMonthStart, previousMonthEnd)
+      ) {
+        previousByProduct.set(
+          productId,
+          (previousByProduct.get(productId) ?? 0) + safeQty
+        );
       }
     }
 
-    const currentMonthMovements = recentMovements.filter((mv) =>
-      isDateInRange(mv.created_at, currentMonthStart, currentMonthEnd)
-    );
+    const productIds = new Set([
+      ...Array.from(currentByProduct.keys()),
+      ...Array.from(previousByProduct.keys()),
+    ]);
 
-    const previousMonthMovements = recentMovements.filter((mv) =>
-      isDateInRange(mv.created_at, previousMonthStart, previousMonthEnd)
-    );
+    const rows: MovementDiffRow[] = Array.from(productIds)
+      .map((productId) => {
+        const product = productById.get(productId);
+        const currentQty = currentByProduct.get(productId) ?? 0;
+        const previousQty = previousByProduct.get(productId) ?? 0;
+        const price = product?.price ?? 0;
+        const currentValue = currentQty * price;
+        const previousValue = previousQty * price;
 
-    const currentMonthQty = currentMonthMovements.reduce(
-      (acc, mv) => acc + Math.abs(Number(mv.qty ?? 0)),
-      0
-    );
+        return {
+          productId,
+          productName: product?.name ?? "Produto não encontrado",
+          sku: product?.sku ?? "—",
+          currentQty,
+          previousQty,
+          diffQty: currentQty - previousQty,
+          currentValue,
+          previousValue,
+          diffValue: currentValue - previousValue,
+        };
+      })
+      .filter((row) => row.currentQty > 0 || row.previousQty > 0)
+      .sort(
+        (a, b) =>
+          Math.abs(b.diffValue) - Math.abs(a.diffValue) ||
+          Math.abs(b.diffQty) - Math.abs(a.diffQty) ||
+          a.productName.localeCompare(b.productName, "pt-BR")
+      )
+      .slice(0, 20);
 
-    const previousMonthQty = previousMonthMovements.reduce(
-      (acc, mv) => acc + Math.abs(Number(mv.qty ?? 0)),
-      0
-    );
-
-    const currentMonthValue = currentMonthMovements.reduce((acc, mv) => {
-      const price = priceByProductId.get(String(mv.product_id ?? "")) ?? 0;
-      return acc + Math.abs(Number(mv.qty ?? 0)) * price;
-    }, 0);
-
-    const previousMonthValue = previousMonthMovements.reduce((acc, mv) => {
-      const price = priceByProductId.get(String(mv.product_id ?? "")) ?? 0;
-      return acc + Math.abs(Number(mv.qty ?? 0)) * price;
-    }, 0);
+    const currentMonthQty = rows.reduce((acc, row) => acc + row.currentQty, 0);
+    const previousMonthQty = rows.reduce((acc, row) => acc + row.previousQty, 0);
+    const currentMonthValue = rows.reduce((acc, row) => acc + row.currentValue, 0);
+    const previousMonthValue = rows.reduce((acc, row) => acc + row.previousValue, 0);
 
     return {
+      rows,
       currentMonthQty,
       previousMonthQty,
       currentMonthValue,
       previousMonthValue,
+      diffValueTotal: currentMonthValue - previousMonthValue,
     };
   }, [recentMovements, enrichedStock]);
 
@@ -700,23 +1001,33 @@ export default function EstoqueDashboardPage() {
     [enrichedStock]
   );
 
-  const productTypeMiniData = useMemo<MiniDatum[]>(
+  const consolidatedStockPieData = useMemo<StockValuePieDatum[]>(
     () => [
-      { name: "Insumos", value: metrics.countByType.INSU },
-      { name: "Pré-preparos", value: metrics.countByType.PREP },
-      { name: "Produtos", value: metrics.countByType.PROD },
+      {
+        name: "KG - R$",
+        quantity: metrics.consolidatedByUnit.kg.quantity,
+        amount: metrics.consolidatedByUnit.kg.amount,
+        items: metrics.consolidatedByUnit.kg.items,
+        fill: PIE_COLORS[0],
+      },
+      {
+        name: "UNID - R$",
+        quantity: metrics.consolidatedByUnit.unid.quantity,
+        amount: metrics.consolidatedByUnit.unid.amount,
+        items: metrics.consolidatedByUnit.unid.items,
+        fill: PIE_COLORS[1],
+      },
+      {
+        name: "LT - R$",
+        quantity: metrics.consolidatedByUnit.lt.quantity,
+        amount: metrics.consolidatedByUnit.lt.amount,
+        items: metrics.consolidatedByUnit.lt.items,
+        fill: PIE_COLORS[2],
+      },
     ],
-    [metrics.countByType]
+    [metrics.consolidatedByUnit]
   );
 
-  const unitMiniData = useMemo<MiniDatum[]>(
-    () => [
-      { name: "KG / G", value: metrics.countByUnitFamily.kg },
-      { name: "UNIDADE", value: metrics.countByUnitFamily.un },
-      { name: "Outros", value: metrics.countByUnitFamily.outros },
-    ],
-    [metrics.countByUnitFamily]
-  );
 
   return (
     <div className="relative space-y-6 overflow-hidden rounded-[32px] bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_22%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.14),transparent_22%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.12),transparent_24%),linear-gradient(180deg,rgba(248,250,252,0.82),rgba(241,245,249,0.92))] p-1 dark:bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_22%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.16),transparent_22%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.14),transparent_24%),linear-gradient(180deg,rgba(2,6,23,0.86),rgba(15,23,42,0.94))]">
@@ -769,34 +1080,24 @@ export default function EstoqueDashboardPage() {
               <DashboardStatGrid
                 items={[
                   {
-                    title: "Produtos monitorados",
+                    title: "Valor total em estoque",
+                    value: loading ? "…" : formatCurrency(metrics.valorTotal),
+                    description: "Valor atual do saldo consolidado do estoque.",
+                    icon: <DollarSign className="h-4 w-4" />,
+                    valueClassName: "text-base sm:text-lg",
+                  },
+                  {
+                    title: "Produtos Cadastrados",
                     value: loading ? "…" : metrics.totalProdutos,
                     description: "Itens com saldo e metadados de estoque no estabelecimento.",
                     icon: <Package className="h-4 w-4" />,
                   },
                   {
-                    title: "Sem saldo",
-                    value: loading ? "…" : metrics.produtosSemSaldo.length,
-                    description: "Produtos zerados no saldo atual.",
-                    icon: <TrendingDown className="h-4 w-4" />,
-                  },
-                  {
-                    title: "Qtd. Estoque Abaixo da Qtd Mín",
+                    title: "Estoque abaixo do Mínimo",
                     value: loading ? "…" : metrics.produtosCriticos.length,
                     description: "Itens com saldo abaixo do mínimo configurado.",
                     icon: <AlertTriangle className="h-4 w-4" />,
                     valueClassName: "text-red-600",
-                  },
-                  {
-                    title: "Último inventário",
-                    value: loading
-                      ? "…"
-                      : lastClosedInventoryAt
-                        ? formatDateTime(lastClosedInventoryAt)
-                        : "—",
-                    description: "Data do último inventário encerrado.",
-                    icon: <ClipboardList className="h-4 w-4" />,
-                    valueClassName: "text-base sm:text-lg",
                   },
                 ]}
               />
@@ -805,12 +1106,6 @@ export default function EstoqueDashboardPage() {
             <div className="[&>div>div]:rounded-3xl [&>div>div]:border [&>div>div]:border-white/20 [&>div>div]:bg-white/10 [&>div>div]:backdrop-blur-xl [&>div>div]:shadow-[0_8px_32px_rgba(15,23,42,0.12)] dark:[&>div>div]:border-white/10 dark:[&>div>div]:bg-white/5">
               <DashboardStatGrid
                 items={[
-                  {
-                    title: "Saldo consolidado",
-                    value: loading ? "…" : formatQty(metrics.saldoTotal),
-                    description: "Soma das quantidades atuais de todos os itens monitorados.",
-                    icon: <Boxes className="h-4 w-4" />,
-                  },
                   {
                     title: "Qtd Estoque abaixo do Ideal",
                     value: loading ? "…" : metrics.produtosBaixos.length,
@@ -825,9 +1120,11 @@ export default function EstoqueDashboardPage() {
                     icon: <TrendingUp className="h-4 w-4" />,
                   },
                   {
-                    title: "Valor total em estoque",
-                    value: loading ? "…" : formatCurrency(metrics.valorTotal),
-                    description: "Valor atual do saldo consolidado do estoque.",
+                    title: "Dif. mês anterior vs atual (R$)",
+                    value: loading ? "…" : formatCurrency(monthComparison.diffValueTotal),
+                    description: loading
+                      ? "Carregando..."
+                      : `Atual ${formatCurrency(monthComparison.currentMonthValue)} • Anterior ${formatCurrency(monthComparison.previousMonthValue)}`,
                     icon: <DollarSign className="h-4 w-4" />,
                     valueClassName: "text-base sm:text-lg",
                   },
@@ -835,63 +1132,12 @@ export default function EstoqueDashboardPage() {
               />
             </div>
 
-            <div className="[&>div>div]:rounded-3xl [&>div>div]:border [&>div>div]:border-white/20 [&>div>div]:bg-white/10 [&>div>div]:backdrop-blur-xl [&>div>div]:shadow-[0_8px_32px_rgba(15,23,42,0.12)] dark:[&>div>div]:border-white/10 dark:[&>div>div]:bg-white/5">
-              <DashboardStatGrid
-                items={[
-                  {
-                    title: "Dif. mês anterior vs atual (Qtd)",
-                    value: loading
-                      ? "…"
-                      : formatDelta(
-                          monthComparison.currentMonthQty,
-                          monthComparison.previousMonthQty
-                        ),
-                    description: loading
-                      ? "Carregando..."
-                      : `Atual ${formatQty(monthComparison.currentMonthQty)} • Anterior ${formatQty(monthComparison.previousMonthQty)}`,
-                    icon: <Scale className="h-4 w-4" />,
-                  },
-                  {
-                    title: "Dif. mês anterior vs atual (R$)",
-                    value: loading
-                      ? "…"
-                      : formatCurrency(
-                          monthComparison.currentMonthValue -
-                            monthComparison.previousMonthValue
-                        ),
-                    description: loading
-                      ? "Carregando..."
-                      : `Atual ${formatCurrency(monthComparison.currentMonthValue)} • Anterior ${formatCurrency(monthComparison.previousMonthValue)}`,
-                    icon: <BarChart3 className="h-4 w-4" />,
-                    valueClassName: "text-base sm:text-lg",
-                  },
-                  {
-                    title: "Qtd de itens em KG",
-                    value: loading ? "…" : metrics.countByUnitFamily.kg,
-                    description: "Produtos cuja unidade principal é KG ou G.",
-                    icon: <Scale className="h-4 w-4" />,
-                  },
-                  {
-                    title: "Qtd de itens em Unidade",
-                    value: loading ? "…" : metrics.countByUnitFamily.un,
-                    description: "Produtos cuja unidade principal é UN.",
-                    icon: <Package2 className="h-4 w-4" />,
-                  },
-                ]}
-              />
-            </div>
-
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-              <MiniHorizontalBars
-                title="Produtos por tipo"
-                description="Agora em formato visual, substituindo cards simples por barras de leitura rápida."
-                data={productTypeMiniData}
-              />
-
-              <MiniHorizontalBars
-                title="Unidades de estoque"
-                description="Distribuição visual da família de unidades em estoque."
-                data={unitMiniData}
+              <ConsolidatedStockPieChart
+                data={consolidatedStockPieData}
+                totalQuantity={metrics.saldoTotal}
+                totalAmount={metrics.valorTotal}
+                unclassified={metrics.consolidatedByUnit.outros}
               />
 
               <GlassPanel
@@ -900,7 +1146,7 @@ export default function EstoqueDashboardPage() {
               >
                 <div className="grid grid-cols-1 gap-3">
                   <div className={`${GLASS_INNER_CLASS} flex items-center justify-between p-3`}>
-                    <span className="text-sm">Estoque crítico</span>
+                    <span className="text-sm">Estoque abaixo do mínimo</span>
                     <span className="text-sm font-semibold">
                       {metrics.produtosCriticos.length} item(ns)
                     </span>
@@ -915,12 +1161,6 @@ export default function EstoqueDashboardPage() {
                     <span className="text-sm">Acima da quantidade máxima</span>
                     <span className="text-sm font-semibold">
                       {metrics.produtosAcimaMax.length} item(ns)
-                    </span>
-                  </div>
-                  <div className={`${GLASS_INNER_CLASS} flex items-center justify-between p-3`}>
-                    <span className="text-sm">Produtos sem saldo</span>
-                    <span className="text-sm font-semibold">
-                      {metrics.produtosSemSaldo.length} item(ns)
                     </span>
                   </div>
                 </div>
@@ -959,6 +1199,89 @@ export default function EstoqueDashboardPage() {
                 valueKey="value"
                 formatValue={(value) => formatCurrency(value)}
               />
+            </div>
+
+            <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
+              <DashboardTableShell
+                title="Dif. mês anterior vs atual (Qtd)"
+                description="Listagem dos produtos que tiveram diferença entre o mês anterior e o mês atual, com quantidade e valor."
+                empty={monthComparison.rows.length === 0}
+                emptyState={
+                  <p className="text-sm text-muted-foreground">
+                    Não houve movimentações comparáveis entre o mês atual e o anterior.
+                  </p>
+                }
+                footer={
+                  <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                    <span>
+                      Atual: {formatQty(monthComparison.currentMonthQty)} • Anterior:{" "}
+                      {formatQty(monthComparison.previousMonthQty)}
+                    </span>
+                    <span className="font-semibold">
+                      Total diferença em R$: {formatCurrency(monthComparison.diffValueTotal)}
+                    </span>
+                  </div>
+                }
+              >
+                <div className={`${GLASS_INNER_CLASS} overflow-hidden p-1`}>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Produto</TableHead>
+                        <TableHead>SKU</TableHead>
+                        <TableHead className="text-right">Qtd Atual</TableHead>
+                        <TableHead className="text-right">Qtd Anterior</TableHead>
+                        <TableHead className="text-right">Dif. Qtd</TableHead>
+                        <TableHead className="text-right">Dif. R$</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {monthComparison.rows.map((row) => (
+                        <TableRow key={row.productId}>
+                          <TableCell className="font-medium">
+                            {row.productName}
+                          </TableCell>
+                          <TableCell>{row.sku}</TableCell>
+                          <TableCell className="text-right">
+                            {formatQty(row.currentQty)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatQty(row.previousQty)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <span
+                              className={
+                                row.diffQty > 0
+                                  ? "text-emerald-600 font-semibold"
+                                  : row.diffQty < 0
+                                    ? "text-red-600 font-semibold"
+                                    : ""
+                              }
+                            >
+                              {row.diffQty > 0 ? "+" : ""}
+                              {formatQty(row.diffQty)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <span
+                              className={
+                                row.diffValue > 0
+                                  ? "text-emerald-600 font-semibold"
+                                  : row.diffValue < 0
+                                    ? "text-red-600 font-semibold"
+                                    : ""
+                              }
+                            >
+                              {row.diffValue > 0 ? "+" : ""}
+                              {formatCurrency(row.diffValue)}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </DashboardTableShell>
             </div>
 
             <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
@@ -1099,9 +1422,9 @@ export default function EstoqueDashboardPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {metrics.produtosMaisCaros.map((row) => {
-                        const qty = Number(row.quantity ?? 0);
-                        const price = Number(row.product?.price ?? 0);
+	                      {metrics.produtosMaisCaros.map((row) => {
+	                        const qty = Number(row.quantity ?? 0);
+	                        const price = getProductUnitCost(row.product);
 
                         return (
                           <TableRow key={row.id}>

@@ -4,10 +4,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -34,14 +30,17 @@ import {
   updateStockThresholds,
   getLastClosedInventorySession,
   bulkUpdateStockMeta,
+  createStockMovementAction,
+  updateInventoryItem,
+  deleteInventoryItem,
+  listRecentStockMovements,
   type BulkStockMetaUpdateItem,
+  type RecentStockMovementRow,
 } from "./actions";
 
 import { DashboardPageHeader } from "@/components/dashboard/DashboardPageHeader";
 import { DashboardStatGrid } from "@/components/dashboard/DashboardStatGrid";
 import { DashboardTableShell } from "@/components/dashboard/DashboardTableShell";
-
-// ===== Tipagens auxiliares =====
 
 type StockRow = {
   id: string;
@@ -78,6 +77,8 @@ type InventoryItem = {
 };
 
 type StatusEstoque = "critico" | "baixo" | "normal";
+type StatusFilter = "todos" | StatusEstoque;
+type AdjustmentType = "IN" | "OUT";
 
 type ProductOption = {
   id: string;
@@ -94,6 +95,18 @@ type ThresholdDrafts = Record<
     max: string;
   }
 >;
+
+type MetaDrafts = Record<
+  string,
+  {
+    unit_label: string;
+    location: string;
+  }
+>;
+
+type InventoryItemDrafts = Record<string, string>;
+
+const UNIT_OPTIONS = ["UN", "KG", "G", "L", "ML"] as const;
 
 const statusConfig: Record<
   StatusEstoque,
@@ -114,7 +127,6 @@ function getStatusFromRow(row: StockRow): StatusEstoque {
   return "normal";
 }
 
-// ===== CSV helpers =====
 function normalizeHeader(h: string) {
   return String(h || "")
     .trim()
@@ -176,15 +188,68 @@ function escapeCsv(val: any) {
   return s;
 }
 
+function normalizeTextSearch(value: string | null | undefined) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+}
+
+function normalizeUnit(value: string | null | undefined) {
+  const v = String(value ?? "").trim().toUpperCase();
+  return v || "UN";
+}
+
+function formatMovementDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(d);
+}
+
+function getMovementLabel(mv?: RecentStockMovementRow) {
+  if (!mv) return "—";
+  const dir = String(mv.direction ?? "").toUpperCase();
+  const qty = Number(mv.qty ?? 0);
+  const unit = String(mv.unit_label ?? "UN").toUpperCase();
+  const sign = dir === "OUT" ? "-" : "+";
+  return `${sign}${qty} ${unit}`;
+}
+
+function getMovementReason(mv?: RecentStockMovementRow) {
+  if (!mv) return "—";
+  return mv.reason ?? mv.movement_type ?? "—";
+}
+
 export default function EstoquePage() {
   const { toast } = useToast();
 
   const [stock, setStock] = useState<StockRow[]>([]);
   const [loadingStock, setLoadingStock] = useState(true);
+  const [syncingStock, setSyncingStock] = useState(false);
 
   const [thresholdDrafts, setThresholdDrafts] = useState<ThresholdDrafts>({});
+  const [metaDrafts, setMetaDrafts] = useState<MetaDrafts>({});
+  const [inventoryItemDrafts, setInventoryItemDrafts] =
+    useState<InventoryItemDrafts>({});
+
+  const [recentMovementsByProduct, setRecentMovementsByProduct] = useState<
+    Record<string, RecentStockMovementRow>
+  >({});
+
   const [savingThresholdRowId, setSavingThresholdRowId] =
     useState<string | null>(null);
+  const [savingMetaRowId, setSavingMetaRowId] = useState<string | null>(null);
+  const [savingInventoryItemId, setSavingInventoryItemId] = useState<
+    string | null
+  >(null);
+  const [deletingInventoryItemId, setDeletingInventoryItemId] = useState<
+    string | null
+  >(null);
 
   const [products, setProducts] = useState<ProductOption[]>([]);
 
@@ -206,6 +271,44 @@ export default function EstoquePage() {
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [countedQuantity, setCountedQuantity] = useState<string>("");
 
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos");
+  const [onlyWithQty, setOnlyWithQty] = useState(false);
+  const [locationFilter, setLocationFilter] = useState("todos");
+
+  const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false);
+  const [adjustmentProductId, setAdjustmentProductId] = useState("");
+  const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>("IN");
+  const [adjustmentQty, setAdjustmentQty] = useState("");
+  const [adjustmentUnit, setAdjustmentUnit] = useState("UN");
+  const [adjustmentReason, setAdjustmentReason] = useState("AJUSTE_MANUAL");
+  const [savingAdjustment, setSavingAdjustment] = useState(false);
+
+  const loadRecentMovements = async () => {
+    try {
+      const rows = await listRecentStockMovements();
+      const map: Record<string, RecentStockMovementRow> = {};
+
+      for (const mv of rows) {
+        const pid = String(mv.product_id ?? "");
+        if (!pid) continue;
+        if (!map[pid]) {
+          map[pid] = mv;
+        }
+      }
+
+      setRecentMovementsByProduct(map);
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Erro ao carregar movimentações",
+        description:
+          e?.message ?? "Não foi possível carregar a última movimentação.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const loadStock = async () => {
     setLoadingStock(true);
     try {
@@ -223,6 +326,10 @@ export default function EstoquePage() {
     }
   };
 
+  const refreshMainData = async () => {
+    await Promise.all([loadStock(), loadRecentMovements()]);
+  };
+
   const formatDateTime = (value: string | Date | null | undefined) => {
     if (!value) return "";
     const date = typeof value === "string" ? new Date(value) : value;
@@ -231,6 +338,17 @@ export default function EstoquePage() {
       dateStyle: "short",
       timeStyle: "short",
     }).format(date);
+  };
+
+  const refreshInventorySession = async () => {
+    const refreshed = await getInventorySessionWithItems();
+    if (refreshed) {
+      setInventorySession(refreshed.session as InventorySession);
+      setInventoryItems(refreshed.items as InventoryItem[]);
+    } else {
+      setInventorySession(null);
+      setInventoryItems([]);
+    }
   };
 
   useEffect(() => {
@@ -249,7 +367,7 @@ export default function EstoquePage() {
           }
         }
 
-        await loadStock();
+        await refreshMainData();
 
         try {
           const lastClosed = await getLastClosedInventorySession();
@@ -280,9 +398,11 @@ export default function EstoquePage() {
   }, []);
 
   useEffect(() => {
-    const drafts: ThresholdDrafts = {};
+    const thresholds: ThresholdDrafts = {};
+    const metas: MetaDrafts = {};
+
     stock.forEach((row) => {
-      drafts[row.id] = {
+      thresholds[row.id] = {
         min:
           row.min_qty !== null && row.min_qty !== undefined
             ? String(row.min_qty)
@@ -296,9 +416,40 @@ export default function EstoquePage() {
             ? String(row.max_qty)
             : "",
       };
+
+      metas[row.id] = {
+        unit_label: normalizeUnit(
+          row.unit_label ?? row.product?.default_unit_label ?? "UN"
+        ),
+        location: row.location ?? "",
+      };
     });
-    setThresholdDrafts(drafts);
+
+    setThresholdDrafts(thresholds);
+    setMetaDrafts(metas);
   }, [stock]);
+
+  useEffect(() => {
+    const drafts: InventoryItemDrafts = {};
+    inventoryItems.forEach((item) => {
+      drafts[item.id] = String(item.counted_quantity ?? "");
+    });
+    setInventoryItemDrafts(drafts);
+  }, [inventoryItems]);
+
+  useEffect(() => {
+    const selectedRow = stock.find((s) => s.product?.id === adjustmentProductId);
+    const selectedProduct = products.find((p) => p.id === adjustmentProductId);
+
+    const suggestedUnit = normalizeUnit(
+      selectedRow?.unit_label ??
+        selectedRow?.product?.default_unit_label ??
+        selectedProduct?.default_unit_label ??
+        "UN"
+    );
+
+    setAdjustmentUnit(suggestedUnit);
+  }, [adjustmentProductId, stock, products]);
 
   const sortedStock = useMemo(() => {
     const rank: Record<StatusEstoque, number> = {
@@ -325,6 +476,61 @@ export default function EstoquePage() {
       return String(a.id).localeCompare(String(b.id));
     });
   }, [stock]);
+
+  const locationOptions = useMemo(() => {
+    const values = Array.from(
+      new Set(
+        stock
+          .map((row) => String(row.location ?? "").trim())
+          .filter((v) => v.length > 0)
+      )
+    ).sort((a, b) =>
+      a.localeCompare(b, "pt-BR", { sensitivity: "base", numeric: true })
+    );
+
+    return values;
+  }, [stock]);
+
+  const filteredStock = useMemo(() => {
+    const term = normalizeTextSearch(searchTerm);
+
+    return sortedStock.filter((row) => {
+      const status = getStatusFromRow(row);
+      const name = normalizeTextSearch(row.product?.name);
+      const sku = normalizeTextSearch(row.product?.sku);
+      const location = normalizeTextSearch(row.location);
+      const reason = normalizeTextSearch(
+        getMovementReason(recentMovementsByProduct[row.product?.id ?? ""])
+      );
+
+      const matchesSearch =
+        !term ||
+        name.includes(term) ||
+        sku.includes(term) ||
+        location.includes(term) ||
+        reason.includes(term);
+
+      const matchesStatus =
+        statusFilter === "todos" ? true : status === statusFilter;
+
+      const matchesQty = onlyWithQty ? (row.quantity ?? 0) > 0 : true;
+
+      const matchesLocation =
+        locationFilter === "todos"
+          ? true
+          : normalizeTextSearch(row.location) ===
+            normalizeTextSearch(locationFilter);
+
+      return matchesSearch && matchesStatus && matchesQty && matchesLocation;
+    });
+  }, [
+    sortedStock,
+    searchTerm,
+    statusFilter,
+    onlyWithQty,
+    locationFilter,
+    recentMovementsByProduct,
+  ]);
 
   const totalItens = stock.length;
 
@@ -384,6 +590,57 @@ export default function EstoquePage() {
     setCountedQuantity("");
   };
 
+  const openAdjustmentModal = (preset?: {
+    productId?: string;
+    unitLabel?: string | null;
+    reason?: string;
+  }) => {
+    if (preset?.productId) {
+      setAdjustmentProductId(preset.productId);
+    }
+    if (preset?.unitLabel) {
+      setAdjustmentUnit(normalizeUnit(preset.unitLabel));
+    }
+    if (preset?.reason) {
+      setAdjustmentReason(preset.reason);
+    }
+    setAdjustmentModalOpen(true);
+  };
+
+  const closeAdjustmentModal = () => {
+    setAdjustmentModalOpen(false);
+    setAdjustmentProductId("");
+    setAdjustmentType("IN");
+    setAdjustmentQty("");
+    setAdjustmentUnit("UN");
+    setAdjustmentReason("AJUSTE_MANUAL");
+  };
+
+  const handleSyncStock = async () => {
+    try {
+      setSyncingStock(true);
+      await seedInitialStockFromProducts();
+      await refreshMainData();
+
+      toast({
+        title: "Estoque sincronizado",
+        description:
+          "Produtos sem estrutura de estoque foram vinculados com sucesso.",
+      });
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Erro ao sincronizar estoque",
+        description:
+          e?.message ??
+          "Não foi possível sincronizar produtos faltantes no estoque.",
+        variant: "destructive",
+      });
+    } finally {
+      setSyncingStock(false);
+    }
+  };
+
   const handleAddInventoryItem = async () => {
     if (!inventorySession) {
       toast({
@@ -431,11 +688,7 @@ export default function EstoquePage() {
         unit_label: unitLabel,
       });
 
-      const refreshed = await getInventorySessionWithItems();
-      if (refreshed) {
-        setInventorySession(refreshed.session as InventorySession);
-        setInventoryItems(refreshed.items as InventoryItem[]);
-      }
+      await refreshInventorySession();
 
       setSelectedProductId("");
       setCountedQuantity("");
@@ -456,6 +709,71 @@ export default function EstoquePage() {
     }
   };
 
+  const handleSaveInventoryItem = async (item: InventoryItem) => {
+    const raw = inventoryItemDrafts[item.id];
+    const qty = Number(String(raw ?? "").replace(",", "."));
+
+    if (!Number.isFinite(qty) || qty < 0) {
+      toast({
+        title: "Quantidade inválida",
+        description: "Informe zero ou um valor maior.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (qty === Number(item.counted_quantity ?? 0)) {
+      return;
+    }
+
+    try {
+      setSavingInventoryItemId(item.id);
+      await updateInventoryItem(item.id, qty);
+      await refreshInventorySession();
+
+      toast({
+        title: "Item atualizado",
+        description: "A contagem do item foi atualizada.",
+      });
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Erro ao atualizar item",
+        description: e?.message ?? "Não foi possível atualizar o item contado.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingInventoryItemId(null);
+    }
+  };
+
+  const handleDeleteInventoryItem = async (item: InventoryItem) => {
+    const confirmed = confirm(
+      `Deseja remover o item contado "${item.product?.name ?? "sem nome"}"?`
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingInventoryItemId(item.id);
+      await deleteInventoryItem(item.id);
+      await refreshInventorySession();
+
+      toast({
+        title: "Item removido",
+        description: "O item foi removido do inventário em andamento.",
+      });
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Erro ao remover item",
+        description: e?.message ?? "Não foi possível remover o item contado.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingInventoryItemId(null);
+    }
+  };
+
   const handleFinalizeInventory = async () => {
     if (!inventorySession) return;
 
@@ -471,7 +789,8 @@ export default function EstoquePage() {
       setFinalizingInventory(true);
       await finalizeInventory(inventorySession.id);
 
-      const sessionDate = inventorySession.started_at ?? new Date().toISOString();
+      const sessionDate =
+        inventorySession.started_at ?? new Date().toISOString();
       setLastInventoryDate(sessionDate);
 
       toast({
@@ -481,7 +800,7 @@ export default function EstoquePage() {
       });
 
       closeInventoryModal();
-      await loadStock();
+      await refreshMainData();
     } catch (e: any) {
       console.error(e);
       toast({
@@ -491,6 +810,64 @@ export default function EstoquePage() {
       });
     } finally {
       setFinalizingInventory(false);
+    }
+  };
+
+  const handleCreateManualAdjustment = async () => {
+    if (!adjustmentProductId) {
+      toast({
+        title: "Selecione um produto",
+        description: "Escolha o produto que terá ajuste manual.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const qty = Number(adjustmentQty.replace(",", "."));
+
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast({
+        title: "Quantidade inválida",
+        description: "Informe uma quantidade maior que zero.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const unit = normalizeUnit(adjustmentUnit);
+    const signedQty = adjustmentType === "OUT" ? -qty : qty;
+
+    try {
+      setSavingAdjustment(true);
+
+      await createStockMovementAction({
+        product_id: adjustmentProductId,
+        unit_label: unit,
+        qty_delta: signedQty,
+        reason: adjustmentReason || "AJUSTE_MANUAL",
+        source: "manual_adjustment_modal",
+      });
+
+      toast({
+        title: "Ajuste aplicado",
+        description:
+          adjustmentType === "IN"
+            ? "Entrada manual registrada com sucesso."
+            : "Saída manual registrada com sucesso.",
+      });
+
+      closeAdjustmentModal();
+      await refreshMainData();
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Erro no ajuste manual",
+        description:
+          e?.message ?? "Não foi possível registrar o ajuste manual.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingAdjustment(false);
     }
   };
 
@@ -509,6 +886,19 @@ export default function EstoquePage() {
 
   const inventoryDateDisplay =
     inventorySession?.started_at ?? new Date().toISOString();
+
+  const adjustmentSelectedRow = stock.find(
+    (s) => s.product?.id === adjustmentProductId
+  );
+  const adjustmentSelectedProduct = products.find(
+    (p) => p.id === adjustmentProductId
+  );
+  const currentAdjustmentUnit = normalizeUnit(
+    adjustmentSelectedRow?.unit_label ??
+      adjustmentSelectedRow?.product?.default_unit_label ??
+      adjustmentSelectedProduct?.default_unit_label ??
+      adjustmentUnit
+  );
 
   const handleThresholdChange = (
     balanceId: string,
@@ -532,6 +922,33 @@ export default function EstoquePage() {
     const med = Number(draft.med || "0");
     const max = Number(draft.max || "0");
 
+    if (min < 0 || med < 0 || max < 0) {
+      toast({
+        title: "Valores inválidos",
+        description: "Min/Méd/Máx não podem ser negativos.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (med < min) {
+      toast({
+        title: "Valores inválidos",
+        description: "O valor médio não pode ser menor que o mínimo.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (max < med) {
+      toast({
+        title: "Valores inválidos",
+        description: "O valor máximo não pode ser menor que o médio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const row = stock.find((s) => s.id === balanceId);
     if (
       row &&
@@ -545,7 +962,7 @@ export default function EstoquePage() {
     try {
       setSavingThresholdRowId(balanceId);
       await updateStockThresholds(balanceId, min, med, max);
-      await loadStock();
+      await refreshMainData();
       toast({
         title: "Limites atualizados",
         description: "Min/Méd/Máx atualizados com sucesso para este produto.",
@@ -563,6 +980,66 @@ export default function EstoquePage() {
     }
   };
 
+  const handleMetaDraftChange = (
+    balanceId: string,
+    field: "unit_label" | "location",
+    value: string
+  ) => {
+    setMetaDrafts((prev) => ({
+      ...prev,
+      [balanceId]: {
+        ...(prev[balanceId] ?? { unit_label: "UN", location: "" }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleMetaBlur = async (row: StockRow) => {
+    const draft = metaDrafts[row.id];
+    if (!draft) return;
+
+    const nextUnit = normalizeUnit(draft.unit_label);
+    const nextLocation = String(draft.location ?? "").trim();
+
+    const currentUnit = normalizeUnit(
+      row.unit_label ?? row.product?.default_unit_label ?? "UN"
+    );
+    const currentLocation = String(row.location ?? "").trim();
+
+    if (nextUnit === currentUnit && nextLocation === currentLocation) {
+      return;
+    }
+
+    try {
+      setSavingMetaRowId(row.id);
+
+      const payload: BulkStockMetaUpdateItem = {
+        balance_id: row.id,
+        product_id: row.product?.id ?? undefined,
+        unit_label: nextUnit,
+        location: nextLocation || null,
+      };
+
+      await bulkUpdateStockMeta([payload]);
+      await refreshMainData();
+
+      toast({
+        title: "Metadados atualizados",
+        description: "Local e unidade foram atualizados com sucesso.",
+      });
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Erro ao atualizar metadados",
+        description:
+          e?.message ?? "Não foi possível atualizar local/unidade deste item.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingMetaRowId(null);
+    }
+  };
+
   const buildCsvRows = (rows: StockRow[]) => {
     return rows.map((row) => {
       const status = getStatusFromRow(row);
@@ -571,6 +1048,7 @@ export default function EstoquePage() {
       ).toUpperCase();
       const price = row.product?.price ?? 0;
       const total = price * (row.quantity ?? 0);
+      const mv = recentMovementsByProduct[row.product?.id ?? ""];
 
       return {
         produto: row.product?.name ?? "",
@@ -584,6 +1062,9 @@ export default function EstoquePage() {
         status: statusConfig[status].label,
         valor_unit: price,
         total: total,
+        ultima_movimentacao: getMovementLabel(mv),
+        motivo_recente: getMovementReason(mv),
+        data_movimentacao: mv?.created_at ?? "",
       };
     });
   };
@@ -603,6 +1084,9 @@ export default function EstoquePage() {
       "status",
       "valor_unit",
       "total",
+      "ultima_movimentacao",
+      "motivo_recente",
+      "data_movimentacao",
     ];
 
     const delimiter = ";";
@@ -629,14 +1113,14 @@ export default function EstoquePage() {
   };
 
   const handleExportComprar = () => {
-    const criticos = sortedStock.filter(
+    const criticos = filteredStock.filter(
       (r) => getStatusFromRow(r) === "critico"
     );
     downloadCsv("estoque_comprar_criticos.csv", criticos);
   };
 
   const handleExportGeral = () => {
-    downloadCsv("estoque_atual_geral.csv", sortedStock);
+    downloadCsv("estoque_atual_geral.csv", filteredStock);
   };
 
   const handleClickUpload = () => {
@@ -656,7 +1140,9 @@ export default function EstoquePage() {
     if (linesRaw.length < 2) return [];
 
     const delimiter = detectDelimiter(linesRaw[0]);
-    const headerCells = splitCsvLine(linesRaw[0], delimiter).map(normalizeHeader);
+    const headerCells = splitCsvLine(linesRaw[0], delimiter).map(
+      normalizeHeader
+    );
 
     const colIndex = (nameVariants: string[]) => {
       for (const v of nameVariants) {
@@ -711,10 +1197,8 @@ export default function EstoquePage() {
       if (!matched && rawNome) matched = byName.get(rawNome.toLowerCase());
 
       const balance_id = rawBalanceId || (matched?.id ? String(matched.id) : "");
-
       const product_id =
-        rawProductId ||
-        (matched?.product?.id ? String(matched.product.id) : "");
+        rawProductId || (matched?.product?.id ? String(matched.product.id) : "");
 
       if (!balance_id && !product_id) {
         continue;
@@ -775,7 +1259,7 @@ export default function EstoquePage() {
           "Atualizamos Min/Méd/Máx, Local e Unidade em Estoque Atual. (O saldo exibido vem de movimentos/inventário.)",
       });
 
-      await loadStock();
+      await refreshMainData();
     } catch (e: any) {
       console.error(e);
       toast({
@@ -788,6 +1272,12 @@ export default function EstoquePage() {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
+
+  const activeFiltersCount =
+    (searchTerm.trim() ? 1 : 0) +
+    (statusFilter !== "todos" ? 1 : 0) +
+    (onlyWithQty ? 1 : 0) +
+    (locationFilter !== "todos" ? 1 : 0);
 
   return (
     <div className="space-y-6">
@@ -807,7 +1297,7 @@ export default function EstoquePage() {
           {
             title: "Total de Itens",
             value: loadingStock ? "…" : totalItens,
-            description: "Produtos cadastrados",
+            description: "Produtos estruturados no estoque",
             icon: <span className="text-xl">📦</span>,
           },
           {
@@ -835,17 +1325,31 @@ export default function EstoquePage() {
 
       <DashboardTableShell
         title="Estoque Atual"
-        description="Valores após o último inventário."
+        description={`Exibindo ${filteredStock.length} de ${sortedStock.length} itens${
+          activeFiltersCount > 0 ? ` • ${activeFiltersCount} filtro(s) ativo(s)` : ""
+        }.`}
         toolbar={
           <>
             <Button onClick={openInventoryModal} disabled={loadingInventory}>
               {loadingInventory ? "Abrindo..." : "Inventário"}
             </Button>
 
+            <Button onClick={() => openAdjustmentModal()} variant="outline">
+              Ajuste Manual
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={handleSyncStock}
+              disabled={syncingStock || loadingStock}
+            >
+              {syncingStock ? "Sincronizando..." : "Sincronizar Estoque"}
+            </Button>
+
             <Button
               variant="outline"
               onClick={handleExportComprar}
-              disabled={loadingStock || sortedStock.length === 0}
+              disabled={loadingStock || filteredStock.length === 0}
             >
               Exportar Comprar (CSV)
             </Button>
@@ -853,7 +1357,7 @@ export default function EstoquePage() {
             <Button
               variant="outline"
               onClick={handleExportGeral}
-              disabled={loadingStock || sortedStock.length === 0}
+              disabled={loadingStock || filteredStock.length === 0}
             >
               Exportar Geral (CSV)
             </Button>
@@ -874,13 +1378,98 @@ export default function EstoquePage() {
             />
           </>
         }
-        empty={!loadingStock && sortedStock.length === 0}
+        empty={!loadingStock && filteredStock.length === 0}
         emptyState={
-          <p className="text-sm text-muted-foreground">
-            Nenhum item de estoque cadastrado ainda.
-          </p>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Nenhum item encontrado para os filtros atuais.
+            </p>
+            {activeFiltersCount > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearchTerm("");
+                  setStatusFilter("todos");
+                  setOnlyWithQty(false);
+                  setLocationFilter("todos");
+                }}
+              >
+                Limpar filtros
+              </Button>
+            )}
+          </div>
         }
       >
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-[2fr_1fr_1fr_auto_auto]">
+          <div className="space-y-1">
+            <Label htmlFor="search">Buscar por produto, SKU, local ou motivo</Label>
+            <Input
+              id="search"
+              placeholder="Ex.: farinha, 1001711, estoque principal, avaria..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="status-filter">Status</Label>
+            <select
+              id="status-filter"
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            >
+              <option value="todos">Todos</option>
+              <option value="critico">Crítico</option>
+              <option value="baixo">Baixo</option>
+              <option value="normal">Normal</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="location-filter">Local</Label>
+            <select
+              id="location-filter"
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+              value={locationFilter}
+              onChange={(e) => setLocationFilter(e.target.value)}
+            >
+              <option value="todos">Todos</option>
+              {locationOptions.map((loc) => (
+                <option key={loc} value={loc}>
+                  {loc}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-end">
+            <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm">
+              <input
+                type="checkbox"
+                checked={onlyWithQty}
+                onChange={(e) => setOnlyWithQty(e.target.checked)}
+              />
+              <span>Somente com saldo</span>
+            </label>
+          </div>
+
+          <div className="flex items-end">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSearchTerm("");
+                setStatusFilter("todos");
+                setOnlyWithQty(false);
+                setLocationFilter("todos");
+              }}
+              disabled={activeFiltersCount === 0}
+            >
+              Limpar filtros
+            </Button>
+          </div>
+        </div>
+
         <Table>
           <TableHeader>
             <TableRow>
@@ -889,8 +1478,12 @@ export default function EstoquePage() {
               <TableHead>Min/Méd/Máx</TableHead>
               <TableHead>Valor Unit.</TableHead>
               <TableHead>Total</TableHead>
+              <TableHead>Unidade</TableHead>
               <TableHead>Local</TableHead>
+              <TableHead>Últ. mov.</TableHead>
+              <TableHead>Motivo recente</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Ações</TableHead>
             </TableRow>
           </TableHeader>
 
@@ -898,16 +1491,18 @@ export default function EstoquePage() {
             {loadingStock ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={11}
                   className="text-sm text-muted-foreground"
                 >
                   Carregando...
                 </TableCell>
               </TableRow>
             ) : (
-              sortedStock.map((row) => {
+              filteredStock.map((row) => {
                 const status = getStatusFromRow(row);
                 const badgeCfg = statusConfig[status];
+                const movement =
+                  recentMovementsByProduct[row.product?.id ?? ""] ?? undefined;
 
                 const unit = String(
                   row.unit_label ?? row.product?.default_unit_label ?? "UN"
@@ -918,7 +1513,7 @@ export default function EstoquePage() {
                   Math.round(((row.quantity ?? 0) + Number.EPSILON) * 1000) /
                   1000;
 
-                const draft = thresholdDrafts[row.id] ?? {
+                const thresholdDraft = thresholdDrafts[row.id] ?? {
                   min:
                     row.min_qty !== null && row.min_qty !== undefined
                       ? String(row.min_qty)
@@ -933,7 +1528,13 @@ export default function EstoquePage() {
                       : "",
                 };
 
-                const disabled = savingThresholdRowId === row.id;
+                const metaDraft = metaDrafts[row.id] ?? {
+                  unit_label: unit,
+                  location: row.location ?? "",
+                };
+
+                const thresholdDisabled = savingThresholdRowId === row.id;
+                const metaDisabled = savingMetaRowId === row.id;
 
                 return (
                   <TableRow key={row.id}>
@@ -956,76 +1557,119 @@ export default function EstoquePage() {
                       <div className="flex items-center gap-1">
                         <Input
                           type="number"
+                          min={0}
                           className="h-7 w-16 text-xs"
-                          value={draft.min}
-                          disabled={disabled}
+                          value={thresholdDraft.min}
+                          disabled={thresholdDisabled}
                           onChange={(e) =>
-                            handleThresholdChange(
-                              row.id,
-                              "min",
-                              e.target.value
-                            )
+                            handleThresholdChange(row.id, "min", e.target.value)
                           }
                           onBlur={() => handleThresholdBlur(row.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              (e.currentTarget as HTMLInputElement).blur();
-                            }
-                          }}
                         />
                         <span className="text-[10px] text-gray-400">/</span>
                         <Input
                           type="number"
+                          min={0}
                           className="h-7 w-16 text-xs"
-                          value={draft.med}
-                          disabled={disabled}
+                          value={thresholdDraft.med}
+                          disabled={thresholdDisabled}
                           onChange={(e) =>
-                            handleThresholdChange(
-                              row.id,
-                              "med",
-                              e.target.value
-                            )
+                            handleThresholdChange(row.id, "med", e.target.value)
                           }
                           onBlur={() => handleThresholdBlur(row.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              (e.currentTarget as HTMLInputElement).blur();
-                            }
-                          }}
                         />
                         <span className="text-[10px] text-gray-400">/</span>
                         <Input
                           type="number"
+                          min={0}
                           className="h-7 w-16 text-xs"
-                          value={draft.max}
-                          disabled={disabled}
+                          value={thresholdDraft.max}
+                          disabled={thresholdDisabled}
                           onChange={(e) =>
-                            handleThresholdChange(
-                              row.id,
-                              "max",
-                              e.target.value
-                            )
+                            handleThresholdChange(row.id, "max", e.target.value)
                           }
                           onBlur={() => handleThresholdBlur(row.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              (e.currentTarget as HTMLInputElement).blur();
-                            }
-                          }}
                         />
                       </div>
                     </TableCell>
 
                     <TableCell>{formatCurrency(price)}</TableCell>
-
                     <TableCell>{formatCurrency(price * qtyRounded)}</TableCell>
 
-                    <TableCell>{row.location ?? "—"}</TableCell>
+                    <TableCell>
+                      <select
+                        className="h-8 rounded-md border px-2 text-xs"
+                        value={metaDraft.unit_label}
+                        disabled={metaDisabled}
+                        onChange={(e) =>
+                          handleMetaDraftChange(
+                            row.id,
+                            "unit_label",
+                            e.target.value
+                          )
+                        }
+                        onBlur={() => handleMetaBlur(row)}
+                      >
+                        {UNIT_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </TableCell>
+
+                    <TableCell>
+                      <Input
+                        className="h-8 min-w-[150px] text-xs"
+                        value={metaDraft.location}
+                        disabled={metaDisabled}
+                        placeholder="Ex.: Estoque Principal"
+                        onChange={(e) =>
+                          handleMetaDraftChange(
+                            row.id,
+                            "location",
+                            e.target.value
+                          )
+                        }
+                        onBlur={() => handleMetaBlur(row)}
+                      />
+                    </TableCell>
+
+                    <TableCell className="text-xs">
+                      <div className="flex flex-col">
+                        <span>{getMovementLabel(movement)}</span>
+                        <span className="text-muted-foreground">
+                          {formatMovementDate(movement?.created_at)}
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    <TableCell className="max-w-[180px] text-xs">
+                      <span className="line-clamp-2">
+                        {getMovementReason(movement)}
+                      </span>
+                    </TableCell>
 
                     <TableCell>
                       <Badge className={badgeCfg.badgeClass}>
                         {badgeCfg.label}
                       </Badge>
+                    </TableCell>
+
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          openAdjustmentModal({
+                            productId: row.product?.id,
+                            unitLabel: row.unit_label ?? unit,
+                            reason: "AJUSTE_POR_LINHA",
+                          })
+                        }
+                      >
+                        Ajustar
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );
@@ -1037,7 +1681,7 @@ export default function EstoquePage() {
 
       {inventoryModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="max-h-[80vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white p-6 shadow-lg dark:bg-slate-950">
+          <div className="max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-white p-6 shadow-lg dark:bg-slate-950">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Inventário em Andamento</h3>
               <Button variant="ghost" onClick={closeInventoryModal}>
@@ -1052,9 +1696,9 @@ export default function EstoquePage() {
             ) : (
               <div className="space-y-4">
                 <div className="rounded-md border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                  Inventário iniciado! Adicione os itens contados abaixo. Ao
-                  encerrar o inventário, os saldos de estoque serão atualizados
-                  com estas quantidades.
+                  Inventário iniciado. Adicione, edite ou remova itens contados
+                  abaixo. Ao encerrar o inventário, os saldos serão reconciliados
+                  com base nas contagens.
                 </div>
 
                 <div className="flex justify-between text-xs text-gray-600 dark:text-slate-400">
@@ -1132,18 +1776,59 @@ export default function EstoquePage() {
                           <TableHead>Produto</TableHead>
                           <TableHead>Qtd.</TableHead>
                           <TableHead>Un.</TableHead>
+                          <TableHead className="text-right">Ações</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {inventoryItems.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell>{item.product?.name ?? "—"}</TableCell>
-                            <TableCell>{item.counted_quantity}</TableCell>
-                            <TableCell>
-                              {String(item.unit_label ?? "UN").toUpperCase()}
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {inventoryItems.map((item) => {
+                          const isSaving = savingInventoryItemId === item.id;
+                          const isDeleting = deletingInventoryItemId === item.id;
+
+                          return (
+                            <TableRow key={item.id}>
+                              <TableCell>{item.product?.name ?? "—"}</TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  className="h-8 w-28"
+                                  value={inventoryItemDrafts[item.id] ?? ""}
+                                  disabled={isSaving || isDeleting}
+                                  onChange={(e) =>
+                                    setInventoryItemDrafts((prev) => ({
+                                      ...prev,
+                                      [item.id]: e.target.value,
+                                    }))
+                                  }
+                                />
+                              </TableCell>
+                              <TableCell>
+                                {String(item.unit_label ?? "UN").toUpperCase()}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={isSaving || isDeleting}
+                                    onClick={() => handleSaveInventoryItem(item)}
+                                  >
+                                    {isSaving ? "Salvando..." : "Salvar"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    disabled={isSaving || isDeleting}
+                                    onClick={() => handleDeleteInventoryItem(item)}
+                                  >
+                                    {isDeleting ? "Removendo..." : "Remover"}
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   )}
@@ -1166,6 +1851,116 @@ export default function EstoquePage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {adjustmentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-6 shadow-lg dark:bg-slate-950">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Ajuste Manual de Estoque</h3>
+              <Button variant="ghost" onClick={closeAdjustmentModal}>
+                ✕
+              </Button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                Use este recurso para correções rápidas de saldo sem abrir um
+                inventário completo.
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="flex flex-col gap-1 md:col-span-2">
+                  <Label htmlFor="adjustment-product">Produto</Label>
+                  <select
+                    id="adjustment-product"
+                    className="rounded-md border px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    value={adjustmentProductId}
+                    onChange={(e) => setAdjustmentProductId(e.target.value)}
+                  >
+                    <option value="">Selecione um produto</option>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="adjustment-type">Tipo de ajuste</Label>
+                  <select
+                    id="adjustment-type"
+                    className="rounded-md border px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    value={adjustmentType}
+                    onChange={(e) =>
+                      setAdjustmentType(e.target.value as AdjustmentType)
+                    }
+                  >
+                    <option value="IN">Entrada</option>
+                    <option value="OUT">Saída</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="adjustment-qty">Quantidade</Label>
+                  <Input
+                    id="adjustment-qty"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="0"
+                    value={adjustmentQty}
+                    onChange={(e) => setAdjustmentQty(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="adjustment-unit">Unidade</Label>
+                  <select
+                    id="adjustment-unit"
+                    className="rounded-md border px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    value={adjustmentUnit}
+                    onChange={(e) => setAdjustmentUnit(e.target.value)}
+                  >
+                    {UNIT_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                  {adjustmentProductId && (
+                    <span className="text-xs text-muted-foreground">
+                      Unidade sugerida atual: {currentAdjustmentUnit}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="adjustment-reason">Motivo</Label>
+                  <Input
+                    id="adjustment-reason"
+                    placeholder="Ex.: AVARIA, PERDA, ENTRADA_MANUAL..."
+                    value={adjustmentReason}
+                    onChange={(e) => setAdjustmentReason(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={closeAdjustmentModal}>
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleCreateManualAdjustment}
+                  disabled={savingAdjustment}
+                >
+                  {savingAdjustment ? "Salvando..." : "Aplicar Ajuste"}
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       )}

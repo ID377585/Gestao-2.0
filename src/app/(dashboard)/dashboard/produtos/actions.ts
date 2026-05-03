@@ -47,6 +47,75 @@ function normalizeUnit(value: FormDataEntryValue | null): string | null {
 }
 
 /**
+ * Unidade usada no estoque estrutural.
+ */
+function normalizeStockUnit(value: string | null | undefined): string {
+  const v = String(value ?? "").trim().toUpperCase();
+  if (!v) return "UN";
+  return v;
+}
+
+/**
+ * Garante que exista uma linha em stock_balances para o produto.
+ */
+async function ensureStockBalanceForProduct(params: {
+  supabase: any;
+  establishmentId: string;
+  productId: string;
+  unitLabel?: string | null;
+}) {
+  const unit_label = normalizeStockUnit(params.unitLabel);
+
+  const { data: existing, error: existingError } = await params.supabase
+    .from("stock_balances")
+    .select("id")
+    .eq("establishment_id", params.establishmentId)
+    .eq("product_id", params.productId)
+    .maybeSingle();
+
+  if (existingError) {
+    console.error(
+      "[products.ensureStockBalanceForProduct] error",
+      existingError,
+    );
+    throw new Error(
+      "Não foi possível verificar o vínculo do produto com o estoque.",
+    );
+  }
+
+  if (existing?.id) {
+    return existing.id as string;
+  }
+
+  const { data: inserted, error: insertError } = await params.supabase
+    .from("stock_balances")
+    .insert({
+      establishment_id: params.establishmentId,
+      product_id: params.productId,
+      quantity: 0,
+      unit_label,
+      min_qty: 0,
+      med_qty: 0,
+      max_qty: 0,
+      location: "Estoque Principal",
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (insertError) {
+    console.error(
+      "[products.ensureStockBalanceForProduct] insert error",
+      insertError,
+    );
+    throw new Error(
+      "Produto criado, mas não foi possível criar o item correspondente no estoque.",
+    );
+  }
+
+  return inserted?.id as string | undefined;
+}
+
+/**
  * Log seguro.
  */
 function safeJson(obj: any) {
@@ -67,6 +136,7 @@ function supabaseErrorText(error: any) {
     error?.hint ? `hint: ${error.hint}` : null,
     error?.code ? `code: ${error.code}` : null,
   ].filter(Boolean);
+
   return parts.join(" | ") || "Falha desconhecida no Supabase";
 }
 
@@ -88,8 +158,10 @@ function parseNumber(
   if (value == null) return null;
   const str = String(value).replace(",", ".").trim();
   if (!str) return null;
+
   const n = Number(str);
   if (Number.isNaN(n)) return null;
+
   return Number(n.toFixed(decimals));
 }
 
@@ -100,10 +172,13 @@ function parseIntSafe(value: FormDataEntryValue | null): number | null {
   if (value == null) return null;
   const str = String(value).trim();
   if (!str) return null;
+
   const n = Number(str);
   if (Number.isNaN(n)) return null;
+
   const i = Math.trunc(n);
   if (i < 0) return null;
+
   return i;
 }
 
@@ -193,7 +268,10 @@ async function getMembershipIds() {
   const { data: authData, error: authError } = await supabase.auth.getUser();
 
   if (authError) {
-    console.error("[products.membership] auth.getUser error", safeJson(authError));
+    console.error(
+      "[products.membership] auth.getUser error",
+      safeJson(authError),
+    );
     redirect("/dashboard/produtos?error=usuario_nao_autenticado");
   }
 
@@ -212,7 +290,10 @@ async function getMembershipIds() {
     .maybeSingle();
 
   if (mError) {
-    console.error("[products.membership] memberships lookup error", safeJson(mError));
+    console.error(
+      "[products.membership] memberships lookup error",
+      safeJson(mError),
+    );
     redirectWithError(supabaseErrorText(mError));
   }
 
@@ -240,14 +321,125 @@ async function getMembershipIds() {
   };
 }
 
+/**
+ * Verifica se o produto possui histórico operacional.
+ * Regra cirúrgica: se tiver histórico, não exclui; apenas inativa.
+ */
+async function productHasHistory(params: {
+  supabase: any;
+  establishmentId: string;
+  productId: string;
+}) {
+  const checks = [
+    {
+      table: "inventory_movements",
+      filters: (q: any) =>
+        q
+          .eq("establishment_id", params.establishmentId)
+          .eq("product_id", params.productId),
+    },
+    {
+      table: "inventory_items",
+      filters: (q: any) => q.eq("product_id", params.productId),
+    },
+  ];
+
+  for (const check of checks) {
+    try {
+      let query = params.supabase
+        .from(check.table)
+        .select("id", { count: "exact", head: true });
+
+      query = check.filters(query);
+
+      const { count, error } = await query;
+
+      if (!error && Number(count ?? 0) > 0) {
+        return true;
+      }
+
+      if (error) {
+        console.warn(
+          "[products.productHasHistory] warning",
+          safeJson({
+            table: check.table,
+            message: error.message,
+            code: (error as any)?.code,
+          }),
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "[products.productHasHistory] unexpected warning",
+        safeJson({
+          table: check.table,
+          err,
+        }),
+      );
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Inativa o produto com segurança.
+ */
+async function deactivateProduct(params: {
+  supabase: any;
+  establishmentId: string;
+  productId: string;
+  userId?: string | null;
+}) {
+  const payload: Record<string, any> = {
+    is_active: false,
+  };
+
+  if (params.userId) {
+    payload.updated_by = params.userId;
+    payload.updated_at = new Date().toISOString();
+  }
+
+  const { error } = await params.supabase
+    .from("products")
+    .update(payload)
+    .eq("id", params.productId)
+    .eq("establishment_id", params.establishmentId);
+
+  if (error) {
+    console.error(
+      "[products.deactivateProduct] error",
+      safeJson({
+        message: error.message,
+        code: (error as any)?.code,
+        details: (error as any)?.details,
+        hint: (error as any)?.hint,
+        productId: params.productId,
+      }),
+    );
+    throw new Error(
+      "Não foi possível inativar o produto que possui histórico.",
+    );
+  }
+}
+
+/**
+ * Revalida módulos impactados por Produto x Estoque.
+ */
+function revalidateProductAndStockPages() {
+  revalidatePath("/dashboard/produtos");
+  revalidatePath("/dashboard/estoque");
+}
 
 export async function createProduct(formData: FormData) {
   const { establishmentId, userId } = await getMembershipIds();
   const supabase = await createSupabaseServerClient();
+
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
   const default_unit_label =
     normalizeUnit(formData.get("default_unit_label")) ?? "UN";
+
   const skuRaw = formData.get("sku");
   const brandRaw = formData.get("brand");
   const categoryRaw = formData.get("category");
@@ -258,9 +450,11 @@ export async function createProduct(formData: FormData) {
   const qtyPerPackageRaw = formData.get("qty_per_package");
   const conversionRaw = formData.get("conversion_factor");
   const allergens = parseAllergens(formData);
+
   if (!name) {
     redirectWithError("Nome do produto é obrigatório.");
   }
+
   const package_qty = parseNumber(packageQtyRaw, 3);
   const price = parseNumber(priceRaw, 2);
   const conversion_factor = parseNumber(conversionRaw, 4);
@@ -322,7 +516,11 @@ export async function createProduct(formData: FormData) {
   if (isProductSectorConstraintError(error) && insertData.sector_category) {
     console.warn(
       "[products.create] sector_category rejected by database; retrying without sector",
-      safeJson({ sector_category: insertData.sector_category, sku, name }),
+      safeJson({
+        sector_category: insertData.sector_category,
+        sku,
+        name,
+      }),
     );
 
     const retryData = {
@@ -361,10 +559,40 @@ export async function createProduct(formData: FormData) {
   if (!data?.id) {
     console.error(
       "[products.create] no-row",
-      safeJson({ establishmentId, userId, insertData }),
+      safeJson({
+        establishmentId,
+        userId,
+        insertData,
+      }),
     );
+
     redirectWithError(
       "Produto não foi criado (sem permissão/RLS ou nenhuma linha inserida).",
+    );
+  }
+
+  const createdProductId = String(data!.id);
+
+  try {
+    await ensureStockBalanceForProduct({
+      supabase,
+      establishmentId,
+      productId: createdProductId,
+      unitLabel: default_unit_label,
+    });
+  } catch (stockError: any) {
+    console.error(
+      "[products.create] stock sync error",
+      safeJson({
+        productId: data?.id,
+        establishmentId,
+        message: stockError?.message,
+      }),
+    );
+
+    redirectWithError(
+      stockError?.message ??
+        "Produto criado, mas houve falha ao sincronizar com o estoque.",
     );
   }
 
@@ -381,21 +609,24 @@ export async function createProduct(formData: FormData) {
     }),
   );
 
-  revalidatePath("/dashboard/produtos");
+  revalidateProductAndStockPages();
   redirect("/dashboard/produtos?success=new");
 }
 
 export async function updateProduct(formData: FormData) {
   const { establishmentId, userId } = await getMembershipIds();
   const supabase = await createSupabaseServerClient();
+
   const id = String(formData.get("id") ?? "").trim();
   if (!id) {
     redirectWithError("ID do produto é obrigatório para edição.");
   }
+
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
   const default_unit_label =
     normalizeUnit(formData.get("default_unit_label")) ?? "UN";
+
   const skuRaw = formData.get("sku");
   const brandRaw = formData.get("brand");
   const categoryRaw = formData.get("category");
@@ -407,6 +638,7 @@ export async function updateProduct(formData: FormData) {
   const conversionRaw = formData.get("conversion_factor");
   const isActiveRaw = formData.get("is_active");
   const allergens = parseAllergens(formData);
+
   if (!name) {
     redirectWithError("Nome do produto é obrigatório.");
   }
@@ -463,13 +695,19 @@ export async function updateProduct(formData: FormData) {
     .from("products")
     .update(updateData)
     .eq("id", id)
+    .eq("establishment_id", establishmentId)
     .select("id")
     .maybeSingle();
 
   if (isProductSectorConstraintError(error) && updateData.sector_category) {
     console.warn(
       "[products.update] sector_category rejected by database; retrying without sector",
-      safeJson({ id, sector_category: updateData.sector_category, sku, name }),
+      safeJson({
+        id,
+        sector_category: updateData.sector_category,
+        sku,
+        name,
+      }),
     );
 
     const retryData = {
@@ -481,6 +719,7 @@ export async function updateProduct(formData: FormData) {
       .from("products")
       .update(retryData)
       .eq("id", id)
+      .eq("establishment_id", establishmentId)
       .select("id")
       .maybeSingle());
 
@@ -518,8 +757,58 @@ export async function updateProduct(formData: FormData) {
         note: "Nenhuma linha atualizada. Possível RLS/policy bloqueando ou produto não pertence ao usuário.",
       }),
     );
+
     redirectWithError(
       "Não foi possível salvar: produto não encontrado ou sem permissão (RLS).",
+    );
+  }
+
+  try {
+    await ensureStockBalanceForProduct({
+      supabase,
+      establishmentId,
+      productId: id,
+      unitLabel: default_unit_label,
+    });
+
+    const { error: stockUpdateError } = await supabase
+      .from("stock_balances")
+      .update({
+        unit_label: default_unit_label,
+      })
+      .eq("establishment_id", establishmentId)
+      .eq("product_id", id);
+
+    if (stockUpdateError) {
+      console.error(
+        "[products.update] stock unit sync error",
+        safeJson({
+          id,
+          establishmentId,
+          message: stockUpdateError.message,
+          code: (stockUpdateError as any)?.code,
+          details: (stockUpdateError as any)?.details,
+          hint: (stockUpdateError as any)?.hint,
+        }),
+      );
+
+      redirectWithError(
+        "Produto atualizado, mas houve falha ao sincronizar a unidade no estoque.",
+      );
+    }
+  } catch (stockError: any) {
+    console.error(
+      "[products.update] stock sync error",
+      safeJson({
+        id,
+        establishmentId,
+        message: stockError?.message,
+      }),
+    );
+
+    redirectWithError(
+      stockError?.message ??
+        "Produto atualizado, mas houve falha ao sincronizar com o estoque.",
     );
   }
 
@@ -535,7 +824,7 @@ export async function updateProduct(formData: FormData) {
     }),
   );
 
-  revalidatePath("/dashboard/produtos");
+  revalidateProductAndStockPages();
   redirect("/dashboard/produtos?success=updated");
 }
 
@@ -551,6 +840,107 @@ export async function deleteProduct(formData: FormData) {
 
   if (!id) {
     redirectWithError("ID do produto é obrigatório para exclusão.");
+  }
+
+  const { data: productBeforeDelete, error: productLookupError } = await supabase
+    .from("products")
+    .select("id, name, default_unit_label, is_active")
+    .eq("id", id)
+    .eq("establishment_id", establishmentId)
+    .maybeSingle();
+
+  if (productLookupError) {
+    console.error(
+      "[products.delete] lookup error",
+      safeJson({
+        message: productLookupError.message,
+        code: (productLookupError as any)?.code,
+        details: (productLookupError as any)?.details,
+        hint: (productLookupError as any)?.hint,
+        establishmentId,
+        userId,
+        id,
+      }),
+    );
+
+    redirectWithError("Não foi possível localizar o produto para exclusão.");
+  }
+
+  if (!productBeforeDelete?.id) {
+    redirectWithError(
+      "Não foi possível excluir: produto não encontrado ou sem permissão.",
+    );
+  }
+
+  const hasHistory = await productHasHistory({
+    supabase,
+    establishmentId,
+    productId: id,
+  });
+
+  if (hasHistory) {
+    try {
+      await deactivateProduct({
+        supabase,
+        establishmentId,
+        productId: id,
+        userId,
+      });
+
+      console.log(
+        "[products.delete] deactivated_due_history",
+        safeJson({
+          id,
+          establishmentId,
+          userId,
+        }),
+      );
+
+      revalidateProductAndStockPages();
+      redirect("/dashboard/produtos?success=deactivated");
+    } catch (deactivateError: any) {
+      redirectWithError(
+        deactivateError?.message ??
+          "Não foi possível inativar o produto com histórico.",
+      );
+    }
+  }
+
+  const { error: stockDeleteError } = await supabase
+    .from("stock_balances")
+    .delete()
+    .eq("product_id", id)
+    .eq("establishment_id", establishmentId);
+
+  if (stockDeleteError) {
+    console.error(
+      "[products.delete] stock delete error",
+      safeJson({
+        message: stockDeleteError.message,
+        code: (stockDeleteError as any).code,
+        details: (stockDeleteError as any).details,
+        hint: (stockDeleteError as any).hint,
+        establishmentId,
+        userId,
+        id,
+      }),
+    );
+
+    try {
+      await deactivateProduct({
+        supabase,
+        establishmentId,
+        productId: id,
+        userId,
+      });
+
+      revalidateProductAndStockPages();
+      redirect("/dashboard/produtos?success=deactivated");
+    } catch {
+      redirectWithError(
+        "Não foi possível excluir o item correspondente no estoque.",
+      );
+    }
   }
 
   const { data, error } = await supabase
@@ -581,9 +971,21 @@ export async function deleteProduct(formData: FormData) {
       errorText.toLowerCase().includes("foreign key") ||
       errorText.toLowerCase().includes("violates foreign key constraint")
     ) {
-      redirectWithError(
-        "Não foi possível excluir: este insumo já está vinculado a outros registros do sistema."
-      );
+      try {
+        await deactivateProduct({
+          supabase,
+          establishmentId,
+          productId: id,
+          userId,
+        });
+
+        revalidateProductAndStockPages();
+        redirect("/dashboard/produtos?success=deactivated");
+      } catch {
+        redirectWithError(
+          "Não foi possível excluir: este item já está vinculado a outros registros do sistema.",
+        );
+      }
     }
 
     redirectWithError(errorText);
@@ -599,8 +1001,9 @@ export async function deleteProduct(formData: FormData) {
         note: "Nenhuma linha excluída. Possível RLS/policy bloqueando ou produto não pertence ao usuário.",
       }),
     );
+
     redirectWithError(
-      "Não foi possível excluir: produto não encontrado ou sem permissão."
+      "Não foi possível excluir: produto não encontrado ou sem permissão.",
     );
   }
 
@@ -613,6 +1016,6 @@ export async function deleteProduct(formData: FormData) {
     }),
   );
 
-  revalidatePath("/dashboard/produtos");
+  revalidateProductAndStockPages();
   redirect("/dashboard/produtos?success=deleted");
 }

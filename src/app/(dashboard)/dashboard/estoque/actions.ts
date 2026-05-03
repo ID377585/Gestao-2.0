@@ -1,14 +1,11 @@
 // src/app/(dashboard)/dashboard/estoque/actions.ts
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { dispatchLowStockAlertsForProducts } from "@/lib/alerts/domain-triggers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
-
-// ✅ NOVO: action única para movimento de estoque (padronizada)
 import { moveStock, type StockMovementInput } from "@/lib/stock/moveStock";
-
-// ==== Tipagens auxiliares de retorno/entrada ====
 
 type StockBalanceRow = {
   id: string;
@@ -25,10 +22,11 @@ type StockBalanceRow = {
     name: string;
     price: number | null;
     default_unit_label: string | null;
+    sku?: string | null;
+    is_active?: boolean | null;
   } | null;
 };
 
-// ✅ NOVO: tipagem da VIEW public.current_stock (saldo por movimentos)
 type CurrentStockRow = {
   establishment_id: string;
   product_id: string;
@@ -63,12 +61,9 @@ export type AddInventoryItemInput = {
   unit_label: string;
 };
 
-// ✅ NOVO: bulk update de metadados do estoque (thresholds/local/unidade)
 export type BulkStockMetaUpdateItem = {
-  // um deles deve existir
   balance_id?: string;
   product_id?: string;
-
   unit_label?: string | null;
   location?: string | null;
   min_qty?: number | null;
@@ -76,9 +71,17 @@ export type BulkStockMetaUpdateItem = {
   max_qty?: number | null;
 };
 
-// =======================================================
-// HELPERS: normalização (mantém comportamento e evita mismatch)
-// =======================================================
+export type RecentStockMovementRow = {
+  id: string;
+  product_id: string;
+  unit_label: string | null;
+  qty: number;
+  direction: string | null;
+  movement_type: string | null;
+  reason: string | null;
+  details: any;
+  created_at: string | null;
+};
 
 function normalizeUnitLabel(input: any): string | null {
   const s = String(input ?? "").trim();
@@ -91,13 +94,8 @@ function normalizeNumber(input: any, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-// =======================================================
-// HELPER: supabase + establishment do usuário logado
-// =======================================================
 async function getSupabaseAndEstablishment() {
   const supabase = await createSupabaseServerClient();
-
-  // helper de membership no formato novo
   const { membership } = await getActiveMembershipOrRedirect();
 
   const establishmentId = (membership as any)?.establishment_id as
@@ -114,17 +112,94 @@ async function getSupabaseAndEstablishment() {
   return { supabase, establishmentId };
 }
 
-// =======================================================
-// 1) LISTAR ESTOQUE ATUAL
-//    ✅ Mantém stock_balances para thresholds/local/id,
-//    ✅ mas agora retorna quantity = current_stock.qty_balance (movimentos)
-//    ✅ MELHORIA: normaliza unit_label em UPPERCASE para casar corretamente
-// =======================================================
+async function ensureStockBalanceForProduct(params: {
+  supabase: any;
+  establishmentId: string;
+  productId: string;
+  unitLabel?: string | null;
+}) {
+  const normalizedUnit = normalizeUnitLabel(params.unitLabel) ?? "UN";
+
+  const { data: existing, error: existingError } = await params.supabase
+    .from("stock_balances")
+    .select("id")
+    .eq("establishment_id", params.establishmentId)
+    .eq("product_id", params.productId)
+    .maybeSingle();
+
+  if (existingError) {
+    console.error(
+      "[estoque.ensureStockBalanceForProduct] erro ao consultar stock_balances:",
+      existingError
+    );
+    throw new Error(
+      "Não foi possível verificar a estrutura de estoque deste produto."
+    );
+  }
+
+  if (existing?.id) {
+    return existing.id as string;
+  }
+
+  const { data: inserted, error: insertError } = await params.supabase
+    .from("stock_balances")
+    .insert({
+      establishment_id: params.establishmentId,
+      product_id: params.productId,
+      quantity: 0,
+      unit_label: normalizedUnit,
+      min_qty: 0,
+      med_qty: 0,
+      max_qty: 0,
+      location: "Estoque Principal",
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (insertError) {
+    console.error(
+      "[estoque.ensureStockBalanceForProduct] erro ao inserir stock_balance:",
+      insertError
+    );
+    throw new Error(
+      "Não foi possível criar a estrutura de estoque para um ou mais produtos."
+    );
+  }
+
+  return inserted?.id as string | undefined;
+}
+
+async function getOpenInventorySessionOwned(
+  supabase: any,
+  establishmentId: string,
+  sessionId: string
+) {
+  const { data: session, error } = await supabase
+    .from("inventory_sessions")
+    .select("id, establishment_id, status, started_at, finished_at")
+    .eq("id", sessionId)
+    .single();
+
+  if (error || !session) {
+    throw new Error("Sessão de inventário não encontrada.");
+  }
+
+  if ((session as any).establishment_id !== establishmentId) {
+    throw new Error(
+      "Sessão de inventário não pertence ao estabelecimento atual."
+    );
+  }
+
+  if ((session as any).finished_at) {
+    throw new Error("Esta sessão de inventário já foi encerrada.");
+  }
+
+  return session as InventorySessionRow;
+}
 
 export async function listCurrentStock(): Promise<StockBalanceRow[]> {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  // 1) Base: stock_balances + products (metadados do item)
   const { data, error } = await supabase
     .from("stock_balances")
     .select(
@@ -138,15 +213,18 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
       med_qty,
       max_qty,
       location,
-      product:products!stock_balances_product_id_fkey (
+      product:products!stock_balances_product_id_fkey!inner (
         id,
         name,
         price,
-        default_unit_label
+        default_unit_label,
+        sku,
+        is_active
       )
     `
     )
     .eq("establishment_id", establishmentId)
+    .eq("product.is_active", true)
     .order("id");
 
   if (error) {
@@ -154,7 +232,6 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     throw new Error("Erro ao carregar estoque atual.");
   }
 
-  // Normaliza o relacionamento product:products
   const normalized = (data ?? []).map((row: any) => {
     const raw = row.product as any;
     let product: any = null;
@@ -163,21 +240,15 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
       product = raw.length > 0 ? raw[0] : null;
     } else if (raw && typeof raw === "object") {
       product = raw;
-    } else {
-      product = null;
     }
-
-    // ✅ MELHORIA: normaliza unit_label da base para uppercase (evita mismatch KG vs kg)
-    const normalizedUnit = normalizeUnitLabel(row?.unit_label);
 
     return {
       ...row,
-      unit_label: normalizedUnit,
+      unit_label: normalizeUnitLabel(row?.unit_label),
       product,
     };
   }) as StockBalanceRow[];
 
-  // 2) Saldo real: view current_stock (derivada de inventory_movements)
   const { data: cs, error: csErr } = await supabase
     .from("current_stock")
     .select("establishment_id, product_id, unit_label, qty_balance")
@@ -188,7 +259,6 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     throw new Error("Erro ao carregar saldo do estoque (current_stock).");
   }
 
-  // ✅ MELHORIA: normaliza unit_label do current_stock e garante qty_balance numérico
   const currentRows = (cs ?? []).map((r: any) => ({
     establishment_id: String(r.establishment_id),
     product_id: String(r.product_id),
@@ -196,7 +266,6 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     qty_balance: normalizeNumber(r.qty_balance, 0),
   })) as CurrentStockRow[];
 
-  // 3) Monta mapa: por product_id, com total e por unidade
   const byProduct = new Map<
     string,
     { total: number; byUnit: Map<string, number> }
@@ -204,10 +273,7 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
 
   for (const r of currentRows) {
     const pid = String(r.product_id);
-
-    // ✅ MELHORIA: unidade normalizada (null vira "")
     const unit = String(r.unit_label ?? "").toUpperCase();
-
     const qty = normalizeNumber(r.qty_balance, 0);
 
     if (!byProduct.has(pid)) {
@@ -219,43 +285,32 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     entry.byUnit.set(unit, (entry.byUnit.get(unit) ?? 0) + qty);
   }
 
-  // 4) Retorna o mesmo shape que o front já espera:
-  //    row.quantity agora reflete qty_balance (movimentos)
   const merged = normalized.map((row) => {
     const pid = String(row.product_id);
-
-    // ✅ MELHORIA: unidade normalizada para casar com o mapa
     const unit = String(row.unit_label ?? "").toUpperCase();
 
     const entry = byProduct.get(pid);
     if (!entry) {
-      // sem movimentos -> saldo 0
       return { ...row, quantity: 0 };
     }
 
-    // tenta casar por unidade
     const qtyByUnit = entry.byUnit.get(unit);
     if (qtyByUnit !== undefined) {
       return { ...row, quantity: qtyByUnit };
     }
 
-    // fallback: total do produto (somando todas as unidades)
     return { ...row, quantity: entry.total };
   });
 
   return merged;
 }
 
-// =======================================================
-// 2) LISTAR PRODUTOS PARA INVENTÁRIO (tabela products)
-// =======================================================
-
 export async function listProductsForInventory() {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
   const { data, error } = await supabase
     .from("products")
-    .select("id, name, default_unit_label, is_active")
+    .select("id, name, default_unit_label, sku, is_active")
     .eq("establishment_id", establishmentId)
     .eq("is_active", true)
     .order("name", { ascending: true });
@@ -270,18 +325,14 @@ export async function listProductsForInventory() {
       id: p.id as string,
       name: p.name as string,
       default_unit_label: (p as any).default_unit_label as string | null,
+      sku: (p as any).sku as string | null,
     })) ?? []
   );
 }
 
-// =======================================================
-// 3) CRIAR ESTOQUE INICIAL A PARTIR DE PRODUCTS (seed)
-// =======================================================
-
 export async function seedInitialStockFromProducts() {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  // produtos ativos
   const { data: products, error: prodError } = await supabase
     .from("products")
     .select("id, default_unit_label")
@@ -297,7 +348,6 @@ export async function seedInitialStockFromProducts() {
     return;
   }
 
-  // estoque já existente para esses produtos
   const { data: existingBalances, error: balError } = await supabase
     .from("stock_balances")
     .select("product_id")
@@ -309,16 +359,15 @@ export async function seedInitialStockFromProducts() {
   }
 
   const existingSet = new Set(
-    (existingBalances ?? []).map((b) => (b as any).product_id as string)
+    (existingBalances ?? []).map((b) => String((b as any).product_id))
   );
 
   const rowsToInsert = products
-    .filter((p) => !existingSet.has(p.id as string))
+    .filter((p) => !existingSet.has(String(p.id)))
     .map((p) => ({
       establishment_id: establishmentId,
       product_id: p.id,
       quantity: 0,
-      // Normalize default unit labels to uppercase, fallback to "UN"
       unit_label: normalizeUnitLabel((p as any).default_unit_label) ?? "UN",
       min_qty: 0,
       med_qty: 0,
@@ -338,17 +387,12 @@ export async function seedInitialStockFromProducts() {
   }
 }
 
-// =======================================================
-// 4) INVENTÁRIO – SESSÃO (inventory_sessions)
-// =======================================================
-
 export async function getInventorySessionWithItems(): Promise<{
   session: InventorySessionRow;
   items: InventoryItemRow[];
 } | null> {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  // última sessão "open" para o estabelecimento
   const { data: sessions, error: sessError } = await supabase
     .from("inventory_sessions")
     .select("*")
@@ -388,7 +432,6 @@ export async function getInventorySessionWithItems(): Promise<{
     throw new Error("Não foi possível carregar os itens da sessão.");
   }
 
-  // Normaliza o relacionamento product:products (array ou objeto)
   const normalizedItems = (items ?? []).map((row: any) => {
     const raw = row.product as any;
     let product: any = null;
@@ -397,13 +440,10 @@ export async function getInventorySessionWithItems(): Promise<{
       product = raw.length > 0 ? raw[0] : null;
     } else if (raw && typeof raw === "object") {
       product = raw;
-    } else {
-      product = null;
     }
 
     return {
       ...row,
-      // ✅ MELHORIA: normaliza unit_label também nos itens
       unit_label: normalizeUnitLabel(row?.unit_label),
       product,
     };
@@ -415,11 +455,9 @@ export async function getInventorySessionWithItems(): Promise<{
   };
 }
 
-// Cria uma nova sessão de inventário
 export async function startInventorySession(): Promise<InventorySessionRow> {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  // se já tiver uma em aberto, reaproveita
   const existing = await getInventorySessionWithItems();
   if (existing?.session) {
     return existing.session;
@@ -443,14 +481,9 @@ export async function startInventorySession(): Promise<InventorySessionRow> {
   return data as InventorySessionRow;
 }
 
-// =======================================================
-// 5) INVENTÁRIO – ADICIONAR ITEM (inventory_items)
-// =======================================================
-
 export async function addInventoryItem(input: AddInventoryItemInput) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  // ✅ Melhoria: validação mínima (não quebra fluxo, mas evita lixo)
   const counted = normalizeNumber(input.counted_quantity, 0);
   const unit = normalizeUnitLabel(input.unit_label);
 
@@ -458,39 +491,15 @@ export async function addInventoryItem(input: AddInventoryItemInput) {
     throw new Error("Dados inválidos para registrar a contagem do item.");
   }
 
-  // Segurança extra: valida se a sessão pertence ao mesmo estabelecimento
-  const { data: session, error: sessionError } = await supabase
-    .from("inventory_sessions")
-    .select("id, establishment_id, status, finished_at")
-    .eq("id", input.session_id)
-    .single();
+  const session = await getOpenInventorySessionOwned(
+    supabase,
+    establishmentId,
+    input.session_id
+  );
 
-  if (sessionError || !session) {
-    console.error("Sessão de inventário não encontrada:", sessionError);
-    throw new Error("Sessão de inventário não encontrada.");
-  }
-
-  if ((session as any).establishment_id !== establishmentId) {
-    throw new Error(
-      "Sessão de inventário não pertence ao estabelecimento atual."
-    );
-  }
-
-  // se já tiver finished_at, consideramos encerrado
-  if ((session as any).finished_at) {
-    throw new Error(
-      "Não é possível adicionar itens em um inventário encerrado."
-    );
-  }
-
-  /**
-   * ✅ Melhoria: UPSERT por (session_id, product_id, unit_label)
-   * - se o usuário adicionar o mesmo produto/unidade novamente, atualiza ao invés de duplicar.
-   * - depende de constraint/unique no banco. Se não existir, não quebra (você pode criar depois).
-   */
   const { error: upsertError } = await supabase.from("inventory_items").upsert(
     {
-      session_id: input.session_id,
+      session_id: session.id,
       product_id: input.product_id,
       counted_quantity: counted,
       unit_label: unit,
@@ -501,7 +510,6 @@ export async function addInventoryItem(input: AddInventoryItemInput) {
   );
 
   if (upsertError) {
-    // fallback: se onConflict/constraint não existir no banco, tenta insert simples (mantém compatibilidade)
     const msg = String((upsertError as any)?.message ?? "");
     const code = String((upsertError as any)?.code ?? "");
 
@@ -514,7 +522,7 @@ export async function addInventoryItem(input: AddInventoryItemInput) {
       const { error: insertError } = await supabase
         .from("inventory_items")
         .insert({
-          session_id: input.session_id,
+          session_id: session.id,
           product_id: input.product_id,
           counted_quantity: counted,
           unit_label: unit,
@@ -533,41 +541,137 @@ export async function addInventoryItem(input: AddInventoryItemInput) {
   }
 }
 
-// =======================================================
-// 6) INVENTÁRIO – FINALIZAR (atualiza stock_balances)
-// =======================================================
+export async function updateInventoryItem(
+  itemId: string,
+  countedQuantity: number
+) {
+  const { supabase, establishmentId } = await getSupabaseAndEstablishment();
+
+  const safeQty = normalizeNumber(countedQuantity, -1);
+  if (safeQty < 0) {
+    throw new Error("A quantidade contada deve ser zero ou maior.");
+  }
+
+  const { data: item, error: itemError } = await supabase
+    .from("inventory_items")
+    .select("id, session_id")
+    .eq("id", itemId)
+    .single();
+
+  if (itemError || !item) {
+    console.error("Erro ao localizar item do inventário:", itemError);
+    throw new Error("Item de inventário não encontrado.");
+  }
+
+  await getOpenInventorySessionOwned(
+    supabase,
+    establishmentId,
+    String((item as any).session_id)
+  );
+
+  const { error: updateError } = await supabase
+    .from("inventory_items")
+    .update({
+      counted_quantity: safeQty,
+    })
+    .eq("id", itemId);
+
+  if (updateError) {
+    console.error("Erro ao atualizar item contado:", updateError);
+    throw new Error("Não foi possível atualizar o item contado.");
+  }
+
+  revalidatePath("/dashboard/estoque");
+}
+
+export async function deleteInventoryItem(itemId: string) {
+  const { supabase, establishmentId } = await getSupabaseAndEstablishment();
+
+  const { data: item, error: itemError } = await supabase
+    .from("inventory_items")
+    .select("id, session_id")
+    .eq("id", itemId)
+    .single();
+
+  if (itemError || !item) {
+    console.error("Erro ao localizar item do inventário:", itemError);
+    throw new Error("Item de inventário não encontrado.");
+  }
+
+  await getOpenInventorySessionOwned(
+    supabase,
+    establishmentId,
+    String((item as any).session_id)
+  );
+
+  const { error: deleteError } = await supabase
+    .from("inventory_items")
+    .delete()
+    .eq("id", itemId);
+
+  if (deleteError) {
+    console.error("Erro ao remover item contado:", deleteError);
+    throw new Error("Não foi possível remover o item contado.");
+  }
+
+  revalidatePath("/dashboard/estoque");
+}
+
+export async function listRecentStockMovements(): Promise<
+  RecentStockMovementRow[]
+> {
+  const { supabase, establishmentId } = await getSupabaseAndEstablishment();
+
+  const { data, error } = await supabase
+    .from("inventory_movements")
+    .select(
+      "id, product_id, unit_label, qty, direction, movement_type, reason, details, created_at"
+    )
+    .eq("establishment_id", establishmentId)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    console.error("Erro ao listar movimentações recentes:", error);
+    throw new Error("Não foi possível carregar as movimentações recentes.");
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id),
+    product_id: String(row.product_id),
+    unit_label: normalizeUnitLabel(row.unit_label),
+    qty: normalizeNumber(row.qty, 0),
+    direction: row.direction ? String(row.direction) : null,
+    movement_type: row.movement_type ? String(row.movement_type) : null,
+    reason: row.reason ? String(row.reason) : null,
+    details: row.details ?? null,
+    created_at: row.created_at ? String(row.created_at) : null,
+  }));
+}
 
 export async function finalizeInventory(sessionId: string) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  const { data: session, error: sessionError } = await supabase
-    .from("inventory_sessions")
-    .select("*")
-    .eq("id", sessionId)
-    .single();
+  const {
+    data: authData,
+    error: authError,
+  } = await supabase.auth.getUser();
 
-  if (sessionError || !session) {
-    console.error(
-      "Sessão de inventário não encontrada ao finalizar:",
-      sessionError
-    );
-    throw new Error("Sessão de inventário não encontrada.");
+  if (authError || !authData?.user?.id) {
+    console.error("Erro ao obter usuário autenticado:", authError);
+    throw new Error("Usuário autenticado não encontrado para finalizar inventário.");
   }
 
-  if ((session as any).establishment_id !== establishmentId) {
-    throw new Error(
-      "Sessão de inventário não pertence ao estabelecimento atual."
-    );
-  }
-
-  if ((session as any).finished_at) {
-    throw new Error("Esta sessão de inventário já foi encerrada.");
-  }
+  const session = await getOpenInventorySessionOwned(
+    supabase,
+    establishmentId,
+    sessionId
+  );
 
   const { data: items, error: itemsError } = await supabase
     .from("inventory_items")
     .select("id, product_id, counted_quantity, unit_label")
-    .eq("session_id", sessionId);
+    .eq("session_id", session.id);
 
   if (itemsError) {
     console.error(
@@ -605,23 +709,108 @@ export async function finalizeInventory(sessionId: string) {
   }
 
   for (const item of consolidated.values()) {
-    const { error: updateError } = await supabase
+    await ensureStockBalanceForProduct({
+      supabase,
+      establishmentId,
+      productId: item.product_id,
+      unitLabel: item.unit_label,
+    });
+  }
+
+  const { data: currentRows, error: currentErr } = await supabase
+    .from("current_stock")
+    .select("product_id, unit_label, qty_balance")
+    .eq("establishment_id", establishmentId);
+
+  if (currentErr) {
+    console.error("Erro ao carregar current_stock ao finalizar inventário:", currentErr);
+    throw new Error("Não foi possível carregar o saldo atual do estoque.");
+  }
+
+  const currentMap = new Map<string, number>();
+  for (const row of currentRows ?? []) {
+    const pid = String((row as any).product_id ?? "").trim();
+    const unit = String(
+      normalizeUnitLabel((row as any).unit_label) ?? ""
+    ).toUpperCase();
+    const qty = normalizeNumber((row as any).qty_balance, 0);
+
+    if (!pid) continue;
+
+    const key = `${pid}__${unit}`;
+    currentMap.set(key, qty);
+  }
+
+  const touchedProductIds = new Set<string>();
+
+  for (const item of consolidated.values()) {
+    const unit = String(item.unit_label ?? "").toUpperCase();
+    const key = `${item.product_id}__${unit}`;
+    const currentQty = currentMap.get(key) ?? 0;
+    const countedQty = normalizeNumber(item.counted_quantity, 0);
+    const diff = countedQty - currentQty;
+
+    touchedProductIds.add(item.product_id);
+
+    const { error: metaUpdateError } = await supabase
       .from("stock_balances")
       .update({
-        quantity: item.counted_quantity,
         unit_label: item.unit_label,
       })
       .eq("establishment_id", establishmentId)
       .eq("product_id", item.product_id);
 
-    if (updateError) {
+    if (metaUpdateError) {
       console.error(
-        "Erro ao atualizar saldo de estoque para o produto:",
+        "Erro ao atualizar metadado de unidade em stock_balances:",
         item.product_id,
-        updateError
+        metaUpdateError
+      );
+      throw new Error("Não foi possível sincronizar a unidade estrutural do estoque.");
+    }
+
+    if (diff === 0) {
+      continue;
+    }
+
+    const payload: StockMovementInput = {
+      establishment_id: establishmentId,
+      product_id: item.product_id,
+      unit_label: item.unit_label ?? "UN",
+      qty_delta: diff,
+      reason: diff > 0 ? "AJUSTE_PARA_MAIS" : "AJUSTE_PARA_MENOS",
+      source: "inventory_finalize",
+    };
+
+    try {
+      await moveStock(supabase as any, payload);
+    } catch (moveErr) {
+      console.error(
+        "Erro ao gerar movimento de ajuste do inventário:",
+        item.product_id,
+        moveErr
       );
       throw new Error(
-        "Não foi possível atualizar os saldos de estoque para todos os itens."
+        "Não foi possível gerar os movimentos de ajuste para todos os itens do inventário."
+      );
+    }
+
+    const { error: quantityMirrorError } = await supabase
+      .from("stock_balances")
+      .update({
+        quantity: countedQty,
+      })
+      .eq("establishment_id", establishmentId)
+      .eq("product_id", item.product_id);
+
+    if (quantityMirrorError) {
+      console.error(
+        "Erro ao espelhar quantidade em stock_balances:",
+        item.product_id,
+        quantityMirrorError
+      );
+      throw new Error(
+        "Não foi possível atualizar o espelho de quantidade estrutural do estoque."
       );
     }
   }
@@ -630,8 +819,9 @@ export async function finalizeInventory(sessionId: string) {
     .from("inventory_sessions")
     .update({
       finished_at: new Date().toISOString(),
+      status: "closed",
     })
-    .eq("id", sessionId);
+    .eq("id", session.id);
 
   if (closeError) {
     console.error("Erro ao encerrar sessão de inventário:", closeError);
@@ -640,16 +830,12 @@ export async function finalizeInventory(sessionId: string) {
 
   await dispatchLowStockAlertsForProducts({
     establishmentId,
-    productIds: Array.from(
-      new Set(Array.from(consolidated.values()).map((item) => item.product_id))
-    ),
+    productIds: Array.from(touchedProductIds),
     source: "inventory_finalize",
   });
-}
 
-// =======================================================
-// 7) ATUALIZAR MÍN / MÉD / MÁX (stock_balances)
-// =======================================================
+  revalidatePath("/dashboard/estoque");
+}
 
 export async function updateStockThresholds(
   balanceId: string,
@@ -658,6 +844,22 @@ export async function updateStockThresholds(
   max: number
 ) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
+
+  const safeMin = normalizeNumber(min, 0);
+  const safeMed = normalizeNumber(med, 0);
+  const safeMax = normalizeNumber(max, 0);
+
+  if (safeMin < 0 || safeMed < 0 || safeMax < 0) {
+    throw new Error("Min/Méd/Máx não podem ser negativos.");
+  }
+
+  if (safeMed < safeMin) {
+    throw new Error("O valor médio não pode ser menor que o mínimo.");
+  }
+
+  if (safeMax < safeMed) {
+    throw new Error("O valor máximo não pode ser menor que o médio.");
+  }
 
   const { data: balanceBefore, error: balanceError } = await supabase
     .from("stock_balances")
@@ -674,9 +876,9 @@ export async function updateStockThresholds(
   const { error } = await supabase
     .from("stock_balances")
     .update({
-      min_qty: min,
-      med_qty: med,
-      max_qty: max,
+      min_qty: safeMin,
+      med_qty: safeMed,
+      max_qty: safeMax,
     })
     .eq("id", balanceId)
     .eq("establishment_id", establishmentId);
@@ -691,18 +893,15 @@ export async function updateStockThresholds(
     productIds: [String((balanceBefore as any).product_id)],
     source: "threshold_update",
   });
-}
 
-// =======================================================
-// 8) BUSCAR ÚLTIMO INVENTÁRIO ENCERRADO
-// =======================================================
+  revalidatePath("/dashboard/estoque");
+}
 
 export async function getLastClosedInventorySession(): Promise<
   InventorySessionRow | null
 > {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  // ✅ Busca APENAS inventários encerrados (finished_at preenchido)
   const { data, error } = await supabase
     .from("inventory_sessions")
     .select(
@@ -715,7 +914,7 @@ export async function getLastClosedInventorySession(): Promise<
       `
     )
     .eq("establishment_id", establishmentId)
-    .not("finished_at", "is", null) // finished_at IS NOT NULL
+    .not("finished_at", "is", null)
     .order("finished_at", { ascending: false })
     .limit(1);
 
@@ -727,19 +926,11 @@ export async function getLastClosedInventorySession(): Promise<
   const session = (data ?? [])[0] as InventorySessionRow | undefined;
 
   if (!session) {
-    console.log(
-      "[getLastClosedInventorySession] Nenhuma sessão encerrada (finished_at preenchido) encontrada para este estabelecimento."
-    );
     return null;
   }
 
   return session;
 }
-
-// =======================================================
-// 9) ✅ NOVO: SERVER ACTION ÚNICA PARA MOVIMENTO DE ESTOQUE
-//    (padroniza com /api/stock-movements)
-// =======================================================
 
 export async function createStockMovementAction(
   input: Omit<StockMovementInput, "establishment_id"> & {
@@ -767,13 +958,9 @@ export async function createStockMovementAction(
     });
   }
 
+  revalidatePath("/dashboard/estoque");
   return result;
 }
-
-// =======================================================
-// 10) ✅ NOVO: BULK UPDATE (CSV Upload) - metadados do estoque
-//     Atualiza: unit_label, location, min_qty, med_qty, max_qty em stock_balances
-// =======================================================
 
 export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
@@ -803,21 +990,38 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
     if (!balanceId && !productId) continue;
 
     const payload: any = {};
+
     if ("unit_label" in it) {
       payload.unit_label = normalizeUnitLabel(it.unit_label);
     }
-    if ("location" in it) payload.location = it.location ?? null;
 
+    if ("location" in it) payload.location = it.location ?? null;
     if ("min_qty" in it) payload.min_qty = normalizeNumber(it.min_qty, 0);
     if ("med_qty" in it) payload.med_qty = normalizeNumber(it.med_qty, 0);
     if ("max_qty" in it) payload.max_qty = normalizeNumber(it.max_qty, 0);
 
+    if (
+      payload.min_qty !== undefined &&
+      payload.med_qty !== undefined &&
+      payload.med_qty < payload.min_qty
+    ) {
+      throw new Error("No CSV, o valor médio não pode ser menor que o mínimo.");
+    }
+
+    if (
+      payload.med_qty !== undefined &&
+      payload.max_qty !== undefined &&
+      payload.max_qty < payload.med_qty
+    ) {
+      throw new Error("No CSV, o valor máximo não pode ser menor que o médio.");
+    }
+
     if (Object.keys(payload).length === 0) continue;
 
-    let q = supabase.from("stock_balances").update(payload).eq(
-      "establishment_id",
-      establishmentId
-    );
+    let q = supabase
+      .from("stock_balances")
+      .update(payload)
+      .eq("establishment_id", establishmentId);
 
     if (balanceId) q = q.eq("id", balanceId);
     else q = q.eq("product_id", productId as string);
@@ -851,5 +1055,6 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
     });
   }
 
+  revalidatePath("/dashboard/estoque");
   return { ok: true, updated };
 }

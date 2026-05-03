@@ -547,14 +547,20 @@ export default async function ProductsPage({ searchParams }: PageProps) {
           ) : (
             <>
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="min-w-[1500px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[90px]">Tipo</TableHead>
-                      <TableHead className="w-[110px]">SKU</TableHead>
+                      <TableHead className="sticky left-0 z-30 w-[110px] min-w-[110px] bg-white dark:bg-slate-950">
+                        Tipo
+                      </TableHead>
+                      <TableHead className="sticky left-[110px] z-30 w-[130px] min-w-[130px] bg-white dark:bg-slate-950">
+                        SKU
+                      </TableHead>
 
                       {/* ✅ AJUSTE: Nome com largura mínima para quebrar linha */}
-                      <TableHead className="min-w-[260px]">Nome</TableHead>
+                      <TableHead className="sticky left-[240px] z-30 min-w-[340px] bg-white shadow-[4px_0_8px_-6px_rgba(0,0,0,0.18)] dark:bg-slate-950">
+                        Nome
+                      </TableHead>
                       <TableHead className="w-[160px]">Marca</TableHead>
                       <TableHead className="w-[110px] text-center">Qtd</TableHead>
                       <TableHead className="w-[80px]">Unidade</TableHead>
@@ -585,21 +591,21 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     {products.map((product) => (
                       <TableRow key={product.id}>
                         {/* Tipo */}
-                        <TableCell>
+                        <TableCell className="sticky left-0 z-20 w-[110px] min-w-[110px] bg-white dark:bg-slate-950">
                           <Badge variant="outline">
                             {getProductTypeLabel(product.product_type)}
                           </Badge>
                         </TableCell>
 
                         {/* SKU */}
-                        <TableCell className="font-mono text-xs">
+                        <TableCell className="sticky left-[110px] z-20 w-[130px] min-w-[130px] bg-white font-mono text-xs dark:bg-slate-950">
                           {product.sku ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
 
                         {/* ✅ AJUSTE: Nome menor + quebra de linha (sem cortar) */}
-                        <TableCell className="min-w-[260px] align-top">
+                        <TableCell className="sticky left-[240px] z-20 min-w-[340px] align-top bg-white dark:bg-slate-950 shadow-[4px_0_8px_-6px_rgba(0,0,0,0.18)]">
                           <div className="text-xs font-medium leading-snug whitespace-normal break-words">
                             {product.name}
                           </div>

@@ -94,6 +94,15 @@ function normalizeNumber(input: any, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function normalizeNullableNumber(input: any): number | null {
+  if (input === null || input === undefined || String(input).trim() === "") {
+    return null;
+  }
+
+  const n = Number(input);
+  return Number.isFinite(n) ? n : null;
+}
+
 async function getSupabaseAndEstablishment() {
   const supabase = await createSupabaseServerClient();
   const { membership } = await getActiveMembershipOrRedirect();
@@ -1032,25 +1041,29 @@ export async function finalizeInventory(sessionId: string) {
 
 export async function updateStockThresholds(
   balanceId: string,
-  min: number,
-  med: number,
-  max: number
+  min: number | null,
+  med: number | null,
+  max: number | null
 ) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  const safeMin = normalizeNumber(min, 0);
-  const safeMed = normalizeNumber(med, 0);
-  const safeMax = normalizeNumber(max, 0);
+  const safeMin = normalizeNullableNumber(min);
+  const safeMed = normalizeNullableNumber(med);
+  const safeMax = normalizeNullableNumber(max);
 
-  if (safeMin < 0 || safeMed < 0 || safeMax < 0) {
+  const minForValidation = safeMin ?? 0;
+  const medForValidation = safeMed ?? 0;
+  const maxForValidation = safeMax ?? 0;
+
+  if (minForValidation < 0 || medForValidation < 0 || maxForValidation < 0) {
     throw new Error("Min/Méd/Máx não podem ser negativos.");
   }
 
-  if (safeMed < safeMin) {
+  if (medForValidation < minForValidation) {
     throw new Error("O valor médio não pode ser menor que o mínimo.");
   }
 
-  if (safeMax < safeMed) {
+  if (maxForValidation < medForValidation) {
     throw new Error("O valor máximo não pode ser menor que o médio.");
   }
 
@@ -1210,14 +1223,18 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
     }
 
     if ("location" in it) payload.location = it.location ?? null;
-    if ("min_qty" in it) payload.min_qty = normalizeNumber(it.min_qty, 0);
-    if ("med_qty" in it) payload.med_qty = normalizeNumber(it.med_qty, 0);
-    if ("max_qty" in it) payload.max_qty = normalizeNumber(it.max_qty, 0);
+    if ("min_qty" in it) payload.min_qty = normalizeNullableNumber(it.min_qty);
+    if ("med_qty" in it) payload.med_qty = normalizeNullableNumber(it.med_qty);
+    if ("max_qty" in it) payload.max_qty = normalizeNullableNumber(it.max_qty);
+
+    const minForValidation = payload.min_qty ?? 0;
+    const medForValidation = payload.med_qty ?? 0;
+    const maxForValidation = payload.max_qty ?? 0;
 
     if (
       payload.min_qty !== undefined &&
       payload.med_qty !== undefined &&
-      payload.med_qty < payload.min_qty
+      medForValidation < minForValidation
     ) {
       throw new Error("No CSV, o valor médio não pode ser menor que o mínimo.");
     }
@@ -1225,7 +1242,7 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
     if (
       payload.med_qty !== undefined &&
       payload.max_qty !== undefined &&
-      payload.max_qty < payload.med_qty
+      maxForValidation < medForValidation
     ) {
       throw new Error("No CSV, o valor máximo não pode ser menor que o médio.");
     }

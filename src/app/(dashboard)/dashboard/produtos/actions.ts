@@ -56,7 +56,36 @@ function normalizeStockUnit(value: string | null | undefined): string {
 }
 
 /**
- * Garante que exista uma linha em stock_balances para o produto.
+ * Busca a unidade padrão canônica do produto.
+ */
+async function getProductDefaultUnit(params: {
+  supabase: any;
+  establishmentId: string;
+  productId: string;
+}) {
+  const { data, error } = await params.supabase
+    .from("products")
+    .select("default_unit_label")
+    .eq("id", params.productId)
+    .eq("establishment_id", params.establishmentId)
+    .maybeSingle();
+
+  if (error) {
+    console.error(
+      "[products.getProductDefaultUnit] error",
+      error,
+    );
+    throw new Error(
+      "Não foi possível consultar a unidade padrão do produto.",
+    );
+  }
+
+  return normalizeStockUnit((data as any)?.default_unit_label);
+}
+
+/**
+ * Garante que exista apenas uma linha em stock_balances para o produto
+ * e que a unidade estrutural siga a unidade padrão do cadastro do produto.
  */
 async function ensureStockBalanceForProduct(params: {
   supabase: any;
@@ -64,14 +93,20 @@ async function ensureStockBalanceForProduct(params: {
   productId: string;
   unitLabel?: string | null;
 }) {
-  const unit_label = normalizeStockUnit(params.unitLabel);
+  const unit_label =
+    normalizeStockUnit(params.unitLabel) ||
+    (await getProductDefaultUnit({
+      supabase: params.supabase,
+      establishmentId: params.establishmentId,
+      productId: params.productId,
+    }));
 
-  const { data: existing, error: existingError } = await params.supabase
+  const { data: rows, error: existingError } = await params.supabase
     .from("stock_balances")
-    .select("id")
+    .select("id, quantity, unit_label, min_qty, med_qty, max_qty, location")
     .eq("establishment_id", params.establishmentId)
     .eq("product_id", params.productId)
-    .maybeSingle();
+    .order("id", { ascending: true });
 
   if (existingError) {
     console.error(
@@ -83,36 +118,127 @@ async function ensureStockBalanceForProduct(params: {
     );
   }
 
-  if (existing?.id) {
-    return existing.id as string;
+  const existingRows = (rows ?? []) as any[];
+
+  if (existingRows.length === 0) {
+    const { data: inserted, error: insertError } = await params.supabase
+      .from("stock_balances")
+      .insert({
+        establishment_id: params.establishmentId,
+        product_id: params.productId,
+        quantity: 0,
+        unit_label,
+        min_qty: 0,
+        med_qty: 0,
+        max_qty: 0,
+        location: "Estoque Principal",
+      })
+      .select("id")
+      .maybeSingle();
+
+    if (insertError) {
+      console.error(
+        "[products.ensureStockBalanceForProduct] insert error",
+        insertError,
+      );
+      throw new Error(
+        "Produto criado, mas não foi possível criar o item correspondente no estoque.",
+      );
+    }
+
+    return inserted?.id as string | undefined;
   }
 
-  const { data: inserted, error: insertError } = await params.supabase
-    .from("stock_balances")
-    .insert({
-      establishment_id: params.establishmentId,
-      product_id: params.productId,
-      quantity: 0,
-      unit_label,
-      min_qty: 0,
-      med_qty: 0,
-      max_qty: 0,
-      location: "Estoque Principal",
-    })
-    .select("id")
-    .maybeSingle();
+  if (existingRows.length === 1) {
+    const onlyRow = existingRows[0];
 
-  if (insertError) {
+    const { error: updateSingleError } = await params.supabase
+      .from("stock_balances")
+      .update({
+        unit_label,
+      })
+      .eq("id", onlyRow.id);
+
+    if (updateSingleError) {
+      console.error(
+        "[products.ensureStockBalanceForProduct] single update error",
+        updateSingleError,
+      );
+      throw new Error(
+        "Não foi possível padronizar a unidade do estoque para este produto.",
+      );
+    }
+
+    return onlyRow.id as string;
+  }
+
+  const keeper = existingRows[0];
+  const duplicateIds = existingRows.slice(1).map((row) => String(row.id));
+
+  const mergedQuantity = existingRows.reduce(
+    (acc, row) => acc + Number(row.quantity ?? 0),
+    0,
+  );
+
+  const mergedMin = existingRows.reduce(
+    (acc, row) => Math.max(acc, Number(row.min_qty ?? 0)),
+    0,
+  );
+
+  const mergedMed = existingRows.reduce(
+    (acc, row) => Math.max(acc, Number(row.med_qty ?? 0)),
+    0,
+  );
+
+  const mergedMax = existingRows.reduce(
+    (acc, row) => Math.max(acc, Number(row.max_qty ?? 0)),
+    0,
+  );
+
+  const mergedLocation =
+    existingRows.find((row) => String(row.location ?? "").trim())?.location ??
+    "Estoque Principal";
+
+  const { error: keeperError } = await params.supabase
+    .from("stock_balances")
+    .update({
+      quantity: mergedQuantity,
+      unit_label,
+      min_qty: mergedMin,
+      med_qty: mergedMed,
+      max_qty: mergedMax,
+      location: mergedLocation,
+    })
+    .eq("id", keeper.id);
+
+  if (keeperError) {
     console.error(
-      "[products.ensureStockBalanceForProduct] insert error",
-      insertError,
+      "[products.ensureStockBalanceForProduct] keeper update error",
+      keeperError,
     );
     throw new Error(
-      "Produto criado, mas não foi possível criar o item correspondente no estoque.",
+      "Não foi possível consolidar registros duplicados de estoque deste produto.",
     );
   }
 
-  return inserted?.id as string | undefined;
+  if (duplicateIds.length > 0) {
+    const { error: deleteError } = await params.supabase
+      .from("stock_balances")
+      .delete()
+      .in("id", duplicateIds);
+
+    if (deleteError) {
+      console.error(
+        "[products.ensureStockBalanceForProduct] duplicate delete error",
+        deleteError,
+      );
+      throw new Error(
+        "Não foi possível remover duplicidades de estoque deste produto.",
+      );
+    }
+  }
+
+  return keeper.id as string;
 }
 
 /**
@@ -796,6 +922,13 @@ export async function updateProduct(formData: FormData) {
         "Produto atualizado, mas houve falha ao sincronizar a unidade no estoque.",
       );
     }
+
+    await ensureStockBalanceForProduct({
+      supabase,
+      establishmentId,
+      productId: id,
+      unitLabel: default_unit_label,
+    });
   } catch (stockError: any) {
     console.error(
       "[products.update] stock sync error",

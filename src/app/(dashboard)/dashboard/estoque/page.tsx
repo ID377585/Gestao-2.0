@@ -97,17 +97,14 @@ type ThresholdDrafts = Record<
   }
 >;
 
-type MetaDrafts = Record<
+type LocationDrafts = Record<
   string,
   {
-    unit_label: string;
     location: string;
   }
 >;
 
 type InventoryItemDrafts = Record<string, string>;
-
-const UNIT_OPTIONS = ["UN", "KG", "G", "L", "ML"] as const;
 
 const statusConfig: Record<
   StatusEstoque,
@@ -226,6 +223,28 @@ function getMovementReason(mv?: RecentStockMovementRow) {
   return mv.reason ?? mv.movement_type ?? "—";
 }
 
+function formatThresholdInputValue(value: number | null | undefined) {
+  if (value === null || value === undefined || Number(value) === 0) return "";
+  return String(value);
+}
+
+function formatThresholdDisplayValue(value: number | null | undefined) {
+  if (value === null || value === undefined || Number(value) === 0) return "—";
+  return String(value);
+}
+
+function parseOptionalNumberInput(value: string) {
+  const raw = String(value ?? "").trim().replace(",", ".");
+  if (!raw) return null;
+
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function normalizeThresholdForCompare(value: number | null | undefined) {
+  return value === null || value === undefined ? null : Number(value);
+}
+
 export default function EstoquePage() {
   const { toast } = useToast();
 
@@ -234,7 +253,7 @@ export default function EstoquePage() {
   const [syncingStock, setSyncingStock] = useState(false);
 
   const [thresholdDrafts, setThresholdDrafts] = useState<ThresholdDrafts>({});
-  const [metaDrafts, setMetaDrafts] = useState<MetaDrafts>({});
+  const [locationDrafts, setLocationDrafts] = useState<LocationDrafts>({});
   const [inventoryItemDrafts, setInventoryItemDrafts] =
     useState<InventoryItemDrafts>({});
 
@@ -244,7 +263,9 @@ export default function EstoquePage() {
 
   const [savingThresholdRowId, setSavingThresholdRowId] =
     useState<string | null>(null);
-  const [savingMetaRowId, setSavingMetaRowId] = useState<string | null>(null);
+  const [savingLocationRowId, setSavingLocationRowId] = useState<string | null>(
+    null
+  );
   const [savingInventoryItemId, setSavingInventoryItemId] = useState<
     string | null
   >(null);
@@ -279,10 +300,13 @@ export default function EstoquePage() {
 
   const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false);
   const [adjustmentProductId, setAdjustmentProductId] = useState("");
+  const [adjustmentBalanceId, setAdjustmentBalanceId] = useState("");
   const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>("IN");
   const [adjustmentQty, setAdjustmentQty] = useState("");
-  const [adjustmentUnit, setAdjustmentUnit] = useState("UN");
   const [adjustmentReason, setAdjustmentReason] = useState("AJUSTE_MANUAL");
+  const [adjustmentMin, setAdjustmentMin] = useState("");
+  const [adjustmentMed, setAdjustmentMed] = useState("");
+  const [adjustmentMax, setAdjustmentMax] = useState("");
   const [savingAdjustment, setSavingAdjustment] = useState(false);
   const [zeroStockBalance, setZeroStockBalance] = useState(false);
 
@@ -401,34 +425,22 @@ export default function EstoquePage() {
 
   useEffect(() => {
     const thresholds: ThresholdDrafts = {};
-    const metas: MetaDrafts = {};
+    const locations: LocationDrafts = {};
 
     stock.forEach((row) => {
       thresholds[row.id] = {
-        min:
-          row.min_qty !== null && row.min_qty !== undefined
-            ? String(row.min_qty)
-            : "",
-        med:
-          row.med_qty !== null && row.med_qty !== undefined
-            ? String(row.med_qty)
-            : "",
-        max:
-          row.max_qty !== null && row.max_qty !== undefined
-            ? String(row.max_qty)
-            : "",
+        min: formatThresholdInputValue(row.min_qty),
+        med: formatThresholdInputValue(row.med_qty),
+        max: formatThresholdInputValue(row.max_qty),
       };
 
-      metas[row.id] = {
-        unit_label: normalizeUnit(
-          row.product?.default_unit_label ?? row.unit_label ?? "UN"
-        ),
+      locations[row.id] = {
         location: row.location ?? "",
       };
     });
 
     setThresholdDrafts(thresholds);
-    setMetaDrafts(metas);
+    setLocationDrafts(locations);
   }, [stock]);
 
   useEffect(() => {
@@ -438,20 +450,6 @@ export default function EstoquePage() {
     });
     setInventoryItemDrafts(drafts);
   }, [inventoryItems]);
-
-  useEffect(() => {
-    const selectedRow = stock.find((s) => s.product?.id === adjustmentProductId);
-    const selectedProduct = products.find((p) => p.id === adjustmentProductId);
-
-    const suggestedUnit = normalizeUnit(
-      selectedProduct?.default_unit_label ??
-        selectedRow?.product?.default_unit_label ??
-        selectedRow?.unit_label ??
-        "UN"
-    );
-
-    setAdjustmentUnit(suggestedUnit);
-  }, [adjustmentProductId, stock, products]);
 
   const sortedStock = useMemo(() => {
     const rank: Record<StatusEstoque, number> = {
@@ -594,28 +592,39 @@ export default function EstoquePage() {
 
   const openAdjustmentModal = (preset?: {
     productId?: string;
-    unitLabel?: string | null;
+    balanceId?: string;
     reason?: string;
   }) => {
-    if (preset?.productId) {
-      setAdjustmentProductId(preset.productId);
+    const selectedRow = stock.find(
+      (row) =>
+        row.id === preset?.balanceId ||
+        row.product?.id === preset?.productId
+    );
+
+    if (selectedRow?.product?.id) {
+      setAdjustmentProductId(selectedRow.product.id);
+    } else {
+      setAdjustmentProductId(preset?.productId ?? "");
     }
-    if (preset?.unitLabel) {
-      setAdjustmentUnit(normalizeUnit(preset.unitLabel));
-    }
-    if (preset?.reason) {
-      setAdjustmentReason(preset.reason);
-    }
+
+    setAdjustmentBalanceId(selectedRow?.id ?? preset?.balanceId ?? "");
+    setAdjustmentReason(preset?.reason ?? "AJUSTE_MANUAL");
+    setAdjustmentMin(formatThresholdInputValue(selectedRow?.min_qty));
+    setAdjustmentMed(formatThresholdInputValue(selectedRow?.med_qty));
+    setAdjustmentMax(formatThresholdInputValue(selectedRow?.max_qty));
     setAdjustmentModalOpen(true);
   };
 
   const closeAdjustmentModal = () => {
     setAdjustmentModalOpen(false);
     setAdjustmentProductId("");
+    setAdjustmentBalanceId("");
     setAdjustmentType("IN");
     setAdjustmentQty("");
-    setAdjustmentUnit("UN");
     setAdjustmentReason("AJUSTE_MANUAL");
+    setAdjustmentMin("");
+    setAdjustmentMed("");
+    setAdjustmentMax("");
     setZeroStockBalance(false);
   };
 
@@ -818,82 +827,6 @@ export default function EstoquePage() {
     }
   };
 
-  const handleCreateManualAdjustment = async () => {
-    if (!adjustmentProductId) {
-      toast({
-        title: "Selecione um produto",
-        description: "Escolha o produto que terá ajuste manual.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const unit = normalizeUnit(adjustmentUnit);
-
-    try {
-      setSavingAdjustment(true);
-
-      if (zeroStockBalance) {
-        await zeroStockBalanceAction({
-          product_id: adjustmentProductId,
-          unit_label: unit,
-          reason: adjustmentReason || "ZERAR_SALDO_ESTOQUE",
-        });
-
-        toast({
-          title: "Saldo zerado",
-          description: "O saldo do produto foi ajustado para 0,000.",
-        });
-
-        closeAdjustmentModal();
-        await refreshMainData();
-        return;
-      }
-
-      const qty = Number(adjustmentQty.replace(",", "."));
-
-      if (!Number.isFinite(qty) || qty <= 0) {
-        toast({
-          title: "Quantidade inválida",
-          description: "Informe uma quantidade maior que zero.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const signedQty = adjustmentType === "OUT" ? -qty : qty;
-
-      await createStockMovementAction({
-        product_id: adjustmentProductId,
-        unit_label: unit,
-        qty_delta: signedQty,
-        reason: adjustmentReason || "AJUSTE_MANUAL",
-        source: "manual_adjustment_modal",
-      });
-
-      toast({
-        title: "Ajuste aplicado",
-        description:
-          adjustmentType === "IN"
-            ? "Entrada manual registrada com sucesso."
-            : "Saída manual registrada com sucesso.",
-      });
-
-      closeAdjustmentModal();
-      await refreshMainData();
-    } catch (e: any) {
-      console.error(e);
-      toast({
-        title: zeroStockBalance ? "Erro ao zerar saldo" : "Erro no ajuste manual",
-        description:
-          e?.message ?? "Não foi possível registrar o ajuste manual.",
-        variant: "destructive",
-      });
-    } finally {
-      setSavingAdjustment(false);
-    }
-  };
-
   const selectedProductRow = stock.find(
     (s) => s.product?.id === selectedProductId
   );
@@ -920,32 +853,53 @@ export default function EstoquePage() {
     adjustmentSelectedProduct?.default_unit_label ??
       adjustmentSelectedRow?.product?.default_unit_label ??
       adjustmentSelectedRow?.unit_label ??
-      adjustmentUnit
+      "UN"
   );
 
-  const handleThresholdChange = (
-    balanceId: string,
-    field: "min" | "med" | "max",
-    value: string
-  ) => {
-    setThresholdDrafts((prev) => ({
-      ...prev,
-      [balanceId]: {
-        ...(prev[balanceId] ?? { min: "", med: "", max: "" }),
-        [field]: value,
-      },
-    }));
-  };
+  const handleCreateManualAdjustment = async () => {
+    if (!adjustmentProductId) {
+      toast({
+        title: "Selecione um produto",
+        description: "Escolha o produto que terá ajuste manual.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  const handleThresholdBlur = async (balanceId: string) => {
-    const draft = thresholdDrafts[balanceId];
-    if (!draft) return;
+    const selectedRow = stock.find((s) => s.product?.id === adjustmentProductId);
 
-    const min = Number(draft.min || "0");
-    const med = Number(draft.med || "0");
-    const max = Number(draft.max || "0");
+    if (!selectedRow?.id) {
+      toast({
+        title: "Produto sem vínculo de estoque",
+        description:
+          "Não foi possível localizar a linha de estoque desse produto.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    if (min < 0 || med < 0 || max < 0) {
+    const parsedMin = parseOptionalNumberInput(adjustmentMin);
+    const parsedMed = parseOptionalNumberInput(adjustmentMed);
+    const parsedMax = parseOptionalNumberInput(adjustmentMax);
+
+    if (
+      Number.isNaN(parsedMin) ||
+      Number.isNaN(parsedMed) ||
+      Number.isNaN(parsedMax)
+    ) {
+      toast({
+        title: "Valores inválidos",
+        description: "Preencha Min/Méd/Máx somente com números válidos.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const minForValidation = parsedMin ?? 0;
+    const medForValidation = parsedMed ?? 0;
+    const maxForValidation = parsedMax ?? 0;
+
+    if (minForValidation < 0 || medForValidation < 0 || maxForValidation < 0) {
       toast({
         title: "Valores inválidos",
         description: "Min/Méd/Máx não podem ser negativos.",
@@ -954,7 +908,7 @@ export default function EstoquePage() {
       return;
     }
 
-    if (med < min) {
+    if (medForValidation < minForValidation) {
       toast({
         title: "Valores inválidos",
         description: "O valor médio não pode ser menor que o mínimo.",
@@ -963,7 +917,7 @@ export default function EstoquePage() {
       return;
     }
 
-    if (max < med) {
+    if (maxForValidation < medForValidation) {
       toast({
         title: "Valores inválidos",
         description: "O valor máximo não pode ser menor que o médio.",
@@ -972,80 +926,134 @@ export default function EstoquePage() {
       return;
     }
 
-    const row = stock.find((s) => s.id === balanceId);
-    if (
-      row &&
-      row.min_qty === min &&
-      row.med_qty === med &&
-      row.max_qty === max
-    ) {
-      return;
-    }
+    const thresholdChanged =
+      normalizeThresholdForCompare(selectedRow.min_qty) !==
+        normalizeThresholdForCompare(parsedMin) ||
+      normalizeThresholdForCompare(selectedRow.med_qty) !==
+        normalizeThresholdForCompare(parsedMed) ||
+      normalizeThresholdForCompare(selectedRow.max_qty) !==
+        normalizeThresholdForCompare(parsedMax);
 
     try {
-      setSavingThresholdRowId(balanceId);
-      await updateStockThresholds(balanceId, min, med, max);
-      await refreshMainData();
+      setSavingAdjustment(true);
+
+      if (thresholdChanged) {
+        setSavingThresholdRowId(selectedRow.id);
+        await updateStockThresholds(
+          selectedRow.id,
+          parsedMin,
+          parsedMed,
+          parsedMax
+        );
+      }
+
+      if (zeroStockBalance) {
+        await zeroStockBalanceAction({
+          product_id: adjustmentProductId,
+          reason: adjustmentReason || "ZERAR_SALDO_ESTOQUE",
+        });
+
+        toast({
+          title: "Ajuste aplicado",
+          description: thresholdChanged
+            ? "Saldo zerado e limites Min/Méd/Máx atualizados com sucesso."
+            : "O saldo do produto foi ajustado para 0,000.",
+        });
+
+        closeAdjustmentModal();
+        await refreshMainData();
+        return;
+      }
+
+      const rawQty = String(adjustmentQty ?? "").trim();
+      const hasMovement = rawQty.length > 0;
+      const qty = Number(rawQty.replace(",", "."));
+
+      if (hasMovement) {
+        if (!Number.isFinite(qty) || qty <= 0) {
+          toast({
+            title: "Quantidade inválida",
+            description: "Informe uma quantidade maior que zero.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const signedQty = adjustmentType === "OUT" ? -qty : qty;
+
+        await createStockMovementAction({
+          product_id: adjustmentProductId,
+          unit_label: currentAdjustmentUnit,
+          qty_delta: signedQty,
+          reason: adjustmentReason || "AJUSTE_MANUAL",
+          source: "manual_adjustment_modal",
+        });
+      }
+
+      if (!thresholdChanged && !hasMovement) {
+        toast({
+          title: "Nada para aplicar",
+          description:
+            "Altere Min/Méd/Máx ou informe uma quantidade para ajuste.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       toast({
-        title: "Limites atualizados",
-        description: "Min/Méd/Máx atualizados com sucesso para este produto.",
+        title: "Ajuste aplicado",
+        description:
+          thresholdChanged && hasMovement
+            ? "Movimentação e limites Min/Méd/Máx atualizados com sucesso."
+            : thresholdChanged
+              ? "Limites Min/Méd/Máx atualizados com sucesso."
+              : adjustmentType === "IN"
+                ? "Entrada manual registrada com sucesso."
+                : "Saída manual registrada com sucesso.",
       });
+
+      closeAdjustmentModal();
+      await refreshMainData();
     } catch (e: any) {
       console.error(e);
       toast({
-        title: "Erro ao atualizar limites",
+        title: zeroStockBalance ? "Erro ao zerar saldo" : "Erro no ajuste manual",
         description:
-          e?.message ?? "Não foi possível atualizar Min/Méd/Máx deste item.",
+          e?.message ?? "Não foi possível registrar o ajuste manual.",
         variant: "destructive",
       });
     } finally {
+      setSavingAdjustment(false);
       setSavingThresholdRowId(null);
     }
   };
 
-  const handleMetaDraftChange = (
-    balanceId: string,
-    field: "unit_label" | "location",
-    value: string
-  ) => {
-    setMetaDrafts((prev) => ({
+  const handleLocationDraftChange = (balanceId: string, value: string) => {
+    setLocationDrafts((prev) => ({
       ...prev,
       [balanceId]: {
-        ...(prev[balanceId] ?? { unit_label: "UN", location: "" }),
-        [field]: value,
+        location: value,
       },
     }));
   };
 
-  const handleMetaBlur = async (row: StockRow) => {
-    const draft = metaDrafts[row.id];
+  const handleLocationBlur = async (row: StockRow) => {
+    const draft = locationDrafts[row.id];
     if (!draft) return;
 
-    const canonicalUnit = normalizeUnit(
-      row.product?.default_unit_label ?? row.unit_label ?? "UN"
-    );
     const nextLocation = String(draft.location ?? "").trim();
-
     const currentLocation = String(row.location ?? "").trim();
 
     if (nextLocation === currentLocation) {
-      setMetaDrafts((prev) => ({
-        ...prev,
-        [row.id]: {
-          ...(prev[row.id] ?? { unit_label: canonicalUnit, location: "" }),
-          unit_label: canonicalUnit,
-        },
-      }));
       return;
     }
 
     try {
-      setSavingMetaRowId(row.id);
+      setSavingLocationRowId(row.id);
 
       const payload: BulkStockMetaUpdateItem = {
         balance_id: row.id,
         product_id: row.product?.id ?? undefined,
-        unit_label: canonicalUnit,
         location: nextLocation || null,
       };
 
@@ -1053,19 +1061,19 @@ export default function EstoquePage() {
       await refreshMainData();
 
       toast({
-        title: "Metadados atualizados",
-        description: "Local e unidade foram atualizados com sucesso.",
+        title: "Local atualizado",
+        description: "Local do item atualizado com sucesso.",
       });
     } catch (e: any) {
       console.error(e);
       toast({
-        title: "Erro ao atualizar metadados",
+        title: "Erro ao atualizar local",
         description:
-          e?.message ?? "Não foi possível atualizar local/unidade deste item.",
+          e?.message ?? "Não foi possível atualizar o local deste item.",
         variant: "destructive",
       });
     } finally {
-      setSavingMetaRowId(null);
+      setSavingLocationRowId(null);
     }
   };
 
@@ -1084,9 +1092,9 @@ export default function EstoquePage() {
         sku: row.product?.sku ?? "",
         quantidade: row.quantity ?? 0,
         unidade: unit,
-        min: row.min_qty ?? 0,
-        med: row.med_qty ?? 0,
-        max: row.max_qty ?? 0,
+        min: row.min_qty ?? "",
+        med: row.med_qty ?? "",
+        max: row.max_qty ?? "",
         local: row.location ?? "",
         status: statusConfig[status].label,
         valor_unit: price,
@@ -1251,9 +1259,9 @@ export default function EstoquePage() {
 
       if (idxUnidade >= 0) payload.unit_label = unit_label || null;
       if (idxLocal >= 0) payload.location = location || null;
-      if (idxMin >= 0) payload.min_qty = min_qty ?? 0;
-      if (idxMed >= 0) payload.med_qty = med_qty ?? 0;
-      if (idxMax >= 0) payload.max_qty = max_qty ?? 0;
+      if (idxMin >= 0) payload.min_qty = min_qty;
+      if (idxMed >= 0) payload.med_qty = med_qty;
+      if (idxMax >= 0) payload.max_qty = max_qty;
 
       updates.push(payload);
     }
@@ -1429,22 +1437,30 @@ export default function EstoquePage() {
           </div>
         }
       >
-        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-[2fr_1fr_1fr_auto_auto]">
-          <div className="space-y-1">
-            <Label htmlFor="search">Buscar por produto, SKU, local ou motivo</Label>
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-[2fr_1fr_1fr_auto_auto] md:items-end">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="search" className="min-h-5 text-xs font-medium leading-5">
+              Buscar por produto, SKU, local ou motivo
+            </Label>
             <Input
               id="search"
+              className="h-10"
               placeholder="Ex.: farinha, 1001711, estoque principal, avaria..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
 
-          <div className="space-y-1">
-            <Label htmlFor="status-filter">Status</Label>
+          <div className="flex flex-col gap-1">
+            <Label
+              htmlFor="status-filter"
+              className="min-h-5 text-xs font-medium leading-5"
+            >
+              Status
+            </Label>
             <select
               id="status-filter"
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
             >
@@ -1455,11 +1471,16 @@ export default function EstoquePage() {
             </select>
           </div>
 
-          <div className="space-y-1">
-            <Label htmlFor="location-filter">Local</Label>
+          <div className="flex flex-col gap-1">
+            <Label
+              htmlFor="location-filter"
+              className="min-h-5 text-xs font-medium leading-5"
+            >
+              Local
+            </Label>
             <select
               id="location-filter"
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
               value={locationFilter}
               onChange={(e) => setLocationFilter(e.target.value)}
             >
@@ -1473,7 +1494,7 @@ export default function EstoquePage() {
           </div>
 
           <div className="flex items-end">
-            <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm">
+            <label className="flex h-10 items-center gap-2 rounded-md border px-3 text-sm whitespace-nowrap">
               <input
                 type="checkbox"
                 checked={onlyWithQty}
@@ -1486,6 +1507,7 @@ export default function EstoquePage() {
           <div className="flex items-end">
             <Button
               variant="outline"
+              className="h-10"
               onClick={() => {
                 setSearchTerm("");
                 setStatusFilter("todos");
@@ -1499,214 +1521,141 @@ export default function EstoquePage() {
           </div>
         </div>
 
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Produto</TableHead>
-              <TableHead>Qtd</TableHead>
-              <TableHead>Min/Méd/Máx</TableHead>
-              <TableHead>Valor Unit.</TableHead>
-              <TableHead>Total</TableHead>
-              <TableHead>Unidade</TableHead>
-              <TableHead>Local</TableHead>
-              <TableHead>Últ. mov.</TableHead>
-              <TableHead>Motivo recente</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Ações</TableHead>
-            </TableRow>
-          </TableHeader>
-
-          <TableBody>
-            {loadingStock ? (
+        <div className="overflow-x-auto">
+          <Table className="min-w-[1200px]">
+            <TableHeader>
               <TableRow>
-                <TableCell
-                  colSpan={11}
-                  className="text-sm text-muted-foreground"
-                >
-                  Carregando...
-                </TableCell>
+                <TableHead className="sticky left-0 z-30 min-w-[360px] bg-white shadow-[4px_0_8px_-6px_rgba(0,0,0,0.18)] dark:bg-slate-950">
+                  Produto
+                </TableHead>
+                <TableHead>Qtd</TableHead>
+                <TableHead>Min/Méd/Máx</TableHead>
+                <TableHead>Valor Unit.</TableHead>
+                <TableHead>Total</TableHead>
+                <TableHead>Local</TableHead>
+                <TableHead>Últ. mov.</TableHead>
+                <TableHead>Motivo recente</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Ações</TableHead>
               </TableRow>
-            ) : (
-              filteredStock.map((row) => {
-                const status = getStatusFromRow(row);
-                const badgeCfg = statusConfig[status];
-                const movement =
-                  recentMovementsByProduct[row.product?.id ?? ""] ?? undefined;
+            </TableHeader>
 
-                const unit = String(
-                  row.product?.default_unit_label ?? row.unit_label ?? "UN"
-                ).toUpperCase();
-                const price = row.product?.price ?? 0;
+            <TableBody>
+              {loadingStock ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={10}
+                    className="text-sm text-muted-foreground"
+                  >
+                    Carregando...
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredStock.map((row) => {
+                  const status = getStatusFromRow(row);
+                  const badgeCfg = statusConfig[status];
+                  const movement =
+                    recentMovementsByProduct[row.product?.id ?? ""] ?? undefined;
 
-                const qtyRounded =
-                  Math.round(((row.quantity ?? 0) + Number.EPSILON) * 1000) /
-                  1000;
+                  const unit = String(
+                    row.product?.default_unit_label ?? row.unit_label ?? "UN"
+                  ).toUpperCase();
+                  const price = row.product?.price ?? 0;
 
-                const thresholdDraft = thresholdDrafts[row.id] ?? {
-                  min:
-                    row.min_qty !== null && row.min_qty !== undefined
-                      ? String(row.min_qty)
-                      : "",
-                  med:
-                    row.med_qty !== null && row.med_qty !== undefined
-                      ? String(row.med_qty)
-                      : "",
-                  max:
-                    row.max_qty !== null && row.max_qty !== undefined
-                      ? String(row.max_qty)
-                      : "",
-                };
+                  const qtyRounded =
+                    Math.round(((row.quantity ?? 0) + Number.EPSILON) * 1000) /
+                    1000;
 
-                const metaDraft = metaDrafts[row.id] ?? {
-                  unit_label: unit,
-                  location: row.location ?? "",
-                };
+                  const locationDraft = locationDrafts[row.id] ?? {
+                    location: row.location ?? "",
+                  };
 
-                const thresholdDisabled = savingThresholdRowId === row.id;
-                const metaDisabled = savingMetaRowId === row.id;
+                  const locationDisabled = savingLocationRowId === row.id;
 
-                return (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-medium">
-                      <div className="flex flex-col">
-                        <span>{row.product?.name ?? "—"}</span>
-                        {row.product?.sku && (
-                          <span className="text-xs text-muted-foreground">
-                            SKU: {row.product.sku}
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell className="sticky left-0 z-20 min-w-[360px] bg-white font-medium shadow-[4px_0_8px_-6px_rgba(0,0,0,0.18)] dark:bg-slate-950">
+                        <div className="flex flex-col">
+                          <span>{row.product?.name ?? "—"}</span>
+                          {row.product?.sku && (
+                            <span className="text-xs text-muted-foreground">
+                              SKU: {row.product.sku}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+
+                      <TableCell>
+                        {formatQty3(qtyRounded)} {unit}
+                      </TableCell>
+
+                      <TableCell className="text-xs text-muted-foreground">
+                        <div className="font-medium text-foreground">
+                          {formatThresholdDisplayValue(row.min_qty)} /{" "}
+                          {formatThresholdDisplayValue(row.med_qty)} /{" "}
+                          {formatThresholdDisplayValue(row.max_qty)}
+                        </div>
+                      </TableCell>
+
+                      <TableCell>{formatCurrency(price)}</TableCell>
+                      <TableCell>{formatCurrency(price * qtyRounded)}</TableCell>
+
+                      <TableCell>
+                        <Input
+                          className="h-8 min-w-[150px] text-xs"
+                          value={locationDraft.location}
+                          disabled={locationDisabled}
+                          placeholder="Ex.: Estoque Principal"
+                          onChange={(e) =>
+                            handleLocationDraftChange(row.id, e.target.value)
+                          }
+                          onBlur={() => handleLocationBlur(row)}
+                        />
+                      </TableCell>
+
+                      <TableCell className="text-xs">
+                        <div className="flex flex-col">
+                          <span>{getMovementLabel(movement)}</span>
+                          <span className="text-muted-foreground">
+                            {formatMovementDate(movement?.created_at)}
                           </span>
-                        )}
-                      </div>
-                    </TableCell>
+                        </div>
+                      </TableCell>
 
-                    <TableCell>
-                      {formatQty3(qtyRounded)} {unit}
-                    </TableCell>
-
-                    <TableCell className="text-xs text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Input
-                          type="number"
-                          min={0}
-                          className="h-7 w-16 text-xs"
-                          value={thresholdDraft.min}
-                          disabled={thresholdDisabled}
-                          onChange={(e) =>
-                            handleThresholdChange(row.id, "min", e.target.value)
-                          }
-                          onBlur={() => handleThresholdBlur(row.id)}
-                        />
-                        <span className="text-[10px] text-gray-400">/</span>
-                        <Input
-                          type="number"
-                          min={0}
-                          className="h-7 w-16 text-xs"
-                          value={thresholdDraft.med}
-                          disabled={thresholdDisabled}
-                          onChange={(e) =>
-                            handleThresholdChange(row.id, "med", e.target.value)
-                          }
-                          onBlur={() => handleThresholdBlur(row.id)}
-                        />
-                        <span className="text-[10px] text-gray-400">/</span>
-                        <Input
-                          type="number"
-                          min={0}
-                          className="h-7 w-16 text-xs"
-                          value={thresholdDraft.max}
-                          disabled={thresholdDisabled}
-                          onChange={(e) =>
-                            handleThresholdChange(row.id, "max", e.target.value)
-                          }
-                          onBlur={() => handleThresholdBlur(row.id)}
-                        />
-                      </div>
-                    </TableCell>
-
-                    <TableCell>{formatCurrency(price)}</TableCell>
-                    <TableCell>{formatCurrency(price * qtyRounded)}</TableCell>
-
-                    <TableCell>
-                      <select
-                        className="h-8 rounded-md border px-2 text-xs"
-                        value={metaDraft.unit_label}
-                        disabled={metaDisabled}
-                        onChange={(e) =>
-                          handleMetaDraftChange(
-                            row.id,
-                            "unit_label",
-                            e.target.value
-                          )
-                        }
-                        onBlur={() => handleMetaBlur(row)}
-                      >
-                        {UNIT_OPTIONS.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
-                    </TableCell>
-
-                    <TableCell>
-                      <Input
-                        className="h-8 min-w-[150px] text-xs"
-                        value={metaDraft.location}
-                        disabled={metaDisabled}
-                        placeholder="Ex.: Estoque Principal"
-                        onChange={(e) =>
-                          handleMetaDraftChange(
-                            row.id,
-                            "location",
-                            e.target.value
-                          )
-                        }
-                        onBlur={() => handleMetaBlur(row)}
-                      />
-                    </TableCell>
-
-                    <TableCell className="text-xs">
-                      <div className="flex flex-col">
-                        <span>{getMovementLabel(movement)}</span>
-                        <span className="text-muted-foreground">
-                          {formatMovementDate(movement?.created_at)}
+                      <TableCell className="max-w-[180px] text-xs">
+                        <span className="line-clamp-2">
+                          {getMovementReason(movement)}
                         </span>
-                      </div>
-                    </TableCell>
+                      </TableCell>
 
-                    <TableCell className="max-w-[180px] text-xs">
-                      <span className="line-clamp-2">
-                        {getMovementReason(movement)}
-                      </span>
-                    </TableCell>
+                      <TableCell>
+                        <Badge className={badgeCfg.badgeClass}>
+                          {badgeCfg.label}
+                        </Badge>
+                      </TableCell>
 
-                    <TableCell>
-                      <Badge className={badgeCfg.badgeClass}>
-                        {badgeCfg.label}
-                      </Badge>
-                    </TableCell>
-
-                    <TableCell>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          openAdjustmentModal({
-                            productId: row.product?.id,
-                            unitLabel:
-                              row.product?.default_unit_label ?? row.unit_label ?? unit,
-                            reason: "AJUSTE_POR_LINHA",
-                          })
-                        }
-                      >
-                        Ajustar
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            openAdjustmentModal({
+                              productId: row.product?.id,
+                              balanceId: row.id,
+                              reason: "AJUSTE_POR_LINHA",
+                            })
+                          }
+                        >
+                          Ajustar
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </DashboardTableShell>
 
       {inventoryModalOpen && (
@@ -1897,8 +1846,8 @@ export default function EstoquePage() {
 
             <div className="space-y-4">
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                Use este recurso para correções rápidas de saldo sem abrir um
-                inventário completo.
+                Use este recurso para correções rápidas de saldo e para editar
+                os limites de Min/Méd/Máx do produto selecionado.
               </div>
 
               <label className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
@@ -1910,7 +1859,7 @@ export default function EstoquePage() {
                     setZeroStockBalance(checked);
 
                     if (checked) {
-                      setAdjustmentQty("0");
+                      setAdjustmentQty("");
                       setAdjustmentType("OUT");
                       setAdjustmentReason("ZERAR_SALDO_ESTOQUE");
                     } else {
@@ -1928,7 +1877,19 @@ export default function EstoquePage() {
                     id="adjustment-product"
                     className="rounded-md border px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
                     value={adjustmentProductId}
-                    onChange={(e) => setAdjustmentProductId(e.target.value)}
+                    onChange={(e) => {
+                      const nextProductId = e.target.value;
+                      setAdjustmentProductId(nextProductId);
+
+                      const nextRow = stock.find(
+                        (row) => row.product?.id === nextProductId
+                      );
+
+                      setAdjustmentBalanceId(nextRow?.id ?? "");
+                      setAdjustmentMin(formatThresholdInputValue(nextRow?.min_qty));
+                      setAdjustmentMed(formatThresholdInputValue(nextRow?.med_qty));
+                      setAdjustmentMax(formatThresholdInputValue(nextRow?.max_qty));
+                    }}
                   >
                     <option value="">Selecione um produto</option>
                     {products.map((p) => (
@@ -1945,6 +1906,7 @@ export default function EstoquePage() {
                     id="adjustment-type"
                     className="rounded-md border px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
                     value={adjustmentType}
+                    disabled={zeroStockBalance}
                     onChange={(e) =>
                       setAdjustmentType(e.target.value as AdjustmentType)
                     }
@@ -1961,7 +1923,7 @@ export default function EstoquePage() {
                     type="number"
                     min={0}
                     step="0.01"
-                    placeholder="0"
+                    placeholder="Deixe em branco se quiser só editar Min/Méd/Máx"
                     value={adjustmentQty}
                     disabled={zeroStockBalance}
                     onChange={(e) => setAdjustmentQty(e.target.value)}
@@ -1969,22 +1931,17 @@ export default function EstoquePage() {
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <Label htmlFor="adjustment-unit">Unidade</Label>
-                  <select
+                  <Label htmlFor="adjustment-unit">Unidade do produto</Label>
+                  <Input
                     id="adjustment-unit"
-                    className="rounded-md border px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-                    value={adjustmentUnit}
-                    onChange={(e) => setAdjustmentUnit(e.target.value)}
-                  >
-                    {UNIT_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
+                    readOnly
+                    value={adjustmentProductId ? currentAdjustmentUnit : ""}
+                    placeholder="Unidade"
+                  />
                   {adjustmentProductId && (
                     <span className="text-xs text-muted-foreground">
-                      Unidade sugerida atual: {currentAdjustmentUnit}
+                      A unidade é definida no cadastro do produto e não pode ser
+                      alterada por esta tela.
                     </span>
                   )}
                 </div>
@@ -1998,6 +1955,57 @@ export default function EstoquePage() {
                     onChange={(e) => setAdjustmentReason(e.target.value)}
                   />
                 </div>
+
+                <div className="md:col-span-2 rounded-md border p-4">
+                  <div className="mb-3">
+                    <h4 className="text-sm font-semibold">Limites do estoque</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Estes campos só podem ser alterados por aqui ao clicar em
+                      Aplicar Ajuste.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor="adjustment-min">Mínimo</Label>
+                      <Input
+                        id="adjustment-min"
+                        type="number"
+                        min={0}
+                        step="0.001"
+                        placeholder="Em branco"
+                        value={adjustmentMin}
+                        onChange={(e) => setAdjustmentMin(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor="adjustment-med">Médio</Label>
+                      <Input
+                        id="adjustment-med"
+                        type="number"
+                        min={0}
+                        step="0.001"
+                        placeholder="Em branco"
+                        value={adjustmentMed}
+                        onChange={(e) => setAdjustmentMed(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor="adjustment-max">Máximo</Label>
+                      <Input
+                        id="adjustment-max"
+                        type="number"
+                        min={0}
+                        step="0.001"
+                        placeholder="Em branco"
+                        value={adjustmentMax}
+                        onChange={(e) => setAdjustmentMax(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -2006,7 +2014,7 @@ export default function EstoquePage() {
                 </Button>
                 <Button
                   onClick={handleCreateManualAdjustment}
-                  disabled={savingAdjustment}
+                  disabled={savingAdjustment || savingThresholdRowId === adjustmentBalanceId}
                 >
                   {savingAdjustment ? "Salvando..." : "Aplicar Ajuste"}
                 </Button>

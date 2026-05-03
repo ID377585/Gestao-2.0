@@ -1125,7 +1125,7 @@ export async function zeroStockBalanceAction(input: {
   await dispatchLowStockAlertsForProducts({
     establishmentId,
     productIds: [productId],
-    source: "manual_zero_stock",
+    source: "stock_movement",
   });
 
   revalidatePath("/dashboard/estoque");

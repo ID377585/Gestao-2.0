@@ -112,20 +112,51 @@ async function getSupabaseAndEstablishment() {
   return { supabase, establishmentId };
 }
 
+async function getProductDefaultUnit(params: {
+  supabase: any;
+  establishmentId: string;
+  productId: string;
+}) {
+  const { data, error } = await params.supabase
+    .from("products")
+    .select("id, default_unit_label")
+    .eq("id", params.productId)
+    .eq("establishment_id", params.establishmentId)
+    .maybeSingle();
+
+  if (error) {
+    console.error(
+      "[estoque.getProductDefaultUnit] erro ao consultar produto:",
+      error
+    );
+    throw new Error("Não foi possível consultar a unidade padrão do produto.");
+  }
+
+  return normalizeUnitLabel((data as any)?.default_unit_label) ?? "UN";
+}
+
 async function ensureStockBalanceForProduct(params: {
   supabase: any;
   establishmentId: string;
   productId: string;
   unitLabel?: string | null;
 }) {
-  const normalizedUnit = normalizeUnitLabel(params.unitLabel) ?? "UN";
+  const canonicalUnit =
+    normalizeUnitLabel(params.unitLabel) ??
+    (await getProductDefaultUnit({
+      supabase: params.supabase,
+      establishmentId: params.establishmentId,
+      productId: params.productId,
+    }));
 
-  const { data: existing, error: existingError } = await params.supabase
+  const { data: existingRows, error: existingError } = await params.supabase
     .from("stock_balances")
-    .select("id")
+    .select(
+      "id, quantity, unit_label, min_qty, med_qty, max_qty, location, created_at"
+    )
     .eq("establishment_id", params.establishmentId)
     .eq("product_id", params.productId)
-    .maybeSingle();
+    .order("id", { ascending: true });
 
   if (existingError) {
     console.error(
@@ -137,36 +168,125 @@ async function ensureStockBalanceForProduct(params: {
     );
   }
 
-  if (existing?.id) {
-    return existing.id as string;
+  const rows = (existingRows ?? []) as any[];
+
+  if (rows.length === 0) {
+    const { data: inserted, error: insertError } = await params.supabase
+      .from("stock_balances")
+      .insert({
+        establishment_id: params.establishmentId,
+        product_id: params.productId,
+        quantity: 0,
+        unit_label: canonicalUnit,
+        min_qty: 0,
+        med_qty: 0,
+        max_qty: 0,
+        location: "Estoque Principal",
+      })
+      .select("id")
+      .maybeSingle();
+
+    if (insertError) {
+      console.error(
+        "[estoque.ensureStockBalanceForProduct] erro ao inserir stock_balance:",
+        insertError
+      );
+      throw new Error(
+        "Não foi possível criar a estrutura de estoque para um ou mais produtos."
+      );
+    }
+
+    return inserted?.id as string | undefined;
   }
 
-  const { data: inserted, error: insertError } = await params.supabase
-    .from("stock_balances")
-    .insert({
-      establishment_id: params.establishmentId,
-      product_id: params.productId,
-      quantity: 0,
-      unit_label: normalizedUnit,
-      min_qty: 0,
-      med_qty: 0,
-      max_qty: 0,
-      location: "Estoque Principal",
-    })
-    .select("id")
-    .maybeSingle();
+  if (rows.length === 1) {
+    const onlyRow = rows[0];
 
-  if (insertError) {
+    const { error: updateSingleError } = await params.supabase
+      .from("stock_balances")
+      .update({
+        unit_label: canonicalUnit,
+      })
+      .eq("id", onlyRow.id);
+
+    if (updateSingleError) {
+      console.error(
+        "[estoque.ensureStockBalanceForProduct] erro ao padronizar unidade:",
+        updateSingleError
+      );
+      throw new Error(
+        "Não foi possível padronizar a unidade estrutural do estoque."
+      );
+    }
+
+    return onlyRow.id as string;
+  }
+
+  const keeper = rows[0];
+  const duplicateIds = rows.slice(1).map((row) => String(row.id));
+
+  const mergedQuantity = rows.reduce(
+    (acc, row) => acc + normalizeNumber(row.quantity, 0),
+    0
+  );
+
+  const mergedMin = rows.reduce(
+    (acc, row) => Math.max(acc, normalizeNumber(row.min_qty, 0)),
+    0
+  );
+  const mergedMed = rows.reduce(
+    (acc, row) => Math.max(acc, normalizeNumber(row.med_qty, 0)),
+    0
+  );
+  const mergedMax = rows.reduce(
+    (acc, row) => Math.max(acc, normalizeNumber(row.max_qty, 0)),
+    0
+  );
+
+  const mergedLocation =
+    rows.find((row) => String(row.location ?? "").trim().length > 0)?.location ??
+    "Estoque Principal";
+
+  const { error: updateKeeperError } = await params.supabase
+    .from("stock_balances")
+    .update({
+      quantity: mergedQuantity,
+      unit_label: canonicalUnit,
+      min_qty: mergedMin,
+      med_qty: mergedMed,
+      max_qty: mergedMax,
+      location: mergedLocation,
+    })
+    .eq("id", keeper.id);
+
+  if (updateKeeperError) {
     console.error(
-      "[estoque.ensureStockBalanceForProduct] erro ao inserir stock_balance:",
-      insertError
+      "[estoque.ensureStockBalanceForProduct] erro ao consolidar duplicados:",
+      updateKeeperError
     );
     throw new Error(
-      "Não foi possível criar a estrutura de estoque para um ou mais produtos."
+      "Não foi possível consolidar a estrutura duplicada de estoque deste produto."
     );
   }
 
-  return inserted?.id as string | undefined;
+  if (duplicateIds.length > 0) {
+    const { error: deleteDuplicatesError } = await params.supabase
+      .from("stock_balances")
+      .delete()
+      .in("id", duplicateIds);
+
+    if (deleteDuplicatesError) {
+      console.error(
+        "[estoque.ensureStockBalanceForProduct] erro ao remover duplicados:",
+        deleteDuplicatesError
+      );
+      throw new Error(
+        "Não foi possível remover estruturas duplicadas de estoque deste produto."
+      );
+    }
+  }
+
+  return keeper.id as string;
 }
 
 async function getOpenInventorySessionOwned(
@@ -285,24 +405,56 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     entry.byUnit.set(unit, (entry.byUnit.get(unit) ?? 0) + qty);
   }
 
-  const merged = normalized.map((row) => {
+  const dedupedByProduct = new Map<string, StockBalanceRow>();
+
+  for (const row of normalized) {
     const pid = String(row.product_id);
-    const unit = String(row.unit_label ?? "").toUpperCase();
+    const canonicalUnit = normalizeUnitLabel(
+      row.product?.default_unit_label ?? row.unit_label ?? "UN"
+    ) ?? "UN";
 
     const entry = byProduct.get(pid);
-    if (!entry) {
-      return { ...row, quantity: 0 };
+    const canonicalQty = entry?.byUnit.get(canonicalUnit);
+    const totalQty = entry?.total ?? 0;
+
+    const nextRow: StockBalanceRow = {
+      ...row,
+      unit_label: canonicalUnit,
+      quantity: canonicalQty !== undefined ? canonicalQty : totalQty,
+    };
+
+    const existing = dedupedByProduct.get(pid);
+
+    if (!existing) {
+      dedupedByProduct.set(pid, nextRow);
+      continue;
     }
 
-    const qtyByUnit = entry.byUnit.get(unit);
-    if (qtyByUnit !== undefined) {
-      return { ...row, quantity: qtyByUnit };
-    }
+    dedupedByProduct.set(pid, {
+      ...existing,
+      unit_label: canonicalUnit,
+      quantity: canonicalQty !== undefined ? canonicalQty : totalQty,
+      min_qty: Math.max(
+        normalizeNumber(existing.min_qty, 0),
+        normalizeNumber(row.min_qty, 0)
+      ),
+      med_qty: Math.max(
+        normalizeNumber(existing.med_qty, 0),
+        normalizeNumber(row.med_qty, 0)
+      ),
+      max_qty: Math.max(
+        normalizeNumber(existing.max_qty, 0),
+        normalizeNumber(row.max_qty, 0)
+      ),
+      location:
+        String(existing.location ?? "").trim() ||
+        !String(row.location ?? "").trim()
+          ? existing.location
+          : row.location,
+    });
+  }
 
-    return { ...row, quantity: entry.total };
-  });
-
-  return merged;
+  return Array.from(dedupedByProduct.values());
 }
 
 export async function listProductsForInventory() {
@@ -375,15 +527,24 @@ export async function seedInitialStockFromProducts() {
       location: "Estoque Principal",
     }));
 
-  if (rowsToInsert.length === 0) return;
+  if (rowsToInsert.length > 0) {
+    const { error: insertError } = await supabase
+      .from("stock_balances")
+      .insert(rowsToInsert);
 
-  const { error: insertError } = await supabase
-    .from("stock_balances")
-    .insert(rowsToInsert);
+    if (insertError) {
+      console.error("Erro ao criar estoque inicial:", insertError);
+      throw new Error("Não foi possível criar o estoque inicial.");
+    }
+  }
 
-  if (insertError) {
-    console.error("Erro ao criar estoque inicial:", insertError);
-    throw new Error("Não foi possível criar o estoque inicial.");
+  for (const product of products) {
+    await ensureStockBalanceForProduct({
+      supabase,
+      establishmentId,
+      productId: String((product as any).id),
+      unitLabel: (product as any).default_unit_label ?? "UN",
+    });
   }
 }
 
@@ -709,11 +870,17 @@ export async function finalizeInventory(sessionId: string) {
   }
 
   for (const item of consolidated.values()) {
+    const canonicalUnit = await getProductDefaultUnit({
+      supabase,
+      establishmentId,
+      productId: item.product_id,
+    });
+
     await ensureStockBalanceForProduct({
       supabase,
       establishmentId,
       productId: item.product_id,
-      unitLabel: item.unit_label,
+      unitLabel: canonicalUnit,
     });
   }
 
@@ -744,8 +911,13 @@ export async function finalizeInventory(sessionId: string) {
   const touchedProductIds = new Set<string>();
 
   for (const item of consolidated.values()) {
-    const unit = String(item.unit_label ?? "").toUpperCase();
-    const key = `${item.product_id}__${unit}`;
+    const canonicalUnit = await getProductDefaultUnit({
+      supabase,
+      establishmentId,
+      productId: item.product_id,
+    });
+
+    const key = `${item.product_id}__${canonicalUnit}`;
     const currentQty = currentMap.get(key) ?? 0;
     const countedQty = normalizeNumber(item.counted_quantity, 0);
     const diff = countedQty - currentQty;
@@ -755,7 +927,7 @@ export async function finalizeInventory(sessionId: string) {
     const { error: metaUpdateError } = await supabase
       .from("stock_balances")
       .update({
-        unit_label: item.unit_label,
+        unit_label: canonicalUnit,
       })
       .eq("establishment_id", establishmentId)
       .eq("product_id", item.product_id);
@@ -770,13 +942,33 @@ export async function finalizeInventory(sessionId: string) {
     }
 
     if (diff === 0) {
+      const { error: quantityMirrorError } = await supabase
+        .from("stock_balances")
+        .update({
+          quantity: countedQty,
+          unit_label: canonicalUnit,
+        })
+        .eq("establishment_id", establishmentId)
+        .eq("product_id", item.product_id);
+
+      if (quantityMirrorError) {
+        console.error(
+          "Erro ao espelhar quantidade em stock_balances:",
+          item.product_id,
+          quantityMirrorError
+        );
+        throw new Error(
+          "Não foi possível atualizar o espelho de quantidade estrutural do estoque."
+        );
+      }
+
       continue;
     }
 
     const payload: StockMovementInput = {
       establishment_id: establishmentId,
       product_id: item.product_id,
-      unit_label: item.unit_label ?? "UN",
+      unit_label: canonicalUnit,
       qty_delta: diff,
       reason: diff > 0 ? "AJUSTE_PARA_MAIS" : "AJUSTE_PARA_MENOS",
       source: "inventory_finalize",
@@ -799,6 +991,7 @@ export async function finalizeInventory(sessionId: string) {
       .from("stock_balances")
       .update({
         quantity: countedQty,
+        unit_label: canonicalUnit,
       })
       .eq("establishment_id", establishmentId)
       .eq("product_id", item.product_id);
@@ -939,10 +1132,23 @@ export async function createStockMovementAction(
 ) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
+  const canonicalUnit = await getProductDefaultUnit({
+    supabase,
+    establishmentId,
+    productId: String((input as any).product_id),
+  });
+
+  await ensureStockBalanceForProduct({
+    supabase,
+    establishmentId,
+    productId: String((input as any).product_id),
+    unitLabel: canonicalUnit,
+  });
+
   const payload: StockMovementInput = {
     establishment_id: establishmentId,
     product_id: (input as any).product_id,
-    unit_label: normalizeUnitLabel((input as any).unit_label) ?? "UN",
+    unit_label: canonicalUnit,
     qty_delta: (input as any).qty_delta,
     reason: (input as any).reason ?? "adjustment",
     source: (input as any).source ?? "server_action",
@@ -992,7 +1198,15 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
     const payload: any = {};
 
     if ("unit_label" in it) {
-      payload.unit_label = normalizeUnitLabel(it.unit_label);
+      if (productId) {
+        payload.unit_label = await getProductDefaultUnit({
+          supabase,
+          establishmentId,
+          productId,
+        });
+      } else {
+        payload.unit_label = normalizeUnitLabel(it.unit_label);
+      }
     }
 
     if ("location" in it) payload.location = it.location ?? null;
@@ -1035,6 +1249,15 @@ export async function bulkUpdateStockMeta(items: BulkStockMetaUpdateItem[]) {
       );
     }
 
+    if (productId) {
+      await ensureStockBalanceForProduct({
+        supabase,
+        establishmentId,
+        productId,
+        unitLabel: payload.unit_label,
+      });
+    }
+
     updated += 1;
   }
 
@@ -1067,17 +1290,22 @@ export async function zeroStockBalanceAction(input: {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
   const productId = String(input.product_id ?? "").trim();
-  const unit = normalizeUnitLabel(input.unit_label) ?? "UN";
 
   if (!productId) {
     throw new Error("Produto inválido para zerar saldo.");
   }
 
+  const canonicalUnit = await getProductDefaultUnit({
+    supabase,
+    establishmentId,
+    productId,
+  });
+
   await ensureStockBalanceForProduct({
     supabase,
     establishmentId,
     productId,
-    unitLabel: unit,
+    unitLabel: canonicalUnit,
   });
 
   const { data: currentRows, error: currentErr } = await supabase
@@ -1093,7 +1321,7 @@ export async function zeroStockBalanceAction(input: {
 
   const currentQty = (currentRows ?? []).reduce((acc: number, row: any) => {
     const rowUnit = normalizeUnitLabel(row.unit_label) ?? "UN";
-    if (rowUnit !== unit) return acc;
+    if (rowUnit !== canonicalUnit) return acc;
     return acc + normalizeNumber(row.qty_balance, 0);
   }, 0);
 
@@ -1101,7 +1329,7 @@ export async function zeroStockBalanceAction(input: {
     .from("stock_balances")
     .update({
       quantity: currentQty > 0 ? currentQty : 0,
-      unit_label: unit,
+      unit_label: canonicalUnit,
     })
     .eq("establishment_id", establishmentId)
     .eq("product_id", productId);
@@ -1110,7 +1338,7 @@ export async function zeroStockBalanceAction(input: {
     await moveStock(supabase as any, {
       establishment_id: establishmentId,
       product_id: productId,
-      unit_label: unit,
+      unit_label: canonicalUnit,
       qty_delta: -currentQty,
       reason: input.reason || "ZERAR_SALDO_ESTOQUE",
       source: "manual_zero_stock_modal",
@@ -1121,7 +1349,7 @@ export async function zeroStockBalanceAction(input: {
     .from("stock_balances")
     .update({
       quantity: 0,
-      unit_label: unit,
+      unit_label: canonicalUnit,
     })
     .eq("establishment_id", establishmentId)
     .eq("product_id", productId);

@@ -421,7 +421,7 @@ export default function EstoquePage() {
 
       metas[row.id] = {
         unit_label: normalizeUnit(
-          row.unit_label ?? row.product?.default_unit_label ?? "UN"
+          row.product?.default_unit_label ?? row.unit_label ?? "UN"
         ),
         location: row.location ?? "",
       };
@@ -444,9 +444,9 @@ export default function EstoquePage() {
     const selectedProduct = products.find((p) => p.id === adjustmentProductId);
 
     const suggestedUnit = normalizeUnit(
-      selectedRow?.unit_label ??
+      selectedProduct?.default_unit_label ??
         selectedRow?.product?.default_unit_label ??
-        selectedProduct?.default_unit_label ??
+        selectedRow?.unit_label ??
         "UN"
     );
 
@@ -675,10 +675,12 @@ export default function EstoquePage() {
     }
 
     const stockRow = stock.find((s) => s.product?.id === selectedProductId);
-    const unitLabelFromStock = stockRow?.unit_label ?? null;
     const productMeta = products.find((p) => p.id === selectedProductId);
     const unitLabel = String(
-      unitLabelFromStock ?? productMeta?.default_unit_label ?? "UN"
+      productMeta?.default_unit_label ??
+        stockRow?.product?.default_unit_label ??
+        stockRow?.unit_label ??
+        "UN"
     ).toUpperCase();
 
     try {
@@ -897,9 +899,9 @@ export default function EstoquePage() {
   );
   const productMeta = products.find((p) => p.id === selectedProductId);
   const rawSelectedUnit =
-    selectedProductRow?.unit_label ??
-    selectedProductRow?.product?.default_unit_label ??
     productMeta?.default_unit_label ??
+    selectedProductRow?.product?.default_unit_label ??
+    selectedProductRow?.unit_label ??
     "";
   const selectedUnit = rawSelectedUnit
     ? rawSelectedUnit.toString().toUpperCase()
@@ -915,9 +917,9 @@ export default function EstoquePage() {
     (p) => p.id === adjustmentProductId
   );
   const currentAdjustmentUnit = normalizeUnit(
-    adjustmentSelectedRow?.unit_label ??
+    adjustmentSelectedProduct?.default_unit_label ??
       adjustmentSelectedRow?.product?.default_unit_label ??
-      adjustmentSelectedProduct?.default_unit_label ??
+      adjustmentSelectedRow?.unit_label ??
       adjustmentUnit
   );
 
@@ -1019,15 +1021,21 @@ export default function EstoquePage() {
     const draft = metaDrafts[row.id];
     if (!draft) return;
 
-    const nextUnit = normalizeUnit(draft.unit_label);
+    const canonicalUnit = normalizeUnit(
+      row.product?.default_unit_label ?? row.unit_label ?? "UN"
+    );
     const nextLocation = String(draft.location ?? "").trim();
 
-    const currentUnit = normalizeUnit(
-      row.unit_label ?? row.product?.default_unit_label ?? "UN"
-    );
     const currentLocation = String(row.location ?? "").trim();
 
-    if (nextUnit === currentUnit && nextLocation === currentLocation) {
+    if (nextLocation === currentLocation) {
+      setMetaDrafts((prev) => ({
+        ...prev,
+        [row.id]: {
+          ...(prev[row.id] ?? { unit_label: canonicalUnit, location: "" }),
+          unit_label: canonicalUnit,
+        },
+      }));
       return;
     }
 
@@ -1037,7 +1045,7 @@ export default function EstoquePage() {
       const payload: BulkStockMetaUpdateItem = {
         balance_id: row.id,
         product_id: row.product?.id ?? undefined,
-        unit_label: nextUnit,
+        unit_label: canonicalUnit,
         location: nextLocation || null,
       };
 
@@ -1065,7 +1073,7 @@ export default function EstoquePage() {
     return rows.map((row) => {
       const status = getStatusFromRow(row);
       const unit = String(
-        row.unit_label ?? row.product?.default_unit_label ?? "UN"
+        row.product?.default_unit_label ?? row.unit_label ?? "UN"
       ).toUpperCase();
       const price = row.product?.price ?? 0;
       const total = price * (row.quantity ?? 0);
@@ -1526,7 +1534,7 @@ export default function EstoquePage() {
                   recentMovementsByProduct[row.product?.id ?? ""] ?? undefined;
 
                 const unit = String(
-                  row.unit_label ?? row.product?.default_unit_label ?? "UN"
+                  row.product?.default_unit_label ?? row.unit_label ?? "UN"
                 ).toUpperCase();
                 const price = row.product?.price ?? 0;
 
@@ -1684,7 +1692,8 @@ export default function EstoquePage() {
                         onClick={() =>
                           openAdjustmentModal({
                             productId: row.product?.id,
-                            unitLabel: row.unit_label ?? unit,
+                            unitLabel:
+                              row.product?.default_unit_label ?? row.unit_label ?? unit,
                             reason: "AJUSTE_POR_LINHA",
                           })
                         }

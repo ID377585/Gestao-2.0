@@ -21,7 +21,10 @@ type StockBalanceRow = {
     id: string;
     name: string;
     price: number | null;
+    standard_cost?: number | null;
     default_unit_label: string | null;
+    product_type?: string | null;
+    sector_category?: string | null;
     sku?: string | null;
     is_active?: boolean | null;
   } | null;
@@ -101,6 +104,18 @@ function normalizeNullableNumber(input: any): number | null {
 
   const n = Number(input);
   return Number.isFinite(n) ? n : null;
+}
+
+function isMissingRelationError(error: any) {
+  const code = String(error?.code ?? "");
+  const message = String(error?.message ?? "").toLowerCase();
+
+  return (
+    code === "42P01" ||
+    code === "42703" ||
+    message.includes("does not exist") ||
+    message.includes("schema cache")
+  );
 }
 
 async function getSupabaseAndEstablishment() {
@@ -346,7 +361,10 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
         id,
         name,
         price,
+        standard_cost,
         default_unit_label,
+        product_type,
+        sector_category,
         sku,
         is_active
       )
@@ -426,10 +444,17 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     const canonicalQty = entry?.byUnit.get(canonicalUnit);
     const totalQty = entry?.total ?? 0;
 
+    const stockBalanceQty = normalizeNumber(row.quantity, 0);
+    const resolvedQty = entry
+      ? canonicalQty !== undefined
+        ? canonicalQty
+        : totalQty
+      : stockBalanceQty;
+
     const nextRow: StockBalanceRow = {
       ...row,
       unit_label: canonicalUnit,
-      quantity: canonicalQty !== undefined ? canonicalQty : totalQty,
+      quantity: resolvedQty,
     };
 
     const existing = dedupedByProduct.get(pid);
@@ -439,10 +464,17 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
       continue;
     }
 
+    const existingStockBalanceQty = normalizeNumber(existing.quantity, 0);
+    const resolvedMergedQty = entry
+      ? canonicalQty !== undefined
+        ? canonicalQty
+        : totalQty
+      : existingStockBalanceQty + stockBalanceQty;
+
     dedupedByProduct.set(pid, {
       ...existing,
       unit_label: canonicalUnit,
-      quantity: canonicalQty !== undefined ? canonicalQty : totalQty,
+      quantity: resolvedMergedQty,
       min_qty: Math.max(
         normalizeNumber(existing.min_qty, 0),
         normalizeNumber(row.min_qty, 0)
@@ -792,6 +824,36 @@ export async function listRecentStockMovements(): Promise<
 > {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
+  const { data: stockMovements, error: stockMovementsError } = await supabase
+    .from("stock_movements")
+    .select("id, product_id, unit_label, qty_delta, reason, source, created_at")
+    .eq("establishment_id", establishmentId)
+    .order("created_at", { ascending: false })
+    .limit(5000);
+
+  if (!stockMovementsError) {
+    return (stockMovements ?? []).map((row: any) => {
+      const qtyDelta = normalizeNumber(row.qty_delta, 0);
+
+      return {
+        id: String(row.id),
+        product_id: String(row.product_id),
+        unit_label: normalizeUnitLabel(row.unit_label),
+        qty: Math.abs(qtyDelta),
+        direction: qtyDelta < 0 ? "OUT" : "IN",
+        movement_type: row.source ? String(row.source) : "stock_movement",
+        reason: row.reason ? String(row.reason) : null,
+        details: null,
+        created_at: row.created_at ? String(row.created_at) : null,
+      };
+    });
+  }
+
+  if (!isMissingRelationError(stockMovementsError)) {
+    console.error("Erro ao listar stock_movements:", stockMovementsError);
+    throw new Error("Não foi possível carregar as movimentações recentes.");
+  }
+
   const { data, error } = await supabase
     .from("inventory_movements")
     .select(
@@ -799,7 +861,7 @@ export async function listRecentStockMovements(): Promise<
     )
     .eq("establishment_id", establishmentId)
     .order("created_at", { ascending: false })
-    .limit(500);
+    .limit(5000);
 
   if (error) {
     console.error("Erro ao listar movimentações recentes:", error);

@@ -401,9 +401,16 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     .select("establishment_id, product_id, unit_label, qty_balance")
     .eq("establishment_id", establishmentId);
 
-  if (csErr) {
+  if (csErr && !isMissingRelationError(csErr)) {
     console.error("Erro ao listar current_stock:", csErr);
     throw new Error("Erro ao carregar saldo do estoque (current_stock).");
+  }
+
+  if (csErr) {
+    console.warn(
+      "[estoque.listCurrentStock] current_stock indisponível; usando stock_balances como fallback.",
+      csErr
+    );
   }
 
   const currentRows = (cs ?? []).map((r: any) => ({
@@ -823,6 +830,7 @@ export async function listRecentStockMovements(): Promise<
   RecentStockMovementRow[]
 > {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
+  const movements: RecentStockMovementRow[] = [];
 
   const { data: stockMovements, error: stockMovementsError } = await supabase
     .from("stock_movements")
@@ -832,29 +840,32 @@ export async function listRecentStockMovements(): Promise<
     .limit(5000);
 
   if (!stockMovementsError) {
-    return (stockMovements ?? []).map((row: any) => {
-      const qtyDelta = normalizeNumber(row.qty_delta, 0);
+    movements.push(
+      ...(stockMovements ?? []).map((row: any) => {
+        const qtyDelta = normalizeNumber(row.qty_delta, 0);
 
-      return {
-        id: String(row.id),
-        product_id: String(row.product_id),
-        unit_label: normalizeUnitLabel(row.unit_label),
-        qty: Math.abs(qtyDelta),
-        direction: qtyDelta < 0 ? "OUT" : "IN",
-        movement_type: row.source ? String(row.source) : "stock_movement",
-        reason: row.reason ? String(row.reason) : null,
-        details: null,
-        created_at: row.created_at ? String(row.created_at) : null,
-      };
-    });
-  }
-
-  if (!isMissingRelationError(stockMovementsError)) {
+        return {
+          id: String(row.id),
+          product_id: row.product_id ? String(row.product_id) : "",
+          unit_label: normalizeUnitLabel(row.unit_label),
+          qty: Math.abs(qtyDelta),
+          direction: qtyDelta < 0 ? "OUT" : "IN",
+          movement_type: row.source ? String(row.source) : "stock_movement",
+          reason: row.reason ? String(row.reason) : null,
+          details: {
+            source_table: "stock_movements",
+            qty_delta: qtyDelta,
+          },
+          created_at: row.created_at ? String(row.created_at) : null,
+        };
+      })
+    );
+  } else if (!isMissingRelationError(stockMovementsError)) {
     console.error("Erro ao listar stock_movements:", stockMovementsError);
     throw new Error("Não foi possível carregar as movimentações recentes.");
   }
 
-  const { data, error } = await supabase
+  const { data: inventoryMovements, error: inventoryMovementsError } = await supabase
     .from("inventory_movements")
     .select(
       "id, product_id, unit_label, qty, direction, movement_type, reason, details, created_at"
@@ -863,22 +874,36 @@ export async function listRecentStockMovements(): Promise<
     .order("created_at", { ascending: false })
     .limit(5000);
 
-  if (error) {
-    console.error("Erro ao listar movimentações recentes:", error);
+  if (!inventoryMovementsError) {
+    movements.push(
+      ...(inventoryMovements ?? []).map((row: any) => ({
+        id: String(row.id),
+        product_id: row.product_id ? String(row.product_id) : "",
+        unit_label: normalizeUnitLabel(row.unit_label),
+        qty: Math.abs(normalizeNumber(row.qty, 0)),
+        direction: row.direction ? String(row.direction) : null,
+        movement_type: row.movement_type ? String(row.movement_type) : null,
+        reason: row.reason ? String(row.reason) : null,
+        details: {
+          ...(row.details && typeof row.details === "object" ? row.details : {}),
+          source_table: "inventory_movements",
+        },
+        created_at: row.created_at ? String(row.created_at) : null,
+      }))
+    );
+  } else if (!isMissingRelationError(inventoryMovementsError)) {
+    console.error("Erro ao listar movimentações recentes:", inventoryMovementsError);
     throw new Error("Não foi possível carregar as movimentações recentes.");
   }
 
-  return (data ?? []).map((row: any) => ({
-    id: String(row.id),
-    product_id: String(row.product_id),
-    unit_label: normalizeUnitLabel(row.unit_label),
-    qty: normalizeNumber(row.qty, 0),
-    direction: row.direction ? String(row.direction) : null,
-    movement_type: row.movement_type ? String(row.movement_type) : null,
-    reason: row.reason ? String(row.reason) : null,
-    details: row.details ?? null,
-    created_at: row.created_at ? String(row.created_at) : null,
-  }));
+  return movements
+    .filter((row) => row.product_id && normalizeNumber(row.qty, 0) > 0)
+    .sort((a, b) => {
+      const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bTime - aTime;
+    })
+    .slice(0, 5000);
 }
 
 export async function finalizeInventory(sessionId: string) {

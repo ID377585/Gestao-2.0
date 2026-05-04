@@ -64,6 +64,7 @@ export const dynamic = "force-dynamic";
 
 type StockRow = {
   id: string;
+  product_id?: string | null;
   quantity: number;
   unit_label: string | null;
   min_qty: number | null;
@@ -523,7 +524,7 @@ function consolidateStockByProduct(
   const map = new Map<string, ConsolidatedProductStockRow>();
 
   for (const row of rows) {
-    const productId = String(row.product?.id ?? row.id).trim();
+    const productId = String(row.product?.id ?? row.product_id ?? row.id).trim();
     if (!productId) continue;
 
     const fallbackMeta = productMetaById.get(productId);
@@ -623,6 +624,7 @@ function buildChartData(
 
 function normalizeMovementText(movement: RecentStockMovementRow) {
   const data = movement as any;
+  const details = data?.details && typeof data.details === "object" ? data.details : {};
   const keys = [
     "type",
     "movement_type",
@@ -640,10 +642,17 @@ function normalizeMovementText(movement: RecentStockMovementRow) {
     "referenceType",
     "operation",
     "category",
+    "direction",
+    "qty_delta",
   ];
 
-  return keys
-    .map((key) => data?.[key])
+  const values = [
+    ...keys.map((key) => data?.[key]),
+    details?.source_table,
+    details?.qty_delta,
+  ];
+
+  return values
     .filter((value) => value !== undefined && value !== null && String(value).trim() !== "")
     .join(" ")
     .normalize("NFD")
@@ -663,10 +672,24 @@ function getMovementCreatedAt(movement: RecentStockMovementRow) {
 
 function getMovementSignedQty(movement: RecentStockMovementRow) {
   const data = movement as any;
+  const details = data?.details && typeof data.details === "object" ? data.details : {};
+  const direction = String(data?.direction ?? "")
+    .trim()
+    .toUpperCase();
   const raw =
-    data?.qty ?? data?.quantity ?? data?.amount_qty ?? data?.delta_qty ?? data?.delta ?? 0;
+    details?.qty_delta ??
+    data?.qty_delta ??
+    data?.qty ??
+    data?.quantity ??
+    data?.amount_qty ??
+    data?.delta_qty ??
+    data?.delta ??
+    0;
   const qty = Number(raw ?? 0);
-  return Number.isFinite(qty) ? qty : 0;
+  if (!Number.isFinite(qty)) return 0;
+  if (direction === "OUT") return -Math.abs(qty);
+  if (direction === "IN") return Math.abs(qty);
+  return qty;
 }
 
 function getMovementKind(movement: RecentStockMovementRow): MovementKind {
@@ -689,15 +712,30 @@ function getMovementKind(movement: RecentStockMovementRow): MovementKind {
       "QUEBRA",
       "VENCIMENTO",
       "DIVERGENCIA",
+      "TRANSFERENCIA",
+      "TRANSFER",
+      "ZERAR",
+      "ZERO_STOCK",
+      "REVERSE",
+      "ESTORNO",
+      "CANCELAMENTO",
     ].some((t) => explicitType.includes(t))
   ) {
     return "ajuste";
   }
 
   if (
-    ["CONSUMO", "SAIDA", "VENDA", "BAIXA", "RETIRADA", "CONSUMPTION"].some((t) =>
-      explicitType.includes(t)
-    )
+    [
+      "CONSUMO",
+      "SAIDA",
+      "VENDA",
+      "BAIXA",
+      "RETIRADA",
+      "CONSUMPTION",
+      "OUT_ORDER",
+      "ORDER_SEPARATION",
+      "PEDIDO",
+    ].some((t) => explicitType.includes(t))
   ) {
     return "consumo";
   }
@@ -709,6 +747,9 @@ function getMovementKind(movement: RecentStockMovementRow): MovementKind {
       "RECEBIMENTO",
       "RECEB",
       "INBOUND",
+      "PURCHASE",
+      "RECEIPT",
+      "ENTRY",
       "PRODUCAO",
       "PRODUCTION",
     ].some((t) => explicitType.includes(t))
@@ -719,21 +760,55 @@ function getMovementKind(movement: RecentStockMovementRow): MovementKind {
   const text = normalizeMovementText(movement);
 
   if (
-    ["AJUST", "ADJUST", "INVENT", "PERDA", "QUEBRA", "VENCIMENTO", "DIVERGEN"].some((t) =>
-      text.includes(t)
-    )
+    [
+      "AJUST",
+      "ADJUST",
+      "INVENT",
+      "PERDA",
+      "QUEBRA",
+      "VENCIMENTO",
+      "DIVERGEN",
+      "TRANSFERENCIA",
+      "TRANSFER",
+      "ZERAR",
+      "ZERO_STOCK",
+      "REVERSE",
+      "ESTORNO",
+      "CANCELAMENTO",
+    ].some((t) => text.includes(t))
   ) {
     return "ajuste";
   }
 
-  if (["CONSUM", "SAIDA", "VENDA", "BAIXA", "RETIRADA", "EXIT"].some((t) => text.includes(t))) {
+  if (
+    [
+      "CONSUM",
+      "SAIDA",
+      "VENDA",
+      "BAIXA",
+      "RETIRADA",
+      "EXIT",
+      "OUT_ORDER",
+      "ORDER_SEPARATION",
+      "PEDIDO",
+    ].some((t) => text.includes(t))
+  ) {
     return "consumo";
   }
 
   if (
-    ["ENTRADA", "COMPRA", "RECEB", "INBOUND", "INCLUSAO", "PRODUCAO", "PRODUCTION"].some((t) =>
-      text.includes(t)
-    )
+    [
+      "ENTRADA",
+      "COMPRA",
+      "RECEB",
+      "INBOUND",
+      "INCLUSAO",
+      "PURCHASE",
+      "RECEIPT",
+      "ENTRY",
+      "PRODUCAO",
+      "PRODUCTION",
+    ].some((t) => text.includes(t))
   ) {
     return "entrada";
   }
@@ -1198,11 +1273,15 @@ function ConsolidatedStockPieChart({
   const kgQty = data.find((i) => i.name === "KG - R$")?.quantity ?? 0;
   const unidQty = data.find((i) => i.name === "UNID - R$")?.quantity ?? 0;
   const ltQty = data.find((i) => i.name === "LT - R$")?.quantity ?? 0;
+  const totalMonitoredQty =
+    data.reduce((acc, item) => acc + item.quantity, 0) + unclassified.quantity;
+  const totalMonitoredItems =
+    data.reduce((acc, item) => acc + item.items, 0) + unclassified.items;
 
   return (
     <GlassPanel
       title="Saldo consolidado"
-      description="Soma das quantidades atuais e do valor financeiro por família de unidade monitorada."
+      description="Pizza por valor financeiro das famílias KG - R$, UNID - R$ e LT - R$, com quantidades atuais consolidadas."
       className="w-full"
     >
       <div className={`${GLASS_INNER_CLASS} p-4`}>
@@ -1267,6 +1346,9 @@ function ConsolidatedStockPieChart({
                 <div className="mt-1 text-xl font-bold">{formatCurrency(totalAmount)}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   KG: {formatQty(kgQty)} • UNID: {formatQty(unidQty)} • LT: {formatQty(ltQty)}
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {totalMonitoredItems} itens • qtd total {formatQty(totalMonitoredQty)}
                 </div>
               </div>
             </div>
@@ -1339,6 +1421,7 @@ function ConsolidatedStockPieChart({
                 Soma financeira calculada por quantidade atual x custo/preço unitário.
               </div>
               <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                <div>Qtd total monitorada: {formatQty(totalMonitoredQty)}</div>
                 <div>KG: {formatQty(kgQty)}</div>
                 <div>UNID: {formatQty(unidQty)}</div>
                 <div>LT: {formatQty(ltQty)}</div>
@@ -1423,21 +1506,21 @@ export default function EstoqueDashboardPage() {
   }, [productsMeta]);
 
   const enrichedStock = useMemo<EnrichedStockRow[]>(() => {
-    return stock.map((row) => ({
-      ...row,
-      meta: row.product?.id
-        ? {
-            product_type:
-              row.product.product_type ??
-              productMetaById.get(String(row.product.id))?.product_type ??
-              null,
-            sector_category:
-              row.product.sector_category ??
-              productMetaById.get(String(row.product.id))?.sector_category ??
-              null,
-          }
-        : null,
-    }));
+    return stock.map((row) => {
+      const productId = String(row.product?.id ?? row.product_id ?? "").trim();
+      const fallbackMeta = productId ? productMetaById.get(productId) : null;
+
+      return {
+        ...row,
+        meta: productId
+          ? {
+              product_type: row.product?.product_type ?? fallbackMeta?.product_type ?? null,
+              sector_category:
+                row.product?.sector_category ?? fallbackMeta?.sector_category ?? null,
+            }
+          : null,
+      };
+    });
   }, [stock, productMetaById]);
 
   const consolidatedProducts = useMemo(
@@ -1582,7 +1665,7 @@ export default function EstoqueDashboardPage() {
 
       const stockRow = stockByProductId.get(productId);
       const fallbackMeta = productMetaById.get(productId);
-      const unitCost = stockRow?.unitCost || getProductUnitCost(stockRow as any, fallbackMeta);
+      const unitCost = stockRow?.unitCost || getProductUnitCost(fallbackMeta);
       const movementValue = safeQty * unitCost;
       const kind = getMovementKind(movement);
       const agg = ensureAgg(productId);
@@ -1951,7 +2034,8 @@ export default function EstoqueDashboardPage() {
         });
       }
     }
-        const severityOrder: Record<PredictionAlertRow["severity"], number> = {
+
+    const severityOrder: Record<PredictionAlertRow["severity"], number> = {
       alto: 0,
       medio: 1,
       baixo: 2,
@@ -2617,7 +2701,8 @@ export default function EstoqueDashboardPage() {
                 formatValue={(value) => formatCurrency(value)}
               />
             </div>
-                        <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
+
+            <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
               <DashboardTableShell
                 title="Ranking de giro e cobertura"
                 description="Produtos com maior giro recente e a respectiva cobertura em dias para apoiar compra, produção e reposição."

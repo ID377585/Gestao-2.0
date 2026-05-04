@@ -91,6 +91,7 @@ type ProductMetaRow = {
   price?: number | null;
   standard_cost?: number | null;
   is_active?: boolean | null;
+  sku?: string | null;
 };
 
 type EnrichedStockRow = StockRow & {
@@ -100,10 +101,28 @@ type EnrichedStockRow = StockRow & {
   } | null;
 };
 
+type ConsolidatedProductStockRow = {
+  productId: string;
+  stockIds: string[];
+  productName: string;
+  sku: string;
+  productType: string;
+  productTypeLabel: string;
+  sector: string;
+  unit: string;
+  currentQty: number;
+  minQty: number;
+  medQty: number;
+  maxQty: number;
+  unitCost: number;
+  stockValue: number;
+  locations: string[];
+};
+
 type StatusEstoque = "critico" | "baixo" | "normal";
 type MovementKind = "entrada" | "consumo" | "ajuste";
 type MovementReasonLabel = "Entrada" | "Consumo" | "Ajuste" | "Sem variação";
-type RiskLevel = "alto" | "medio" | "baixo" | "normal";
+type RiskLevel = "alto" | "medio" | "excesso" | "normal";
 type AbcClass = "A" | "B" | "C";
 
 type ChartDatum = {
@@ -129,11 +148,13 @@ type ConsolidatedUnitBucket = {
 };
 
 type MovementMonthBuckets = {
-  totalQty: number;
+  grossQty: number;
+  netQty: number;
+  grossValue: number;
+  netValue: number;
   entryQty: number;
   consumptionQty: number;
   adjustmentQty: number;
-  totalValue: number;
   entryValue: number;
   consumptionValue: number;
   adjustmentValue: number;
@@ -262,10 +283,16 @@ const GLASS_CARD_CLASS =
 const GLASS_INNER_CLASS =
   "rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md dark:border-white/10 dark:bg-white/5";
 
-function getStatusFromRow(row: StockRow): StatusEstoque {
+function getStatusFromRow(row: {
+  quantity: number | null | undefined;
+  min_qty?: number | null;
+  med_qty?: number | null;
+  minQty?: number | null;
+  medQty?: number | null;
+}): StatusEstoque {
   const quantity = Number(row.quantity ?? 0);
-  const min = Number(row.min_qty ?? 0);
-  const med = Number(row.med_qty ?? 0);
+  const min = Number(row.min_qty ?? row.minQty ?? 0);
+  const med = Number(row.med_qty ?? row.medQty ?? 0);
 
   if (quantity < min) return "critico";
   if (quantity < med) return "baixo";
@@ -287,7 +314,7 @@ function getStatusBadgeClass(status: StatusEstoque) {
 function getRiskBadgeClass(risk: RiskLevel) {
   if (risk === "alto") return "bg-red-600 text-white hover:bg-red-600";
   if (risk === "medio") return "bg-yellow-500 text-white hover:bg-yellow-500";
-  if (risk === "baixo") return "bg-sky-600 text-white hover:bg-sky-600";
+  if (risk === "excesso") return "bg-sky-600 text-white hover:bg-sky-600";
   return "bg-green-600 text-white hover:bg-green-600";
 }
 
@@ -414,10 +441,15 @@ function getPositiveNumber(value: number | string | null | undefined) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function getProductUnitCost(product: StockRow["product"] | ProductMetaRow | null | undefined) {
+function getProductUnitCost(
+  product: Partial<ProductMetaRow> | Partial<StockRow["product"]> | null | undefined,
+  fallbackMeta?: Partial<ProductMetaRow> | null
+) {
   return (
     getPositiveNumber(product?.standard_cost) ||
-    getPositiveNumber(product?.price)
+    getPositiveNumber(product?.price) ||
+    getPositiveNumber(fallbackMeta?.standard_cost) ||
+    getPositiveNumber(fallbackMeta?.price)
   );
 }
 
@@ -484,26 +516,99 @@ function getUnitNormalization(value: string | null | undefined): {
   };
 }
 
-function buildChartData(rows: EnrichedStockRow[], allowedTypes: string[]) {
+function consolidateStockByProduct(
+  rows: EnrichedStockRow[],
+  productMetaById: Map<string, ProductMetaRow>
+): ConsolidatedProductStockRow[] {
+  const map = new Map<string, ConsolidatedProductStockRow>();
+
+  for (const row of rows) {
+    const productId = String(row.product?.id ?? row.id).trim();
+    if (!productId) continue;
+
+    const fallbackMeta = productMetaById.get(productId);
+    const productType = String(
+      row.meta?.product_type ?? row.product?.product_type ?? fallbackMeta?.product_type ?? ""
+    ).toUpperCase();
+
+    const qty = Number(row.quantity ?? 0);
+    const minQty = Number(row.min_qty ?? 0);
+    const medQty = Number(row.med_qty ?? 0);
+    const maxQty = Number(row.max_qty ?? 0);
+    const safeQty = Number.isFinite(qty) ? qty : 0;
+    const cost = getProductUnitCost(row.product, fallbackMeta);
+
+    const current = map.get(productId);
+
+    if (!current) {
+      map.set(productId, {
+        productId,
+        stockIds: [row.id],
+        productName: row.product?.name ?? fallbackMeta?.name ?? "Produto sem vínculo",
+        sku: row.product?.sku ?? fallbackMeta?.sku ?? "—",
+        productType,
+        productTypeLabel: getProductTypeLabel(productType),
+        sector: normalizeSectorName(row.meta?.sector_category ?? fallbackMeta?.sector_category),
+        unit:
+          row.unit_label ??
+          row.product?.default_unit_label ??
+          fallbackMeta?.default_unit_label ??
+          "",
+        currentQty: safeQty,
+        minQty: Number.isFinite(minQty) ? minQty : 0,
+        medQty: Number.isFinite(medQty) ? medQty : 0,
+        maxQty: Number.isFinite(maxQty) ? maxQty : 0,
+        unitCost: cost,
+        stockValue: safeQty * cost,
+        locations: row.location ? [row.location] : [],
+      });
+      continue;
+    }
+
+    current.stockIds.push(row.id);
+    current.currentQty += safeQty;
+    current.stockValue += safeQty * cost;
+    current.minQty += Number.isFinite(minQty) ? minQty : 0;
+    current.medQty += Number.isFinite(medQty) ? medQty : 0;
+    current.maxQty += Number.isFinite(maxQty) ? maxQty : 0;
+
+    if (!current.unitCost && cost > 0) current.unitCost = cost;
+
+    if (!current.unit) {
+      current.unit =
+        row.unit_label ??
+        row.product?.default_unit_label ??
+        fallbackMeta?.default_unit_label ??
+        "";
+    }
+
+    if (row.location && !current.locations.includes(row.location)) {
+      current.locations.push(row.location);
+    }
+  }
+
+  return Array.from(map.values());
+}
+
+function buildChartData(
+  rows: ConsolidatedProductStockRow[],
+  allowedTypes: string[]
+) {
   const map = new Map<string, ChartDatum>();
 
   for (const row of rows) {
-    const type = String(row.meta?.product_type ?? "").toUpperCase();
+    const type = String(row.productType ?? "").toUpperCase();
     if (!allowedTypes.includes(type)) continue;
 
-    const category = normalizeSectorName(row.meta?.sector_category);
+    const category = normalizeSectorName(row.sector);
     const current = map.get(category) ?? {
       name: category,
       qty: 0,
       value: 0,
     };
 
-    const qty = Number(row.quantity ?? 0);
-    const cost = getProductUnitCost(row.product);
-
-    current.qty += Number.isFinite(qty) ? qty : 0;
-    current.value +=
-      (Number.isFinite(qty) ? qty : 0) * cost;
+    current.qty += row.currentQty;
+    current.value += row.stockValue;
 
     map.set(category, current);
   }
@@ -558,48 +663,77 @@ function getMovementCreatedAt(movement: RecentStockMovementRow) {
 
 function getMovementSignedQty(movement: RecentStockMovementRow) {
   const data = movement as any;
-  const raw = data?.qty ?? data?.quantity ?? data?.amount_qty ?? data?.delta_qty ?? data?.delta ?? 0;
+  const raw =
+    data?.qty ?? data?.quantity ?? data?.amount_qty ?? data?.delta_qty ?? data?.delta ?? 0;
   const qty = Number(raw ?? 0);
   return Number.isFinite(qty) ? qty : 0;
 }
 
 function getMovementKind(movement: RecentStockMovementRow): MovementKind {
-  const text = normalizeMovementText(movement);
+  const data = movement as any;
+  const explicitType = String(
+    data?.type ?? data?.movement_type ?? data?.movementType ?? data?.kind ?? ""
+  )
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
 
   if (
-    text.includes("AJUST") ||
-    text.includes("ADJUST") ||
-    text.includes("INVENT") ||
-    text.includes("PERDA") ||
-    text.includes("QUEBRA") ||
-    text.includes("VENCIMENTO") ||
-    text.includes("DIVERGEN")
+    [
+      "AJUSTE",
+      "ADJUSTMENT",
+      "INVENTARIO",
+      "INVENTORY",
+      "PERDA",
+      "QUEBRA",
+      "VENCIMENTO",
+      "DIVERGENCIA",
+    ].some((t) => explicitType.includes(t))
   ) {
     return "ajuste";
   }
 
   if (
-    text.includes("CONSUM") ||
-    text.includes("SAIDA") ||
-    text.includes("VENDA") ||
-    text.includes("BAIXA") ||
-    text.includes("CMV") ||
-    text.includes("OUT") ||
-    text.includes("EXIT") ||
-    text.includes("RETIRADA")
+    ["CONSUMO", "SAIDA", "VENDA", "BAIXA", "RETIRADA", "CONSUMPTION"].some((t) =>
+      explicitType.includes(t)
+    )
   ) {
     return "consumo";
   }
 
   if (
-    text.includes("ENTRADA") ||
-    text.includes("COMPRA") ||
-    text.includes("RECEB") ||
-    text.includes("INBOUND") ||
-    text.includes("ADD") ||
-    text.includes("INCLUSAO") ||
-    text.includes("PRODUCAO") ||
-    text.includes("PRODUCTION")
+    [
+      "ENTRADA",
+      "COMPRA",
+      "RECEBIMENTO",
+      "RECEB",
+      "INBOUND",
+      "PRODUCAO",
+      "PRODUCTION",
+    ].some((t) => explicitType.includes(t))
+  ) {
+    return "entrada";
+  }
+
+  const text = normalizeMovementText(movement);
+
+  if (
+    ["AJUST", "ADJUST", "INVENT", "PERDA", "QUEBRA", "VENCIMENTO", "DIVERGEN"].some((t) =>
+      text.includes(t)
+    )
+  ) {
+    return "ajuste";
+  }
+
+  if (["CONSUM", "SAIDA", "VENDA", "BAIXA", "RETIRADA", "EXIT"].some((t) => text.includes(t))) {
+    return "consumo";
+  }
+
+  if (
+    ["ENTRADA", "COMPRA", "RECEB", "INBOUND", "INCLUSAO", "PRODUCAO", "PRODUCTION"].some((t) =>
+      text.includes(t)
+    )
   ) {
     return "entrada";
   }
@@ -609,11 +743,13 @@ function getMovementKind(movement: RecentStockMovementRow): MovementKind {
 
 function createEmptyBuckets(): MovementMonthBuckets {
   return {
-    totalQty: 0,
+    grossQty: 0,
+    netQty: 0,
+    grossValue: 0,
+    netValue: 0,
     entryQty: 0,
     consumptionQty: 0,
     adjustmentQty: 0,
-    totalValue: 0,
     entryValue: 0,
     consumptionValue: 0,
     adjustmentValue: 0,
@@ -638,29 +774,53 @@ function createEmptyMovementAgg(): ProductMovementAgg {
   };
 }
 
-function addMovementToBucket(bucket: MovementMonthBuckets, kind: MovementKind, qty: number, value: number) {
-  bucket.totalQty += qty;
-  bucket.totalValue += value;
+function addMovementToBucket(
+  bucket: MovementMonthBuckets,
+  movement: RecentStockMovementRow,
+  unitCost: number
+) {
+  const rawSignedQty = getMovementSignedQty(movement);
+  const absQty = Math.abs(rawSignedQty);
+  if (!Number.isFinite(absQty) || absQty <= 0) return;
+
+  const kind = getMovementKind(movement);
+
+  const signedQty =
+    kind === "entrada" ? absQty : kind === "consumo" ? -absQty : rawSignedQty;
+
+  const absValue = absQty * unitCost;
+  const signedValue = signedQty * unitCost;
+
+  bucket.grossQty += absQty;
+  bucket.netQty += signedQty;
+  bucket.grossValue += absValue;
+  bucket.netValue += signedValue;
 
   if (kind === "entrada") {
-    bucket.entryQty += qty;
-    bucket.entryValue += value;
+    bucket.entryQty += absQty;
+    bucket.entryValue += absValue;
   } else if (kind === "consumo") {
-    bucket.consumptionQty += qty;
-    bucket.consumptionValue += value;
+    bucket.consumptionQty += absQty;
+    bucket.consumptionValue += absValue;
   } else {
-    bucket.adjustmentQty += qty;
-    bucket.adjustmentValue += value;
+    bucket.adjustmentQty += absQty;
+    bucket.adjustmentValue += absValue;
   }
 }
 
 function getVariationPercent(current: number, previous: number) {
-  if (previous > 0) return ((current - previous) / previous) * 100;
-  if (current > 0) return 100;
+  const safeCurrent = Math.abs(Number(current ?? 0));
+  const safePrevious = Math.abs(Number(previous ?? 0));
+
+  if (safePrevious > 0) return ((safeCurrent - safePrevious) / safePrevious) * 100;
+  if (safeCurrent > 0) return 100;
   return 0;
 }
 
-function getMainVariationReason(current: MovementMonthBuckets, previous: MovementMonthBuckets): MovementReasonLabel {
+function getMainVariationReason(
+  current: MovementMonthBuckets,
+  previous: MovementMonthBuckets
+): MovementReasonLabel {
   const candidates: Array<{ label: MovementReasonLabel; diff: number }> = [
     { label: "Entrada", diff: current.entryQty - previous.entryQty },
     { label: "Consumo", diff: current.consumptionQty - previous.consumptionQty },
@@ -668,7 +828,7 @@ function getMainVariationReason(current: MovementMonthBuckets, previous: Movemen
   ];
 
   const winner = candidates.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))[0];
-  return Math.abs(winner?.diff ?? 0) > 0 ? winner.label : "Sem variação";
+  return Math.abs(winner?.diff ?? 0) > 0.0001 ? winner.label : "Sem variação";
 }
 
 function getReasonBreakdown(current: MovementMonthBuckets, previous: MovementMonthBuckets) {
@@ -693,14 +853,14 @@ function getRiskLevel({
   if (minQty > 0 && currentQty < minQty) return "alto";
   if (coverageDays !== null && coverageDays <= 3) return "alto";
   if (coverageDays !== null && coverageDays <= 7) return "medio";
-  if (maxQty > 0 && currentQty > maxQty) return "baixo";
+  if (maxQty > 0 && currentQty > maxQty) return "excesso";
   return "normal";
 }
 
 function getRiskLabel(risk: RiskLevel) {
   if (risk === "alto") return "Alto";
   if (risk === "medio") return "Médio";
-  if (risk === "baixo") return "Baixo";
+  if (risk === "excesso") return "Excesso";
   return "Normal";
 }
 
@@ -837,18 +997,10 @@ function HorizontalStockChart({
                     axisLine={false}
                   />
                   <Tooltip
-                    content={
-                      <CustomGlassTooltip
-                        formatter={(value) => formatValue(value)}
-                      />
-                    }
+                    content={<CustomGlassTooltip formatter={(value) => formatValue(value)} />}
                     cursor={{ fill: "rgba(255,255,255,0.08)" }}
                   />
-                  <Bar
-                    dataKey={valueKey}
-                    radius={[10, 10, 10, 10]}
-                    maxBarSize={30}
-                  >
+                  <Bar dataKey={valueKey} radius={[10, 10, 10, 10]} maxBarSize={30}>
                     {data.map((entry, index) => (
                       <Cell
                         key={`${entry.name}-${index}`}
@@ -963,7 +1115,11 @@ function MonthDiffBarChart({ data }: { data: MovementDiffRow[] }) {
               {chartData.map((entry, index) => (
                 <Cell
                   key={`${entry.productId}-${index}`}
-                  fill={entry.diffValue >= 0 ? MONTH_DIFF_POSITIVE_COLOR : MONTH_DIFF_NEGATIVE_COLOR}
+                  fill={
+                    entry.diffValue >= 0
+                      ? MONTH_DIFF_POSITIVE_COLOR
+                      : MONTH_DIFF_NEGATIVE_COLOR
+                  }
                   fillOpacity={0.88}
                 />
               ))}
@@ -999,16 +1155,12 @@ function ConsolidatedStockTooltip({
   if (!item) return null;
 
   const amountPercent = amountBase > 0 ? (item.amount / amountBase) * 100 : 0;
-  const quantityPercent =
-    quantityBase > 0 ? (item.quantity / quantityBase) * 100 : 0;
+  const quantityPercent = quantityBase > 0 ? (item.quantity / quantityBase) * 100 : 0;
 
   return (
     <div className="rounded-2xl border border-white/20 bg-slate-950/85 px-3 py-2 text-xs text-white shadow-2xl backdrop-blur-xl">
       <div className="mb-2 flex items-center gap-2 font-semibold">
-        <span
-          className="h-2.5 w-2.5 rounded-full"
-          style={{ backgroundColor: item.fill }}
-        />
+        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.fill }} />
         {item.name}
       </div>
       <div>Quantidade: {formatQty(item.quantity)}</div>
@@ -1016,10 +1168,7 @@ function ConsolidatedStockTooltip({
       <div>Itens: {item.items}</div>
       <div>
         Participação:{" "}
-        {(amountBase > 0 ? amountPercent : quantityPercent)
-          .toFixed(1)
-          .replace(".", ",")}
-        %
+        {(amountBase > 0 ? amountPercent : quantityPercent).toFixed(1).replace(".", ",")}%
       </div>
     </div>
   );
@@ -1027,17 +1176,16 @@ function ConsolidatedStockTooltip({
 
 function ConsolidatedStockPieChart({
   data,
-  totalQuantity,
   totalAmount,
   unclassified,
 }: {
   data: StockValuePieDatum[];
-  totalQuantity: number;
   totalAmount: number;
   unclassified: ConsolidatedUnitBucket;
 }) {
   const amountBase = data.reduce((acc, item) => acc + item.amount, 0);
   const quantityBase = data.reduce((acc, item) => acc + item.quantity, 0);
+
   const pieData = data
     .map((item) => ({
       ...item,
@@ -1047,10 +1195,14 @@ function ConsolidatedStockPieChart({
 
   const hasChartData = pieData.length > 0;
 
+  const kgQty = data.find((i) => i.name === "KG - R$")?.quantity ?? 0;
+  const unidQty = data.find((i) => i.name === "UNID - R$")?.quantity ?? 0;
+  const ltQty = data.find((i) => i.name === "LT - R$")?.quantity ?? 0;
+
   return (
     <GlassPanel
       title="Saldo consolidado"
-      description="Soma das quantidades atuais e do valor financeiro por unidade monitorada."
+      description="Soma das quantidades atuais e do valor financeiro por família de unidade monitorada."
       className="w-full"
     >
       <div className={`${GLASS_INNER_CLASS} p-4`}>
@@ -1069,9 +1221,7 @@ function ConsolidatedStockPieChart({
                   />
                   <Legend
                     formatter={(value) => (
-                      <span className="text-xs text-slate-700 dark:text-slate-200">
-                        {value}
-                      </span>
+                      <span className="text-xs text-slate-700 dark:text-slate-200">{value}</span>
                     )}
                   />
                   <Pie
@@ -1110,15 +1260,13 @@ function ConsolidatedStockPieChart({
             )}
 
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="max-w-[190px] rounded-2xl border border-white/35 bg-white/80 px-4 py-3 text-center shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/70">
+              <div className="max-w-[220px] rounded-2xl border border-white/35 bg-white/80 px-4 py-3 text-center shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/70">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   Valor total em estoque
                 </div>
-                <div className="mt-1 text-xl font-bold">
-                  {formatCurrency(totalAmount)}
-                </div>
+                <div className="mt-1 text-xl font-bold">{formatCurrency(totalAmount)}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Soma das quantidades atuais: {formatQty(totalQuantity)}
+                  KG: {formatQty(kgQty)} • UNID: {formatQty(unidQty)} • LT: {formatQty(ltQty)}
                 </div>
               </div>
             </div>
@@ -1126,12 +1274,10 @@ function ConsolidatedStockPieChart({
 
           <div className="space-y-3">
             {data.map((item) => {
-              const amountPercentage =
-                amountBase > 0 ? (item.amount / amountBase) * 100 : 0;
+              const amountPercentage = amountBase > 0 ? (item.amount / amountBase) * 100 : 0;
               const quantityPercentage =
                 quantityBase > 0 ? (item.quantity / quantityBase) * 100 : 0;
-              const barPercentage =
-                amountBase > 0 ? amountPercentage : quantityPercentage;
+              const barPercentage = amountBase > 0 ? amountPercentage : quantityPercentage;
 
               return (
                 <div key={item.name} className={`${GLASS_INNER_CLASS} p-3`}>
@@ -1144,14 +1290,12 @@ function ConsolidatedStockPieChart({
                       <div>
                         <div className="text-sm font-semibold">{item.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {item.items} item(ns) • qtd atual: {formatQty(item.quantity)}
+                          {item.items} produto(s) • qtd atual: {formatQty(item.quantity)}
                         </div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-bold">
-                        {formatCurrency(item.amount)}
-                      </div>
+                      <div className="text-sm font-bold">{formatCurrency(item.amount)}</div>
                       <div className="text-xs text-muted-foreground">
                         {barPercentage.toFixed(1).replace(".", ",")}%
                       </div>
@@ -1190,14 +1334,14 @@ function ConsolidatedStockPieChart({
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 Total geral monitorado
               </div>
-              <div className="mt-1 text-2xl font-bold">
-                {formatCurrency(totalAmount)}
-              </div>
+              <div className="mt-1 text-2xl font-bold">{formatCurrency(totalAmount)}</div>
               <div className="text-xs text-muted-foreground">
-                Soma financeira calculada por quantidade atual x preço/custo unitário.
+                Soma financeira calculada por quantidade atual x custo/preço unitário.
               </div>
-              <div className="mt-2 text-xs text-muted-foreground">
-                Quantidade total somada: {formatQty(totalQuantity)}
+              <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                <div>KG: {formatQty(kgQty)}</div>
+                <div>UNID: {formatQty(unidQty)}</div>
+                <div>LT: {formatQty(ltQty)}</div>
               </div>
             </div>
 
@@ -1205,12 +1349,10 @@ function ConsolidatedStockPieChart({
               <div className="rounded-2xl border border-amber-200/70 bg-amber-50/70 p-3 text-xs text-amber-950 shadow-sm backdrop-blur-md dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
                 <div className="font-semibold">Unidades fora do consolidado</div>
                 <div className="mt-1">
-                  {unclassified.items} item(ns) não entram na pizza KG - R$,
-                  UNID - R$ e LT - R$.
+                  {unclassified.items} produto(s) não entram na pizza KG - R$, UNID - R$ e LT - R$.
                 </div>
                 <div className="mt-1">
-                  Qtd: {formatQty(unclassified.quantity)} • Valor:{" "}
-                  {formatCurrency(unclassified.amount)}
+                  Qtd: {formatQty(unclassified.quantity)} • Valor: {formatCurrency(unclassified.amount)}
                 </div>
               </div>
             ) : null}
@@ -1220,7 +1362,6 @@ function ConsolidatedStockPieChart({
     </GlassPanel>
   );
 }
-
 export default function EstoqueDashboardPage() {
   const [stock, setStock] = useState<StockRow[]>([]);
   const [recentMovements, setRecentMovements] = useState<RecentStockMovementRow[]>([]);
@@ -1245,7 +1386,7 @@ export default function EstoqueDashboardPage() {
           }
         }
 
-        setStock(currentStock);
+        setStock(currentStock ?? []);
 
         try {
           const movements = (await listRecentStockMovements()) as RecentStockMovementRow[];
@@ -1273,77 +1414,96 @@ export default function EstoqueDashboardPage() {
     bootstrap();
   }, []);
 
-  const enrichedStock = useMemo<EnrichedStockRow[]>(() => {
+  const productMetaById = useMemo(() => {
     const byId = new Map<string, ProductMetaRow>();
     for (const item of productsMeta) {
       byId.set(String(item.id), item);
     }
+    return byId;
+  }, [productsMeta]);
 
+  const enrichedStock = useMemo<EnrichedStockRow[]>(() => {
     return stock.map((row) => ({
       ...row,
       meta: row.product?.id
         ? {
             product_type:
               row.product.product_type ??
-              byId.get(String(row.product.id))?.product_type ??
+              productMetaById.get(String(row.product.id))?.product_type ??
               null,
             sector_category:
               row.product.sector_category ??
-              byId.get(String(row.product.id))?.sector_category ??
+              productMetaById.get(String(row.product.id))?.sector_category ??
               null,
           }
         : null,
     }));
-  }, [stock, productsMeta]);
+  }, [stock, productMetaById]);
+
+  const consolidatedProducts = useMemo(
+    () => consolidateStockByProduct(enrichedStock, productMetaById),
+    [enrichedStock, productMetaById]
+  );
 
   const metrics = useMemo(() => {
-    const totalProdutos = enrichedStock.length;
-    const produtosCriticos = enrichedStock.filter((row) => getStatusFromRow(row) === "critico");
-    const produtosBaixos = enrichedStock.filter((row) => getStatusFromRow(row) === "baixo");
-    const produtosAcimaMax = enrichedStock.filter(
-      (row) => Number(row.max_qty ?? 0) > 0 && Number(row.quantity ?? 0) > Number(row.max_qty ?? 0)
+    const totalProdutos = consolidatedProducts.length;
+
+    const produtosCriticos = consolidatedProducts.filter(
+      (p) =>
+        getStatusFromRow({
+          quantity: p.currentQty,
+          minQty: p.minQty,
+          medQty: p.medQty,
+        }) === "critico"
     );
 
-    const valorTotal = enrichedStock.reduce((acc, row) => {
-      const qty = Number(row.quantity ?? 0);
-      const cost = getProductUnitCost(row.product);
-      return acc + (Number.isFinite(qty) ? qty : 0) * cost;
-    }, 0);
+    const produtosBaixos = consolidatedProducts.filter(
+      (p) =>
+        getStatusFromRow({
+          quantity: p.currentQty,
+          minQty: p.minQty,
+          medQty: p.medQty,
+        }) === "baixo"
+    );
 
-    const itensCriticos = [...enrichedStock]
-      .filter((row) => getStatusFromRow(row) !== "normal")
-      .sort((a, b) => Number(a.quantity ?? 0) - Number(b.quantity ?? 0))
-      .slice(0, 10);
+    const produtosAcimaMax = consolidatedProducts.filter(
+      (p) => p.maxQty > 0 && p.currentQty > p.maxQty
+    );
 
-    const itensAcimaMax = [...produtosAcimaMax]
-      .sort(
-        (a, b) =>
-          Number(b.quantity ?? 0) -
-          Number(b.max_qty ?? 0) -
-          (Number(a.quantity ?? 0) - Number(a.max_qty ?? 0))
+    const valorTotal = consolidatedProducts.reduce((acc, row) => acc + row.stockValue, 0);
+
+    const itensCriticos = [...consolidatedProducts]
+      .filter(
+        (row) =>
+          getStatusFromRow({
+            quantity: row.currentQty,
+            minQty: row.minQty,
+            medQty: row.medQty,
+          }) !== "normal"
       )
+      .sort((a, b) => a.currentQty - b.currentQty)
       .slice(0, 10);
 
-    const produtosMaisCaros = [...enrichedStock]
-      .filter((row) => Number(row.quantity ?? 0) > 0 && getProductUnitCost(row.product) > 0)
-      .sort((a, b) => getProductUnitCost(b.product) - getProductUnitCost(a.product))
+    const itensAcimaMax = [...consolidatedProducts]
+      .filter((row) => row.maxQty > 0 && row.currentQty > row.maxQty)
+      .sort((a, b) => b.currentQty - b.maxQty - (a.currentQty - a.maxQty))
       .slice(0, 10);
 
-    const consolidatedByUnit = enrichedStock.reduce<{
+    const produtosMaisCaros = [...consolidatedProducts]
+      .filter((row) => row.currentQty > 0 && row.unitCost > 0)
+      .sort((a, b) => b.unitCost - a.unitCost || b.stockValue - a.stockValue)
+      .slice(0, 10);
+
+    const consolidatedByUnit = consolidatedProducts.reduce<{
       kg: ConsolidatedUnitBucket;
       unid: ConsolidatedUnitBucket;
       lt: ConsolidatedUnitBucket;
       outros: ConsolidatedUnitBucket;
     }>(
       (acc, row) => {
-        const unitInfo = getUnitNormalization(
-          row.product?.default_unit_label ?? row.unit_label ?? ""
-        );
-        const qty = Number(row.quantity ?? 0);
-        const cost = getProductUnitCost(row.product);
-        const safeQty = Number.isFinite(qty) ? qty : 0;
-        const normalizedQty = safeQty * unitInfo.quantityFactor;
-        const amount = safeQty * cost;
+        const unitInfo = getUnitNormalization(row.unit);
+        const normalizedQty = row.currentQty * unitInfo.quantityFactor;
+        const amount = row.stockValue;
 
         if (unitInfo.family === "KG") {
           acc.kg.quantity += normalizedQty;
@@ -1373,25 +1533,18 @@ export default function EstoqueDashboardPage() {
       }
     );
 
-    const saldoTotal =
-      consolidatedByUnit.kg.quantity +
-      consolidatedByUnit.unid.quantity +
-      consolidatedByUnit.lt.quantity +
-      consolidatedByUnit.outros.quantity;
-
     return {
       totalProdutos,
       produtosCriticos,
       produtosBaixos,
       produtosAcimaMax,
-      saldoTotal,
       valorTotal,
       itensCriticos,
       itensAcimaMax,
       produtosMaisCaros,
       consolidatedByUnit,
     };
-  }, [enrichedStock]);
+  }, [consolidatedProducts]);
 
   const stockIntelligence = useMemo(() => {
     const now = new Date();
@@ -1402,12 +1555,9 @@ export default function EstoqueDashboardPage() {
     const previousMonthStart = startOfMonth(previousMonthBase);
     const previousMonthEnd = endOfMonth(previousMonthBase);
 
-    const stockByProductId = new Map<string, EnrichedStockRow>();
-
-    for (const row of enrichedStock) {
-      const productId = String(row.product?.id ?? "").trim();
-      if (!productId) continue;
-      stockByProductId.set(productId, row);
+    const stockByProductId = new Map<string, ConsolidatedProductStockRow>();
+    for (const row of consolidatedProducts) {
+      stockByProductId.set(row.productId, row);
     }
 
     const movementByProduct = new Map<string, ProductMovementAgg>();
@@ -1431,7 +1581,8 @@ export default function EstoqueDashboardPage() {
       if (safeQty <= 0) continue;
 
       const stockRow = stockByProductId.get(productId);
-      const unitCost = getProductUnitCost(stockRow?.product);
+      const fallbackMeta = productMetaById.get(productId);
+      const unitCost = stockRow?.unitCost || getProductUnitCost(stockRow as any, fallbackMeta);
       const movementValue = safeQty * unitCost;
       const kind = getMovementKind(movement);
       const agg = ensureAgg(productId);
@@ -1456,57 +1607,60 @@ export default function EstoqueDashboardPage() {
         }
       }
 
-      if (movementDate && isDateInRange(movementDate, currentMonthStart, currentMonthEnd) && kind === "consumo") {
+      if (
+        movementDate &&
+        isDateInRange(movementDate, currentMonthStart, currentMonthEnd) &&
+        kind === "consumo"
+      ) {
         agg.consumptionCurrentMonthQty += safeQty;
         agg.consumptionCurrentMonthValue += movementValue;
       }
 
-      if (movementDate && isDateInRange(movementDate, previousMonthStart, previousMonthEnd) && kind === "consumo") {
+      if (
+        movementDate &&
+        isDateInRange(movementDate, previousMonthStart, previousMonthEnd) &&
+        kind === "consumo"
+      ) {
         agg.consumptionPreviousMonthQty += safeQty;
         agg.consumptionPreviousMonthValue += movementValue;
       }
     }
 
-    const rows: StockAnalyticsRow[] = enrichedStock.map((row) => {
-      const productId = String(row.product?.id ?? row.id).trim();
-      const productType = String(row.meta?.product_type ?? row.product?.product_type ?? "").toUpperCase();
-      const currentQty = Number(row.quantity ?? 0);
-      const safeCurrentQty = Number.isFinite(currentQty) ? currentQty : 0;
-      const minQty = Number(row.min_qty ?? 0);
-      const medQty = Number(row.med_qty ?? 0);
-      const maxQty = Number(row.max_qty ?? 0);
-      const unitCost = getProductUnitCost(row.product);
-      const stockValue = safeCurrentQty * unitCost;
-      const agg = movementByProduct.get(productId) ?? createEmptyMovementAgg();
-      const avgDailyConsumption = agg.consumption30Qty / 30;
-      const coverageDays = avgDailyConsumption > 0 ? safeCurrentQty / avgDailyConsumption : null;
-      const turnover30 = stockValue > 0 ? agg.consumption30Value / stockValue : 0;
-      const daysWithoutMovement = agg.lastMovementAt ? differenceInDays(now, agg.lastMovementAt) : null;
-      const targetCoverageQty = avgDailyConsumption * 7;
-      let targetQty = Math.max(medQty, minQty * 1.25, targetCoverageQty);
+    const rows: StockAnalyticsRow[] = consolidatedProducts.map((row) => {
+      const agg = movementByProduct.get(row.productId) ?? createEmptyMovementAgg();
 
-      if (maxQty > 0) {
-        targetQty = Math.min(targetQty, maxQty);
+      const avgDailyConsumption = agg.consumption30Qty / 30;
+      const coverageDays = avgDailyConsumption > 0 ? row.currentQty / avgDailyConsumption : null;
+      const turnover30 = row.stockValue > 0 ? agg.consumption30Value / row.stockValue : 0;
+      const daysWithoutMovement = agg.lastMovementAt
+        ? differenceInDays(now, agg.lastMovementAt)
+        : null;
+
+      const targetCoverageQty = avgDailyConsumption * 7;
+      let targetQty = Math.max(row.medQty, row.minQty * 1.25, targetCoverageQty);
+
+      if (row.maxQty > 0) {
+        targetQty = Math.min(targetQty, row.maxQty);
       }
 
-      const productionSuggestionQty = Math.max(0, targetQty - safeCurrentQty);
-      const productionAction = productType === "INSU" ? "Reposição/compra" : "Produzir";
+      const productionSuggestionQty = Math.max(0, targetQty - row.currentQty);
+      const productionAction = row.productType === "INSU" ? "Reposição/compra" : "Produzir";
 
       let productionSuggestionReason = "Sem sugestão";
-      if (productionSuggestionQty > 0 && minQty > 0 && safeCurrentQty < minQty) {
+      if (productionSuggestionQty > 0 && row.minQty > 0 && row.currentQty < row.minQty) {
         productionSuggestionReason = "Saldo abaixo do mínimo";
       } else if (productionSuggestionQty > 0 && coverageDays !== null && coverageDays <= 7) {
         productionSuggestionReason = "Ruptura futura em até 7 dias";
-      } else if (productionSuggestionQty > 0 && medQty > 0 && safeCurrentQty < medQty) {
+      } else if (productionSuggestionQty > 0 && row.medQty > 0 && row.currentQty < row.medQty) {
         productionSuggestionReason = "Saldo abaixo do ideal/médio";
       } else if (productionSuggestionQty > 0) {
         productionSuggestionReason = "Reposição para cobertura de 7 dias";
       }
 
       const riskLevel = getRiskLevel({
-        currentQty: safeCurrentQty,
-        minQty: Number.isFinite(minQty) ? minQty : 0,
-        maxQty: Number.isFinite(maxQty) ? maxQty : 0,
+        currentQty: row.currentQty,
+        minQty: row.minQty,
+        maxQty: row.maxQty,
         coverageDays,
       });
 
@@ -1527,21 +1681,21 @@ export default function EstoqueDashboardPage() {
       }
 
       return {
-        stockId: row.id,
-        productId,
-        productName: row.product?.name ?? "Produto sem vínculo",
-        sku: row.product?.sku ?? "—",
-        productType,
-        productTypeLabel: getProductTypeLabel(productType),
-        sector: normalizeSectorName(row.meta?.sector_category),
-        unit: row.unit_label ?? row.product?.default_unit_label ?? "",
-        location: row.location ?? "—",
-        currentQty: safeCurrentQty,
-        minQty: Number.isFinite(minQty) ? minQty : 0,
-        medQty: Number.isFinite(medQty) ? medQty : 0,
-        maxQty: Number.isFinite(maxQty) ? maxQty : 0,
-        unitCost,
-        stockValue,
+        stockId: row.productId,
+        productId: row.productId,
+        productName: row.productName,
+        sku: row.sku,
+        productType: row.productType,
+        productTypeLabel: row.productTypeLabel,
+        sector: row.sector,
+        unit: row.unit,
+        location: row.locations.join(", ") || "—",
+        currentQty: row.currentQty,
+        minQty: row.minQty,
+        medQty: row.medQty,
+        maxQty: row.maxQty,
+        unitCost: row.unitCost,
+        stockValue: row.stockValue,
         entries30Qty: agg.entries30Qty,
         entries30Value: agg.entries30Value,
         consumption30Qty: agg.consumption30Qty,
@@ -1568,18 +1722,28 @@ export default function EstoqueDashboardPage() {
 
     const totalStockValue = rows.reduce((acc, row) => acc + row.stockValue, 0);
     const totalConsumption30Value = rows.reduce((acc, row) => acc + row.consumption30Value, 0);
-    const totalConsumptionCurrentMonthValue = rows.reduce((acc, row) => acc + row.consumptionCurrentMonthValue, 0);
+    const totalConsumptionCurrentMonthValue = rows.reduce(
+      (acc, row) => acc + row.consumptionCurrentMonthValue,
+      0
+    );
     const totalMovement30Qty = rows.reduce(
       (acc, row) => acc + row.entries30Qty + row.consumption30Qty + row.adjustments30Qty,
       0
     );
     const totalAdjustments30Qty = rows.reduce((acc, row) => acc + row.adjustments30Qty, 0);
+    const totalMovement30Value = rows.reduce(
+      (acc, row) => acc + row.entries30Value + row.consumption30Value + row.adjustments30Value,
+      0
+    );
+    const totalAdjustments30Value = rows.reduce((acc, row) => acc + row.adjustments30Value, 0);
+
     const turnover30 = totalStockValue > 0 ? totalConsumption30Value / totalStockValue : 0;
     const coverageDaysByValue =
       totalConsumption30Value > 0 ? totalStockValue / (totalConsumption30Value / 30) : null;
+
     const stockAccuracy =
-      totalMovement30Qty > 0
-        ? Math.max(0, Math.min(100, 100 - (totalAdjustments30Qty / totalMovement30Qty) * 100))
+      totalMovement30Value > 0
+        ? Math.max(0, Math.min(100, 100 - (totalAdjustments30Value / totalMovement30Value) * 100))
         : null;
 
     const abcSummary: Record<AbcClass, AbcSummaryBucket> = {
@@ -1589,14 +1753,21 @@ export default function EstoqueDashboardPage() {
     };
 
     let cumulativeValue = 0;
+
     const abcRows: AbcStockRow[] = [...rows]
       .filter((row) => row.stockValue > 0)
-      .sort((a, b) => b.stockValue - a.stockValue || a.productName.localeCompare(b.productName, "pt-BR"))
+      .sort(
+        (a, b) =>
+          b.stockValue - a.stockValue || a.productName.localeCompare(b.productName, "pt-BR")
+      )
       .map((row) => {
         cumulativeValue += row.stockValue;
-        const participationPercent = totalStockValue > 0 ? (row.stockValue / totalStockValue) * 100 : 0;
-        const cumulativePercent = totalStockValue > 0 ? (cumulativeValue / totalStockValue) * 100 : 0;
-        const abcClass: AbcClass = cumulativePercent <= 80 ? "A" : cumulativePercent <= 95 ? "B" : "C";
+        const participationPercent =
+          totalStockValue > 0 ? (row.stockValue / totalStockValue) * 100 : 0;
+        const cumulativePercent =
+          totalStockValue > 0 ? (cumulativeValue / totalStockValue) * 100 : 0;
+        const abcClass: AbcClass =
+          cumulativePercent <= 80 ? "A" : cumulativePercent <= 95 ? "B" : "C";
 
         abcSummary[abcClass].items += 1;
         abcSummary[abcClass].value += row.stockValue;
@@ -1615,7 +1786,9 @@ export default function EstoqueDashboardPage() {
 
     const highTurnoverRows = [...rows]
       .filter((row) => row.turnover30 > 0)
-      .sort((a, b) => b.turnover30 - a.turnover30 || b.consumption30Value - a.consumption30Value)
+      .sort(
+        (a, b) => b.turnover30 - a.turnover30 || b.consumption30Value - a.consumption30Value
+      )
       .slice(0, 15);
 
     const lowCoverageRows = [...rows]
@@ -1629,7 +1802,10 @@ export default function EstoqueDashboardPage() {
       .slice(0, 15);
 
     const noMovementRowsAll = [...rows]
-      .filter((row) => row.currentQty > 0 && (row.daysWithoutMovement === null || row.daysWithoutMovement >= 30))
+      .filter(
+        (row) =>
+          row.currentQty > 0 && (row.daysWithoutMovement === null || row.daysWithoutMovement >= 30)
+      )
       .sort((a, b) => {
         const aDays = a.daysWithoutMovement ?? 999999;
         const bDays = b.daysWithoutMovement ?? 999999;
@@ -1649,55 +1825,77 @@ export default function EstoqueDashboardPage() {
     const productionSuggestions = productionSuggestionsAll.slice(0, 15);
 
     const abnormalConsumptionRows = [...rows]
-      .filter(
-        (row) =>
-          row.consumptionCurrentMonthQty > 0 ||
-          row.consumptionPreviousMonthQty > 0
-      )
+      .filter((row) => row.consumptionCurrentMonthQty > 0 || row.consumptionPreviousMonthQty > 0)
       .filter((row) => Math.abs(row.abnormalConsumptionPercent ?? 0) >= 50)
       .sort(
         (a, b) =>
-          Math.abs(b.abnormalConsumptionPercent ?? 0) - Math.abs(a.abnormalConsumptionPercent ?? 0) ||
+          Math.abs(b.abnormalConsumptionPercent ?? 0) -
+            Math.abs(a.abnormalConsumptionPercent ?? 0) ||
           b.consumptionCurrentMonthValue - a.consumptionCurrentMonthValue
       )
       .slice(0, 15);
 
     const adjustmentRankingRows = [...rows]
       .filter((row) => row.adjustments30Qty > 0)
-      .sort((a, b) => b.adjustments30Value - a.adjustments30Value || b.adjustments30Qty - a.adjustments30Qty)
+      .sort(
+        (a, b) => b.adjustments30Value - a.adjustments30Value || b.adjustments30Qty - a.adjustments30Qty
+      )
       .slice(0, 12);
 
-    const predictiveAlerts: PredictionAlertRow[] = [];
+    const predictiveAlertsMap = new Map<string, PredictionAlertRow>();
+
+    const pushAlert = (alert: PredictionAlertRow) => {
+      const existing = predictiveAlertsMap.get(alert.id);
+      if (!existing) {
+        predictiveAlertsMap.set(alert.id, alert);
+        return;
+      }
+
+      const order: Record<PredictionAlertRow["severity"], number> = {
+        alto: 0,
+        medio: 1,
+        baixo: 2,
+      };
+
+      if (order[alert.severity] < order[existing.severity]) {
+        predictiveAlertsMap.set(alert.id, alert);
+      }
+    };
 
     for (const row of rows) {
       if (row.riskLevel === "alto") {
-        predictiveAlerts.push({
+        pushAlert({
           id: `${row.productId}-ruptura-alta`,
           severity: "alto",
           productName: row.productName,
           sku: row.sku,
           title: "Risco alto de ruptura",
-          metric: row.coverageDays !== null ? formatDays(row.coverageDays) : `Saldo ${formatQty(row.currentQty)} ${row.unit}`,
-          action: row.productionSuggestionQty > 0
-            ? `${row.productionAction} ${formatQty(row.productionSuggestionQty)} ${row.unit}`
-            : "Revisar saldo mínimo e consumo",
+          metric:
+            row.coverageDays !== null
+              ? formatDays(row.coverageDays)
+              : `Saldo ${formatQty(row.currentQty)} ${row.unit}`,
+          action:
+            row.productionSuggestionQty > 0
+              ? `${row.productionAction} ${formatQty(row.productionSuggestionQty)} ${row.unit}`
+              : "Revisar saldo mínimo e consumo",
         });
       } else if (row.riskLevel === "medio") {
-        predictiveAlerts.push({
+        pushAlert({
           id: `${row.productId}-ruptura-media`,
           severity: "medio",
           productName: row.productName,
           sku: row.sku,
           title: "Ruptura provável em curto prazo",
           metric: formatDays(row.coverageDays),
-          action: row.productionSuggestionQty > 0
-            ? `${row.productionAction} ${formatQty(row.productionSuggestionQty)} ${row.unit}`
-            : "Acompanhar próxima baixa",
+          action:
+            row.productionSuggestionQty > 0
+              ? `${row.productionAction} ${formatQty(row.productionSuggestionQty)} ${row.unit}`
+              : "Acompanhar próxima baixa",
         });
       }
 
       if (row.maxQty > 0 && row.currentQty > row.maxQty) {
-        predictiveAlerts.push({
+        pushAlert({
           id: `${row.productId}-excesso`,
           severity: "baixo",
           productName: row.productName,
@@ -1708,8 +1906,11 @@ export default function EstoqueDashboardPage() {
         });
       }
 
-      if (row.adjustments30Qty > 0 && row.adjustments30Qty >= Math.max(1, row.consumption30Qty * 0.2)) {
-        predictiveAlerts.push({
+      if (
+        row.adjustments30Qty > 0 &&
+        row.adjustments30Qty >= Math.max(1, row.consumption30Qty * 0.2)
+      ) {
+        pushAlert({
           id: `${row.productId}-ajuste`,
           severity: row.adjustments30Value >= row.stockValue * 0.1 ? "alto" : "medio",
           productName: row.productName,
@@ -1720,23 +1921,26 @@ export default function EstoqueDashboardPage() {
         });
       }
 
-      if (
-        row.stockValue > 0 &&
-        (row.daysWithoutMovement === null || row.daysWithoutMovement >= 60)
-      ) {
-        predictiveAlerts.push({
+      if (row.stockValue > 0 && (row.daysWithoutMovement === null || row.daysWithoutMovement >= 60)) {
+        pushAlert({
           id: `${row.productId}-parado`,
           severity: "baixo",
           productName: row.productName,
           sku: row.sku,
           title: "Produto parado com valor imobilizado",
-          metric: row.daysWithoutMovement === null ? "Sem registro recente" : `${row.daysWithoutMovement} dias sem movimentação`,
+          metric:
+            row.daysWithoutMovement === null
+              ? "Sem registro recente"
+              : `${row.daysWithoutMovement} dias sem movimentação`,
           action: "Revisar compra, cardápio, produção ou baixa",
         });
       }
 
-      if (Math.abs(row.abnormalConsumptionPercent ?? 0) >= 100 && row.consumptionCurrentMonthQty > 0) {
-        predictiveAlerts.push({
+      if (
+        Math.abs(row.abnormalConsumptionPercent ?? 0) >= 100 &&
+        row.consumptionCurrentMonthQty > 0
+      ) {
+        pushAlert({
           id: `${row.productId}-consumo-fora-padrao`,
           severity: "medio",
           productName: row.productName,
@@ -1747,18 +1951,19 @@ export default function EstoqueDashboardPage() {
         });
       }
     }
-
-    const severityOrder: Record<PredictionAlertRow["severity"], number> = {
+        const severityOrder: Record<PredictionAlertRow["severity"], number> = {
       alto: 0,
       medio: 1,
       baixo: 2,
     };
 
-    predictiveAlerts.sort(
-      (a, b) =>
-        severityOrder[a.severity] - severityOrder[b.severity] ||
-        a.productName.localeCompare(b.productName, "pt-BR")
-    );
+    const predictiveAlerts = Array.from(predictiveAlertsMap.values())
+      .sort(
+        (a, b) =>
+          severityOrder[a.severity] - severityOrder[b.severity] ||
+          a.productName.localeCompare(b.productName, "pt-BR")
+      )
+      .slice(0, 14);
 
     return {
       rows,
@@ -1771,6 +1976,8 @@ export default function EstoqueDashboardPage() {
       stockAccuracy,
       totalMovement30Qty,
       totalAdjustments30Qty,
+      totalMovement30Value,
+      totalAdjustments30Value,
       abcRows,
       abcSummary,
       highTurnoverRows,
@@ -1782,9 +1989,9 @@ export default function EstoqueDashboardPage() {
       productionSuggestionsTotal: productionSuggestionsAll.length,
       abnormalConsumptionRows,
       adjustmentRankingRows,
-      predictiveAlerts: predictiveAlerts.slice(0, 14),
+      predictiveAlerts,
     };
-  }, [enrichedStock, recentMovements]);
+  }, [consolidatedProducts, recentMovements, productMetaById]);
 
   const monthComparison = useMemo(() => {
     const now = new Date();
@@ -1794,19 +2001,24 @@ export default function EstoqueDashboardPage() {
     const previousMonthStart = startOfMonth(previousMonthBase);
     const previousMonthEnd = endOfMonth(previousMonthBase);
 
-    const productById = new Map<
-      string,
-      { name: string; sku: string; price: number }
-    >();
+    const productById = new Map<string, { name: string; sku: string; price: number }>();
 
-    for (const row of enrichedStock) {
-      const productId = String(row.product?.id ?? "").trim();
-      if (!productId) continue;
+    for (const row of consolidatedProducts) {
+      productById.set(row.productId, {
+        name: row.productName,
+        sku: row.sku,
+        price: row.unitCost,
+      });
+    }
+
+    for (const meta of productsMeta) {
+      const productId = String(meta.id ?? "").trim();
+      if (!productId || productById.has(productId)) continue;
 
       productById.set(productId, {
-        name: row.product?.name ?? "Produto sem vínculo",
-        sku: row.product?.sku ?? "—",
-        price: getProductUnitCost(row.product),
+        name: meta.name ?? "Produto sem vínculo",
+        sku: meta.sku ?? "—",
+        price: getProductUnitCost(meta),
       });
     }
 
@@ -1825,19 +2037,13 @@ export default function EstoqueDashboardPage() {
       const productId = getMovementProductId(movement);
       if (!productId) continue;
 
-      const qty = Math.abs(getMovementSignedQty(movement));
-      const safeQty = Number.isFinite(qty) ? qty : 0;
-      if (safeQty <= 0) continue;
-
-      const kind = getMovementKind(movement);
-      const price = productById.get(productId)?.price ?? 0;
-      const value = safeQty * price;
       const createdAt = getMovementCreatedAt(movement);
+      const unitCost = productById.get(productId)?.price ?? 0;
 
       if (isDateInRange(createdAt, currentMonthStart, currentMonthEnd)) {
-        addMovementToBucket(ensureBucket(currentByProduct, productId), kind, safeQty, value);
+        addMovementToBucket(ensureBucket(currentByProduct, productId), movement, unitCost);
       } else if (isDateInRange(createdAt, previousMonthStart, previousMonthEnd)) {
-        addMovementToBucket(ensureBucket(previousByProduct, productId), kind, safeQty, value);
+        addMovementToBucket(ensureBucket(previousByProduct, productId), movement, unitCost);
       }
     }
 
@@ -1851,10 +2057,11 @@ export default function EstoqueDashboardPage() {
         const product = productById.get(productId);
         const current = currentByProduct.get(productId) ?? createEmptyBuckets();
         const previous = previousByProduct.get(productId) ?? createEmptyBuckets();
-        const currentQty = current.totalQty;
-        const previousQty = previous.totalQty;
-        const currentValue = current.totalValue;
-        const previousValue = previous.totalValue;
+
+        const currentQty = current.grossQty;
+        const previousQty = previous.grossQty;
+        const currentValue = current.grossValue;
+        const previousValue = previous.grossValue;
         const diffQty = currentQty - previousQty;
         const diffValue = currentValue - previousValue;
 
@@ -1879,7 +2086,13 @@ export default function EstoqueDashboardPage() {
           previousAdjustmentQty: previous.adjustmentQty,
         };
       })
-      .filter((row) => row.currentQty > 0 || row.previousQty > 0)
+      .filter(
+        (row) =>
+          row.currentQty !== 0 ||
+          row.previousQty !== 0 ||
+          row.currentValue !== 0 ||
+          row.previousValue !== 0
+      )
       .sort(
         (a, b) =>
           Math.abs(b.diffValue) - Math.abs(a.diffValue) ||
@@ -1902,11 +2115,11 @@ export default function EstoqueDashboardPage() {
       diffValueTotal: currentMonthValue - previousMonthValue,
       variationPercentTotal: getVariationPercent(currentMonthQty, previousMonthQty),
     };
-  }, [recentMovements, enrichedStock]);
+  }, [recentMovements, consolidatedProducts, productsMeta]);
 
   const insumosChartData = useMemo(
-    () => buildChartData(enrichedStock, ["INSU"]),
-    [enrichedStock]
+    () => buildChartData(consolidatedProducts, ["INSU"]),
+    [consolidatedProducts]
   );
 
   const immobilizedChartData = useMemo<ChartDatum[]>(
@@ -1954,23 +2167,24 @@ export default function EstoqueDashboardPage() {
   );
 
   const abcChartData = useMemo<ChartDatum[]>(
-    () => [
-      {
-        name: "Classe A",
-        qty: stockIntelligence.abcSummary.A.items,
-        value: stockIntelligence.abcSummary.A.value,
-      },
-      {
-        name: "Classe B",
-        qty: stockIntelligence.abcSummary.B.items,
-        value: stockIntelligence.abcSummary.B.value,
-      },
-      {
-        name: "Classe C",
-        qty: stockIntelligence.abcSummary.C.items,
-        value: stockIntelligence.abcSummary.C.value,
-      },
-    ].filter((item) => item.value > 0 || item.qty > 0),
+    () =>
+      [
+        {
+          name: "Classe A",
+          qty: stockIntelligence.abcSummary.A.items,
+          value: stockIntelligence.abcSummary.A.value,
+        },
+        {
+          name: "Classe B",
+          qty: stockIntelligence.abcSummary.B.items,
+          value: stockIntelligence.abcSummary.B.value,
+        },
+        {
+          name: "Classe C",
+          qty: stockIntelligence.abcSummary.C.items,
+          value: stockIntelligence.abcSummary.C.value,
+        },
+      ].filter((item) => item.value > 0 || item.qty > 0),
     [stockIntelligence.abcSummary]
   );
 
@@ -2001,6 +2215,26 @@ export default function EstoqueDashboardPage() {
     [metrics.consolidatedByUnit]
   );
 
+  const turnoverAndCoverageRows = useMemo(() => {
+    const map = new Map<string, StockAnalyticsRow>();
+
+    for (const row of stockIntelligence.highTurnoverRows) {
+      map.set(row.stockId, row);
+    }
+
+    for (const row of stockIntelligence.lowCoverageRows) {
+      map.set(row.stockId, row);
+    }
+
+    return Array.from(map.values())
+      .sort(
+        (a, b) =>
+          b.turnover30 - a.turnover30 ||
+          Number(a.coverageDays ?? 999999) - Number(b.coverageDays ?? 999999)
+      )
+      .slice(0, 20);
+  }, [stockIntelligence.highTurnoverRows, stockIntelligence.lowCoverageRows]);
+
   return (
     <div className="relative space-y-6 overflow-hidden rounded-[32px] bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_22%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.14),transparent_22%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.12),transparent_24%),linear-gradient(180deg,rgba(248,250,252,0.82),rgba(241,245,249,0.92))] p-1 dark:bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_22%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.16),transparent_22%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.14),transparent_24%),linear-gradient(180deg,rgba(2,6,23,0.86),rgba(15,23,42,0.94))]">
       <div className="space-y-6 rounded-[30px] px-3 py-4 sm:px-5">
@@ -2019,7 +2253,10 @@ export default function EstoqueDashboardPage() {
               <Button asChild variant="outline" className={`${GLASS_CARD_CLASS} rounded-full`}>
                 <Link href="/dashboard/perdas">Perdas</Link>
               </Button>
-              <Button asChild className="rounded-full bg-slate-900/90 text-white hover:bg-slate-900 dark:bg-white/90 dark:text-slate-900 dark:hover:bg-white">
+              <Button
+                asChild
+                className="rounded-full bg-slate-900/90 text-white hover:bg-slate-900 dark:bg-white/90 dark:text-slate-900 dark:hover:bg-white"
+              >
                 <Link href="/dashboard/estoque">Abrir Estoque</Link>
               </Button>
             </>
@@ -2050,7 +2287,6 @@ export default function EstoqueDashboardPage() {
           <>
             <ConsolidatedStockPieChart
               data={consolidatedStockPieData}
-              totalQuantity={metrics.saldoTotal}
               totalAmount={metrics.valorTotal}
               unclassified={metrics.consolidatedByUnit.outros}
             />
@@ -2088,7 +2324,11 @@ export default function EstoqueDashboardPage() {
                         <TableRow key={alert.id}>
                           <TableCell>
                             <Badge className={getSeverityBadgeClass(alert.severity)}>
-                              {alert.severity === "alto" ? "Alta" : alert.severity === "medio" ? "Média" : "Baixa"}
+                              {alert.severity === "alto"
+                                ? "Alta"
+                                : alert.severity === "medio"
+                                  ? "Média"
+                                  : "Baixa"}
                             </Badge>
                           </TableCell>
                           <TableCell className="font-medium">{alert.productName}</TableCell>
@@ -2106,8 +2346,8 @@ export default function EstoqueDashboardPage() {
 
             <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
               <DashboardTableShell
-                title="Dif. mês anterior vs atual (Qtd)"
-                description="Listagem dos produtos que tiveram diferença entre o mês anterior e o mês atual, agora com gráfico, motivo dominante da variação e percentual de variação."
+                title="Dif. mês anterior vs atual (Movimentação)"
+                description="Comparativo do volume bruto movimentado entre o mês atual e o anterior, com gráfico, motivo dominante da variação e percentual de variação."
                 empty={monthComparison.rows.length === 0}
                 emptyState={
                   <p className="text-sm text-muted-foreground">
@@ -2148,16 +2388,10 @@ export default function EstoqueDashboardPage() {
                     <TableBody>
                       {monthComparison.rows.map((row) => (
                         <TableRow key={row.productId}>
-                          <TableCell className="font-medium">
-                            {row.productName}
-                          </TableCell>
+                          <TableCell className="font-medium">{row.productName}</TableCell>
                           <TableCell>{row.sku}</TableCell>
-                          <TableCell className="text-right">
-                            {formatQty(row.currentQty)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatQty(row.previousQty)}
-                          </TableCell>
+                          <TableCell className="text-right">{formatQty(row.currentQty)}</TableCell>
+                          <TableCell className="text-right">{formatQty(row.previousQty)}</TableCell>
                           <TableCell className="text-right">
                             <span
                               className={
@@ -2272,7 +2506,8 @@ export default function EstoqueDashboardPage() {
                       : stockIntelligence.stockAccuracy === null
                         ? "Sem base"
                         : formatPercent(stockIntelligence.stockAccuracy),
-                    description: "Estimativa por volume de ajustes/inventário sobre movimentações dos últimos 30 dias.",
+                    description:
+                      "Estimativa por valor de ajustes/inventário sobre movimentações dos últimos 30 dias.",
                     icon: <Gauge className="h-4 w-4" />,
                     valueClassName:
                       stockIntelligence.stockAccuracy !== null && stockIntelligence.stockAccuracy < 95
@@ -2299,16 +2534,17 @@ export default function EstoqueDashboardPage() {
               <DashboardStatGrid
                 items={[
                   {
-                    title: "CMV em tempo real",
-                    value: loading ? "…" : formatCurrency(stockIntelligence.totalConsumptionCurrentMonthValue),
-                    description: "Consumo valorizado do mês atual pelas movimentações classificadas como consumo.",
+                    title: "CMV do mês atual",
+                    value: loading
+                      ? "…"
+                      : formatCurrency(stockIntelligence.totalConsumptionCurrentMonthValue),
+                    description:
+                      "Consumo valorizado do mês atual pelas movimentações classificadas como consumo.",
                     icon: <Coins className="h-4 w-4" />,
                   },
                   {
                     title: "Curva ABC - Classe A",
-                    value: loading
-                      ? "…"
-                      : `${stockIntelligence.abcSummary.A.items} itens`,
+                    value: loading ? "…" : `${stockIntelligence.abcSummary.A.items} itens`,
                     description: `${formatPercent(stockIntelligence.abcSummary.A.percent)} do valor imobilizado está na classe A.`,
                     icon: <BarChart3 className="h-4 w-4" />,
                   },
@@ -2366,7 +2602,7 @@ export default function EstoqueDashboardPage() {
 
             <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
               <HorizontalStockChart
-                title="CMV em tempo real por produto"
+                title="CMV 30 dias por produto"
                 description="Consumo valorizado dos últimos 30 dias por custo/preço unitário."
                 data={cmvChartData}
                 valueKey="value"
@@ -2381,12 +2617,11 @@ export default function EstoqueDashboardPage() {
                 formatValue={(value) => formatCurrency(value)}
               />
             </div>
-
-            <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
+                        <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
               <DashboardTableShell
                 title="Ranking de giro e cobertura"
                 description="Produtos com maior giro recente e a respectiva cobertura em dias para apoiar compra, produção e reposição."
-                empty={stockIntelligence.highTurnoverRows.length === 0 && stockIntelligence.lowCoverageRows.length === 0}
+                empty={turnoverAndCoverageRows.length === 0}
                 emptyState={
                   <p className="text-sm text-muted-foreground">
                     Não há consumo recente classificado para calcular giro e cobertura.
@@ -2408,15 +2643,23 @@ export default function EstoqueDashboardPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {stockIntelligence.highTurnoverRows.map((row) => (
+                      {turnoverAndCoverageRows.map((row) => (
                         <TableRow key={row.stockId}>
                           <TableCell className="font-medium">{row.productName}</TableCell>
                           <TableCell>{row.sku}</TableCell>
-                          <TableCell className="text-right font-semibold">{formatRatio(row.turnover30)}</TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {formatRatio(row.turnover30)}
+                          </TableCell>
                           <TableCell className="text-right">{formatDays(row.coverageDays)}</TableCell>
-                          <TableCell className="text-right">{formatQty(row.consumption30Qty)} {row.unit}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(row.consumption30Value)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(row.stockValue)}</TableCell>
+                          <TableCell className="text-right">
+                            {formatQty(row.consumption30Qty)} {row.unit}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(row.consumption30Value)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(row.stockValue)}
+                          </TableCell>
                           <TableCell>
                             <Badge className={getRiskBadgeClass(row.riskLevel)}>
                               {getRiskLabel(row.riskLevel)}
@@ -2443,9 +2686,21 @@ export default function EstoqueDashboardPage() {
                   }
                   footer={
                     <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-                      <span>A: {stockIntelligence.abcSummary.A.items} itens • {formatCurrency(stockIntelligence.abcSummary.A.value)} • {formatPercent(stockIntelligence.abcSummary.A.percent)}</span>
-                      <span>B: {stockIntelligence.abcSummary.B.items} itens • {formatCurrency(stockIntelligence.abcSummary.B.value)} • {formatPercent(stockIntelligence.abcSummary.B.percent)}</span>
-                      <span>C: {stockIntelligence.abcSummary.C.items} itens • {formatCurrency(stockIntelligence.abcSummary.C.value)} • {formatPercent(stockIntelligence.abcSummary.C.percent)}</span>
+                      <span>
+                        A: {stockIntelligence.abcSummary.A.items} itens •{" "}
+                        {formatCurrency(stockIntelligence.abcSummary.A.value)} •{" "}
+                        {formatPercent(stockIntelligence.abcSummary.A.percent)}
+                      </span>
+                      <span>
+                        B: {stockIntelligence.abcSummary.B.items} itens •{" "}
+                        {formatCurrency(stockIntelligence.abcSummary.B.value)} •{" "}
+                        {formatPercent(stockIntelligence.abcSummary.B.percent)}
+                      </span>
+                      <span>
+                        C: {stockIntelligence.abcSummary.C.items} itens •{" "}
+                        {formatCurrency(stockIntelligence.abcSummary.C.value)} •{" "}
+                        {formatPercent(stockIntelligence.abcSummary.C.percent)}
+                      </span>
                     </div>
                   }
                 >
@@ -2466,14 +2721,24 @@ export default function EstoqueDashboardPage() {
                         {stockIntelligence.abcRows.slice(0, 20).map((row) => (
                           <TableRow key={row.stockId}>
                             <TableCell>
-                              <Badge className={getAbcBadgeClass(row.abcClass)}>{row.abcClass}</Badge>
+                              <Badge className={getAbcBadgeClass(row.abcClass)}>
+                                {row.abcClass}
+                              </Badge>
                             </TableCell>
                             <TableCell className="font-medium">{row.productName}</TableCell>
                             <TableCell>{row.sku}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(row.stockValue)}</TableCell>
-                            <TableCell className="text-right">{formatPercent(row.participationPercent)}</TableCell>
-                            <TableCell className="text-right">{formatPercent(row.cumulativePercent)}</TableCell>
-                            <TableCell className="text-right">{formatQty(row.currentQty)} {row.unit}</TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(row.stockValue)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatPercent(row.participationPercent)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatPercent(row.cumulativePercent)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatQty(row.currentQty)} {row.unit}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -2511,11 +2776,17 @@ export default function EstoqueDashboardPage() {
                           <TableRow key={row.stockId}>
                             <TableCell className="font-medium">{row.productName}</TableCell>
                             <TableCell>{row.sku}</TableCell>
-                            <TableCell className="text-right">{formatQty(row.currentQty)} {row.unit}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(row.stockValue)}</TableCell>
+                            <TableCell className="text-right">
+                              {formatQty(row.currentQty)} {row.unit}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(row.stockValue)}
+                            </TableCell>
                             <TableCell>{formatDateLabel(row.lastMovementAt)}</TableCell>
                             <TableCell className="text-right">
-                              {row.daysWithoutMovement === null ? "Sem registro" : `${row.daysWithoutMovement} dias`}
+                              {row.daysWithoutMovement === null
+                                ? "Sem registro"
+                                : `${row.daysWithoutMovement} dias`}
                             </TableCell>
                             <TableCell>{row.sector}</TableCell>
                           </TableRow>
@@ -2557,9 +2828,15 @@ export default function EstoqueDashboardPage() {
                           <TableRow key={row.stockId}>
                             <TableCell className="font-medium">{row.productName}</TableCell>
                             <TableCell>{row.productionAction}</TableCell>
-                            <TableCell className="text-right">{formatQty(row.currentQty)} {row.unit}</TableCell>
-                            <TableCell className="text-right">{formatQty(row.avgDailyConsumption)} {row.unit}</TableCell>
-                            <TableCell className="text-right">{formatDays(row.coverageDays)}</TableCell>
+                            <TableCell className="text-right">
+                              {formatQty(row.currentQty)} {row.unit}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatQty(row.avgDailyConsumption)} {row.unit}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatDays(row.coverageDays)}
+                            </TableCell>
                             <TableCell className="text-right font-semibold text-emerald-600">
                               {formatQty(row.productionSuggestionQty)} {row.unit}
                             </TableCell>
@@ -2601,8 +2878,12 @@ export default function EstoqueDashboardPage() {
                           <TableRow key={row.stockId}>
                             <TableCell className="font-medium">{row.productName}</TableCell>
                             <TableCell>{row.sku}</TableCell>
-                            <TableCell className="text-right">{formatQty(row.consumptionCurrentMonthQty)} {row.unit}</TableCell>
-                            <TableCell className="text-right">{formatQty(row.consumptionPreviousMonthQty)} {row.unit}</TableCell>
+                            <TableCell className="text-right">
+                              {formatQty(row.consumptionCurrentMonthQty)} {row.unit}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatQty(row.consumptionPreviousMonthQty)} {row.unit}
+                            </TableCell>
                             <TableCell className="text-right">
                               <span
                                 className={
@@ -2611,10 +2892,14 @@ export default function EstoqueDashboardPage() {
                                     : "text-red-600 font-semibold"
                                 }
                               >
-                                {formatPercent(row.abnormalConsumptionPercent, { showSignal: true })}
+                                {formatPercent(row.abnormalConsumptionPercent, {
+                                  showSignal: true,
+                                })}
                               </span>
                             </TableCell>
-                            <TableCell className="text-right">{formatCurrency(row.consumptionCurrentMonthValue)}</TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(row.consumptionCurrentMonthValue)}
+                            </TableCell>
                             <TableCell>{row.abnormalConsumptionLabel}</TableCell>
                           </TableRow>
                         ))}
@@ -2636,12 +2921,21 @@ export default function EstoqueDashboardPage() {
                   </p>
                 }
                 footer={
-                  <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                     <span>
-                      Acuracidade estimada: {stockIntelligence.stockAccuracy === null ? "Sem base" : formatPercent(stockIntelligence.stockAccuracy)}
+                      Acuracidade estimada:{" "}
+                      {stockIntelligence.stockAccuracy === null
+                        ? "Sem base"
+                        : formatPercent(stockIntelligence.stockAccuracy)}
                     </span>
                     <span>
-                      Ajustes 30d: {formatQty(stockIntelligence.totalAdjustments30Qty)} de {formatQty(stockIntelligence.totalMovement30Qty)} movimentados
+                      Ajustes 30d: {formatQty(stockIntelligence.totalAdjustments30Qty)} de{" "}
+                      {formatQty(stockIntelligence.totalMovement30Qty)} movimentados
+                    </span>
+                    <span>
+                      Impacto financeiro:{" "}
+                      {formatCurrency(stockIntelligence.totalAdjustments30Value)} de{" "}
+                      {formatCurrency(stockIntelligence.totalMovement30Value)}
                     </span>
                   </div>
                 }
@@ -2661,15 +2955,24 @@ export default function EstoqueDashboardPage() {
                     </TableHeader>
                     <TableBody>
                       {stockIntelligence.adjustmentRankingRows.map((row) => {
-                        const impact = row.consumption30Qty > 0 ? (row.adjustments30Qty / row.consumption30Qty) * 100 : 100;
+                        const impact =
+                          row.consumption30Value > 0
+                            ? (row.adjustments30Value / row.consumption30Value) * 100
+                            : 100;
 
                         return (
                           <TableRow key={row.stockId}>
                             <TableCell className="font-medium">{row.productName}</TableCell>
                             <TableCell>{row.sku}</TableCell>
-                            <TableCell className="text-right">{formatQty(row.adjustments30Qty)} {row.unit}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(row.adjustments30Value)}</TableCell>
-                            <TableCell className="text-right">{formatQty(row.consumption30Qty)} {row.unit}</TableCell>
+                            <TableCell className="text-right">
+                              {formatQty(row.adjustments30Qty)} {row.unit}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(row.adjustments30Value)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatQty(row.consumption30Qty)} {row.unit}
+                            </TableCell>
                             <TableCell className="text-right">{formatPercent(impact)}</TableCell>
                             <TableCell>{row.location}</TableCell>
                           </TableRow>
@@ -2712,27 +3015,30 @@ export default function EstoqueDashboardPage() {
                       </TableHeader>
                       <TableBody>
                         {metrics.itensCriticos.map((row) => {
-                          const status = getStatusFromRow(row);
+                          const status = getStatusFromRow({
+                            quantity: row.currentQty,
+                            minQty: row.minQty,
+                            medQty: row.medQty,
+                          });
+
                           return (
-                            <TableRow key={row.id}>
-                              <TableCell className="font-medium">
-                                {row.product?.name ?? "Produto sem vínculo"}
-                              </TableCell>
+                            <TableRow key={row.productId}>
+                              <TableCell className="font-medium">{row.productName}</TableCell>
                               <TableCell>
                                 <Badge className={getStatusBadgeClass(status)}>
                                   {getStatusLabel(status)}
                                 </Badge>
                               </TableCell>
                               <TableCell className="text-right">
-                                {formatQty(row.quantity)} {row.unit_label ?? ""}
+                                {formatQty(row.currentQty)} {row.unit}
                               </TableCell>
                               <TableCell className="text-right">
-                                {formatQty(row.min_qty)} {row.unit_label ?? ""}
+                                {formatQty(row.minQty)} {row.unit}
                               </TableCell>
                               <TableCell className="text-right">
-                                {formatQty(row.med_qty)} {row.unit_label ?? ""}
+                                {formatQty(row.medQty)} {row.unit}
                               </TableCell>
-                              <TableCell>{row.location ?? "—"}</TableCell>
+                              <TableCell>{row.locations.join(", ") || "—"}</TableCell>
                             </TableRow>
                           );
                         })}
@@ -2766,24 +3072,21 @@ export default function EstoqueDashboardPage() {
                       </TableHeader>
                       <TableBody>
                         {metrics.itensAcimaMax.map((row) => {
-                          const excedente =
-                            Number(row.quantity ?? 0) - Number(row.max_qty ?? 0);
+                          const excedente = row.currentQty - row.maxQty;
 
                           return (
-                            <TableRow key={row.id}>
-                              <TableCell className="font-medium">
-                                {row.product?.name ?? "Produto sem vínculo"}
+                            <TableRow key={row.productId}>
+                              <TableCell className="font-medium">{row.productName}</TableCell>
+                              <TableCell className="text-right">
+                                {formatQty(row.currentQty)} {row.unit}
                               </TableCell>
                               <TableCell className="text-right">
-                                {formatQty(row.quantity)} {row.unit_label ?? ""}
+                                {formatQty(row.maxQty)} {row.unit}
                               </TableCell>
                               <TableCell className="text-right">
-                                {formatQty(row.max_qty)} {row.unit_label ?? ""}
+                                {formatQty(excedente)} {row.unit}
                               </TableCell>
-                              <TableCell className="text-right">
-                                {formatQty(excedente)} {row.unit_label ?? ""}
-                              </TableCell>
-                              <TableCell>{row.location ?? "—"}</TableCell>
+                              <TableCell>{row.locations.join(", ") || "—"}</TableCell>
                             </TableRow>
                           );
                         })}
@@ -2819,34 +3122,23 @@ export default function EstoqueDashboardPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {metrics.produtosMaisCaros.map((row) => {
-                        const qty = Number(row.quantity ?? 0);
-                        const price = getProductUnitCost(row.product);
-
-                        return (
-                          <TableRow key={row.id}>
-                            <TableCell className="font-medium">
-                              {row.product?.name ?? "Produto sem vínculo"}
-                            </TableCell>
-                            <TableCell>{row.product?.sku ?? "—"}</TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(price)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatQty(qty)} {row.unit_label ?? ""}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(qty * price)}
-                            </TableCell>
-                            <TableCell>
-                              {getProductTypeLabel(row.meta?.product_type)}
-                            </TableCell>
-                            <TableCell>
-                              {normalizeSectorName(row.meta?.sector_category)}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
+                      {metrics.produtosMaisCaros.map((row) => (
+                        <TableRow key={row.productId}>
+                          <TableCell className="font-medium">{row.productName}</TableCell>
+                          <TableCell>{row.sku}</TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(row.unitCost)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatQty(row.currentQty)} {row.unit}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(row.stockValue)}
+                          </TableCell>
+                          <TableCell>{row.productTypeLabel}</TableCell>
+                          <TableCell>{row.sector}</TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                 </div>

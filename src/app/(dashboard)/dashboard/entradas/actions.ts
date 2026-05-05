@@ -67,6 +67,17 @@ export type InvoiceEntryDraftRow = {
   updated_at: string;
 };
 
+type NormalizedInvoiceEntryItem = {
+  product_id: string;
+  product_name_snapshot: string;
+  quantity: number;
+  unit_label: string;
+  unit_cost: number;
+  total_cost: number;
+  sort_order: number;
+  category_snapshot: string | null;
+};
+
 async function getContext() {
   const supabase = await createSupabaseServerClient();
   const { membership } = await getActiveMembershipOrRedirect();
@@ -121,16 +132,37 @@ function sanitizeFileName(fileName: string) {
     .toLowerCase();
 }
 
+function getApprovalStatus(input?: string | null): "draft_review" | "approved" {
+  return input === "draft_review" ? "draft_review" : "approved";
+}
+
+function getReadableErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message?.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+
+  if (error && typeof error === "object" && "message" in error) {
+    const message = String((error as any).message ?? "").trim();
+    if (message) return message;
+  }
+
+  return fallback;
+}
+
 async function validateAndNormalizeItems(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   establishmentId: string,
   items: InvoiceEntryItemInput[]
-) {
+): Promise<NormalizedInvoiceEntryItem[]> {
   if (!items?.length) {
     throw new Error("Adicione pelo menos um item na nota.");
   }
 
-  const productIds = items.map((item) => item.product_id);
+  const productIds = items.map((item) => String(item.product_id));
 
   const { data: products, error: productsError } = await supabase
     .from("products")
@@ -159,7 +191,8 @@ async function validateAndNormalizeItems(
         id: String((product as any).id),
         establishment_id: String((product as any).establishment_id),
         name: String((product as any).name ?? ""),
-        default_unit_label: ((product as any).default_unit_label ?? null) as string | null,
+        default_unit_label: ((product as any).default_unit_label ??
+          null) as string | null,
         category: ((product as any).category ?? null) as string | null,
       });
     }
@@ -170,13 +203,17 @@ async function validateAndNormalizeItems(
     const found = validProducts.get(productId);
 
     if (!found) {
-      throw new Error("Há item vinculado a produto inválido para este estabelecimento.");
+      throw new Error(
+        "Há item vinculado a produto inválido para este estabelecimento."
+      );
     }
 
     const quantity = toNumber(item.quantity, 0);
     const unitCost = toNumber(item.unit_cost, 0);
     const totalCost = Number((quantity * unitCost).toFixed(2));
-    const unitLabel = normalizeUnit(item.unit_label || found.default_unit_label || "UN");
+    const unitLabel = normalizeUnit(
+      item.unit_label || found.default_unit_label || "UN"
+    );
 
     if (quantity <= 0) {
       throw new Error(`Quantidade inválida no item ${found.name}.`);
@@ -209,14 +246,28 @@ async function applyStockFromItems(
   }>
 ) {
   for (const item of items) {
-    await moveStock(supabase as any, {
-      establishment_id: establishmentId,
-      product_id: item.product_id,
-      unit_label: item.unit_label,
-      qty_delta: item.quantity,
-      reason: "nf_entrada",
-      source: "invoice_entry",
-    });
+    try {
+      await moveStock(supabase as any, {
+        establishment_id: establishmentId,
+        product_id: item.product_id,
+        unit_label: normalizeUnit(item.unit_label),
+        qty_delta: toNumber(item.quantity, 0),
+        reason: "nf_entrada",
+        source: "invoice_entry",
+      });
+    } catch (error) {
+      console.error("[applyStockFromItems] erro ao movimentar estoque:", {
+        item,
+        error,
+      });
+
+      const detail = getReadableErrorMessage(
+        error,
+        `Falha ao movimentar o estoque do produto ${item.product_id}.`
+      );
+
+      throw new Error(detail);
+    }
   }
 }
 
@@ -230,14 +281,28 @@ async function reverseStockFromItems(
   }>
 ) {
   for (const item of items) {
-    await moveStock(supabase as any, {
-      establishment_id: establishmentId,
-      product_id: item.product_id,
-      unit_label: normalizeUnit(item.unit_label),
-      qty_delta: -Math.abs(toNumber(item.quantity, 0)),
-      reason: "estorno_nf_entrada",
-      source: "invoice_entry_reverse",
-    });
+    try {
+      await moveStock(supabase as any, {
+        establishment_id: establishmentId,
+        product_id: item.product_id,
+        unit_label: normalizeUnit(item.unit_label),
+        qty_delta: -Math.abs(toNumber(item.quantity, 0)),
+        reason: "estorno_nf_entrada",
+        source: "invoice_entry_reverse",
+      });
+    } catch (error) {
+      console.error("[reverseStockFromItems] erro ao estornar estoque:", {
+        item,
+        error,
+      });
+
+      const detail = getReadableErrorMessage(
+        error,
+        `Falha ao estornar o estoque do produto ${item.product_id}.`
+      );
+
+      throw new Error(detail);
+    }
   }
 }
 
@@ -268,8 +333,19 @@ async function updateProductsStandardCostIfNeeded(
   }
 }
 
-function getApprovalStatus(input?: string | null): "draft_review" | "approved" {
-  return input === "draft_review" ? "draft_review" : "approved";
+async function cleanupFailedInvoiceEntry(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  entryId: string
+) {
+  try {
+    await supabase.from("invoice_entry_items").delete().eq("invoice_entry_id", entryId);
+    await supabase.from("invoice_entries").delete().eq("id", entryId);
+  } catch (cleanupError) {
+    console.error(
+      "[cleanupFailedInvoiceEntry] falha ao limpar dados após erro:",
+      cleanupError
+    );
+  }
 }
 
 export async function uploadInvoiceEntryAttachmentAction(formData: FormData) {
@@ -616,76 +692,107 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
 
   const categorySnapshot = normalizedItems[0]?.category_snapshot || null;
 
-  const { data: entry, error: entryError } = await supabase
-    .from("invoice_entries")
-    .insert({
-      establishment_id: establishmentId,
-      supplier_name: supplierName,
-      supplier_document: supplierDocument || null,
-      invoice_number: invoiceNumber,
-      invoice_series: invoiceSeries || null,
-      invoice_key: invoiceKey || null,
-      issue_date: issueDate,
-      entry_date: entryDate,
-      total_amount: totalAmount,
-      total_items_qty: totalItemsQty,
-      category_snapshot: categorySnapshot,
-      notes: notes || null,
-      status: "active",
-      approval_status: approvalStatus,
-      approved_at: approvalStatus === "approved" ? new Date().toISOString() : null,
-      approved_by: approvalStatus === "approved" ? userId : null,
-      imported_from_xml: Boolean(input.imported_from_xml),
-      attachment_xml_url: input.attachment_xml_url?.trim() || null,
-      attachment_xml_path: input.attachment_xml_path?.trim() || null,
-      attachment_pdf_url: input.attachment_pdf_url?.trim() || null,
-      attachment_pdf_path: input.attachment_pdf_path?.trim() || null,
-      created_by: userId,
-    })
-    .select("id")
-    .single();
+  let createdEntryId: string | null = null;
 
-  if (entryError || !entry) {
-    console.error("Erro ao criar entrada:", entryError);
+  try {
+    const { data: entry, error: entryError } = await supabase
+      .from("invoice_entries")
+      .insert({
+        establishment_id: establishmentId,
+        supplier_name: supplierName,
+        supplier_document: supplierDocument || null,
+        invoice_number: invoiceNumber,
+        invoice_series: invoiceSeries || null,
+        invoice_key: invoiceKey || null,
+        issue_date: issueDate,
+        entry_date: entryDate,
+        total_amount: totalAmount,
+        total_items_qty: totalItemsQty,
+        category_snapshot: categorySnapshot,
+        notes: notes || null,
+        status: "active",
+        approval_status: approvalStatus,
+        approved_at: approvalStatus === "approved" ? new Date().toISOString() : null,
+        approved_by: approvalStatus === "approved" ? userId : null,
+        imported_from_xml: Boolean(input.imported_from_xml),
+        attachment_xml_url: input.attachment_xml_url?.trim() || null,
+        attachment_xml_path: input.attachment_xml_path?.trim() || null,
+        attachment_pdf_url: input.attachment_pdf_url?.trim() || null,
+        attachment_pdf_path: input.attachment_pdf_path?.trim() || null,
+        created_by: userId,
+      })
+      .select("id")
+      .single();
+
+    if (entryError || !entry) {
+      console.error("Erro ao criar entrada:", entryError);
+      throw new Error(
+        entryError?.message ?? "Não foi possível gravar a entrada da nota fiscal."
+      );
+    }
+
+    createdEntryId = String(entry.id);
+
+    const itemsPayload = normalizedItems.map((item) => ({
+      invoice_entry_id: createdEntryId,
+      product_id: item.product_id,
+      product_name_snapshot: item.product_name_snapshot,
+      quantity: item.quantity,
+      unit_label: item.unit_label,
+      unit_cost: item.unit_cost,
+      total_cost: item.total_cost,
+      sort_order: item.sort_order,
+    }));
+
+    const { error: itemsError } = await supabase
+      .from("invoice_entry_items")
+      .insert(itemsPayload);
+
+    if (itemsError) {
+      console.error("Erro ao criar itens da entrada:", itemsError);
+      throw new Error("Entrada criada, mas houve erro ao salvar os itens.");
+    }
+
+    if (approvalStatus === "approved") {
+      try {
+        await applyStockFromItems(supabase, establishmentId, normalizedItems);
+      } catch (stockError) {
+        console.error("Erro ao aplicar estoque na entrada:", stockError);
+
+        await cleanupFailedInvoiceEntry(supabase, createdEntryId);
+
+        throw new Error(
+          `Falha ao registrar a entrada no estoque. A operação foi revertida. Detalhe: ${getReadableErrorMessage(
+            stockError,
+            "Erro interno ao movimentar estoque."
+          )}`
+        );
+      }
+
+      await updateProductsStandardCostIfNeeded(
+        supabase,
+        establishmentId,
+        normalizedItems,
+        input.update_product_standard_cost
+      );
+    }
+
+    revalidatePath("/dashboard/entradas");
+    revalidatePath("/dashboard/estoque");
+
+    return { id: createdEntryId };
+  } catch (error) {
+    if (createdEntryId) {
+      await cleanupFailedInvoiceEntry(supabase, createdEntryId);
+    }
+
     throw new Error(
-      entryError?.message ?? "Não foi possível gravar a entrada da nota fiscal."
+      getReadableErrorMessage(
+        error,
+        "Não foi possível concluir o lançamento da entrada."
+      )
     );
   }
-
-  const itemsPayload = normalizedItems.map((item) => ({
-    invoice_entry_id: entry.id,
-    product_id: item.product_id,
-    product_name_snapshot: item.product_name_snapshot,
-    quantity: item.quantity,
-    unit_label: item.unit_label,
-    unit_cost: item.unit_cost,
-    total_cost: item.total_cost,
-    sort_order: item.sort_order,
-  }));
-
-  const { error: itemsError } = await supabase
-    .from("invoice_entry_items")
-    .insert(itemsPayload);
-
-  if (itemsError) {
-    console.error("Erro ao criar itens da entrada:", itemsError);
-    throw new Error("Entrada criada, mas houve erro ao salvar os itens.");
-  }
-
-  if (approvalStatus === "approved") {
-    await applyStockFromItems(supabase, establishmentId, normalizedItems);
-    await updateProductsStandardCostIfNeeded(
-      supabase,
-      establishmentId,
-      normalizedItems,
-      input.update_product_standard_cost
-    );
-  }
-
-  revalidatePath("/dashboard/entradas");
-  revalidatePath("/dashboard/estoque");
-
-  return entry;
 }
 
 export async function approveInvoiceEntry(entryId: string) {
@@ -733,7 +840,7 @@ export async function approveInvoiceEntry(entryId: string) {
     }))
   );
 
-  await supabase
+  const { error: updateError } = await supabase
     .from("invoice_entries")
     .update({
       approval_status: "approved",
@@ -743,6 +850,11 @@ export async function approveInvoiceEntry(entryId: string) {
     })
     .eq("id", entryId)
     .eq("establishment_id", establishmentId);
+
+  if (updateError) {
+    console.error("Erro ao aprovar entrada:", updateError);
+    throw new Error("O estoque foi aplicado, mas falhou ao atualizar o status da nota.");
+  }
 
   revalidatePath("/dashboard/entradas");
   revalidatePath("/dashboard/estoque");
@@ -865,6 +977,16 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
   const currentItems = Array.isArray((current as any).items) ? (current as any).items : [];
   const currentApprovalStatus = String((current as any).approval_status);
 
+  const totalAmount = Number(
+    normalizedItems.reduce((acc, item) => acc + item.total_cost, 0).toFixed(2)
+  );
+
+  const totalItemsQty = Number(
+    normalizedItems.reduce((acc, item) => acc + item.quantity, 0).toFixed(3)
+  );
+
+  const categorySnapshot = normalizedItems[0]?.category_snapshot || null;
+
   if (currentApprovalStatus === "approved") {
     await reverseStockFromItems(
       supabase,
@@ -876,16 +998,6 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
       }))
     );
   }
-
-  const totalAmount = Number(
-    normalizedItems.reduce((acc, item) => acc + item.total_cost, 0).toFixed(2)
-  );
-
-  const totalItemsQty = Number(
-    normalizedItems.reduce((acc, item) => acc + item.quantity, 0).toFixed(3)
-  );
-
-  const categorySnapshot = normalizedItems[0]?.category_snapshot || null;
 
   const { error: updateError } = await supabase
     .from("invoice_entries")

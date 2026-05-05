@@ -101,16 +101,22 @@ function formatQty(value: number | null | undefined) {
 }
 
 export default async function ProductsPage({ searchParams }: PageProps) {
-  // Garante que o usuário está autenticado e com membership ativo
-  await getActiveMembershipOrRedirect();
+  const { membership } = await getActiveMembershipOrRedirect();
+  const establishmentId = String((membership as any)?.establishment_id ?? "").trim();
 
   const supabase = await createSupabaseServerClient();
+
+  if (!establishmentId) {
+    throw new Error("Estabelecimento não encontrado para carregar produtos.");
+  }
 
   const { data, error } = await supabase
     .from("products")
     .select(
       "id, sku, name, brand, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, shelf_life_days, allergens, is_active, price, created_at, created_by",
     )
+    .eq("establishment_id", establishmentId)
+    .eq("is_active", true)
     .order("product_type", { ascending: true })
     .order("name", { ascending: true });
 
@@ -133,7 +139,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
   const totalWithoutSector = products.length - totalWithSector;
 
-  // ==== MAPA DE USUÁRIOS (para saber quem fez o upload/cadastro) ====
   let userMap: Record<string, ProfileRow> = {};
   if (products.length > 0) {
     const userIds = Array.from(
@@ -189,14 +194,12 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      {/* Avisos de erro */}
       {errorMsg && (
         <div className="rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800">
           Erro: {decodeURIComponent(errorMsg)}
         </div>
       )}
 
-      {/* Avisos de sucesso */}
       {success === "new" && (
         <div className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
           Produto cadastrado com sucesso!
@@ -215,14 +218,12 @@ export default async function ProductsPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {/* ✅ NOVO: sucesso de importação */}
       {success === "import" && (
         <div className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
           Produtos importados com sucesso!
         </div>
       )}
 
-      {/* Cabeçalho + ações (RESPONSIVO NO MOBILE) */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-center sm:text-left">
           <h1 className="text-2xl font-semibold tracking-tight">Produtos</h1>
@@ -235,7 +236,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
         </div>
 
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
-          {/* NOVO PRODUTO */}
           <Dialog>
             <DialogTrigger asChild>
               <Button size="sm" className="w-full sm:w-auto">
@@ -243,7 +243,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
               </Button>
             </DialogTrigger>
 
-            {/* Modal NOVO PRODUTO */}
             <DialogContent className="max-h-[90vh] overflow-y-auto max-w-lg bg-white text-foreground">
               <DialogHeader>
                 <DialogTitle>Novo produto</DialogTitle>
@@ -251,13 +250,11 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
               <form action={createProduct} className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
-                  {/* SKU */}
                   <div className="space-y-2">
                     <Label htmlFor="sku">SKU / Código do item</Label>
                     <Input id="sku" name="sku" placeholder="Ex.: 1001711" />
                   </div>
 
-                  {/* Tipo */}
                   <div className="space-y-2">
                     <Label htmlFor="product_type">Tipo</Label>
                     <select
@@ -273,7 +270,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     </select>
                   </div>
 
-                  {/* Nome */}
                   <div className="md:col-span-2 space-y-2">
                     <Label htmlFor="name">Nome do item</Label>
                     <Input
@@ -284,7 +280,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     />
                   </div>
 
-                  {/* Marca */}
                   <div className="md:col-span-2 space-y-2">
                     <Label htmlFor="brand">Marca</Label>
                     <Input
@@ -294,7 +289,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     />
                   </div>
 
-                  {/* Qtd total da embalagem (NUMÉRICO) */}
                   <div className="space-y-2">
                     <Label htmlFor="package_qty">
                       Qtd (peso/volume da embalagem)
@@ -309,7 +303,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     />
                   </div>
 
-                  {/* ✅ Unidade (agora SELECT) */}
                   <div className="space-y-2">
                     <Label htmlFor="default_unit_label">Unidade padrão</Label>
                     <select
@@ -327,7 +320,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     </select>
                   </div>
 
-                  {/* Qtd. por embalagem (TEXTO LIVRE) */}
                   <div className="space-y-2">
                     <Label htmlFor="qty_per_package">Qtd. por Emb.</Label>
                     <Input
@@ -337,7 +329,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     />
                   </div>
 
-                  {/* ✅ Categoria (armazenamento) (agora SELECT) */}
                   <div className="space-y-2">
                     <Label htmlFor="category">Categoria (armazenamento)</Label>
                     <select
@@ -355,7 +346,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     </select>
                   </div>
 
-                  {/* ✅ Setor (Categoria) */}
                   <div className="md:col-span-2 space-y-2">
                     <Label htmlFor="sector_category">Setor (Categoria)</Label>
                     <select
@@ -389,7 +379,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     </div>
                   </div>
 
-                  {/* ✅ NOVO: Shelf life (dias) */}
                   <div className="space-y-2">
                     <Label htmlFor="shelf_life_days">Shelf life (dias)</Label>
                     <Input
@@ -405,7 +394,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     </p>
                   </div>
 
-                  {/* Preço */}
                   <div className="space-y-2">
                     <Label htmlFor="price">Preço / Custo padrão</Label>
                     <Input
@@ -418,7 +406,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                     />
                   </div>
 
-                  {/* Fator de conversão */}
                   <div className="space-y-2">
                     <Label htmlFor="conversion_factor">
                       Fator de conversão (opcional)
@@ -441,7 +428,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
             </DialogContent>
           </Dialog>
 
-          {/* EXPORTAR */}
           <form action="/api/export/products" method="GET" className="w-full sm:w-auto">
             <Button
               type="submit"
@@ -453,7 +439,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
             </Button>
           </form>
 
-          {/* IMPORTAR */}
           <Dialog>
             <DialogTrigger asChild>
               <Button
@@ -504,7 +489,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      {/* ✅ NOVO: Resumo por Setor (antes da Lista) */}
       <Card>
         <CardHeader>
           <CardTitle>Resumo por setor</CardTitle>
@@ -529,7 +513,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
         </CardContent>
       </Card>
 
-      {/* Lista de produtos */}
       <Card>
         <CardHeader>
           <CardTitle>Lista de produtos</CardTitle>
@@ -556,8 +539,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                       <TableHead className="sticky left-[110px] z-30 w-[130px] min-w-[130px] bg-white dark:bg-slate-950">
                         SKU
                       </TableHead>
-
-                      {/* ✅ AJUSTE: Nome com largura mínima para quebrar linha */}
                       <TableHead className="sticky left-[240px] z-30 min-w-[340px] bg-white shadow-[4px_0_8px_-6px_rgba(0,0,0,0.18)] dark:bg-slate-950">
                         Nome
                       </TableHead>
@@ -567,18 +548,11 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                       <TableHead className="w-[160px] text-center">
                         Qtd. por Emb.
                       </TableHead>
-
-                      {/* Categoria (armazenamento) */}
                       <TableHead>Categoria</TableHead>
-
-                      {/* Setor */}
                       <TableHead>Setor</TableHead>
-
-                      {/* ✅ NOVO: Shelf life */}
                       <TableHead className="w-[140px] text-center">
                         Shelf life (dias)
                       </TableHead>
-
                       <TableHead className="w-[110px] text-right">
                         Preço / Custo
                       </TableHead>
@@ -590,28 +564,24 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                   <TableBody>
                     {products.map((product) => (
                       <TableRow key={product.id}>
-                        {/* Tipo */}
                         <TableCell className="sticky left-0 z-20 w-[110px] min-w-[110px] bg-white dark:bg-slate-950">
                           <Badge variant="outline">
                             {getProductTypeLabel(product.product_type)}
                           </Badge>
                         </TableCell>
 
-                        {/* SKU */}
                         <TableCell className="sticky left-[110px] z-20 w-[130px] min-w-[130px] bg-white font-mono text-xs dark:bg-slate-950">
                           {product.sku ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
 
-                        {/* ✅ AJUSTE: Nome menor + quebra de linha (sem cortar) */}
                         <TableCell className="sticky left-[240px] z-20 min-w-[340px] align-top bg-white dark:bg-slate-950 shadow-[4px_0_8px_-6px_rgba(0,0,0,0.18)]">
                           <div className="text-xs font-medium leading-snug whitespace-normal break-words">
                             {product.name}
                           </div>
                         </TableCell>
 
-                        {/* Marca */}
                         <TableCell>
                           {product.brand?.trim() ? (
                             product.brand
@@ -620,12 +590,10 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                           )}
                         </TableCell>
 
-                        {/* Qtd total da embalagem (NUMÉRICO) */}
                         <TableCell className="text-center">
                           {formatQty(product.package_qty)}
                         </TableCell>
 
-                        {/* Unidade ✅ (força exibição em maiúsculo) */}
                         <TableCell>
                           {product.default_unit_label ? (
                             product.default_unit_label.toUpperCase()
@@ -634,7 +602,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                           )}
                         </TableCell>
 
-                        {/* Qtd. por embalagem (TEXTO) */}
                         <TableCell className="text-center">
                           {product.qty_per_package?.trim() ? (
                             product.qty_per_package
@@ -643,33 +610,28 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                           )}
                         </TableCell>
 
-                        {/* Categoria (armazenamento) */}
                         <TableCell>
                           {product.category ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
 
-                        {/* Setor */}
                         <TableCell>
                           {product.sector_category ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
 
-                        {/* Shelf life */}
                         <TableCell className="text-center">
                           {product.shelf_life_days ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
 
-                        {/* Preço */}
                         <TableCell className="text-right">
                           {formatCurrency(product.price)}
                         </TableCell>
 
-                        {/* Status */}
                         <TableCell className="text-center">
                           {product.is_active ? (
                             <Badge variant="secondary">Ativo</Badge>
@@ -678,268 +640,266 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                           )}
                         </TableCell>
 
-                        {/* Ações */}
                         <TableCell className="text-center">
-  <Dialog>
-    <DialogTrigger asChild>
-      <Button
-        variant="secondary"
-        size="sm"
-        className="border border-blue-300 bg-blue-50 text-blue-700 shadow-sm hover:bg-blue-100"
-      >
-        ✏️ Editar
-      </Button>
-    </DialogTrigger>
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="border border-blue-300 bg-blue-50 text-blue-700 shadow-sm hover:bg-blue-100"
+                              >
+                                ✏️ Editar
+                              </Button>
+                            </DialogTrigger>
 
-    <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto bg-white text-foreground">
-      <DialogHeader>
-        <DialogTitle>Editar produto — {product.name}</DialogTitle>
-      </DialogHeader>
+                            <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto bg-white text-foreground">
+                              <DialogHeader>
+                                <DialogTitle>Editar produto — {product.name}</DialogTitle>
+                              </DialogHeader>
 
-      <form
-        id={`update-product-form-${product.id}`}
-        action={updateProduct}
-        className="space-y-4"
-      >
-        <input type="hidden" name="id" value={product.id} />
+                              <form
+                                id={`update-product-form-${product.id}`}
+                                action={updateProduct}
+                                className="space-y-4"
+                              >
+                                <input type="hidden" name="id" value={product.id} />
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor={`sku-${product.id}`}>SKU / Código do item</Label>
-            <Input
-              id={`sku-${product.id}`}
-              name="sku"
-              defaultValue={product.sku ?? ""}
-            />
-          </div>
+                                <div className="grid gap-4 md:grid-cols-2">
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`sku-${product.id}`}>SKU / Código do item</Label>
+                                    <Input
+                                      id={`sku-${product.id}`}
+                                      name="sku"
+                                      defaultValue={product.sku ?? ""}
+                                    />
+                                  </div>
 
-          <div className="space-y-2">
-            <Label htmlFor={`product_type-${product.id}`}>Tipo</Label>
-            <select
-              id={`product_type-${product.id}`}
-              name="product_type"
-              defaultValue={product.product_type}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="INSU">INSU — Insumo</option>
-              <option value="PREP">PREP — Pré-preparo</option>
-              <option value="PROD">PROD — Produto acabado</option>
-            </select>
-          </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`product_type-${product.id}`}>Tipo</Label>
+                                    <select
+                                      id={`product_type-${product.id}`}
+                                      name="product_type"
+                                      defaultValue={product.product_type}
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      <option value="INSU">INSU — Insumo</option>
+                                      <option value="PREP">PREP — Pré-preparo</option>
+                                      <option value="PROD">PROD — Produto acabado</option>
+                                    </select>
+                                  </div>
 
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor={`name-${product.id}`}>Nome do item</Label>
-            <Input
-              id={`name-${product.id}`}
-              name="name"
-              defaultValue={product.name}
-              required
-            />
-          </div>
+                                  <div className="space-y-2 md:col-span-2">
+                                    <Label htmlFor={`name-${product.id}`}>Nome do item</Label>
+                                    <Input
+                                      id={`name-${product.id}`}
+                                      name="name"
+                                      defaultValue={product.name}
+                                      required
+                                    />
+                                  </div>
 
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor={`brand-${product.id}`}>Marca</Label>
-            <Input
-              id={`brand-${product.id}`}
-              name="brand"
-              defaultValue={product.brand ?? ""}
-              placeholder="Ex.: Nestlé, Seara, Sadia"
-            />
-          </div>
+                                  <div className="space-y-2 md:col-span-2">
+                                    <Label htmlFor={`brand-${product.id}`}>Marca</Label>
+                                    <Input
+                                      id={`brand-${product.id}`}
+                                      name="brand"
+                                      defaultValue={product.brand ?? ""}
+                                      placeholder="Ex.: Nestlé, Seara, Sadia"
+                                    />
+                                  </div>
 
-          <div className="space-y-2">
-            <Label htmlFor={`package_qty-${product.id}`}>
-              Qtd (peso/volume da embalagem)
-            </Label>
-            <Input
-              id={`package_qty-${product.id}`}
-              name="package_qty"
-              type="number"
-              step="0.001"
-              min="0"
-              defaultValue={product.package_qty ?? undefined}
-            />
-          </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`package_qty-${product.id}`}>
+                                      Qtd (peso/volume da embalagem)
+                                    </Label>
+                                    <Input
+                                      id={`package_qty-${product.id}`}
+                                      name="package_qty"
+                                      type="number"
+                                      step="0.001"
+                                      min="0"
+                                      defaultValue={product.package_qty ?? undefined}
+                                    />
+                                  </div>
 
-          <div className="space-y-2">
-            <Label htmlFor={`default_unit_label-${product.id}`}>
-              Unidade padrão
-            </Label>
-            <select
-              id={`default_unit_label-${product.id}`}
-              name="default_unit_label"
-              defaultValue={
-                (product.default_unit_label?.toUpperCase() as any) ?? "UN"
-              }
-              required
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {UNIT_OPTIONS.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
-          </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`default_unit_label-${product.id}`}>
+                                      Unidade padrão
+                                    </Label>
+                                    <select
+                                      id={`default_unit_label-${product.id}`}
+                                      name="default_unit_label"
+                                      defaultValue={
+                                        (product.default_unit_label?.toUpperCase() as any) ?? "UN"
+                                      }
+                                      required
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {UNIT_OPTIONS.map((u) => (
+                                        <option key={u} value={u}>
+                                          {u}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
 
-          <div className="space-y-2">
-            <Label htmlFor={`qty_per_package-${product.id}`}>Qtd. por Emb.</Label>
-            <Input
-              id={`qty_per_package-${product.id}`}
-              name="qty_per_package"
-              defaultValue={product.qty_per_package ?? ""}
-              placeholder="Ex.: 12 unidades, BDJ C/ 30 UNID"
-            />
-          </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`qty_per_package-${product.id}`}>Qtd. por Emb.</Label>
+                                    <Input
+                                      id={`qty_per_package-${product.id}`}
+                                      name="qty_per_package"
+                                      defaultValue={product.qty_per_package ?? ""}
+                                      placeholder="Ex.: 12 unidades, BDJ C/ 30 UNID"
+                                    />
+                                  </div>
 
-          <div className="space-y-2">
-            <Label htmlFor={`category-${product.id}`}>
-              Categoria (armazenamento)
-            </Label>
-            <select
-              id={`category-${product.id}`}
-              name="category"
-              defaultValue={product.category ?? ""}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">— Selecione —</option>
-              {STORAGE_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`category-${product.id}`}>
+                                      Categoria (armazenamento)
+                                    </Label>
+                                    <select
+                                      id={`category-${product.id}`}
+                                      name="category"
+                                      defaultValue={product.category ?? ""}
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      <option value="">— Selecione —</option>
+                                      {STORAGE_CATEGORIES.map((c) => (
+                                        <option key={c} value={c}>
+                                          {c}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
 
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor={`sector_category-${product.id}`}>
-              Setor (Categoria)
-            </Label>
-            <select
-              id={`sector_category-${product.id}`}
-              name="sector_category"
-              defaultValue={
-                normalizeProductSectorCategory(product.sector_category) ?? ""
-              }
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">— Selecione —</option>
-              {PRODUCT_SECTOR_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
+                                  <div className="space-y-2 md:col-span-2">
+                                    <Label htmlFor={`sector_category-${product.id}`}>
+                                      Setor (Categoria)
+                                    </Label>
+                                    <select
+                                      id={`sector_category-${product.id}`}
+                                      name="sector_category"
+                                      defaultValue={
+                                        normalizeProductSectorCategory(product.sector_category) ?? ""
+                                      }
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      <option value="">— Selecione —</option>
+                                      {PRODUCT_SECTOR_CATEGORIES.map((c) => (
+                                        <option key={c} value={c}>
+                                          {c}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
 
-              <div className="space-y-2 md:col-span-2">
-                <Label>Alergênico</Label>
-                <div className="grid grid-cols-1 gap-2 rounded-md border p-3 sm:grid-cols-2">
-                  {ALLERGEN_OPTIONS.map((item) => (
-                    <label key={item} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        name="allergens"
-                        value={item}
-                        defaultChecked={normalizeAllergenList(
-                          product.allergens,
-                        ).includes(item)}
-                      />
-                      <span>{item}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
+                                  <div className="space-y-2 md:col-span-2">
+                                    <Label>Alergênico</Label>
+                                    <div className="grid grid-cols-1 gap-2 rounded-md border p-3 sm:grid-cols-2">
+                                      {ALLERGEN_OPTIONS.map((item) => (
+                                        <label key={item} className="flex items-center gap-2 text-sm">
+                                          <input
+                                            type="checkbox"
+                                            name="allergens"
+                                            value={item}
+                                            defaultChecked={normalizeAllergenList(
+                                              product.allergens,
+                                            ).includes(item)}
+                                          />
+                                          <span>{item}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </div>
 
-          <div className="space-y-2">
-            <Label htmlFor={`shelf_life_days-${product.id}`}>
-              Shelf life (dias)
-            </Label>
-            <Input
-              id={`shelf_life_days-${product.id}`}
-              name="shelf_life_days"
-              type="number"
-              min="0"
-              step="1"
-              defaultValue={product.shelf_life_days ?? undefined}
-              placeholder="Ex.: 3"
-            />
-          </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`shelf_life_days-${product.id}`}>
+                                      Shelf life (dias)
+                                    </Label>
+                                    <Input
+                                      id={`shelf_life_days-${product.id}`}
+                                      name="shelf_life_days"
+                                      type="number"
+                                      min="0"
+                                      step="1"
+                                      defaultValue={product.shelf_life_days ?? undefined}
+                                      placeholder="Ex.: 3"
+                                    />
+                                  </div>
 
-          <div className="space-y-2">
-            <Label htmlFor={`price-${product.id}`}>Preço / Custo padrão</Label>
-            <Input
-              id={`price-${product.id}`}
-              name="price"
-              type="number"
-              step="0.01"
-              min="0"
-              defaultValue={product.price ?? undefined}
-            />
-          </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`price-${product.id}`}>Preço / Custo padrão</Label>
+                                    <Input
+                                      id={`price-${product.id}`}
+                                      name="price"
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      defaultValue={product.price ?? undefined}
+                                    />
+                                  </div>
 
-          <div className="space-y-2">
-            <Label htmlFor={`conversion_factor-${product.id}`}>
-              Fator de conversão (opcional)
-            </Label>
-            <Input
-              id={`conversion_factor-${product.id}`}
-              name="conversion_factor"
-              type="number"
-              step="0.0001"
-              min="0"
-              defaultValue={1}
-              placeholder="1"
-            />
-          </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`conversion_factor-${product.id}`}>
+                                      Fator de conversão (opcional)
+                                    </Label>
+                                    <Input
+                                      id={`conversion_factor-${product.id}`}
+                                      name="conversion_factor"
+                                      type="number"
+                                      step="0.0001"
+                                      min="0"
+                                      defaultValue={1}
+                                      placeholder="1"
+                                    />
+                                  </div>
 
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor={`is_active-${product.id}`}>Status</Label>
-            <div className="flex items-center gap-2">
-              <input
-                id={`is_active-${product.id}`}
-                name="is_active"
-                type="checkbox"
-                defaultChecked={product.is_active ?? true}
-              />
-              <span className="text-sm text-muted-foreground">Ativo</span>
-            </div>
-          </div>
-        </div>
-      </form>
+                                  <div className="space-y-2 md:col-span-2">
+                                    <Label htmlFor={`is_active-${product.id}`}>Status</Label>
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        id={`is_active-${product.id}`}
+                                        name="is_active"
+                                        type="checkbox"
+                                        defaultChecked={product.is_active ?? true}
+                                      />
+                                      <span className="text-sm text-muted-foreground">Ativo</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </form>
 
-      <div className="mt-4 border-t pt-4">
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <form action={deleteProduct} className="w-full sm:w-auto">
-            <input type="hidden" name="id" value={product.id} />
-            <Button
-              type="submit"
-              variant="destructive"
-              className="w-full sm:w-auto bg-red-600 text-white hover:bg-red-700"
-            >
-              Excluir
-            </Button>
-          </form>
+                              <div className="mt-4 border-t pt-4">
+                                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <form action={deleteProduct} className="w-full sm:w-auto">
+                                    <input type="hidden" name="id" value={product.id} />
+                                    <Button
+                                      type="submit"
+                                      variant="destructive"
+                                      className="w-full sm:w-auto bg-red-600 text-white hover:bg-red-700"
+                                    >
+                                      Excluir
+                                    </Button>
+                                  </form>
 
-          <Button
-            type="submit"
-            form={`update-product-form-${product.id}`}
-            className="w-full sm:w-auto"
-          >
-            Gravar alterações
-          </Button>
-        </div>
-      </div>
-    </DialogContent>
-  </Dialog>
-</TableCell>
+                                  <Button
+                                    type="submit"
+                                    form={`update-product-form-${product.id}`}
+                                    className="w-full sm:w-auto"
+                                  >
+                                    Gravar alterações
+                                  </Button>
+                                </div>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </div>
 
-              {/* INFO DE ÚLTIMO UPLOAD */}
               {lastUploadProduct && lastUploadProduct.created_at && (
                 <p className="mt-4 text-xs text-muted-foreground">
                   Último upload/importação de produtos registrado em{" "}

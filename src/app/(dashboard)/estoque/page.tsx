@@ -1458,9 +1458,33 @@ export default function EstoqueDashboardPage() {
         setLoading(true);
         setError("");
 
-        let currentStock = (await listCurrentStock()) as StockRow[];
+        let meta: ProductMetaRow[] = [];
 
-        if (currentStock.length === 0) {
+        try {
+          meta = await loadProductsMeta();
+          setProductsMeta(meta ?? []);
+        } catch (metaError) {
+          console.error("Falha ao buscar metadados de produtos:", metaError);
+          setProductsMeta([]);
+        }
+
+        let currentStock = (await listCurrentStock()) as StockRow[];
+        const activeProductIds = new Set(
+          (meta ?? [])
+            .filter((item) => item.is_active !== false)
+            .map((item) => String(item.id ?? "").trim())
+            .filter(Boolean)
+        );
+        const stockProductIds = new Set(
+          (currentStock ?? [])
+            .map((row) => String(row.product?.id ?? row.product_id ?? "").trim())
+            .filter(Boolean)
+        );
+        const hasMissingActiveProducts =
+          activeProductIds.size > 0 &&
+          Array.from(activeProductIds).some((productId) => !stockProductIds.has(productId));
+
+        if (currentStock.length === 0 || hasMissingActiveProducts) {
           try {
             await seedInitialStockFromProducts();
             currentStock = (await listCurrentStock()) as StockRow[];
@@ -1477,14 +1501,6 @@ export default function EstoqueDashboardPage() {
         } catch (movementError) {
           console.error("Falha ao buscar movimentações recentes:", movementError);
           setRecentMovements([]);
-        }
-
-        try {
-          const meta = await loadProductsMeta();
-          setProductsMeta(meta ?? []);
-        } catch (metaError) {
-          console.error("Falha ao buscar metadados de produtos:", metaError);
-          setProductsMeta([]);
         }
       } catch (err: any) {
         console.error("Erro ao carregar dashboard de estoque:", err);

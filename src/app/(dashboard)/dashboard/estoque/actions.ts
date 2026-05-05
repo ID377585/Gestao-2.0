@@ -86,10 +86,17 @@ export type RecentStockMovementRow = {
   created_at: string | null;
 };
 
+type CanonicalUnitFamily = "UNID" | "KG" | "LT" | "OUTROS";
+
+type AggregatedStockEntry = {
+  total: number;
+  byUnit: Map<string, number>;
+};
+
 function normalizeUnitLabel(input: any): string | null {
   const s = String(input ?? "").trim();
   if (!s) return null;
-  return s.toUpperCase();
+  return s.toUpperCase().replace(/\./g, "");
 }
 
 function normalizeNumber(input: any, fallback = 0): number {
@@ -104,6 +111,155 @@ function normalizeNullableNumber(input: any): number | null {
 
   const n = Number(input);
   return Number.isFinite(n) ? n : null;
+}
+
+function getCanonicalUnitMeta(value: string | null | undefined): {
+  family: CanonicalUnitFamily;
+  canonicalUnit: string;
+  factorToCanonical: number;
+} {
+  const unit = normalizeUnitLabel(value);
+
+  if (
+    unit === "UN" ||
+    unit === "UNID" ||
+    unit === "UND" ||
+    unit === "UNIDADE" ||
+    unit === "UNIDADES"
+  ) {
+    return {
+      family: "UNID",
+      canonicalUnit: "UNID",
+      factorToCanonical: 1,
+    };
+  }
+
+  if (unit === "KG") {
+    return {
+      family: "KG",
+      canonicalUnit: "KG",
+      factorToCanonical: 1,
+    };
+  }
+
+  if (
+    unit === "G" ||
+    unit === "GR" ||
+    unit === "GRAMA" ||
+    unit === "GRAMAS"
+  ) {
+    return {
+      family: "KG",
+      canonicalUnit: "KG",
+      factorToCanonical: 0.001,
+    };
+  }
+
+  if (
+    unit === "L" ||
+    unit === "LT" ||
+    unit === "LITRO" ||
+    unit === "LITROS"
+  ) {
+    return {
+      family: "LT",
+      canonicalUnit: "LT",
+      factorToCanonical: 1,
+    };
+  }
+
+  if (unit === "ML") {
+    return {
+      family: "LT",
+      canonicalUnit: "LT",
+      factorToCanonical: 0.001,
+    };
+  }
+
+  return {
+    family: "OUTROS",
+    canonicalUnit: unit ?? "UNID",
+    factorToCanonical: 1,
+  };
+}
+
+function convertQtyToCanonical(
+  qty: number | null | undefined,
+  unitLabel: string | null | undefined
+): number {
+  const safeQty = Number(qty ?? 0);
+  if (!Number.isFinite(safeQty)) return 0;
+
+  const meta = getCanonicalUnitMeta(unitLabel);
+  return safeQty * meta.factorToCanonical;
+}
+
+function accumulateAggregatedQty(
+  target: Map<string, AggregatedStockEntry>,
+  productId: string,
+  qty: number | null | undefined,
+  unitLabel: string | null | undefined
+) {
+  const pid = String(productId ?? "").trim();
+  if (!pid) return;
+
+  const meta = getCanonicalUnitMeta(unitLabel);
+  const canonicalQty = convertQtyToCanonical(qty, unitLabel);
+
+  if (!target.has(pid)) {
+    target.set(pid, {
+      total: 0,
+      byUnit: new Map<string, number>(),
+    });
+  }
+
+  const entry = target.get(pid)!;
+  entry.total += canonicalQty;
+  entry.byUnit.set(
+    meta.canonicalUnit,
+    (entry.byUnit.get(meta.canonicalUnit) ?? 0) + canonicalQty
+  );
+}
+
+function getMovementTime(row: RecentStockMovementRow) {
+  const time = row.created_at ? new Date(row.created_at).getTime() : Number.NaN;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function normalizeMovementDirection(row: RecentStockMovementRow) {
+  const direction = String(row.direction ?? "").trim().toUpperCase();
+  if (direction === "OUT") return "OUT";
+  return "IN";
+}
+
+function getMovementSourceTable(row: RecentStockMovementRow) {
+  const details = row.details && typeof row.details === "object" ? row.details : {};
+  return String((details as any).source_table ?? "").trim().toLowerCase();
+}
+
+function isDuplicateLabelStockMovement(
+  row: RecentStockMovementRow,
+  inventoryLabelRows: RecentStockMovementRow[]
+) {
+  if (getMovementSourceTable(row) !== "stock_movements") return false;
+  if (String(row.movement_type ?? "").trim().toLowerCase() !== "inventory_labels") {
+    return false;
+  }
+
+  const rowTime = getMovementTime(row);
+  const rowQty = normalizeNumber(row.qty, 0);
+  const rowUnit = normalizeUnitLabel(row.unit_label) ?? "";
+  const rowDirection = normalizeMovementDirection(row);
+
+  return inventoryLabelRows.some((candidate) => {
+    if (candidate.product_id !== row.product_id) return false;
+    if ((normalizeUnitLabel(candidate.unit_label) ?? "") !== rowUnit) return false;
+    if (normalizeMovementDirection(candidate) !== rowDirection) return false;
+    if (Math.abs(normalizeNumber(candidate.qty, 0) - rowQty) > 0.0001) return false;
+
+    const candidateTime = getMovementTime(candidate);
+    return Math.abs(candidateTime - rowTime) <= 5 * 60 * 1000;
+  });
 }
 
 function isMissingRelationError(error: any) {
@@ -165,8 +321,9 @@ async function ensureStockBalanceForProduct(params: {
   productId: string;
   unitLabel?: string | null;
 }) {
+  const canonicalMeta = getCanonicalUnitMeta(params.unitLabel);
   const canonicalUnit =
-    normalizeUnitLabel(params.unitLabel) ??
+    canonicalMeta.canonicalUnit ||
     (await getProductDefaultUnit({
       supabase: params.supabase,
       establishmentId: params.establishmentId,
@@ -226,9 +383,15 @@ async function ensureStockBalanceForProduct(params: {
   if (rows.length === 1) {
     const onlyRow = rows[0];
 
+    const mergedQuantity = convertQtyToCanonical(
+      normalizeNumber(onlyRow.quantity, 0),
+      onlyRow.unit_label
+    );
+
     const { error: updateSingleError } = await params.supabase
       .from("stock_balances")
       .update({
+        quantity: mergedQuantity,
         unit_label: canonicalUnit,
       })
       .eq("id", onlyRow.id);
@@ -249,10 +412,9 @@ async function ensureStockBalanceForProduct(params: {
   const keeper = rows[0];
   const duplicateIds = rows.slice(1).map((row) => String(row.id));
 
-  const mergedQuantity = rows.reduce(
-    (acc, row) => acc + normalizeNumber(row.quantity, 0),
-    0
-  );
+  const mergedQuantity = rows.reduce((acc, row) => {
+    return acc + convertQtyToCanonical(normalizeNumber(row.quantity, 0), row.unit_label);
+  }, 0);
 
   const mergedMin = rows.reduce(
     (acc, row) => Math.max(acc, normalizeNumber(row.min_qty, 0)),
@@ -420,43 +582,46 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
     qty_balance: normalizeNumber(r.qty_balance, 0),
   })) as CurrentStockRow[];
 
-  const byProduct = new Map<
-    string,
-    { total: number; byUnit: Map<string, number> }
-  >();
+  const byProduct = new Map<string, AggregatedStockEntry>();
 
   for (const r of currentRows) {
-    const pid = String(r.product_id);
-    const unit = String(r.unit_label ?? "").toUpperCase();
-    const qty = normalizeNumber(r.qty_balance, 0);
+    const pid = String(r.product_id ?? "").trim();
+    if (!pid) continue;
 
-    if (!byProduct.has(pid)) {
-      byProduct.set(pid, { total: 0, byUnit: new Map() });
-    }
-
-    const entry = byProduct.get(pid)!;
-    entry.total += qty;
-    entry.byUnit.set(unit, (entry.byUnit.get(unit) ?? 0) + qty);
+    accumulateAggregatedQty(
+      byProduct,
+      pid,
+      normalizeNumber(r.qty_balance, 0),
+      r.unit_label
+    );
   }
 
   const dedupedByProduct = new Map<string, StockBalanceRow>();
 
   for (const row of normalized) {
-    const pid = String(row.product_id);
-    const canonicalUnit = normalizeUnitLabel(
+    const pid = String(row.product_id ?? "").trim();
+    if (!pid) continue;
+
+    const canonicalMeta = getCanonicalUnitMeta(
       row.product?.default_unit_label ?? row.unit_label ?? "UN"
-    ) ?? "UN";
+    );
+    const canonicalUnit = canonicalMeta.canonicalUnit;
 
     const entry = byProduct.get(pid);
     const canonicalQty = entry?.byUnit.get(canonicalUnit);
     const totalQty = entry?.total ?? 0;
 
-    const stockBalanceQty = normalizeNumber(row.quantity, 0);
-    const resolvedQty = entry
-      ? canonicalQty !== undefined
-        ? canonicalQty
-        : totalQty
-      : stockBalanceQty;
+    const stockBalanceQty = convertQtyToCanonical(
+      normalizeNumber(row.quantity, 0),
+      row.unit_label ?? row.product?.default_unit_label
+    );
+
+    const resolvedQty =
+      entry && entry.byUnit.size > 0
+        ? canonicalQty !== undefined
+          ? canonicalQty
+          : totalQty
+        : stockBalanceQty;
 
     const nextRow: StockBalanceRow = {
       ...row,
@@ -471,12 +636,17 @@ export async function listCurrentStock(): Promise<StockBalanceRow[]> {
       continue;
     }
 
-    const existingStockBalanceQty = normalizeNumber(existing.quantity, 0);
-    const resolvedMergedQty = entry
-      ? canonicalQty !== undefined
-        ? canonicalQty
-        : totalQty
-      : existingStockBalanceQty + stockBalanceQty;
+    const existingStockBalanceQty = convertQtyToCanonical(
+      normalizeNumber(existing.quantity, 0),
+      existing.unit_label ?? existing.product?.default_unit_label
+    );
+
+    const resolvedMergedQty =
+      entry && entry.byUnit.size > 0
+        ? canonicalQty !== undefined
+          ? canonicalQty
+          : totalQty
+        : existingStockBalanceQty + stockBalanceQty;
 
     dedupedByProduct.set(pid, {
       ...existing,
@@ -535,7 +705,7 @@ export async function seedInitialStockFromProducts() {
 
   const { data: products, error: prodError } = await supabase
     .from("products")
-    .select("id, default_unit_label")
+    .select("id, default_unit_label, is_active")
     .eq("establishment_id", establishmentId)
     .eq("is_active", true);
 
@@ -544,13 +714,12 @@ export async function seedInitialStockFromProducts() {
     throw new Error("Não foi possível carregar produtos para criar estoque.");
   }
 
-  if (!products || products.length === 0) {
-    return;
-  }
+  const activeProducts = (products ?? []) as any[];
+  const activeProductIds = new Set(activeProducts.map((p) => String(p.id)));
 
   const { data: existingBalances, error: balError } = await supabase
     .from("stock_balances")
-    .select("product_id")
+    .select("id, product_id")
     .eq("establishment_id", establishmentId);
 
   if (balError) {
@@ -558,22 +727,40 @@ export async function seedInitialStockFromProducts() {
     throw new Error("Não foi possível verificar estoque existente.");
   }
 
-  const existingSet = new Set(
-    (existingBalances ?? []).map((b) => String((b as any).product_id))
-  );
+  const balanceRows = (existingBalances ?? []) as any[];
+  const existingSet = new Set(balanceRows.map((b) => String(b.product_id)));
 
-  const rowsToInsert = products
+  const orphanBalanceIds = balanceRows
+    .filter((row) => !activeProductIds.has(String(row.product_id)))
+    .map((row) => String(row.id));
+
+  if (orphanBalanceIds.length > 0) {
+    const { error: deleteOrphansError } = await supabase
+      .from("stock_balances")
+      .delete()
+      .in("id", orphanBalanceIds);
+
+    if (deleteOrphansError) {
+      console.error("Erro ao remover estruturas órfãs do estoque:", deleteOrphansError);
+      throw new Error("Não foi possível remover itens órfãos do estoque.");
+    }
+  }
+
+  const rowsToInsert = activeProducts
     .filter((p) => !existingSet.has(String(p.id)))
-    .map((p) => ({
-      establishment_id: establishmentId,
-      product_id: p.id,
-      quantity: 0,
-      unit_label: normalizeUnitLabel((p as any).default_unit_label) ?? "UN",
-      min_qty: 0,
-      med_qty: 0,
-      max_qty: 0,
-      location: "Estoque Principal",
-    }));
+    .map((p) => {
+      const canonicalMeta = getCanonicalUnitMeta((p as any).default_unit_label);
+      return {
+        establishment_id: establishmentId,
+        product_id: p.id,
+        quantity: 0,
+        unit_label: canonicalMeta.canonicalUnit ?? "UNID",
+        min_qty: 0,
+        med_qty: 0,
+        max_qty: 0,
+        location: "Estoque Principal",
+      };
+    });
 
   if (rowsToInsert.length > 0) {
     const { error: insertError } = await supabase
@@ -586,7 +773,7 @@ export async function seedInitialStockFromProducts() {
     }
   }
 
-  for (const product of products) {
+  for (const product of activeProducts) {
     await ensureStockBalanceForProduct({
       supabase,
       establishmentId,
@@ -594,6 +781,9 @@ export async function seedInitialStockFromProducts() {
       unitLabel: (product as any).default_unit_label ?? "UN",
     });
   }
+
+  revalidatePath("/dashboard/produtos");
+  revalidatePath("/dashboard/estoque");
 }
 
 export async function getInventorySessionWithItems(): Promise<{
@@ -896,23 +1086,29 @@ export async function listRecentStockMovements(): Promise<
     throw new Error("Não foi possível carregar as movimentações recentes.");
   }
 
-  return movements
+  const sortedMovements = movements
     .filter((row) => row.product_id && normalizeNumber(row.qty, 0) > 0)
     .sort((a, b) => {
       const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
       const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
       return bTime - aTime;
-    })
+    });
+
+  const inventoryLabelRows = sortedMovements.filter(
+    (row) =>
+      getMovementSourceTable(row) === "inventory_movements" &&
+      String(row.movement_type ?? "").trim().toUpperCase() === "LABEL_IN"
+  );
+
+  return sortedMovements
+    .filter((row) => !isDuplicateLabelStockMovement(row, inventoryLabelRows))
     .slice(0, 5000);
 }
 
 export async function finalizeInventory(sessionId: string) {
   const { supabase, establishmentId } = await getSupabaseAndEstablishment();
 
-  const {
-    data: authData,
-    error: authError,
-  } = await supabase.auth.getUser();
+  const { data: authData, error: authError } = await supabase.auth.getUser();
 
   if (authError || !authData?.user?.id) {
     console.error("Erro ao obter usuário autenticado:", authError);
@@ -993,17 +1189,17 @@ export async function finalizeInventory(sessionId: string) {
   const currentMap = new Map<string, number>();
   for (const row of currentRows ?? []) {
     const pid = String((row as any).product_id ?? "").trim();
-    const unit = String(
-      normalizeUnitLabel((row as any).unit_label) ?? ""
-    ).toUpperCase();
-    const qty = normalizeNumber((row as any).qty_balance, 0);
-
     if (!pid) continue;
 
-    const key = `${pid}__${unit}`;
-    currentMap.set(key, qty);
+    accumulateAggregatedQty(
+      currentMap as any,
+      pid,
+      normalizeNumber((row as any).qty_balance, 0),
+      normalizeUnitLabel((row as any).unit_label)
+    );
   }
 
+  const normalizedCurrentMap = new Map<string, AggregatedStockEntry>(currentMap as any);
   const touchedProductIds = new Set<string>();
 
   for (const item of consolidated.values()) {
@@ -1013,9 +1209,17 @@ export async function finalizeInventory(sessionId: string) {
       productId: item.product_id,
     });
 
-    const key = `${item.product_id}__${canonicalUnit}`;
-    const currentQty = currentMap.get(key) ?? 0;
-    const countedQty = normalizeNumber(item.counted_quantity, 0);
+    const countedQty = convertQtyToCanonical(
+      normalizeNumber(item.counted_quantity, 0),
+      item.unit_label ?? canonicalUnit
+    );
+
+    const currentEntry = normalizedCurrentMap.get(item.product_id);
+    const currentQty =
+      currentEntry?.byUnit.get(canonicalUnit) ??
+      currentEntry?.total ??
+      0;
+
     const diff = countedQty - currentQty;
 
     touchedProductIds.add(item.product_id);
@@ -1423,11 +1627,17 @@ export async function zeroStockBalanceAction(input: {
     throw new Error("Não foi possível consultar o saldo atual do produto.");
   }
 
-  const currentQty = (currentRows ?? []).reduce((acc: number, row: any) => {
-    const rowUnit = normalizeUnitLabel(row.unit_label) ?? "UN";
-    if (rowUnit !== canonicalUnit) return acc;
-    return acc + normalizeNumber(row.qty_balance, 0);
-  }, 0);
+  let currentQty = 0;
+  for (const row of currentRows ?? []) {
+    const meta = getCanonicalUnitMeta((row as any).unit_label);
+    const rowQty = convertQtyToCanonical(
+      normalizeNumber((row as any).qty_balance, 0),
+      meta.canonicalUnit
+    );
+
+    if (meta.canonicalUnit !== canonicalUnit) continue;
+    currentQty += rowQty;
+  }
 
   await supabase
     .from("stock_balances")

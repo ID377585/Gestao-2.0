@@ -111,33 +111,34 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   }
 
   const { data, error } = await supabase
-    .from("products")
-    .select(
-      "id, sku, name, brand, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, shelf_life_days, allergens, is_active, price, created_at, created_by",
-    )
-    .eq("establishment_id", establishmentId)
-    .eq("is_active", true)
-    .order("product_type", { ascending: true })
-    .order("name", { ascending: true });
+  .from("products")
+  .select(
+    "id, sku, name, brand, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, shelf_life_days, is_active, price, created_at, created_by",
+  )
+  .eq("establishment_id", establishmentId)
+  .eq("is_active", true)
+  .order("product_type", { ascending: true })
+  .order("name", { ascending: true });
 
-  const products: ProductRow[] = (data ?? []) as ProductRow[];
+const products: ProductRow[] = (data ?? []) as ProductRow[];
 
-  if (error) {
-    console.error("Erro ao carregar produtos:", error);
-  }
+if (error) {
+  console.error("Erro ao carregar produtos:", error);
+}
 
-  const sectorCounts = PRODUCT_SECTOR_CATEGORIES.map((sector) => {
-    const count = products.filter(
-      (p) => (p.sector_category ?? "").trim() === sector,
-    ).length;
-    return { sector, count };
-  });
-
-  const totalWithSector = products.filter((p) =>
-    Boolean((p.sector_category ?? "").trim()),
+const sectorCounts = PRODUCT_SECTOR_CATEGORIES.map((sector) => {
+  const count = products.filter(
+    (p) => (p.sector_category ?? "").trim() === sector,
   ).length;
 
-  const totalWithoutSector = products.length - totalWithSector;
+  return { sector, count };
+});
+
+const totalWithSector = products.filter((p) =>
+  Boolean((p.sector_category ?? "").trim()),
+).length;
+
+const totalWithoutSector = products.length - totalWithSector;
 
   let userMap: Record<string, ProfileRow> = {};
   if (products.length > 0) {

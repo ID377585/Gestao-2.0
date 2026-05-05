@@ -1,53 +1,35 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { listSuppliers } from "@/lib/compras/suppliers";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { membership } = await getActiveMembershipOrRedirect();
+    const suppliers = await listSuppliers();
 
-    const establishmentId = (membership as any)?.establishment_id as
-      | string
-      | undefined;
-
-    if (!establishmentId) {
-      return NextResponse.json(
-        { error: "Estabelecimento não encontrado." },
-        { status: 400 }
-      );
-    }
-
-    const { data, error } = await supabase
-      .from("suppliers")
-      .select("id, name, document, is_active")
-      .eq("establishment_id", establishmentId)
-      .order("name", { ascending: true });
-
-    if (error) {
-      console.error("[GET /api/suppliers/catalog] erro ao listar fornecedores:", error);
-      return NextResponse.json(
-        { error: "Não foi possível carregar os fornecedores." },
-        { status: 500 }
-      );
-    }
-
-    const normalized = (data ?? [])
-      .filter((item: any) => item?.is_active !== false)
-      .map((item: any) => ({
-        id: String(item.id),
-        name: String(item.name ?? ""),
-        document: item.document ? String(item.document) : null,
-      }));
+    const normalized = (suppliers ?? []).map((supplier: any) => ({
+      id: String(supplier.id),
+      name: String(
+        supplier.razaoSocial ??
+          supplier.razao_social ??
+          supplier.name ??
+          ""
+      ),
+      document: supplier.cnpj
+        ? String(supplier.cnpj)
+        : supplier.documento
+        ? String(supplier.documento)
+        : supplier.document
+        ? String(supplier.document)
+        : null,
+    }));
 
     return NextResponse.json(normalized);
   } catch (error) {
-    console.error("[GET /api/suppliers/catalog] erro inesperado:", error);
+    console.error("[GET /api/suppliers/catalog] erro ao carregar fornecedores:", error);
     return NextResponse.json(
-      { error: "Erro interno ao carregar fornecedores." },
+      { error: "Não foi possível carregar os fornecedores." },
       { status: 500 }
     );
   }

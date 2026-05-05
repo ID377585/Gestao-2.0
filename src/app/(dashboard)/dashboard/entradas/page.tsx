@@ -1,19 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import {
-  BarChart,
-  Bar,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-} from "recharts";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -60,6 +47,12 @@ type ProductCatalogItem = {
   category?: string | null;
   sector_category?: string | null;
   shelf_life_days?: number | null;
+};
+
+type SupplierCatalogItem = {
+  id: string;
+  name: string;
+  document: string | null;
 };
 
 type EntryItemDraft = {
@@ -378,6 +371,7 @@ function buildPrintHtml(entry: InvoiceEntryRow) {
 
 export default function EntradasPage() {
   const [products, setProducts] = useState<ProductCatalogItem[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierCatalogItem[]>([]);
   const [entries, setEntries] = useState<InvoiceEntryRow[]>([]);
   const [drafts, setDrafts] = useState<InvoiceEntryDraftRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -388,6 +382,7 @@ export default function EntradasPage() {
   const [draftName, setDraftName] = useState("Rascunho de entrada");
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
 
+  const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [supplierName, setSupplierName] = useState("");
   const [supplierDocument, setSupplierDocument] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -430,12 +425,28 @@ export default function EntradasPage() {
   const xmlInputRef = useRef<HTMLInputElement | null>(null);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
 
+  const handleSupplierSelection = (supplierId: string) => {
+    setSelectedSupplierId(supplierId);
+
+    const selectedSupplier = suppliers.find((item) => item.id === supplierId);
+
+    if (!selectedSupplier) {
+      setSupplierName("");
+      setSupplierDocument("");
+      return;
+    }
+
+    setSupplierName(selectedSupplier.name);
+    setSupplierDocument(selectedSupplier.document ?? "");
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
 
-      const [productsRes, entriesRes, draftsRes] = await Promise.all([
+      const [productsRes, suppliersRes, entriesRes, draftsRes] = await Promise.all([
         fetch("/api/products/catalog", { cache: "no-store" }),
+        fetch("/api/suppliers/catalog", { cache: "no-store" }),
         listInvoiceEntries(),
         listInvoiceEntryDrafts(),
       ]);
@@ -462,6 +473,20 @@ export default function EntradasPage() {
         setProducts([]);
       }
 
+      if (suppliersRes.ok) {
+        const suppliersData = await suppliersRes.json();
+        const normalizedSuppliers = Array.isArray(suppliersData)
+          ? suppliersData.map((supplier: any) => ({
+              id: String(supplier.id),
+              name: String(supplier.name ?? ""),
+              document: supplier.document ? String(supplier.document) : null,
+            }))
+          : [];
+        setSuppliers(normalizedSuppliers);
+      } else {
+        setSuppliers([]);
+      }
+
       const normalizedEntries = Array.isArray(entriesRes)
         ? entriesRes.map(normalizeEntry)
         : [];
@@ -486,6 +511,16 @@ export default function EntradasPage() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (!selectedSupplierId || suppliers.length === 0) return;
+
+    const currentSupplier = suppliers.find((item) => item.id === selectedSupplierId);
+    if (!currentSupplier) return;
+
+    setSupplierName(currentSupplier.name);
+    setSupplierDocument(currentSupplier.document ?? "");
+  }, [selectedSupplierId, suppliers]);
+
   const resetDraftItem = () => {
     setDraftProductId("");
     setDraftProductName("");
@@ -500,6 +535,7 @@ export default function EntradasPage() {
     setCurrentDraftId(null);
     setDraftName("Rascunho de entrada");
     setEditingEntryId(null);
+    setSelectedSupplierId("");
     setSupplierName("");
     setSupplierDocument("");
     setInvoiceNumber("");
@@ -547,6 +583,14 @@ export default function EntradasPage() {
   const applyDraftPayload = (payload: InvoiceEntryDraftPayload) => {
     setSupplierName(payload.supplier_name || "");
     setSupplierDocument(payload.supplier_document || "");
+
+    const matchedSupplier = suppliers.find(
+      (item) =>
+        item.name.trim().toLowerCase() === String(payload.supplier_name || "").trim().toLowerCase()
+    );
+
+    setSelectedSupplierId(matchedSupplier?.id ?? "");
+
     setInvoiceNumber(payload.invoice_number || "");
     setInvoiceSeries(payload.invoice_series || "");
     setInvoiceKey(payload.invoice_key || "");
@@ -580,9 +624,7 @@ export default function EntradasPage() {
   const totalItemsDraft = useMemo(() => items.length, [items]);
 
   const totalAmountDraft = useMemo(() => {
-    return Number(
-      items.reduce((acc, item) => acc + item.totalCost, 0).toFixed(2)
-    );
+    return Number(items.reduce((acc, item) => acc + item.totalCost, 0).toFixed(2));
   }, [items]);
 
   const onSelectProduct = (productId: string) => {
@@ -710,8 +752,19 @@ export default function EntradasPage() {
 
       const uploaded = await uploadAttachment(file, "xml");
 
-      setSupplierName(parsed.supplierName || "");
-      setSupplierDocument(parsed.supplierDocument || "");
+      const matchedSupplier = suppliers.find(
+        (supplier) =>
+          normalizeTextForCompare(supplier.name) ===
+            normalizeTextForCompare(parsed.supplierName || "") ||
+          (supplier.document &&
+            parsed.supplierDocument &&
+            normalizeTextForCompare(supplier.document) ===
+              normalizeTextForCompare(parsed.supplierDocument))
+      );
+
+      setSelectedSupplierId(matchedSupplier?.id ?? "");
+      setSupplierName(parsed.supplierName || matchedSupplier?.name || "");
+      setSupplierDocument(parsed.supplierDocument || matchedSupplier?.document || "");
       setInvoiceNumber(parsed.invoiceNumber || "");
       setInvoiceSeries(parsed.invoiceSeries || "");
       setInvoiceKey(parsed.invoiceKey || "");
@@ -831,6 +884,13 @@ export default function EntradasPage() {
     setEditingEntryId(entry.id);
     setCurrentDraftId(null);
     setDraftName(`Edicao NF ${entry.invoice_number}`);
+
+    const matchedSupplier = suppliers.find(
+      (item) =>
+        item.name.trim().toLowerCase() === entry.supplier_name.trim().toLowerCase()
+    );
+
+    setSelectedSupplierId(matchedSupplier?.id ?? "");
     setSupplierName(entry.supplier_name);
     setSupplierDocument(entry.supplier_document || "");
     setInvoiceNumber(entry.invoice_number);
@@ -906,6 +966,7 @@ export default function EntradasPage() {
       attachment_pdf_url: attachmentPdfUrl,
       attachment_pdf_path: attachmentPdfPath,
       update_product_standard_cost: updateProductStandardCost,
+      approval_status: "approved",
       items: items.map((item, index) => ({
         product_id: item.productId,
         product_name_snapshot: item.productName,
@@ -965,8 +1026,7 @@ export default function EntradasPage() {
     win.document.write(html);
     win.document.close();
   };
-
-  const supplierOptions = useMemo(() => {
+    const supplierOptions = useMemo(() => {
     const unique = Array.from(
       new Set(entries.map((entry) => entry.supplier_name.trim()).filter(Boolean))
     ).sort((a, b) => a.localeCompare(b, "pt-BR"));
@@ -1082,52 +1142,6 @@ export default function EntradasPage() {
       }, 0);
   }, [filteredEntries]);
 
-  const chartByMonth = useMemo(() => {
-    const grouped = new Map<string, { label: string; total: number; notes: number }>();
-
-    filteredEntries
-      .filter((entry) => entry.status === "active")
-      .forEach((entry) => {
-        const monthKey = entry.entry_date.slice(0, 7);
-        const current = grouped.get(monthKey);
-
-        if (!current) {
-          grouped.set(monthKey, {
-            label: monthKey,
-            total: entry.total_amount,
-            notes: 1,
-          });
-        } else {
-          grouped.set(monthKey, {
-            label: monthKey,
-            total: Number((current.total + entry.total_amount).toFixed(2)),
-            notes: current.notes + 1,
-          });
-        }
-      });
-
-    return Array.from(grouped.values()).sort((a, b) => a.label.localeCompare(b.label));
-  }, [filteredEntries]);
-
-  const chartBySupplier = useMemo(() => {
-    const grouped = new Map<string, number>();
-
-    filteredEntries
-      .filter((entry) => entry.status === "active")
-      .forEach((entry) => {
-        const current = grouped.get(entry.supplier_name) ?? 0;
-        grouped.set(
-          entry.supplier_name,
-          Number((current + entry.total_amount).toFixed(2))
-        );
-      });
-
-    return Array.from(grouped.entries())
-      .map(([name, total]) => ({ name, total }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 8);
-  }, [filteredEntries]);
-
   const exportFilteredCsv = () => {
     if (!filteredEntries.length) {
       alert("Nenhuma entrada encontrada para exportar.");
@@ -1201,41 +1215,41 @@ export default function EntradasPage() {
   };
 
   const getCostReview = (item: EntryItemDraft | InvoiceEntryRow["items"][number]) => {
-  const product =
-    "productId" in item
-      ? products.find((p) => p.id === item.productId)
-      : products.find((p) => p.id === item.product_id);
+    const product =
+      "productId" in item
+        ? products.find((p) => p.id === item.productId)
+        : products.find((p) => p.id === item.product_id);
 
-  const currentCost = Number(product?.standard_cost || product?.price || 0);
+    const currentCost = Number(product?.standard_cost || product?.price || 0);
 
-  const incomingCost = Number(
-    "unitCost" in item ? item.unitCost : item.unit_cost
-  );
+    const incomingCost = Number(
+      "unitCost" in item ? item.unitCost : item.unit_cost
+    );
 
-  if (!currentCost || currentCost <= 0) {
+    if (!currentCost || currentCost <= 0) {
+      return {
+        currentCost,
+        incomingCost,
+        diffPercent: null as number | null,
+        label: "Sem base cadastrada",
+      };
+    }
+
+    const diffPercent = Number(
+      (((incomingCost - currentCost) / currentCost) * 100).toFixed(2)
+    );
+
+    let label = "Dentro da faixa";
+    if (diffPercent > 10) label = "Acima do custo atual";
+    if (diffPercent < -10) label = "Abaixo do custo atual";
+
     return {
       currentCost,
       incomingCost,
-      diffPercent: null as number | null,
-      label: "Sem base cadastrada",
+      diffPercent,
+      label,
     };
-  }
-
-  const diffPercent = Number(
-    (((incomingCost - currentCost) / currentCost) * 100).toFixed(2)
-  );
-
-  let label = "Dentro da faixa";
-  if (diffPercent > 10) label = "Acima do custo atual";
-  if (diffPercent < -10) label = "Abaixo do custo atual";
-
-  return {
-    currentCost,
-    incomingCost,
-    diffPercent,
-    label,
   };
-};
 
   return (
     <div className="space-y-6">
@@ -1508,72 +1522,6 @@ export default function EntradasPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Gráfico por mês</CardTitle>
-            <CardDescription>Volume financeiro das entradas ativas por mês.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {chartByMonth.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                Não há dados suficientes para montar o gráfico mensal.
-              </div>
-            ) : (
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartByMonth}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="label" />
-                    <YAxis />
-                    <Tooltip
-                      formatter={(value) => [formatCurrency(Number(value ?? 0)), "Valor total"]}
-                    />
-                    <Bar dataKey="total" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Dashboard por fornecedor</CardTitle>
-            <CardDescription>Ranking de fornecedores por valor de entrada.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {chartBySupplier.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                Não há dados suficientes para montar o gráfico por fornecedor.
-              </div>
-            ) : (
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={chartBySupplier}
-                      dataKey="total"
-                      nameKey="name"
-                      outerRadius={110}
-                      label
-                    >
-                      {chartBySupplier.map((_, index) => (
-                        <Cell key={index} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value) => [formatCurrency(Number(value ?? 0)), "Valor total"]}
-                    />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[500px_minmax(0,1fr)]">
         <Card>
           <CardHeader>
@@ -1623,13 +1571,20 @@ export default function EntradasPage() {
 
             <div className="grid grid-cols-1 gap-4">
               <div>
-                <Label htmlFor="supplier_name">Fornecedor</Label>
-                <Input
-                  id="supplier_name"
-                  value={supplierName}
-                  onChange={(e) => setSupplierName(e.target.value)}
-                  placeholder="Ex.: Distribuidora Central"
-                />
+                <Label htmlFor="supplier_select">Fornecedor</Label>
+                <select
+                  id="supplier_select"
+                  className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={selectedSupplierId}
+                  onChange={(e) => handleSupplierSelection(e.target.value)}
+                >
+                  <option value="">— Selecionar fornecedor —</option>
+                  {suppliers.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -1637,7 +1592,7 @@ export default function EntradasPage() {
                 <Input
                   id="supplier_document"
                   value={supplierDocument}
-                  onChange={(e) => setSupplierDocument(e.target.value)}
+                  readOnly
                   placeholder="CNPJ ou CPF"
                 />
               </div>
@@ -1958,7 +1913,7 @@ export default function EntradasPage() {
                   ? "Processando..."
                   : editingEntryId
                   ? "Atualizar entrada"
-                  : "Salvar entrada"}
+                  : "Registrar entrada"}
               </Button>
             </div>
           </CardContent>

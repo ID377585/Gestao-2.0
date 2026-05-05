@@ -1026,7 +1026,8 @@ export default function EntradasPage() {
     win.document.write(html);
     win.document.close();
   };
-    const supplierOptions = useMemo(() => {
+
+  const supplierOptions = useMemo(() => {
     const unique = Array.from(
       new Set(entries.map((entry) => entry.supplier_name.trim()).filter(Boolean))
     ).sort((a, b) => a.localeCompare(b, "pt-BR"));
@@ -1131,15 +1132,6 @@ export default function EntradasPage() {
     return filteredEntries
       .filter((entry) => entry.status === "active")
       .reduce((acc, entry) => acc + entry.total_amount, 0);
-  }, [filteredEntries]);
-
-  const totalHistoryItems = useMemo(() => {
-    return filteredEntries
-      .filter((entry) => entry.status === "active")
-      .reduce((acc, entry) => {
-        const qty = entry.items.reduce((sum, item) => sum + item.quantity, 0);
-        return acc + qty;
-      }, 0);
   }, [filteredEntries]);
 
   const exportFilteredCsv = () => {
@@ -1280,7 +1272,7 @@ export default function EntradasPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Notas filtradas</CardTitle>
@@ -1320,95 +1312,7 @@ export default function EntradasPage() {
             <p className="text-xs text-muted-foreground">Entradas ativas</p>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Qtd total recebida</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalHistoryItems.toFixed(3)}</div>
-            <p className="text-xs text-muted-foreground">Soma das quantidades</p>
-          </CardContent>
-        </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Rascunhos persistentes</CardTitle>
-          <CardDescription>
-            Salve uma entrada em andamento e continue depois sem perder os dados.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_220px_220px]">
-            <div>
-              <Label htmlFor="draft_name">Nome do rascunho</Label>
-              <Input
-                id="draft_name"
-                value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
-                placeholder="Ex.: NF fornecedor setembro"
-              />
-            </div>
-
-            <div className="flex items-end">
-              <Button type="button" className="w-full" onClick={saveDraft} disabled={isPending}>
-                {currentDraftId ? "Atualizar rascunho" : "Salvar rascunho"}
-              </Button>
-            </div>
-
-            <div className="flex items-end">
-              {currentDraftId ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => {
-                    const draft = drafts.find((item) => item.id === currentDraftId);
-                    if (draft) {
-                      removeDraft(draft.id);
-                    }
-                  }}
-                >
-                  Excluir rascunho atual
-                </Button>
-              ) : (
-                <div className="text-sm text-muted-foreground">Nenhum rascunho aberto</div>
-              )}
-            </div>
-          </div>
-
-          {drafts.length === 0 ? (
-            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              Nenhum rascunho salvo ainda.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {drafts.map((draft) => (
-                <div key={draft.id} className="rounded-xl border p-4">
-                  <div className="mb-2 font-semibold">{draft.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Atualizado em {formatDateTime(draft.updated_at)}
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <Button type="button" size="sm" onClick={() => loadDraft(draft)}>
-                      Abrir
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => removeDraft(draft.id)}
-                    >
-                      Excluir
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -1522,7 +1426,7 @@ export default function EntradasPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[500px_minmax(0,1fr)]">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>

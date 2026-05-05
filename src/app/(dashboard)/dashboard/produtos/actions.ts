@@ -3,6 +3,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { normalizeAllergenList } from "@/lib/allergens";
@@ -71,13 +72,8 @@ async function getProductDefaultUnit(params: {
     .maybeSingle();
 
   if (error) {
-    console.error(
-      "[products.getProductDefaultUnit] error",
-      error,
-    );
-    throw new Error(
-      "Não foi possível consultar a unidade padrão do produto.",
-    );
+    console.error("[products.getProductDefaultUnit] error", error);
+    throw new Error("Não foi possível consultar a unidade padrão do produto.");
   }
 
   return normalizeStockUnit((data as any)?.default_unit_label);
@@ -109,13 +105,8 @@ async function ensureStockBalanceForProduct(params: {
     .order("id", { ascending: true });
 
   if (existingError) {
-    console.error(
-      "[products.ensureStockBalanceForProduct] error",
-      existingError,
-    );
-    throw new Error(
-      "Não foi possível verificar o vínculo do produto com o estoque.",
-    );
+    console.error("[products.ensureStockBalanceForProduct] error", existingError);
+    throw new Error("Não foi possível verificar o vínculo do produto com o estoque.");
   }
 
   const existingRows = (rows ?? []) as any[];
@@ -137,10 +128,7 @@ async function ensureStockBalanceForProduct(params: {
       .maybeSingle();
 
     if (insertError) {
-      console.error(
-        "[products.ensureStockBalanceForProduct] insert error",
-        insertError,
-      );
+      console.error("[products.ensureStockBalanceForProduct] insert error", insertError);
       throw new Error(
         "Produto criado, mas não foi possível criar o item correspondente no estoque.",
       );
@@ -270,8 +258,30 @@ function supabaseErrorText(error: any) {
  * Redireciona com erro sem derrubar a página.
  */
 function redirectWithError(message: string) {
-  const msg = encodeURIComponent(String(message).slice(0, 180));
+  const msg = encodeURIComponent(String(message).slice(0, 220));
   redirect(`/dashboard/produtos?error=${msg}`);
+}
+
+/**
+ * Detecta o erro especial de redirect do Next.js para não ser tratado
+ * como falha comum dentro de blocos try/catch.
+ */
+function isNextRedirectError(error: unknown) {
+  const digest = String((error as any)?.digest ?? "");
+  const message = String((error as any)?.message ?? "");
+  return digest.includes("NEXT_REDIRECT") || message.includes("NEXT_REDIRECT");
+}
+
+function isMissingRelationError(error: any) {
+  const code = String(error?.code ?? "");
+  const message = String(error?.message ?? "").toLowerCase();
+
+  return (
+    code === "42P01" ||
+    code === "42703" ||
+    message.includes("does not exist") ||
+    message.includes("schema cache")
+  );
 }
 
 /**
@@ -394,10 +404,7 @@ async function getMembershipIds() {
   const { data: authData, error: authError } = await supabase.auth.getUser();
 
   if (authError) {
-    console.error(
-      "[products.membership] auth.getUser error",
-      safeJson(authError),
-    );
+    console.error("[products.membership] auth.getUser error", safeJson(authError));
     redirect("/dashboard/produtos?error=usuario_nao_autenticado");
   }
 
@@ -449,7 +456,7 @@ async function getMembershipIds() {
 
 /**
  * Verifica se o produto possui histórico operacional.
- * Regra cirúrgica: se tiver histórico, não exclui; apenas inativa.
+ * Mantida para compatibilidade, mas o hard delete forçado ignora esse bloqueio.
  */
 async function productHasHistory(params: {
   supabase: any;
@@ -510,6 +517,7 @@ async function productHasHistory(params: {
 
 /**
  * Inativa o produto com segurança.
+ * Mantida para compatibilidade com fluxos futuros.
  */
 async function deactivateProduct(params: {
   supabase: any;
@@ -543,9 +551,76 @@ async function deactivateProduct(params: {
         productId: params.productId,
       }),
     );
+    throw new Error("Não foi possível inativar o produto que possui histórico.");
+  }
+}
+
+function getSupabaseAdminClient() {
+  const url =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+  if (!url || !serviceRoleKey) {
     throw new Error(
-      "Não foi possível inativar o produto que possui histórico.",
+      "Configuração ausente para exclusão forçada: defina NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.",
     );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+/**
+ * Remove vínculos conhecidos antes do hard delete do produto.
+ * Usa client admin para bypassar RLS em ambiente interno.
+ */
+async function deleteKnownProductDependenciesAdmin(params: {
+  adminSupabase: any;
+  productId: string;
+}) {
+  const operations = [
+    "inventory_items",
+    "inventory_movements",
+    "inventory_count_items",
+    "stock_movements",
+    "stock_balances",
+    "recipe_items",
+    "recipe_components",
+    "technical_sheet_items",
+    "technical_sheet_components",
+    "ficha_tecnica_itens",
+    "fichas_tecnicas_itens",
+    "production_items",
+    "pedido_items",
+    "order_items",
+  ];
+
+  for (const table of operations) {
+    const { error } = await params.adminSupabase
+      .from(table)
+      .delete()
+      .eq("product_id", params.productId);
+
+    if (error && !isMissingRelationError(error)) {
+      console.error(
+        "[products.deleteKnownProductDependenciesAdmin] delete error",
+        safeJson({
+          table,
+          message: error.message,
+          code: (error as any)?.code,
+          details: (error as any)?.details,
+          hint: (error as any)?.hint,
+          productId: params.productId,
+        }),
+      );
+      throw new Error(
+        `Não foi possível remover os vínculos do produto na tabela ${table}.`,
+      );
+    }
   }
 }
 
@@ -968,11 +1043,19 @@ export async function updateProduct(formData: FormData) {
 export async function deleteProduct(formData: FormData) {
   const { establishmentId, userId } = await getMembershipIds();
   const supabase = await createSupabaseServerClient();
+  const adminSupabase = getSupabaseAdminClient();
 
   const id = String(formData.get("id") ?? "").trim();
+  const deleteSecurityPassword = String(
+    formData.get("delete_security_password") ?? "",
+  ).trim();
 
   if (!id) {
     redirectWithError("ID do produto é obrigatório para exclusão.");
+  }
+
+  if (deleteSecurityPassword && deleteSecurityPassword !== "123456") {
+    redirectWithError("Senha de segurança inválida para exclusão definitiva.");
   }
 
   const { data: productBeforeDelete, error: productLookupError } = await supabase
@@ -1005,78 +1088,23 @@ export async function deleteProduct(formData: FormData) {
     );
   }
 
-  const hasHistory = await productHasHistory({
-    supabase,
-    establishmentId,
-    productId: id,
-  });
-
-  if (hasHistory) {
-    try {
-      await deactivateProduct({
-        supabase,
-        establishmentId,
-        productId: id,
-        userId,
-      });
-
-      console.log(
-        "[products.delete] deactivated_due_history",
-        safeJson({
-          id,
-          establishmentId,
-          userId,
-        }),
-      );
-
-      revalidateProductAndStockPages();
-      redirect("/dashboard/produtos?success=deactivated");
-    } catch (deactivateError: any) {
-      redirectWithError(
-        deactivateError?.message ??
-          "Não foi possível inativar o produto com histórico.",
-      );
+  try {
+    await deleteKnownProductDependenciesAdmin({
+      adminSupabase,
+      productId: id,
+    });
+  } catch (dependencyError: any) {
+    if (isNextRedirectError(dependencyError)) {
+      throw dependencyError;
     }
-  }
 
-  const { error: stockDeleteError } = await supabase
-    .from("stock_balances")
-    .delete()
-    .eq("product_id", id)
-    .eq("establishment_id", establishmentId);
-
-  if (stockDeleteError) {
-    console.error(
-      "[products.delete] stock delete error",
-      safeJson({
-        message: stockDeleteError.message,
-        code: (stockDeleteError as any).code,
-        details: (stockDeleteError as any).details,
-        hint: (stockDeleteError as any).hint,
-        establishmentId,
-        userId,
-        id,
-      }),
+    redirectWithError(
+      dependencyError?.message ??
+        "Não foi possível remover os vínculos do produto antes da exclusão.",
     );
-
-    try {
-      await deactivateProduct({
-        supabase,
-        establishmentId,
-        productId: id,
-        userId,
-      });
-
-      revalidateProductAndStockPages();
-      redirect("/dashboard/produtos?success=deactivated");
-    } catch {
-      redirectWithError(
-        "Não foi possível excluir o item correspondente no estoque.",
-      );
-    }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await adminSupabase
     .from("products")
     .delete()
     .eq("id", id)
@@ -1098,30 +1126,7 @@ export async function deleteProduct(formData: FormData) {
       }),
     );
 
-    const errorText = supabaseErrorText(error);
-
-    if (
-      errorText.toLowerCase().includes("foreign key") ||
-      errorText.toLowerCase().includes("violates foreign key constraint")
-    ) {
-      try {
-        await deactivateProduct({
-          supabase,
-          establishmentId,
-          productId: id,
-          userId,
-        });
-
-        revalidateProductAndStockPages();
-        redirect("/dashboard/produtos?success=deactivated");
-      } catch {
-        redirectWithError(
-          "Não foi possível excluir: este item já está vinculado a outros registros do sistema.",
-        );
-      }
-    }
-
-    redirectWithError(errorText);
+    redirectWithError(supabaseErrorText(error));
   }
 
   if (!data?.id) {
@@ -1131,12 +1136,12 @@ export async function deleteProduct(formData: FormData) {
         establishmentId,
         userId,
         id,
-        note: "Nenhuma linha excluída. Possível RLS/policy bloqueando ou produto não pertence ao usuário.",
+        note: "Nenhuma linha excluída. Possível filtro divergente ou produto inexistente.",
       }),
     );
 
     redirectWithError(
-      "Não foi possível excluir: produto não encontrado ou sem permissão.",
+      "Não foi possível excluir: produto não encontrado após a limpeza dos vínculos.",
     );
   }
 
@@ -1146,6 +1151,7 @@ export async function deleteProduct(formData: FormData) {
       id: data?.id,
       establishmentId,
       userId,
+      forced: true,
     }),
   );
 

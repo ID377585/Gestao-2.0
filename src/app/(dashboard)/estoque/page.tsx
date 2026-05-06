@@ -62,6 +62,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const DEFAULT_START_DATE = "2026-04-20";
+
 type StockRow = {
   id: string;
   product_id?: string | null;
@@ -138,6 +140,7 @@ type StockValuePieDatum = {
   amount: number;
   items: number;
   fill: string;
+  legendQuantityLabel?: string;
 };
 
 type UnitFamily = "KG" | "UNID" | "LT" | "OUTROS";
@@ -235,6 +238,8 @@ type StockAnalyticsRow = {
   consumptionCurrentMonthValue: number;
   consumptionPreviousMonthQty: number;
   consumptionPreviousMonthValue: number;
+  hasTrustedEntryAfterStart: boolean;
+  firstTrustedEntryAt: Date | null;
 };
 
 type AbcStockRow = StockAnalyticsRow & {
@@ -258,6 +263,14 @@ type PredictionAlertRow = {
   metric: string;
   action: string;
 };
+
+type TrustedEntryRegistry = Map<
+  string,
+  {
+    firstEntryAt: Date | null;
+    hasEntry: boolean;
+  }
+>;
 
 const CHART_BAR_COLORS = [
   "#60a5fa",
@@ -386,6 +399,14 @@ function formatDateLabel(value: Date | null | undefined) {
   return value.toLocaleDateString("pt-BR");
 }
 
+function formatDateInput(value: Date | null | undefined) {
+  if (!value) return "—";
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function formatSignedQty(value: number | null | undefined) {
   const safe = Number(value ?? 0);
   return `${safe > 0 ? "+" : ""}${formatQty(safe)}`;
@@ -396,12 +417,24 @@ function formatSignedCurrency(value: number | null | undefined) {
   return `${safe > 0 ? "+" : ""}${formatCurrency(safe)}`;
 }
 
-function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+function formatQtyWithUnit(value: number | null | undefined, unit: string | null | undefined) {
+  const cleanUnit = String(unit ?? "").trim().toUpperCase() || "UN";
+  return `${formatQty(value)} ${cleanUnit}`;
 }
 
-function endOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+function getPieQuantityUnitLabel(name: string) {
+  if (name.startsWith("KG")) return "KG";
+  if (name.startsWith("LT")) return "LT";
+  if (name.startsWith("UNID")) return "UNID";
+  return "";
+}
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function endOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
 }
 
 function subtractDays(date: Date, days: number) {
@@ -417,6 +450,15 @@ function parseDateValue(value: unknown) {
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) return null;
   return date;
+}
+
+function parseInputDate(value: string | null | undefined, endOfSelectedDay = false) {
+  if (!value) return null;
+  const [year, month, day] = String(value).split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return endOfSelectedDay
+    ? new Date(year, month - 1, day, 23, 59, 59, 999)
+    : new Date(year, month - 1, day, 0, 0, 0, 0);
 }
 
 function isDateInRange(value: unknown, start: Date, end: Date) {
@@ -591,10 +633,7 @@ function consolidateStockByProduct(
   return Array.from(map.values());
 }
 
-function buildChartData(
-  rows: ConsolidatedProductStockRow[],
-  allowedTypes: string[]
-) {
+function buildChartData(rows: ConsolidatedProductStockRow[], allowedTypes: string[]) {
   const map = new Map<string, ChartDatum>();
 
   for (const row of rows) {
@@ -650,6 +689,12 @@ function normalizeMovementText(movement: RecentStockMovementRow) {
     ...keys.map((key) => data?.[key]),
     details?.source_table,
     details?.qty_delta,
+    details?.reference_type,
+    details?.referenceType,
+    details?.document_type,
+    details?.documentType,
+    details?.module,
+    details?.screen,
   ];
 
   return values
@@ -816,6 +861,111 @@ function getMovementKind(movement: RecentStockMovementRow): MovementKind {
   return getMovementSignedQty(movement) < 0 ? "consumo" : "entrada";
 }
 
+function isTrustedEntryMovement(movement: RecentStockMovementRow) {
+  if (getMovementKind(movement) !== "entrada") return false;
+
+  const text = normalizeMovementText(movement);
+
+  const hasTrustedOrigin = [
+    "ENTRADA",
+    "RECEBIMENTO",
+    "RECEB",
+    "COMPRA",
+    "PURCHASE",
+    "RECEIPT",
+    "NOTA",
+    "NF",
+    "NFE",
+    "XML",
+    "FORNECEDOR",
+    "INBOUND",
+    "ENTRADAS",
+  ].some((token) => text.includes(token));
+
+  const hasTestLikeOrigin = [
+    "SEED",
+    "TESTE",
+    "TEST",
+    "MOCK",
+    "FAKE",
+    "INVENTARIO INICIAL",
+    "ESTOQUE INICIAL",
+    "ZERO_STOCK",
+    "AJUSTE",
+    "ADJUST",
+    "INVENTARIO",
+    "INVENTORY",
+    "CORRECAO MANUAL",
+    "MANUAL",
+  ].some((token) => text.includes(token));
+
+  return hasTrustedOrigin && !hasTestLikeOrigin;
+}
+
+function buildTrustedEntryRegistry(
+  movements: RecentStockMovementRow[],
+  businessStartDate: Date,
+  today: Date
+): TrustedEntryRegistry {
+  const registry: TrustedEntryRegistry = new Map();
+
+  for (const movement of movements) {
+    const productId = getMovementProductId(movement);
+    if (!productId) continue;
+
+    const createdAt = parseDateValue(getMovementCreatedAt(movement));
+    if (!createdAt) continue;
+    if (createdAt < businessStartDate) continue;
+    if (createdAt > today) continue;
+    if (!isTrustedEntryMovement(movement)) continue;
+
+    const current = registry.get(productId) ?? {
+      firstEntryAt: null,
+      hasEntry: false,
+    };
+
+    current.hasEntry = true;
+    if (!current.firstEntryAt || createdAt < current.firstEntryAt) {
+      current.firstEntryAt = createdAt;
+    }
+
+    registry.set(productId, current);
+  }
+
+  return registry;
+}
+
+function shouldUseMovementForAnalytics(
+  movement: RecentStockMovementRow,
+  trustedEntryRegistry: TrustedEntryRegistry,
+  businessStartDate: Date,
+  today: Date
+) {
+  const productId = getMovementProductId(movement);
+  if (!productId) return false;
+
+  const createdAt = parseDateValue(getMovementCreatedAt(movement));
+  if (!createdAt) return false;
+  if (createdAt < businessStartDate) return false;
+  if (createdAt > today) return false;
+
+  const trustedEntry = trustedEntryRegistry.get(productId);
+  if (!trustedEntry?.hasEntry || !trustedEntry.firstEntryAt) return false;
+  if (createdAt < trustedEntry.firstEntryAt) return false;
+
+  const kind = getMovementKind(movement);
+
+  if (kind === "entrada") {
+    return isTrustedEntryMovement(movement);
+  }
+
+  if (kind === "consumo" || kind === "ajuste") {
+    return true;
+  }
+
+  return false;
+}
+
 function createEmptyBuckets(): MovementMonthBuckets {
   return {
     grossQty: 0,
@@ -959,6 +1109,46 @@ async function loadProductsMeta(): Promise<ProductMetaRow[]> {
   }
 
   return [];
+}
+
+function isMovementInsideBusinessRules(
+  movement: RecentStockMovementRow,
+  start: Date,
+  end: Date,
+  businessStartDate: Date,
+  today: Date
+) {
+  const createdAt = parseDateValue(getMovementCreatedAt(movement));
+  if (!createdAt) return false;
+  if (createdAt < businessStartDate) return false;
+  if (createdAt > today) return false;
+  if (createdAt < start) return false;
+  if (createdAt > end) return false;
+  return true;
+}
+
+function filterMovementsByStrictPeriod(
+  movements: RecentStockMovementRow[],
+  start: Date,
+  end: Date,
+  businessStartDate: Date,
+  today: Date,
+  trustedEntryRegistry?: TrustedEntryRegistry
+) {
+  return movements.filter((movement) => {
+    if (!isMovementInsideBusinessRules(movement, start, end, businessStartDate, today)) {
+      return false;
+    }
+
+    if (!trustedEntryRegistry) return true;
+
+    return shouldUseMovementForAnalytics(
+      movement,
+      trustedEntryRegistry,
+      businessStartDate,
+      today
+    );
+  });
 }
 
 function GlassPanel({
@@ -1146,7 +1336,7 @@ function MonthDiffBarChart({ data }: { data: MovementDiffRow[] }) {
         <div>
           <div className="text-sm font-semibold">Top variações em R$</div>
           <div className="text-xs text-muted-foreground">
-            Barras positivas indicam aumento e negativas indicam redução contra o mês anterior.
+            Barras positivas indicam aumento e negativas indicam redução contra o período anterior.
           </div>
         </div>
         <div className="text-xs text-muted-foreground">
@@ -1231,6 +1421,7 @@ function ConsolidatedStockTooltip({
 
   const amountPercent = amountBase > 0 ? (item.amount / amountBase) * 100 : 0;
   const quantityPercent = quantityBase > 0 ? (item.quantity / quantityBase) * 100 : 0;
+  const quantityUnit = getPieQuantityUnitLabel(item.name);
 
   return (
     <div className="rounded-2xl border border-white/20 bg-slate-950/85 px-3 py-2 text-xs text-white shadow-2xl backdrop-blur-xl">
@@ -1238,7 +1429,9 @@ function ConsolidatedStockTooltip({
         <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.fill }} />
         {item.name}
       </div>
-      <div>Quantidade: {formatQty(item.quantity)}</div>
+      <div>
+        Quantidade: {formatQty(item.quantity)} {quantityUnit}
+      </div>
       <div>Valor: {formatCurrency(item.amount)}</div>
       <div>Itens: {item.items}</div>
       <div>
@@ -1280,13 +1473,28 @@ function ConsolidatedStockPieChart({
 
   return (
     <GlassPanel
-      title="Saldo consolidado"
-      description="Pizza por valor financeiro das famílias KG - R$, UNID - R$ e LT - R$, com quantidades atuais consolidadas."
+      title="Saldo consolidado atual"
+      description="Este bloco representa o saldo atual do estoque. Ele não é retroativo por período porque depende do saldo corrente da tabela de estoque."
       className="w-full"
     >
       <div className={`${GLASS_INNER_CLASS} p-4`}>
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="relative h-[430px] min-w-0 rounded-3xl border border-white/20 bg-white/20 p-3 backdrop-blur-md dark:border-white/10 dark:bg-white/5">
+          <div className="relative h-[560px] min-w-0 rounded-3xl border border-white/20 bg-white/20 p-3 backdrop-blur-md dark:border-white/10 dark:bg-white/5">
+            <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
+              <div className="max-w-[340px] rounded-2xl border border-white/35 bg-white/80 px-4 py-3 text-center shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/70">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Valor total em estoque
+                </div>
+                <div className="mt-1 text-xl font-bold">{formatCurrency(totalAmount)}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  KG: {formatQty(kgQty)} • UNID: {formatQty(unidQty)} • LT: {formatQty(ltQty)}
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {totalMonitoredItems} itens • qtd total {formatQty(totalMonitoredQty)}
+                </div>
+              </div>
+            </div>
+
             {hasChartData ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -1299,6 +1507,13 @@ function ConsolidatedStockPieChart({
                     }
                   />
                   <Legend
+                    verticalAlign="bottom"
+                    align="center"
+                    wrapperStyle={{
+                      paddingTop: 12,
+                      paddingBottom: 8,
+                      bottom: 0,
+                    }}
                     formatter={(value) => (
                       <span className="text-xs text-slate-700 dark:text-slate-200">{value}</span>
                     )}
@@ -1307,15 +1522,20 @@ function ConsolidatedStockPieChart({
                     data={pieData}
                     dataKey="chartValue"
                     nameKey="name"
+                    cx="50%"
+                    cy="58%"
                     innerRadius={82}
                     outerRadius={126}
                     paddingAngle={3}
                     stroke="rgba(255,255,255,0.35)"
                     strokeWidth={2}
                     labelLine={false}
-                    label={({ name, payload }) =>
-                      `${name}: ${formatQty(Number(payload?.quantity ?? 0))}`
-                    }
+                    label={({ payload }) => {
+                      const item = payload as StockValuePieDatum | undefined;
+                      if (!item) return "";
+                      const quantityUnit = getPieQuantityUnitLabel(item.name);
+                      return `${formatQty(Number(item.quantity ?? 0))} ${quantityUnit}`;
+                    }}
                   >
                     {pieData.map((entry, index) => (
                       <Cell
@@ -1337,29 +1557,14 @@ function ConsolidatedStockPieChart({
                 </div>
               </div>
             )}
-
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="max-w-[220px] rounded-2xl border border-white/35 bg-white/80 px-4 py-3 text-center shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/70">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                  Valor total em estoque
-                </div>
-                <div className="mt-1 text-xl font-bold">{formatCurrency(totalAmount)}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  KG: {formatQty(kgQty)} • UNID: {formatQty(unidQty)} • LT: {formatQty(ltQty)}
-                </div>
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  {totalMonitoredItems} itens • qtd total {formatQty(totalMonitoredQty)}
-                </div>
-              </div>
-            </div>
           </div>
-
-          <div className="space-y-3">
+                    <div className="space-y-3">
             {data.map((item) => {
               const amountPercentage = amountBase > 0 ? (item.amount / amountBase) * 100 : 0;
               const quantityPercentage =
                 quantityBase > 0 ? (item.quantity / quantityBase) * 100 : 0;
               const barPercentage = amountBase > 0 ? amountPercentage : quantityPercentage;
+              const quantityUnit = getPieQuantityUnitLabel(item.name);
 
               return (
                 <div key={item.name} className={`${GLASS_INNER_CLASS} p-3`}>
@@ -1372,7 +1577,8 @@ function ConsolidatedStockPieChart({
                       <div>
                         <div className="text-sm font-semibold">{item.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {item.items} produto(s) • qtd atual: {formatQty(item.quantity)}
+                          {item.items} produto(s) • qtd atual: {formatQty(item.quantity)}{" "}
+                          {quantityUnit}
                         </div>
                       </div>
                     </div>
@@ -1388,7 +1594,7 @@ function ConsolidatedStockPieChart({
                     <div className="rounded-xl bg-white/20 px-2 py-1 dark:bg-white/5">
                       Quantidade:{" "}
                       <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {formatQty(item.quantity)}
+                        {formatQty(item.quantity)} {quantityUnit}
                       </span>
                     </div>
                     <div className="rounded-xl bg-white/20 px-2 py-1 dark:bg-white/5">
@@ -1422,9 +1628,9 @@ function ConsolidatedStockPieChart({
               </div>
               <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                 <div>Qtd total monitorada: {formatQty(totalMonitoredQty)}</div>
-                <div>KG: {formatQty(kgQty)}</div>
-                <div>UNID: {formatQty(unidQty)}</div>
-                <div>LT: {formatQty(ltQty)}</div>
+                <div>KG: {formatQty(kgQty)} KG</div>
+                <div>UNID: {formatQty(unidQty)} UNID</div>
+                <div>LT: {formatQty(ltQty)} LT</div>
               </div>
             </div>
 
@@ -1435,7 +1641,8 @@ function ConsolidatedStockPieChart({
                   {unclassified.items} produto(s) não entram na pizza KG - R$, UNID - R$ e LT - R$.
                 </div>
                 <div className="mt-1">
-                  Qtd: {formatQty(unclassified.quantity)} • Valor: {formatCurrency(unclassified.amount)}
+                  Qtd: {formatQty(unclassified.quantity)} • Valor:{" "}
+                  {formatCurrency(unclassified.amount)}
                 </div>
               </div>
             ) : null}
@@ -1445,12 +1652,15 @@ function ConsolidatedStockPieChart({
     </GlassPanel>
   );
 }
+
 export default function EstoqueDashboardPage() {
   const [stock, setStock] = useState<StockRow[]>([]);
   const [recentMovements, setRecentMovements] = useState<RecentStockMovementRow[]>([]);
   const [productsMeta, setProductsMeta] = useState<ProductMetaRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [startDate, setStartDate] = useState<string>(DEFAULT_START_DATE);
+  const [endDate, setEndDate] = useState<string>(formatDateInput(new Date()));
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -1513,6 +1723,18 @@ export default function EstoqueDashboardPage() {
     bootstrap();
   }, []);
 
+  const today = useMemo(() => endOfDay(new Date()), []);
+  const todayInput = useMemo(() => formatDateInput(today), [today]);
+  const businessStartDate = useMemo(
+    () => parseInputDate(DEFAULT_START_DATE, false) ?? startOfDay(new Date()),
+    []
+  );
+
+  const trustedEntryRegistry = useMemo(
+    () => buildTrustedEntryRegistry(recentMovements, businessStartDate, today),
+    [recentMovements, businessStartDate, today]
+  );
+
   const productMetaById = useMemo(() => {
     const byId = new Map<string, ProductMetaRow>();
     for (const item of productsMeta) {
@@ -1520,6 +1742,77 @@ export default function EstoqueDashboardPage() {
     }
     return byId;
   }, [productsMeta]);
+
+  const safeStartDateInput = useMemo(() => {
+    if (!startDate) return DEFAULT_START_DATE;
+    if (startDate < DEFAULT_START_DATE) return DEFAULT_START_DATE;
+    if (startDate > todayInput) return todayInput;
+    return startDate;
+  }, [startDate, todayInput]);
+
+  const safeEndDateInput = useMemo(() => {
+    if (!endDate) return todayInput;
+    if (endDate > todayInput) return todayInput;
+    if (endDate < safeStartDateInput) return safeStartDateInput;
+    return endDate;
+  }, [endDate, safeStartDateInput, todayInput]);
+
+  useEffect(() => {
+    if (startDate !== safeStartDateInput) {
+      setStartDate(safeStartDateInput);
+    }
+  }, [startDate, safeStartDateInput]);
+
+  useEffect(() => {
+    if (endDate !== safeEndDateInput) {
+      setEndDate(safeEndDateInput);
+    }
+  }, [endDate, safeEndDateInput]);
+
+  const filterStart = useMemo(
+    () => parseInputDate(safeStartDateInput, false),
+    [safeStartDateInput]
+  );
+
+  const filterEnd = useMemo(
+    () => parseInputDate(safeEndDateInput, true),
+    [safeEndDateInput]
+  );
+
+  const normalizedFilter = useMemo(() => {
+    let safeStart =
+      filterStart ?? parseInputDate(DEFAULT_START_DATE, false) ?? startOfDay(new Date());
+    let safeEnd = filterEnd ?? endOfDay(new Date());
+
+    if (safeStart < businessStartDate) safeStart = businessStartDate;
+    if (safeEnd < businessStartDate) safeEnd = endOfDay(businessStartDate);
+
+    if (safeStart > today) safeStart = startOfDay(today);
+    if (safeEnd > today) safeEnd = today;
+
+    if (safeStart > safeEnd) {
+      safeEnd = endOfDay(safeStart);
+    }
+
+    return { start: safeStart, end: safeEnd };
+  }, [businessStartDate, filterEnd, filterStart, today]);
+
+  const filteredMovements = useMemo(() => {
+    return filterMovementsByStrictPeriod(
+      recentMovements,
+      normalizedFilter.start,
+      normalizedFilter.end,
+      businessStartDate,
+      today,
+      trustedEntryRegistry
+    );
+  }, [recentMovements, normalizedFilter, businessStartDate, today, trustedEntryRegistry]);
+
+  const filteredPeriodLabel = useMemo(() => {
+    return `${formatDateLabel(normalizedFilter.start)} até ${formatDateLabel(
+      normalizedFilter.end
+    )}`;
+  }, [normalizedFilter]);
 
   const enrichedStock = useMemo<EnrichedStockRow[]>(() => {
     return stock.map((row) => {
@@ -1646,13 +1939,35 @@ export default function EstoqueDashboardPage() {
   }, [consolidatedProducts]);
 
   const stockIntelligence = useMemo(() => {
-    const now = new Date();
-    const last30DaysStart = subtractDays(now, 30);
-    const currentMonthStart = startOfMonth(now);
-    const currentMonthEnd = endOfMonth(now);
-    const previousMonthBase = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const previousMonthStart = startOfMonth(previousMonthBase);
-    const previousMonthEnd = endOfMonth(previousMonthBase);
+    const periodStart =
+      normalizedFilter.start < businessStartDate ? businessStartDate : normalizedFilter.start;
+    const periodEnd = normalizedFilter.end > today ? today : normalizedFilter.end;
+
+    const totalDaysInPeriod = Math.max(1, differenceInDays(periodEnd, periodStart) + 1);
+
+    const rawPreviousPeriodEnd = new Date(periodStart.getTime() - 1);
+    const rawPreviousPeriodStart = startOfDay(subtractDays(periodStart, totalDaysInPeriod));
+
+    const previousPeriodStart =
+      rawPreviousPeriodStart < businessStartDate ? businessStartDate : rawPreviousPeriodStart;
+
+    const previousPeriodEnd =
+      rawPreviousPeriodEnd < businessStartDate
+        ? endOfDay(businessStartDate)
+        : rawPreviousPeriodEnd;
+
+    const canUsePreviousPeriod = previousPeriodEnd >= businessStartDate;
+
+    const previousPeriodMovements = canUsePreviousPeriod
+      ? filterMovementsByStrictPeriod(
+          recentMovements,
+          previousPeriodStart,
+          previousPeriodEnd,
+          businessStartDate,
+          today,
+          trustedEntryRegistry
+        )
+      : [];
 
     const stockByProductId = new Map<string, ConsolidatedProductStockRow>();
     for (const row of consolidatedProducts) {
@@ -1670,11 +1985,13 @@ export default function EstoqueDashboardPage() {
       return created;
     };
 
-    for (const movement of recentMovements) {
+    for (const movement of filteredMovements) {
       const productId = getMovementProductId(movement);
       if (!productId) continue;
 
       const movementDate = parseDateValue(getMovementCreatedAt(movement));
+      if (!movementDate) continue;
+
       const absQty = Math.abs(getMovementSignedQty(movement));
       const safeQty = Number.isFinite(absQty) ? absQty : 0;
       if (safeQty <= 0) continue;
@@ -1686,40 +2003,43 @@ export default function EstoqueDashboardPage() {
       const kind = getMovementKind(movement);
       const agg = ensureAgg(productId);
 
-      if (movementDate && (!agg.lastMovementAt || movementDate > agg.lastMovementAt)) {
+      if (!agg.lastMovementAt || movementDate > agg.lastMovementAt) {
         agg.lastMovementAt = movementDate;
       }
 
       agg.totalMovementQty += safeQty;
       agg.totalMovementValue += movementValue;
 
-      if (movementDate && movementDate >= last30DaysStart && movementDate <= now) {
-        if (kind === "entrada") {
-          agg.entries30Qty += safeQty;
-          agg.entries30Value += movementValue;
-        } else if (kind === "consumo") {
-          agg.consumption30Qty += safeQty;
-          agg.consumption30Value += movementValue;
-        } else {
-          agg.adjustments30Qty += safeQty;
-          agg.adjustments30Value += movementValue;
-        }
-      }
-
-      if (
-        movementDate &&
-        isDateInRange(movementDate, currentMonthStart, currentMonthEnd) &&
-        kind === "consumo"
-      ) {
+      if (kind === "entrada") {
+        agg.entries30Qty += safeQty;
+        agg.entries30Value += movementValue;
+      } else if (kind === "consumo") {
+        agg.consumption30Qty += safeQty;
+        agg.consumption30Value += movementValue;
         agg.consumptionCurrentMonthQty += safeQty;
         agg.consumptionCurrentMonthValue += movementValue;
+      } else {
+        agg.adjustments30Qty += safeQty;
+        agg.adjustments30Value += movementValue;
       }
+    }
 
-      if (
-        movementDate &&
-        isDateInRange(movementDate, previousMonthStart, previousMonthEnd) &&
-        kind === "consumo"
-      ) {
+    for (const movement of previousPeriodMovements) {
+      const productId = getMovementProductId(movement);
+      if (!productId) continue;
+
+      const absQty = Math.abs(getMovementSignedQty(movement));
+      const safeQty = Number.isFinite(absQty) ? absQty : 0;
+      if (safeQty <= 0) continue;
+
+      const stockRow = stockByProductId.get(productId);
+      const fallbackMeta = productMetaById.get(productId);
+      const unitCost = stockRow?.unitCost || getProductUnitCost(fallbackMeta);
+      const movementValue = safeQty * unitCost;
+      const kind = getMovementKind(movement);
+      const agg = ensureAgg(productId);
+
+      if (kind === "consumo") {
         agg.consumptionPreviousMonthQty += safeQty;
         agg.consumptionPreviousMonthValue += movementValue;
       }
@@ -1727,12 +2047,13 @@ export default function EstoqueDashboardPage() {
 
     const rows: StockAnalyticsRow[] = consolidatedProducts.map((row) => {
       const agg = movementByProduct.get(row.productId) ?? createEmptyMovementAgg();
+      const trustedEntry = trustedEntryRegistry.get(row.productId);
 
-      const avgDailyConsumption = agg.consumption30Qty / 30;
+      const avgDailyConsumption = agg.consumption30Qty / totalDaysInPeriod;
       const coverageDays = avgDailyConsumption > 0 ? row.currentQty / avgDailyConsumption : null;
       const turnover30 = row.stockValue > 0 ? agg.consumption30Value / row.stockValue : 0;
       const daysWithoutMovement = agg.lastMovementAt
-        ? differenceInDays(now, agg.lastMovementAt)
+        ? differenceInDays(periodEnd, agg.lastMovementAt)
         : null;
 
       const targetCoverageQty = avgDailyConsumption * 7;
@@ -1770,9 +2091,9 @@ export default function EstoqueDashboardPage() {
 
       let abnormalConsumptionLabel = "Dentro do padrão";
       if (agg.consumptionPreviousMonthQty === 0 && agg.consumptionCurrentMonthQty > 0) {
-        abnormalConsumptionLabel = "Novo consumo no mês";
+        abnormalConsumptionLabel = "Novo consumo no período";
       } else if (agg.consumptionPreviousMonthQty > 0 && agg.consumptionCurrentMonthQty === 0) {
-        abnormalConsumptionLabel = "Consumo zerado no mês";
+        abnormalConsumptionLabel = "Consumo zerado no período";
       } else if (abnormalConsumptionPercent >= 50) {
         abnormalConsumptionLabel = "Consumo acima do padrão";
       } else if (abnormalConsumptionPercent <= -50) {
@@ -1816,33 +2137,51 @@ export default function EstoqueDashboardPage() {
         consumptionCurrentMonthValue: agg.consumptionCurrentMonthValue,
         consumptionPreviousMonthQty: agg.consumptionPreviousMonthQty,
         consumptionPreviousMonthValue: agg.consumptionPreviousMonthValue,
+        hasTrustedEntryAfterStart: Boolean(trustedEntry?.hasEntry),
+        firstTrustedEntryAt: trustedEntry?.firstEntryAt ?? null,
       };
     });
 
-    const totalStockValue = rows.reduce((acc, row) => acc + row.stockValue, 0);
-    const totalConsumption30Value = rows.reduce((acc, row) => acc + row.consumption30Value, 0);
-    const totalConsumptionCurrentMonthValue = rows.reduce(
+    const validAnalyticsRows = rows.filter((row) => row.hasTrustedEntryAfterStart);
+
+    const totalStockValue = validAnalyticsRows.reduce((acc, row) => acc + row.stockValue, 0);
+    const totalConsumption30Value = validAnalyticsRows.reduce(
+      (acc, row) => acc + row.consumption30Value,
+      0
+    );
+    const totalConsumptionCurrentMonthValue = validAnalyticsRows.reduce(
       (acc, row) => acc + row.consumptionCurrentMonthValue,
       0
     );
-    const totalMovement30Qty = rows.reduce(
+    const totalMovement30Qty = validAnalyticsRows.reduce(
       (acc, row) => acc + row.entries30Qty + row.consumption30Qty + row.adjustments30Qty,
       0
     );
-    const totalAdjustments30Qty = rows.reduce((acc, row) => acc + row.adjustments30Qty, 0);
-    const totalMovement30Value = rows.reduce(
+    const totalAdjustments30Qty = validAnalyticsRows.reduce(
+      (acc, row) => acc + row.adjustments30Qty,
+      0
+    );
+    const totalMovement30Value = validAnalyticsRows.reduce(
       (acc, row) => acc + row.entries30Value + row.consumption30Value + row.adjustments30Value,
       0
     );
-    const totalAdjustments30Value = rows.reduce((acc, row) => acc + row.adjustments30Value, 0);
+    const totalAdjustments30Value = validAnalyticsRows.reduce(
+      (acc, row) => acc + row.adjustments30Value,
+      0
+    );
 
     const turnover30 = totalStockValue > 0 ? totalConsumption30Value / totalStockValue : 0;
     const coverageDaysByValue =
-      totalConsumption30Value > 0 ? totalStockValue / (totalConsumption30Value / 30) : null;
+      totalConsumption30Value > 0
+        ? totalStockValue / (totalConsumption30Value / totalDaysInPeriod)
+        : null;
 
     const stockAccuracy =
       totalMovement30Value > 0
-        ? Math.max(0, Math.min(100, 100 - (totalAdjustments30Value / totalMovement30Value) * 100))
+        ? Math.max(
+            0,
+            Math.min(100, 100 - (totalAdjustments30Value / totalMovement30Value) * 100)
+          )
         : null;
 
     const abcSummary: Record<AbcClass, AbcSummaryBucket> = {
@@ -1853,7 +2192,7 @@ export default function EstoqueDashboardPage() {
 
     let cumulativeValue = 0;
 
-    const abcRows: AbcStockRow[] = [...rows]
+    const abcRows: AbcStockRow[] = [...validAnalyticsRows]
       .filter((row) => row.stockValue > 0)
       .sort(
         (a, b) =>
@@ -1882,25 +2221,24 @@ export default function EstoqueDashboardPage() {
     abcSummary.A.percent = totalStockValue > 0 ? (abcSummary.A.value / totalStockValue) * 100 : 0;
     abcSummary.B.percent = totalStockValue > 0 ? (abcSummary.B.value / totalStockValue) * 100 : 0;
     abcSummary.C.percent = totalStockValue > 0 ? (abcSummary.C.value / totalStockValue) * 100 : 0;
-
-    const highTurnoverRows = [...rows]
+        const highTurnoverRows = [...validAnalyticsRows]
       .filter((row) => row.turnover30 > 0)
       .sort(
         (a, b) => b.turnover30 - a.turnover30 || b.consumption30Value - a.consumption30Value
       )
       .slice(0, 15);
 
-    const lowCoverageRows = [...rows]
+    const lowCoverageRows = [...validAnalyticsRows]
       .filter((row) => row.coverageDays !== null && row.avgDailyConsumption > 0)
       .sort((a, b) => Number(a.coverageDays ?? 999999) - Number(b.coverageDays ?? 999999))
       .slice(0, 15);
 
-    const immobilizedRows = [...rows]
+    const immobilizedRows = [...validAnalyticsRows]
       .filter((row) => row.stockValue > 0)
       .sort((a, b) => b.stockValue - a.stockValue || b.currentQty - a.currentQty)
       .slice(0, 15);
 
-    const noMovementRowsAll = [...rows]
+    const noMovementRowsAll = [...validAnalyticsRows]
       .filter(
         (row) =>
           row.currentQty > 0 && (row.daysWithoutMovement === null || row.daysWithoutMovement >= 30)
@@ -1913,7 +2251,7 @@ export default function EstoqueDashboardPage() {
 
     const noMovementRows = noMovementRowsAll.slice(0, 15);
 
-    const productionSuggestionsAll = [...rows]
+    const productionSuggestionsAll = [...validAnalyticsRows]
       .filter((row) => row.productionSuggestionQty > 0)
       .sort(
         (a, b) =>
@@ -1923,7 +2261,7 @@ export default function EstoqueDashboardPage() {
 
     const productionSuggestions = productionSuggestionsAll.slice(0, 15);
 
-    const abnormalConsumptionRows = [...rows]
+    const abnormalConsumptionRows = [...validAnalyticsRows]
       .filter((row) => row.consumptionCurrentMonthQty > 0 || row.consumptionPreviousMonthQty > 0)
       .filter((row) => Math.abs(row.abnormalConsumptionPercent ?? 0) >= 50)
       .sort(
@@ -1934,10 +2272,11 @@ export default function EstoqueDashboardPage() {
       )
       .slice(0, 15);
 
-    const adjustmentRankingRows = [...rows]
+    const adjustmentRankingRows = [...validAnalyticsRows]
       .filter((row) => row.adjustments30Qty > 0)
       .sort(
-        (a, b) => b.adjustments30Value - a.adjustments30Value || b.adjustments30Qty - a.adjustments30Qty
+        (a, b) =>
+          b.adjustments30Value - a.adjustments30Value || b.adjustments30Qty - a.adjustments30Qty
       )
       .slice(0, 12);
 
@@ -1961,7 +2300,7 @@ export default function EstoqueDashboardPage() {
       }
     };
 
-    for (const row of rows) {
+    for (const row of validAnalyticsRows) {
       if (row.riskLevel === "alto") {
         pushAlert({
           id: `${row.productId}-ruptura-alta`,
@@ -2015,12 +2354,15 @@ export default function EstoqueDashboardPage() {
           productName: row.productName,
           sku: row.sku,
           title: "Acuracidade em atenção",
-          metric: `Ajustes 30d: ${formatQty(row.adjustments30Qty)} ${row.unit}`,
+          metric: `Ajustes no período: ${formatQty(row.adjustments30Qty)} ${row.unit}`,
           action: "Conferir inventário, perdas e ficha técnica",
         });
       }
 
-      if (row.stockValue > 0 && (row.daysWithoutMovement === null || row.daysWithoutMovement >= 60)) {
+      if (
+        row.stockValue > 0 &&
+        (row.daysWithoutMovement === null || row.daysWithoutMovement >= 60)
+      ) {
         pushAlert({
           id: `${row.productId}-parado`,
           severity: "baixo",
@@ -2066,11 +2408,11 @@ export default function EstoqueDashboardPage() {
       .slice(0, 14);
 
     return {
-      rows,
+      rows: validAnalyticsRows,
       totalStockValue,
       totalConsumption30Value,
       totalConsumptionCurrentMonthValue,
-      avgDailyCmv: totalConsumption30Value / 30,
+      avgDailyCmv: totalConsumption30Value / totalDaysInPeriod,
       turnover30,
       coverageDaysByValue,
       stockAccuracy,
@@ -2090,20 +2432,68 @@ export default function EstoqueDashboardPage() {
       abnormalConsumptionRows,
       adjustmentRankingRows,
       predictiveAlerts,
+      totalDaysInPeriod,
+      previousPeriodStart,
+      previousPeriodEnd,
+      canUsePreviousPeriod,
     };
-  }, [consolidatedProducts, recentMovements, productMetaById]);
+  }, [
+    consolidatedProducts,
+    filteredMovements,
+    recentMovements,
+    normalizedFilter,
+    productMetaById,
+    businessStartDate,
+    today,
+    trustedEntryRegistry,
+  ]);
 
   const monthComparison = useMemo(() => {
-    const now = new Date();
-    const currentMonthStart = startOfMonth(now);
-    const currentMonthEnd = endOfMonth(now);
-    const previousMonthBase = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const previousMonthStart = startOfMonth(previousMonthBase);
-    const previousMonthEnd = endOfMonth(previousMonthBase);
+    const periodStart =
+      normalizedFilter.start < businessStartDate ? businessStartDate : normalizedFilter.start;
+    const periodEnd = normalizedFilter.end > today ? today : normalizedFilter.end;
+
+    const totalDaysInPeriod = Math.max(1, differenceInDays(periodEnd, periodStart) + 1);
+
+    const rawPreviousPeriodEnd = new Date(periodStart.getTime() - 1);
+    const rawPreviousPeriodStart = startOfDay(subtractDays(periodStart, totalDaysInPeriod));
+
+    const previousPeriodStart =
+      rawPreviousPeriodStart < businessStartDate ? businessStartDate : rawPreviousPeriodStart;
+
+    const previousPeriodEnd =
+      rawPreviousPeriodEnd < businessStartDate
+        ? endOfDay(businessStartDate)
+        : rawPreviousPeriodEnd;
+
+    const canUsePreviousPeriod = previousPeriodEnd >= businessStartDate;
+
+    const currentPeriodMovements = filterMovementsByStrictPeriod(
+      recentMovements,
+      periodStart,
+      periodEnd,
+      businessStartDate,
+      today,
+      trustedEntryRegistry
+    );
+
+    const previousPeriodMovements = canUsePreviousPeriod
+      ? filterMovementsByStrictPeriod(
+          recentMovements,
+          previousPeriodStart,
+          previousPeriodEnd,
+          businessStartDate,
+          today,
+          trustedEntryRegistry
+        )
+      : [];
 
     const productById = new Map<string, { name: string; sku: string; price: number }>();
 
     for (const row of consolidatedProducts) {
+      const trustedEntry = trustedEntryRegistry.get(row.productId);
+      if (!trustedEntry?.hasEntry) continue;
+
       productById.set(row.productId, {
         name: row.productName,
         sku: row.sku,
@@ -2114,6 +2504,9 @@ export default function EstoqueDashboardPage() {
     for (const meta of productsMeta) {
       const productId = String(meta.id ?? "").trim();
       if (!productId || productById.has(productId)) continue;
+
+      const trustedEntry = trustedEntryRegistry.get(productId);
+      if (!trustedEntry?.hasEntry) continue;
 
       productById.set(productId, {
         name: meta.name ?? "Produto sem vínculo",
@@ -2133,18 +2526,20 @@ export default function EstoqueDashboardPage() {
       return created;
     };
 
-    for (const movement of recentMovements) {
+    for (const movement of currentPeriodMovements) {
       const productId = getMovementProductId(movement);
-      if (!productId) continue;
+      if (!productId || !productById.has(productId)) continue;
 
-      const createdAt = getMovementCreatedAt(movement);
       const unitCost = productById.get(productId)?.price ?? 0;
+      addMovementToBucket(ensureBucket(currentByProduct, productId), movement, unitCost);
+    }
 
-      if (isDateInRange(createdAt, currentMonthStart, currentMonthEnd)) {
-        addMovementToBucket(ensureBucket(currentByProduct, productId), movement, unitCost);
-      } else if (isDateInRange(createdAt, previousMonthStart, previousMonthEnd)) {
-        addMovementToBucket(ensureBucket(previousByProduct, productId), movement, unitCost);
-      }
+    for (const movement of previousPeriodMovements) {
+      const productId = getMovementProductId(movement);
+      if (!productId || !productById.has(productId)) continue;
+
+      const unitCost = productById.get(productId)?.price ?? 0;
+      addMovementToBucket(ensureBucket(previousByProduct, productId), movement, unitCost);
     }
 
     const productIds = new Set([
@@ -2214,8 +2609,20 @@ export default function EstoqueDashboardPage() {
       diffQtyTotal: currentMonthQty - previousMonthQty,
       diffValueTotal: currentMonthValue - previousMonthValue,
       variationPercentTotal: getVariationPercent(currentMonthQty, previousMonthQty),
+      previousPeriodStart,
+      previousPeriodEnd,
+      totalDaysInPeriod,
+      canUsePreviousPeriod,
     };
-  }, [recentMovements, consolidatedProducts, productsMeta]);
+  }, [
+    recentMovements,
+    consolidatedProducts,
+    productsMeta,
+    normalizedFilter,
+    businessStartDate,
+    today,
+    trustedEntryRegistry,
+  ]);
 
   const insumosChartData = useMemo(
     () => buildChartData(consolidatedProducts, ["INSU"]),
@@ -2296,6 +2703,7 @@ export default function EstoqueDashboardPage() {
         amount: metrics.consolidatedByUnit.kg.amount,
         items: metrics.consolidatedByUnit.kg.items,
         fill: PIE_COLORS[0],
+        legendQuantityLabel: `${formatQty(metrics.consolidatedByUnit.kg.quantity)} KG`,
       },
       {
         name: "UNID - R$",
@@ -2303,6 +2711,7 @@ export default function EstoqueDashboardPage() {
         amount: metrics.consolidatedByUnit.unid.amount,
         items: metrics.consolidatedByUnit.unid.items,
         fill: PIE_COLORS[1],
+        legendQuantityLabel: `${formatQty(metrics.consolidatedByUnit.unid.quantity)} UNID`,
       },
       {
         name: "LT - R$",
@@ -2310,6 +2719,7 @@ export default function EstoqueDashboardPage() {
         amount: metrics.consolidatedByUnit.lt.amount,
         items: metrics.consolidatedByUnit.lt.items,
         fill: PIE_COLORS[2],
+        legendQuantityLabel: `${formatQty(metrics.consolidatedByUnit.lt.quantity)} LT`,
       },
     ],
     [metrics.consolidatedByUnit]
@@ -2338,10 +2748,101 @@ export default function EstoqueDashboardPage() {
   return (
     <div className="relative space-y-6 overflow-hidden rounded-[32px] bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_22%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.14),transparent_22%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.12),transparent_24%),linear-gradient(180deg,rgba(248,250,252,0.82),rgba(241,245,249,0.92))] p-1 dark:bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_22%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.16),transparent_22%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.14),transparent_24%),linear-gradient(180deg,rgba(2,6,23,0.86),rgba(15,23,42,0.94))]">
       <div className="space-y-6 rounded-[30px] px-3 py-4 sm:px-5">
+        <div className={`${GLASS_CARD_CLASS} rounded-3xl p-4`}>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Filtro global do dashboard
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Este filtro vale para toda a análise baseada em movimentações, comparativos,
+                rankings, listas, cards, alertas e resumos.
+              </div>
+            </div>
+                        <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-[170px]">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Data inicial
+                </label>
+                <input
+                  type="date"
+                  value={safeStartDateInput}
+                  min={DEFAULT_START_DATE}
+                  max={todayInput}
+                  onChange={(e) => {
+                    const next = e.target.value || DEFAULT_START_DATE;
+                    const normalizedNext =
+                      next < DEFAULT_START_DATE
+                        ? DEFAULT_START_DATE
+                        : next > todayInput
+                          ? todayInput
+                          : next;
+
+                    setStartDate(normalizedNext);
+
+                    if (safeEndDateInput < normalizedNext) {
+                      setEndDate(normalizedNext);
+                    }
+                  }}
+                  className="h-10 w-full rounded-xl border border-white/20 bg-white/70 px-3 text-sm outline-none ring-0 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/40"
+                />
+              </div>
+
+              <div className="min-w-[170px]">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Data final
+                </label>
+                <input
+                  type="date"
+                  value={safeEndDateInput}
+                  min={safeStartDateInput}
+                  max={todayInput}
+                  onChange={(e) => {
+                    const raw = e.target.value || todayInput;
+                    const cappedFuture = raw > todayInput ? todayInput : raw;
+                    const normalizedNext =
+                      cappedFuture < safeStartDateInput ? safeStartDateInput : cappedFuture;
+
+                    setEndDate(normalizedNext);
+                  }}
+                  className="h-10 w-full rounded-xl border border-white/20 bg-white/70 px-3 text-sm outline-none ring-0 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/40"
+                />
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full"
+                onClick={() => {
+                  setStartDate(DEFAULT_START_DATE);
+                  setEndDate(todayInput);
+                }}
+              >
+                Resetar período
+              </Button>
+
+              <div className="min-w-[260px] text-xs text-muted-foreground">
+                <div className="font-semibold text-slate-700 dark:text-slate-200">
+                  Período aplicado
+                </div>
+                <div>{filteredPeriodLabel}</div>
+                <div className="mt-1">
+                  Comparativo anterior:{" "}
+                  {monthComparison.canUsePreviousPeriod
+                    ? `${formatDateLabel(monthComparison.previousPeriodStart)} até ${formatDateLabel(
+                        monthComparison.previousPeriodEnd
+                      )}`
+                    : `Sem período anterior válido antes de ${formatDateLabel(businessStartDate)}`}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <DashboardPageHeader
           eyebrow="Estoque"
           title="Dashboard de Estoque"
-          description="Visão executiva do estoque com indicadores, comparativos mensais, listas, rankings e gráficos."
+          description="Visão executiva do estoque com filtros de período, comparativos, listas, rankings, gráficos e cards analíticos."
           actions={
             <>
               <Button asChild variant="outline" className={`${GLASS_CARD_CLASS} rounded-full`}>
@@ -2385,6 +2886,17 @@ export default function EstoqueDashboardPage() {
           </DashboardTableShell>
         ) : (
           <>
+            <div className={`${GLASS_CARD_CLASS} rounded-3xl p-4 text-sm`}>
+              <div className="font-semibold">Período oficial aplicado nos dados analíticos</div>
+              <div className="mt-1 text-muted-foreground">
+                Todos os cards, rankings, listas, resumos e comparativos baseados em movimentação
+                estão usando o período de {filteredPeriodLabel}. Nenhuma análise de movimentação
+                considera registros anteriores a {formatDateLabel(businessStartDate)}.
+                O único bloco que continua sendo saldo atual é o consolidado do estoque,
+                porque ele depende do saldo corrente e não de histórico por data.
+              </div>
+            </div>
+
             <ConsolidatedStockPieChart
               data={consolidatedStockPieData}
               totalAmount={metrics.valorTotal}
@@ -2394,16 +2906,17 @@ export default function EstoqueDashboardPage() {
             <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
               <DashboardTableShell
                 title="Alertas preditivos (IA simples)"
-                description="Sinais automáticos gerados por saldo, cobertura, ruptura futura, ajustes, excesso, produto parado e consumo fora do padrão."
+                description={`Sinais automáticos gerados com base nas movimentações filtradas em ${filteredPeriodLabel}.`}
                 empty={stockIntelligence.predictiveAlerts.length === 0}
                 emptyState={
                   <p className="text-sm text-muted-foreground">
-                    Nenhum alerta preditivo identificado com os dados atuais.
+                    Nenhum alerta preditivo identificado com os dados atuais do período filtrado.
                   </p>
                 }
                 footer={
                   <p className="text-xs text-muted-foreground">
-                    A regra é simples e auditável: usa saldo atual, limites, consumo recente, ajustes, cobertura e histórico recente de movimentações.
+                    A regra é simples e auditável: usa saldo atual, limites, consumo recente do período,
+                    ajustes, cobertura e histórico filtrado.
                   </p>
                 }
               >
@@ -2446,12 +2959,14 @@ export default function EstoqueDashboardPage() {
 
             <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
               <DashboardTableShell
-                title="Dif. mês anterior vs atual (Movimentação)"
-                description="Comparativo do volume bruto movimentado entre o mês atual e o anterior, com gráfico, motivo dominante da variação e percentual de variação."
+                title="Dif. período anterior vs atual (Movimentação)"
+                description={`Comparativo do volume bruto movimentado entre o período filtrado (${filteredPeriodLabel}) e o período imediatamente anterior com a mesma quantidade de dias, sem considerar registros anteriores a ${formatDateLabel(
+                  businessStartDate
+                )}.`}
                 empty={monthComparison.rows.length === 0}
                 emptyState={
                   <p className="text-sm text-muted-foreground">
-                    Não houve movimentações comparáveis entre o mês atual e o anterior.
+                    Não houve movimentações comparáveis entre o período atual e o anterior.
                   </p>
                 }
                 footer={
@@ -2594,9 +3109,9 @@ export default function EstoqueDashboardPage() {
               <DashboardStatGrid
                 items={[
                   {
-                    title: "Giro de estoque (30 dias)",
+                    title: "Giro de estoque (período)",
                     value: loading ? "…" : formatRatio(stockIntelligence.turnover30),
-                    description: "CMV estimado dos últimos 30 dias dividido pelo valor imobilizado.",
+                    description: "CMV estimado do período filtrado dividido pelo valor imobilizado.",
                     icon: <Activity className="h-4 w-4" />,
                   },
                   {
@@ -2607,7 +3122,7 @@ export default function EstoqueDashboardPage() {
                         ? "Sem base"
                         : formatPercent(stockIntelligence.stockAccuracy),
                     description:
-                      "Estimativa por valor de ajustes/inventário sobre movimentações dos últimos 30 dias.",
+                      "Estimativa por valor de ajustes/inventário sobre movimentações do período filtrado.",
                     icon: <Gauge className="h-4 w-4" />,
                     valueClassName:
                       stockIntelligence.stockAccuracy !== null && stockIntelligence.stockAccuracy < 95
@@ -2617,7 +3132,7 @@ export default function EstoqueDashboardPage() {
                   {
                     title: "Cobertura de estoque",
                     value: loading ? "…" : formatDays(stockIntelligence.coverageDaysByValue),
-                    description: "Dias de cobertura financeira: valor em estoque / CMV médio diário.",
+                    description: "Dias de cobertura financeira com base no consumo do período filtrado.",
                     icon: <CalendarClock className="h-4 w-4" />,
                   },
                   {
@@ -2634,30 +3149,34 @@ export default function EstoqueDashboardPage() {
               <DashboardStatGrid
                 items={[
                   {
-                    title: "CMV do mês atual",
+                    title: "CMV do período",
                     value: loading
                       ? "…"
                       : formatCurrency(stockIntelligence.totalConsumptionCurrentMonthValue),
                     description:
-                      "Consumo valorizado do mês atual pelas movimentações classificadas como consumo.",
+                      "Consumo valorizado do período filtrado pelas movimentações classificadas como consumo.",
                     icon: <Coins className="h-4 w-4" />,
                   },
                   {
                     title: "Curva ABC - Classe A",
                     value: loading ? "…" : `${stockIntelligence.abcSummary.A.items} itens`,
-                    description: `${formatPercent(stockIntelligence.abcSummary.A.percent)} do valor imobilizado está na classe A.`,
+                    description: `${formatPercent(
+                      stockIntelligence.abcSummary.A.percent
+                    )} do valor imobilizado está na classe A.`,
                     icon: <BarChart3 className="h-4 w-4" />,
                   },
                   {
                     title: "Produtos sem movimentação",
                     value: loading ? "…" : stockIntelligence.noMovementRowsTotal,
-                    description: "Itens com saldo e sem movimento há 30 dias ou sem registro recente.",
+                    description:
+                      "Itens com saldo e sem movimento relevante dentro da leitura analítica do período.",
                     icon: <RotateCcw className="h-4 w-4" />,
                   },
                   {
                     title: "Sugestões de produção/reposição",
                     value: loading ? "…" : stockIntelligence.productionSuggestionsTotal,
-                    description: "Itens com sugestão calculada por ruptura futura, mínimo, médio e cobertura.",
+                    description:
+                      "Itens com sugestão calculada por ruptura futura, mínimo, médio e cobertura.",
                     icon: <Zap className="h-4 w-4" />,
                   },
                 ]}
@@ -2685,7 +3204,7 @@ export default function EstoqueDashboardPage() {
             <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
               <HorizontalStockChart
                 title="Giro de estoque por produto"
-                description="Ranking de giro: consumo valorizado dos últimos 30 dias / valor em estoque."
+                description={`Ranking de giro com base no período filtrado: ${filteredPeriodLabel}.`}
                 data={giroChartData}
                 valueKey="qty"
                 formatValue={(value) => formatRatio(value)}
@@ -2693,7 +3212,7 @@ export default function EstoqueDashboardPage() {
 
               <HorizontalStockChart
                 title="Cobertura de estoque (dias)"
-                description="Produtos com menor cobertura estimada pelo consumo médio diário dos últimos 30 dias."
+                description={`Produtos com menor cobertura estimada pelo consumo médio diário no período filtrado: ${filteredPeriodLabel}.`}
                 data={coverageChartData}
                 valueKey="qty"
                 formatValue={(value) => formatDays(value)}
@@ -2702,8 +3221,8 @@ export default function EstoqueDashboardPage() {
 
             <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
               <HorizontalStockChart
-                title="CMV 30 dias por produto"
-                description="Consumo valorizado dos últimos 30 dias por custo/preço unitário."
+                title="CMV do período por produto"
+                description={`Consumo valorizado no período filtrado: ${filteredPeriodLabel}.`}
                 data={cmvChartData}
                 valueKey="value"
                 formatValue={(value) => formatCurrency(value)}
@@ -2721,11 +3240,11 @@ export default function EstoqueDashboardPage() {
             <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
               <DashboardTableShell
                 title="Ranking de giro e cobertura"
-                description="Produtos com maior giro recente e a respectiva cobertura em dias para apoiar compra, produção e reposição."
+                description={`Produtos com maior giro recente e cobertura em dias no período filtrado (${filteredPeriodLabel}).`}
                 empty={turnoverAndCoverageRows.length === 0}
                 emptyState={
                   <p className="text-sm text-muted-foreground">
-                    Não há consumo recente classificado para calcular giro e cobertura.
+                    Não há consumo recente classificado para calcular giro e cobertura neste período.
                   </p>
                 }
               >
@@ -2735,10 +3254,10 @@ export default function EstoqueDashboardPage() {
                       <TableRow>
                         <TableHead>Produto</TableHead>
                         <TableHead>SKU</TableHead>
-                        <TableHead className="text-right">Giro 30d</TableHead>
+                        <TableHead className="text-right">Giro</TableHead>
                         <TableHead className="text-right">Cobertura</TableHead>
-                        <TableHead className="text-right">Consumo 30d</TableHead>
-                        <TableHead className="text-right">CMV 30d</TableHead>
+                        <TableHead className="text-right">Consumo</TableHead>
+                        <TableHead className="text-right">CMV</TableHead>
                         <TableHead className="text-right">Valor em estoque</TableHead>
                         <TableHead>Risco</TableHead>
                       </TableRow>
@@ -2851,7 +3370,7 @@ export default function EstoqueDashboardPage() {
               <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
                 <DashboardTableShell
                   title="Produtos sem movimentação"
-                  description="Itens com saldo parado há 30 dias ou sem registro recente de movimentação."
+                  description={`Itens com saldo parado há 30 dias ou sem registro recente dentro da leitura do período ${filteredPeriodLabel}.`}
                   empty={stockIntelligence.noMovementRows.length === 0}
                   emptyState={
                     <p className="text-sm text-muted-foreground">
@@ -2903,7 +3422,7 @@ export default function EstoqueDashboardPage() {
               <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
                 <DashboardTableShell
                   title="Sugestão de produção inteligente"
-                  description="Sugestão baseada em ruptura futura, saldo mínimo, estoque médio e cobertura de 7 dias."
+                  description={`Sugestão baseada em ruptura futura, saldo mínimo, estoque médio e cobertura no período ${filteredPeriodLabel}.`}
                   empty={stockIntelligence.productionSuggestions.length === 0}
                   emptyState={
                     <p className="text-sm text-muted-foreground">
@@ -2953,11 +3472,11 @@ export default function EstoqueDashboardPage() {
               <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
                 <DashboardTableShell
                   title="Consumo fora do padrão"
-                  description="Comparativo do consumo do mês atual contra o mês anterior, destacando variações iguais ou superiores a 50%."
+                  description={`Comparativo do consumo do período atual (${filteredPeriodLabel}) contra o período imediatamente anterior com a mesma duração.`}
                   empty={stockIntelligence.abnormalConsumptionRows.length === 0}
                   emptyState={
                     <p className="text-sm text-muted-foreground">
-                      Nenhum consumo fora do padrão identificado no comparativo mensal.
+                      Nenhum consumo fora do padrão identificado no comparativo do período.
                     </p>
                   }
                 >
@@ -3014,7 +3533,7 @@ export default function EstoqueDashboardPage() {
             <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
               <DashboardTableShell
                 title="Acuracidade de estoque - ajustes e divergências"
-                description="Ranking dos produtos com maior volume de ajustes nos últimos 30 dias para orientar inventário, perdas e revisão de ficha técnica."
+                description={`Ranking dos produtos com maior volume de ajustes no período ${filteredPeriodLabel}.`}
                 empty={stockIntelligence.adjustmentRankingRows.length === 0}
                 emptyState={
                   <p className="text-sm text-muted-foreground">
@@ -3030,7 +3549,7 @@ export default function EstoqueDashboardPage() {
                         : formatPercent(stockIntelligence.stockAccuracy)}
                     </span>
                     <span>
-                      Ajustes 30d: {formatQty(stockIntelligence.totalAdjustments30Qty)} de{" "}
+                      Ajustes no período: {formatQty(stockIntelligence.totalAdjustments30Qty)} de{" "}
                       {formatQty(stockIntelligence.totalMovement30Qty)} movimentados
                     </span>
                     <span>
@@ -3047,9 +3566,9 @@ export default function EstoqueDashboardPage() {
                       <TableRow>
                         <TableHead>Produto</TableHead>
                         <TableHead>SKU</TableHead>
-                        <TableHead className="text-right">Ajustes 30d</TableHead>
+                        <TableHead className="text-right">Ajustes</TableHead>
                         <TableHead className="text-right">Valor ajuste</TableHead>
-                        <TableHead className="text-right">Consumo 30d</TableHead>
+                        <TableHead className="text-right">Consumo</TableHead>
                         <TableHead className="text-right">Impacto</TableHead>
                         <TableHead>Local</TableHead>
                       </TableRow>

@@ -13,9 +13,13 @@ export const PRODUCT_SECTOR_CATEGORIES = [
   "Bebidas",
   "Laticínios",
   "Frutos do Mar",
-  "Peixaria",
   "Pescados",
   "Carnes",
+  "Louça",
+  "Equipamentos",
+  "Utensílios",
+  "Ferramentas",
+  "Uniformes",
 ] as const;
 
 export type ProductSectorCategory = (typeof PRODUCT_SECTOR_CATEGORIES)[number];
@@ -39,6 +43,9 @@ export function normalizeProductSectorCategory(
 ): ProductSectorCategory | null {
   const key = normalizeKey(value);
   if (!key) return null;
+
+  if (key === "peixaria") return null;
+
   return SECTOR_BY_KEY.get(key) ?? null;
 }
 

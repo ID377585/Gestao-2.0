@@ -1,4 +1,3 @@
-// src/app/(dashboard)/dashboard/produtos/actions.ts
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -11,12 +10,13 @@ import {
   isProductSectorConstraintError,
   normalizeProductSectorCategory,
 } from "@/lib/product-sectors";
+import {
+  isProductAbcConstraintError,
+  normalizeProductAbcCurve,
+} from "@/lib/product-curves";
 
 export type ProductType = "INSU" | "PREP" | "PROD";
 
-/**
- * Normaliza possível ID para evitar "undefined"/"null" em string.
- */
 function normalizeId(value: any): string | null {
   if (!value) return null;
   const v = String(value).trim();
@@ -26,20 +26,12 @@ function normalizeId(value: any): string | null {
   return v;
 }
 
-/**
- * Normaliza texto (string) para:
- * - null quando vazio
- * - string trim quando preenchido
- */
 function normalizeText(value: FormDataEntryValue | null): string | null {
   if (value == null) return null;
   const v = String(value).trim();
   return v.length > 0 ? v : null;
 }
 
-/**
- * Normaliza unidade para evitar inconsistência.
- */
 function normalizeUnit(value: FormDataEntryValue | null): string | null {
   if (!value) return null;
   const v = String(value).trim().toUpperCase();
@@ -47,18 +39,12 @@ function normalizeUnit(value: FormDataEntryValue | null): string | null {
   return (ALLOWED as readonly string[]).includes(v) ? v : null;
 }
 
-/**
- * Unidade usada no estoque estrutural.
- */
 function normalizeStockUnit(value: string | null | undefined): string {
   const v = String(value ?? "").trim().toUpperCase();
   if (!v) return "UN";
   return v;
 }
 
-/**
- * Busca a unidade padrão canônica do produto.
- */
 async function getProductDefaultUnit(params: {
   supabase: any;
   establishmentId: string;
@@ -79,10 +65,6 @@ async function getProductDefaultUnit(params: {
   return normalizeStockUnit((data as any)?.default_unit_label);
 }
 
-/**
- * Garante que exista apenas uma linha em stock_balances para o produto
- * e que a unidade estrutural siga a unidade padrão do cadastro do produto.
- */
 async function ensureStockBalanceForProduct(params: {
   supabase: any;
   establishmentId: string;
@@ -229,9 +211,6 @@ async function ensureStockBalanceForProduct(params: {
   return keeper.id as string;
 }
 
-/**
- * Log seguro.
- */
 function safeJson(obj: any) {
   try {
     return JSON.stringify(obj);
@@ -240,9 +219,6 @@ function safeJson(obj: any) {
   }
 }
 
-/**
- * Converte erro do Supabase em texto curto pra querystring
- */
 function supabaseErrorText(error: any) {
   const parts = [
     error?.message,
@@ -254,18 +230,11 @@ function supabaseErrorText(error: any) {
   return parts.join(" | ") || "Falha desconhecida no Supabase";
 }
 
-/**
- * Redireciona com erro sem derrubar a página.
- */
 function redirectWithError(message: string) {
   const msg = encodeURIComponent(String(message).slice(0, 220));
   redirect(`/dashboard/produtos?error=${msg}`);
 }
 
-/**
- * Detecta o erro especial de redirect do Next.js para não ser tratado
- * como falha comum dentro de blocos try/catch.
- */
 function isNextRedirectError(error: unknown) {
   const digest = String((error as any)?.digest ?? "");
   const message = String((error as any)?.message ?? "");
@@ -284,9 +253,6 @@ function isMissingRelationError(error: any) {
   );
 }
 
-/**
- * Faz parse numérico seguro.
- */
 function parseNumber(
   value: FormDataEntryValue | null,
   decimals: number = 3,
@@ -301,9 +267,6 @@ function parseNumber(
   return Number(n.toFixed(decimals));
 }
 
-/**
- * Parse inteiro seguro.
- */
 function parseIntSafe(value: FormDataEntryValue | null): number | null {
   if (value == null) return null;
   const str = String(value).trim();
@@ -318,9 +281,6 @@ function parseIntSafe(value: FormDataEntryValue | null): number | null {
   return i;
 }
 
-/**
- * Checkbox pode chegar como "on", "true" etc.
- */
 function parseBoolean(value: FormDataEntryValue | null): boolean {
   if (value == null) return false;
   const s = String(value).toLowerCase().trim();
@@ -372,9 +332,6 @@ async function generateNextSku(
   return String(maxNumericSku + 1);
 }
 
-/**
- * Membership robusto.
- */
 async function getMembershipIds() {
   const supabase = await createSupabaseServerClient();
 
@@ -433,17 +390,6 @@ async function getMembershipIds() {
   const establishmentId = normalizeId(mData?.establishment_id);
   const userId = normalizeId(mData?.user_id) ?? authUserId;
 
-  console.log(
-    "[products.membership] fallback",
-    safeJson({
-      authUserId,
-      membershipFound: Boolean(mData),
-      establishment_id: mData?.establishment_id ?? null,
-      role: mData?.role ?? null,
-      is_active: mData?.is_active ?? null,
-    }),
-  );
-
   if (!establishmentId) {
     redirect("/dashboard/produtos?error=estabelecimento_nao_encontrado");
   }
@@ -454,10 +400,6 @@ async function getMembershipIds() {
   };
 }
 
-/**
- * Verifica se o produto possui histórico operacional.
- * Mantida para compatibilidade, mas o hard delete forçado ignora esse bloqueio.
- */
 async function productHasHistory(params: {
   supabase: any;
   establishmentId: string;
@@ -490,35 +432,14 @@ async function productHasHistory(params: {
       if (!error && Number(count ?? 0) > 0) {
         return true;
       }
-
-      if (error) {
-        console.warn(
-          "[products.productHasHistory] warning",
-          safeJson({
-            table: check.table,
-            message: error.message,
-            code: (error as any)?.code,
-          }),
-        );
-      }
-    } catch (err) {
-      console.warn(
-        "[products.productHasHistory] unexpected warning",
-        safeJson({
-          table: check.table,
-          err,
-        }),
-      );
+    } catch {
+      // mantém compatibilidade sem quebrar
     }
   }
 
   return false;
 }
 
-/**
- * Inativa o produto com segurança.
- * Mantida para compatibilidade com fluxos futuros.
- */
 async function deactivateProduct(params: {
   supabase: any;
   establishmentId: string;
@@ -574,10 +495,6 @@ function getSupabaseAdminClient() {
   });
 }
 
-/**
- * Remove vínculos conhecidos antes do hard delete do produto.
- * Usa client admin para bypassar RLS em ambiente interno.
- */
 async function deleteKnownProductDependenciesAdmin(params: {
   adminSupabase: any;
   productId: string;
@@ -624,9 +541,6 @@ async function deleteKnownProductDependenciesAdmin(params: {
   }
 }
 
-/**
- * Revalida módulos impactados por Produto x Estoque.
- */
 function revalidateProductAndStockPages() {
   revalidatePath("/dashboard/produtos");
   revalidatePath("/dashboard/estoque");
@@ -645,6 +559,7 @@ export async function createProduct(formData: FormData) {
   const brandRaw = formData.get("brand");
   const categoryRaw = formData.get("category");
   const sectorCategoryRaw = formData.get("sector_category");
+  const abcCurveRaw = formData.get("abc_curve");
   const shelfLifeRaw = formData.get("shelf_life_days");
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
@@ -688,6 +603,8 @@ export async function createProduct(formData: FormData) {
   const normalizedSectorCategory =
     normalizeProductSectorCategory(sector_category);
 
+  const abc_curve = normalizeProductAbcCurve(abcCurveRaw);
+
   const insertData: any = {
     establishment_id: establishmentId,
     name,
@@ -699,6 +616,7 @@ export async function createProduct(formData: FormData) {
     qty_per_package,
     category,
     sector_category: normalizedSectorCategory,
+    abc_curve,
     shelf_life_days,
     conversion_factor: conversion_factor ?? 1,
     price: price ?? 0,
@@ -715,15 +633,6 @@ export async function createProduct(formData: FormData) {
     .maybeSingle();
 
   if (isProductSectorConstraintError(error) && insertData.sector_category) {
-    console.warn(
-      "[products.create] sector_category rejected by database; retrying without sector",
-      safeJson({
-        sector_category: insertData.sector_category,
-        sku,
-        name,
-      }),
-    );
-
     const retryData = {
       ...insertData,
       sector_category: null,
@@ -737,6 +646,23 @@ export async function createProduct(formData: FormData) {
 
     if (!error) {
       insertData.sector_category = null;
+    }
+  }
+
+  if (isProductAbcConstraintError(error) && insertData.abc_curve) {
+    const retryData = {
+      ...insertData,
+      abc_curve: null,
+    };
+
+    ({ data, error } = await supabase
+      .from("products")
+      .insert(retryData)
+      .select("id")
+      .maybeSingle());
+
+    if (!error) {
+      insertData.abc_curve = null;
     }
   }
 
@@ -758,15 +684,6 @@ export async function createProduct(formData: FormData) {
   }
 
   if (!data?.id) {
-    console.error(
-      "[products.create] no-row",
-      safeJson({
-        establishmentId,
-        userId,
-        insertData,
-      }),
-    );
-
     redirectWithError(
       "Produto não foi criado (sem permissão/RLS ou nenhuma linha inserida).",
     );
@@ -782,33 +699,11 @@ export async function createProduct(formData: FormData) {
       unitLabel: default_unit_label,
     });
   } catch (stockError: any) {
-    console.error(
-      "[products.create] stock sync error",
-      safeJson({
-        productId: data?.id,
-        establishmentId,
-        message: stockError?.message,
-      }),
-    );
-
     redirectWithError(
       stockError?.message ??
         "Produto criado, mas houve falha ao sincronizar com o estoque.",
     );
   }
-
-  console.log(
-    "[products.create] ok",
-    safeJson({
-      id: data?.id,
-      establishmentId,
-      userId,
-      sku,
-      brand,
-      sector_category: insertData.sector_category,
-      shelf_life_days,
-    }),
-  );
 
   revalidateProductAndStockPages();
   redirect("/dashboard/produtos?success=new");
@@ -832,6 +727,7 @@ export async function updateProduct(formData: FormData) {
   const brandRaw = formData.get("brand");
   const categoryRaw = formData.get("category");
   const sectorCategoryRaw = formData.get("sector_category");
+  const abcCurveRaw = formData.get("abc_curve");
   const shelfLifeRaw = formData.get("shelf_life_days");
   const priceRaw = formData.get("price");
   const packageQtyRaw = formData.get("package_qty");
@@ -868,6 +764,7 @@ export async function updateProduct(formData: FormData) {
   const sector_category = normalizeText(sectorCategoryRaw);
   const normalizedSectorCategory =
     normalizeProductSectorCategory(sector_category);
+  const abc_curve = normalizeProductAbcCurve(abcCurveRaw);
 
   const updateData: any = {
     name,
@@ -879,6 +776,7 @@ export async function updateProduct(formData: FormData) {
     qty_per_package,
     category,
     sector_category: normalizedSectorCategory,
+    abc_curve,
     shelf_life_days,
     price: price ?? 0,
     conversion_factor: conversion_factor ?? 1,
@@ -901,16 +799,6 @@ export async function updateProduct(formData: FormData) {
     .maybeSingle();
 
   if (isProductSectorConstraintError(error) && updateData.sector_category) {
-    console.warn(
-      "[products.update] sector_category rejected by database; retrying without sector",
-      safeJson({
-        id,
-        sector_category: updateData.sector_category,
-        sku,
-        name,
-      }),
-    );
-
     const retryData = {
       ...updateData,
       sector_category: null,
@@ -926,6 +814,25 @@ export async function updateProduct(formData: FormData) {
 
     if (!error) {
       updateData.sector_category = null;
+    }
+  }
+
+  if (isProductAbcConstraintError(error) && updateData.abc_curve) {
+    const retryData = {
+      ...updateData,
+      abc_curve: null,
+    };
+
+    ({ data, error } = await supabase
+      .from("products")
+      .update(retryData)
+      .eq("id", id)
+      .eq("establishment_id", establishmentId)
+      .select("id")
+      .maybeSingle());
+
+    if (!error) {
+      updateData.abc_curve = null;
     }
   }
 
@@ -948,17 +855,6 @@ export async function updateProduct(formData: FormData) {
   }
 
   if (!data?.id) {
-    console.error(
-      "[products.update] no-row-updated",
-      safeJson({
-        establishmentId,
-        userId,
-        id,
-        updateData,
-        note: "Nenhuma linha atualizada. Possível RLS/policy bloqueando ou produto não pertence ao usuário.",
-      }),
-    );
-
     redirectWithError(
       "Não foi possível salvar: produto não encontrado ou sem permissão (RLS).",
     );
@@ -981,18 +877,6 @@ export async function updateProduct(formData: FormData) {
       .eq("product_id", id);
 
     if (stockUpdateError) {
-      console.error(
-        "[products.update] stock unit sync error",
-        safeJson({
-          id,
-          establishmentId,
-          message: stockUpdateError.message,
-          code: (stockUpdateError as any)?.code,
-          details: (stockUpdateError as any)?.details,
-          hint: (stockUpdateError as any)?.hint,
-        }),
-      );
-
       redirectWithError(
         "Produto atualizado, mas houve falha ao sincronizar a unidade no estoque.",
       );
@@ -1005,40 +889,15 @@ export async function updateProduct(formData: FormData) {
       unitLabel: default_unit_label,
     });
   } catch (stockError: any) {
-    console.error(
-      "[products.update] stock sync error",
-      safeJson({
-        id,
-        establishmentId,
-        message: stockError?.message,
-      }),
-    );
-
     redirectWithError(
       stockError?.message ??
         "Produto atualizado, mas houve falha ao sincronizar com o estoque.",
     );
   }
 
-  console.log(
-    "[products.update] ok",
-    safeJson({
-      id: data?.id,
-      establishmentId,
-      userId,
-      brand,
-      sector_category: updateData.sector_category,
-      shelf_life_days,
-    }),
-  );
-
   revalidateProductAndStockPages();
   redirect("/dashboard/produtos?success=updated");
 }
-
-/* =========================================================
-   DELETE PRODUCT
-   ========================================================= */
 
 export async function deleteProduct(formData: FormData) {
   const { establishmentId, userId } = await getMembershipIds();
@@ -1066,19 +925,6 @@ export async function deleteProduct(formData: FormData) {
     .maybeSingle();
 
   if (productLookupError) {
-    console.error(
-      "[products.delete] lookup error",
-      safeJson({
-        message: productLookupError.message,
-        code: (productLookupError as any)?.code,
-        details: (productLookupError as any)?.details,
-        hint: (productLookupError as any)?.hint,
-        establishmentId,
-        userId,
-        id,
-      }),
-    );
-
     redirectWithError("Não foi possível localizar o produto para exclusão.");
   }
 
@@ -1113,33 +959,10 @@ export async function deleteProduct(formData: FormData) {
     .maybeSingle();
 
   if (error) {
-    console.error(
-      "[products.delete] error",
-      safeJson({
-        message: error.message,
-        code: (error as any).code,
-        details: (error as any).details,
-        hint: (error as any).hint,
-        establishmentId,
-        userId,
-        id,
-      }),
-    );
-
     redirectWithError(supabaseErrorText(error));
   }
 
   if (!data?.id) {
-    console.error(
-      "[products.delete] no-row-deleted",
-      safeJson({
-        establishmentId,
-        userId,
-        id,
-        note: "Nenhuma linha excluída. Possível filtro divergente ou produto inexistente.",
-      }),
-    );
-
     redirectWithError(
       "Não foi possível excluir: produto não encontrado após a limpeza dos vínculos.",
     );

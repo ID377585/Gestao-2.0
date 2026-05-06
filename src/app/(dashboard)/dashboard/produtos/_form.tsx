@@ -10,6 +10,10 @@ import {
   PRODUCT_SECTOR_CATEGORIES,
   normalizeProductSectorCategory,
 } from "@/lib/product-sectors";
+import {
+  PRODUCT_ABC_CURVES,
+  normalizeProductAbcCurve,
+} from "@/lib/product-curves";
 
 type ProductType = "INSU" | "PREP" | "PROD";
 type StorageCategory = "Resfriado" | "Congelado" | "Temp. Ambiente";
@@ -19,28 +23,16 @@ type ProductFormProps = {
     id: string;
     sku: string | null;
     name: string;
-
     product_type: ProductType | null;
-
-    // Qtd (peso/volume da embalagem) -> número
     package_qty: number | null;
-
-    // Unidade padrão -> texto (KG, G, L, ML, UN)
     default_unit_label: string;
-
     qty_per_package: string | null;
-
-    // Categoria (armazenamento)
     category: StorageCategory | null;
-
     price: number | null;
     conversion_factor: number | null;
     is_active: boolean;
-
-    // ✅ Setor
     sector_category: string | null;
-
-    // (Opcional) aparece no seu modal
+    abc_curve?: "A" | "B" | "C" | string | null;
     shelf_life_days?: number | null;
     allergens?: string[] | string | null;
   };
@@ -67,7 +59,6 @@ export function ProductForm({ product }: ProductFormProps) {
 
   return (
     <form action={handleSubmit} className="space-y-4">
-      {/* 🔑 ID para update */}
       {isEdit && <input type="hidden" name="id" value={product!.id} />}
 
       <div>
@@ -163,7 +154,6 @@ export function ProductForm({ product }: ProductFormProps) {
         </div>
       </div>
 
-      {/* ✅ Setor */}
       <div>
         <label className="block text-sm font-medium">Setor (Categoria)</label>
         <select
@@ -182,8 +172,24 @@ export function ProductForm({ product }: ProductFormProps) {
         </select>
 
         <p className="mt-1 text-xs text-muted-foreground">
-          Use isso para identificar o setor responsável (e futuramente usar em Pedidos).
+          Use isso para identificar o setor responsável.
         </p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium">Curva do produto</label>
+        <select
+          name="abc_curve"
+          defaultValue={normalizeProductAbcCurve(product?.abc_curve) ?? ""}
+          className="w-full rounded border px-3 py-2"
+        >
+          <option value="">— Selecione —</option>
+          {PRODUCT_ABC_CURVES.map((curve) => (
+            <option key={curve} value={curve}>
+              {curve}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div>
@@ -205,7 +211,6 @@ export function ProductForm({ product }: ProductFormProps) {
         </div>
       </div>
 
-      {/* (Opcional) Shelf life */}
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium">Shelf life (dias)</label>

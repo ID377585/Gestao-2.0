@@ -1,4 +1,3 @@
-// src/app/(dashboard)/dashboard/produtos/page.tsx
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { createProduct, deleteProduct, updateProduct } from "./actions";
@@ -36,6 +35,10 @@ import {
   PRODUCT_SECTOR_CATEGORIES,
   normalizeProductSectorCategory,
 } from "@/lib/product-sectors";
+import {
+  PRODUCT_ABC_CURVES,
+  normalizeProductAbcCurve,
+} from "@/lib/product-curves";
 
 const UNIT_OPTIONS = ["UN", "KG", "G", "L", "ML"] as const;
 const STORAGE_CATEGORIES = ["Resfriado", "Congelado", "Temp. Ambiente"] as const;
@@ -51,6 +54,7 @@ type ProductRow = {
   qty_per_package: string | null;
   category: string | null;
   sector_category: string | null;
+  abc_curve: "A" | "B" | "C" | string | null;
   shelf_life_days: number | null;
   is_active: boolean | null;
   price: number | null;
@@ -111,34 +115,34 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   }
 
   const { data, error } = await supabase
-  .from("products")
-  .select(
-    "id, sku, name, brand, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, shelf_life_days, is_active, price, created_at, created_by",
-  )
-  .eq("establishment_id", establishmentId)
-  .eq("is_active", true)
-  .order("product_type", { ascending: true })
-  .order("name", { ascending: true });
+    .from("products")
+    .select(
+      "id, sku, name, brand, product_type, default_unit_label, package_qty, qty_per_package, category, sector_category, abc_curve, shelf_life_days, is_active, price, allergens, created_at, created_by",
+    )
+    .eq("establishment_id", establishmentId)
+    .eq("is_active", true)
+    .order("product_type", { ascending: true })
+    .order("name", { ascending: true });
 
-const products: ProductRow[] = (data ?? []) as ProductRow[];
+  const products: ProductRow[] = (data ?? []) as ProductRow[];
 
-if (error) {
-  console.error("Erro ao carregar produtos:", error);
-}
+  if (error) {
+    console.error("Erro ao carregar produtos:", error);
+  }
 
-const sectorCounts = PRODUCT_SECTOR_CATEGORIES.map((sector) => {
-  const count = products.filter(
-    (p) => (p.sector_category ?? "").trim() === sector,
+  const sectorCounts = PRODUCT_SECTOR_CATEGORIES.map((sector) => {
+    const count = products.filter(
+      (p) => (p.sector_category ?? "").trim() === sector,
+    ).length;
+
+    return { sector, count };
+  });
+
+  const totalWithSector = products.filter((p) =>
+    Boolean((p.sector_category ?? "").trim()),
   ).length;
 
-  return { sector, count };
-});
-
-const totalWithSector = products.filter((p) =>
-  Boolean((p.sector_category ?? "").trim()),
-).length;
-
-const totalWithoutSector = products.length - totalWithSector;
+  const totalWithoutSector = products.length - totalWithSector;
 
   let userMap: Record<string, ProfileRow> = {};
   if (products.length > 0) {
@@ -347,6 +351,23 @@ const totalWithoutSector = products.length - totalWithSector;
                     </select>
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="abc_curve">Curva do produto</Label>
+                    <select
+                      id="abc_curve"
+                      name="abc_curve"
+                      defaultValue=""
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="">— Selecione —</option>
+                      {PRODUCT_ABC_CURVES.map((curve) => (
+                        <option key={curve} value={curve}>
+                          {curve}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div className="md:col-span-2 space-y-2">
                     <Label htmlFor="sector_category">Setor (Categoria)</Label>
                     <select
@@ -363,8 +384,7 @@ const totalWithoutSector = products.length - totalWithSector;
                       ))}
                     </select>
                     <p className="text-xs text-muted-foreground">
-                      Use isso para identificar o setor responsável (e futuramente
-                      vamos usar em Pedidos).
+                      Use isso para identificar o setor responsável.
                     </p>
                   </div>
 
@@ -390,9 +410,6 @@ const totalWithoutSector = products.length - totalWithSector;
                       step="1"
                       placeholder="Ex.: 3"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Dias corridos de vida útil após manipulação.
-                    </p>
                   </div>
 
                   <div className="space-y-2">
@@ -531,7 +548,7 @@ const totalWithoutSector = products.length - totalWithSector;
           ) : (
             <>
               <div className="overflow-x-auto">
-                <Table className="min-w-[1500px]">
+                <Table className="min-w-[1600px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="sticky left-0 z-30 w-[110px] min-w-[110px] bg-white dark:bg-slate-950">
@@ -551,6 +568,7 @@ const totalWithoutSector = products.length - totalWithSector;
                       </TableHead>
                       <TableHead>Categoria</TableHead>
                       <TableHead>Setor</TableHead>
+                      <TableHead className="w-[80px] text-center">Curva</TableHead>
                       <TableHead className="w-[140px] text-center">
                         Shelf life (dias)
                       </TableHead>
@@ -619,6 +637,12 @@ const totalWithoutSector = products.length - totalWithSector;
 
                         <TableCell>
                           {product.sector_category ?? (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+
+                        <TableCell className="text-center">
+                          {product.abc_curve ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
@@ -768,6 +792,27 @@ const totalWithoutSector = products.length - totalWithSector;
                                       {STORAGE_CATEGORIES.map((c) => (
                                         <option key={c} value={c}>
                                           {c}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`abc_curve-${product.id}`}>
+                                      Curva do produto
+                                    </Label>
+                                    <select
+                                      id={`abc_curve-${product.id}`}
+                                      name="abc_curve"
+                                      defaultValue={
+                                        normalizeProductAbcCurve(product.abc_curve) ?? ""
+                                      }
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      <option value="">— Selecione —</option>
+                                      {PRODUCT_ABC_CURVES.map((curve) => (
+                                        <option key={curve} value={curve}>
+                                          {curve}
                                         </option>
                                       ))}
                                     </select>

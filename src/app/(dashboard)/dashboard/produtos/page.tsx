@@ -413,14 +413,14 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="price">Preço / Custo padrão</Label>
                     <Input
                       id="price"
                       name="price"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="0,00"
+                      type="text"
+                      inputMode="decimal"
+                      pattern="^\d+([,.]\d{1,4})?$"
+                      placeholder="0,0000"
+                      title="Informe o valor no formato 0,0000. Exemplo: 43,6239"
                     />
                   </div>
 
@@ -876,7 +876,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                   <div className="space-y-2">
                                     <Label htmlFor={`price-${product.id}`}>Preço / Custo padrão</Label>
                                     <Input
-                                      id={`price-${product.id}`}
+                                      id="price"
                                       name="price"
                                       type="number"
                                       step="0.01"

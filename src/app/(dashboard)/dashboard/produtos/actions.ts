@@ -253,18 +253,21 @@ function isMissingRelationError(error: any) {
   );
 }
 
-function parseNumber(
-  value: FormDataEntryValue | null,
-  decimals: number = 3,
-): number | null {
+function parseNumber(value: FormDataEntryValue | null, decimals = 2): number | null {
   if (value == null) return null;
-  const str = String(value).replace(",", ".").trim();
-  if (!str) return null;
 
-  const n = Number(str);
-  if (Number.isNaN(n)) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
 
-  return Number(n.toFixed(decimals));
+  const normalized = raw
+    .replace(/\./g, "")   // remove separador de milhar, se houver
+    .replace(",", ".");   // transforma vírgula decimal em ponto
+
+  const parsed = Number(normalized);
+
+  if (!Number.isFinite(parsed)) return null;
+
+  return Number(parsed.toFixed(decimals));
 }
 
 function parseIntSafe(value: FormDataEntryValue | null): number | null {
@@ -572,7 +575,7 @@ export async function createProduct(formData: FormData) {
   }
 
   const package_qty = parseNumber(packageQtyRaw, 3);
-  const price = parseNumber(priceRaw, 2);
+  const price = parseNumber(priceRaw, 4);
   const conversion_factor = parseNumber(conversionRaw, 4);
   const shelf_life_days = parseIntSafe(shelfLifeRaw);
 
@@ -741,7 +744,7 @@ export async function updateProduct(formData: FormData) {
   }
 
   const package_qty = parseNumber(packageQtyRaw, 3);
-  const price = parseNumber(priceRaw, 2);
+  const price = parseNumber(priceRaw, 4);
   const conversion_factor = parseNumber(conversionRaw, 4);
   const shelf_life_days = parseIntSafe(shelfLifeRaw);
 

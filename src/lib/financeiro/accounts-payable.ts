@@ -16,9 +16,42 @@ import type {
 
 const TABLE_NAME = "accounts_payable";
 
-function normalizePayable(
-  row: Record<string, unknown>
-): AccountPayable {
+type InvoiceEntryFallback = {
+  id: string;
+  supplier_name: string;
+  supplier_document?: string | null;
+  invoice_number?: string | null;
+  invoice_series?: string | null;
+  invoice_key?: string | null;
+  issue_date?: string | null;
+  entry_date?: string | null;
+  total_amount: number;
+  status?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+function isSafeFallbackError(error: unknown) {
+  const message =
+    error instanceof Error ? error.message : String(error ?? "");
+
+  return (
+    message.includes("does not exist") ||
+    message.includes("Could not find the table") ||
+    message.includes("Could not find") ||
+    message.includes("relation") ||
+    message.includes("schema cache") ||
+    message.includes("column") ||
+    message.includes("Não autenticado") ||
+    message.includes("Nao autenticado") ||
+    message.includes("Usuário não autenticado") ||
+    message.includes("Usuario nao autenticado") ||
+    message.includes("Estabelecimento não encontrado") ||
+    message.includes("Estabelecimento nao encontrado")
+  );
+}
+
+function normalizePayable(row: Record<string, unknown>): AccountPayable {
   return {
     id: toText(row.id),
     origem: (toText(row.origem, "compra") ?? "compra") as AccountPayable["origem"],
@@ -45,6 +78,47 @@ function normalizePayable(
   };
 }
 
+function normalizeInvoiceEntry(row: Record<string, unknown>): InvoiceEntryFallback {
+  return {
+    id: String(row.id ?? ""),
+    supplier_name: String(
+      row.supplier_name ??
+        row.supplierName ??
+        row.fornecedor_nome ??
+        row.fornecedor ??
+        ""
+    ),
+    supplier_document:
+      row.supplier_document || row.supplierDocument || row.cnpj
+        ? String(row.supplier_document ?? row.supplierDocument ?? row.cnpj)
+        : null,
+    invoice_number:
+      row.invoice_number || row.invoiceNumber || row.numero_nota || row.nota
+        ? String(row.invoice_number ?? row.invoiceNumber ?? row.numero_nota ?? row.nota)
+        : null,
+    invoice_series:
+      row.invoice_series || row.invoiceSeries || row.serie
+        ? String(row.invoice_series ?? row.invoiceSeries ?? row.serie)
+        : null,
+    invoice_key:
+      row.invoice_key || row.invoiceKey || row.chave_nfe
+        ? String(row.invoice_key ?? row.invoiceKey ?? row.chave_nfe)
+        : null,
+    issue_date:
+      row.issue_date || row.issueDate || row.data_emissao
+        ? String(row.issue_date ?? row.issueDate ?? row.data_emissao)
+        : null,
+    entry_date:
+      row.entry_date || row.entryDate || row.data_entrada
+        ? String(row.entry_date ?? row.entryDate ?? row.data_entrada)
+        : null,
+    total_amount: Number(row.total_amount ?? row.totalAmount ?? row.valor_total ?? row.total ?? 0),
+    status: row.status ? String(row.status) : "active",
+    created_at: row.created_at ? String(row.created_at) : null,
+    updated_at: row.updated_at ? String(row.updated_at) : null,
+  };
+}
+
 function todayYmd() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -56,14 +130,116 @@ function computePayableStatus(payable: AccountPayable): PayableStatus {
   return "pendente";
 }
 
-export async function listAccountsPayable(): Promise<AccountPayable[]> {
+function invoiceEntryToPayable(entry: InvoiceEntryFallback): AccountPayable {
+  const date =
+    entry.entry_date ||
+    entry.issue_date ||
+    entry.created_at ||
+    todayYmd();
+
+  const numeroDocumento = [
+    entry.invoice_number,
+    entry.invoice_series ? `Série ${entry.invoice_series}` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  const descricao = numeroDocumento
+    ? `Nota fiscal ${numeroDocumento}`
+    : "Nota fiscal de entrada";
+
+  const payable: AccountPayable = {
+    id: `entrada-${entry.id}`,
+    origem: "recebimento",
+    origemId: entry.id,
+    supplierId: "",
+    supplierName: entry.supplier_name || "Fornecedor não informado",
+    descricao,
+    valor: Number(entry.total_amount || 0),
+    vencimento: String(date).slice(0, 10),
+    statusPagamento: "pendente",
+    dataPagamento: "",
+    formaPagamento: "",
+    bankAccountId: "",
+    bankAccountName: "",
+    numeroDocumento,
+    categoriaId: "",
+    categoria: "CMV / Entradas / Notas fiscais",
+    centroCustoId: "",
+    centroCusto: "Compras / Estoque",
+    observacoes:
+      "Conta gerencial criada automaticamente a partir da sessão de Entradas.",
+    createdAt: toIsoString(entry.created_at),
+    updatedAt: toIsoString(entry.updated_at),
+  };
+
+  return {
+    ...payable,
+    statusPagamento: computePayableStatus(payable),
+  };
+}
+
+async function listInvoiceEntriesAsPayables(): Promise<AccountPayable[]> {
   const supabase = getLegacySupabase();
+
+  const possibleTables = [
+    "invoice_entries",
+    "compras_invoice_entries",
+    "purchase_invoice_entries",
+    "entrada_notas",
+    "entradas_notas",
+    "invoice_entry",
+    "invoice_entries_v3",
+  ];
+
+  for (const tableName of possibleTables) {
+    try {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!Array.isArray(data)) {
+        return [];
+      }
+
+      return data
+        .map((row) => normalizeInvoiceEntry(row as Record<string, unknown>))
+        .filter((entry) => entry.status !== "cancelled")
+        .filter((entry) => Number(entry.total_amount || 0) > 0)
+        .map(invoiceEntryToPayable);
+    } catch (error) {
+      if (isSafeFallbackError(error)) {
+        continue;
+      }
+
+      console.warn(
+        `[accounts-payable] Não foi possível carregar entradas da tabela ${tableName}.`,
+        error
+      );
+
+      continue;
+    }
+  }
+
+  return [];
+}
+
+async function listAccountsPayableFromTable(): Promise<AccountPayable[]> {
+  const supabase = getLegacySupabase();
+
   const { data, error } = await supabase
     .from(TABLE_NAME)
     .select("*")
     .order("created_at", { ascending: false });
 
-  assertSupabaseSuccess(error, "Nao foi possivel listar as contas a pagar");
+  if (error) {
+    throw error;
+  }
 
   return (data ?? [])
     .map((row) => normalizePayable(row as Record<string, unknown>))
@@ -73,24 +249,70 @@ export async function listAccountsPayable(): Promise<AccountPayable[]> {
     }));
 }
 
+export async function listAccountsPayable(): Promise<AccountPayable[]> {
+  let tablePayables: AccountPayable[] = [];
+
+  try {
+    tablePayables = await listAccountsPayableFromTable();
+  } catch (error) {
+    if (!isSafeFallbackError(error)) {
+      console.warn("[accounts-payable] Não foi possível listar contas a pagar.", error);
+    }
+
+    tablePayables = [];
+  }
+
+  const invoicePayables = await listInvoiceEntriesAsPayables();
+
+  const existingOriginIds = new Set(
+    tablePayables
+      .map((item) => item.origemId)
+      .filter(Boolean)
+  );
+
+  const virtualInvoicePayables = invoicePayables.filter(
+    (item) => !existingOriginIds.has(item.origemId)
+  );
+
+  return [...tablePayables, ...virtualInvoicePayables].sort((a, b) =>
+    String(b.createdAt || b.vencimento).localeCompare(String(a.createdAt || a.vencimento))
+  );
+}
+
 export async function getAccountPayableById(
   id: string
 ): Promise<AccountPayable | null> {
+  if (id.startsWith("entrada-")) {
+    const payables = await listInvoiceEntriesAsPayables();
+    return payables.find((item) => item.id === id) ?? null;
+  }
+
   const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
 
-  assertSupabaseSuccess(error, "Nao foi possivel buscar a conta a pagar");
-  if (!data) return null;
+  try {
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
 
-  const normalized = normalizePayable(data as Record<string, unknown>);
-  return {
-    ...normalized,
-    statusPagamento: computePayableStatus(normalized),
-  };
+    assertSupabaseSuccess(error, "Nao foi possivel buscar a conta a pagar");
+
+    if (!data) return null;
+
+    const normalized = normalizePayable(data as Record<string, unknown>);
+
+    return {
+      ...normalized,
+      statusPagamento: computePayableStatus(normalized),
+    };
+  } catch (error) {
+    if (isSafeFallbackError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
 }
 
 export async function createAccountPayable(input: {
@@ -135,13 +357,17 @@ export async function createAccountPayable(input: {
 
   assertSupabaseSuccess(error, "Nao foi possivel criar a conta a pagar");
 
-  await createFinancialHistoryEntry({
-    financeType: "pagar",
-    financeId: id,
-    action: "criado",
-    title: "Conta a pagar criada",
-    description: `${input.supplierName} - ${input.descricao}`,
-  });
+  try {
+    await createFinancialHistoryEntry({
+      financeType: "pagar",
+      financeId: id,
+      action: "criado",
+      title: "Conta a pagar criada",
+      description: `${input.supplierName} - ${input.descricao}`,
+    });
+  } catch (error) {
+    console.warn("[accounts-payable] Histórico financeiro não registrado.", error);
+  }
 
   return id;
 }
@@ -153,7 +379,14 @@ export async function updateAccountPayableStatus(
     bankAccountName?: string;
   }
 ): Promise<void> {
+  if (id.startsWith("entrada-")) {
+    throw new Error(
+      "Esta conta foi gerada automaticamente pela sessão de Entradas. Para alterar o pagamento, crie uma conta a pagar manual ou provisione a tabela financeira."
+    );
+  }
+
   const supabase = getLegacySupabase();
+
   const { error } = await supabase
     .from(TABLE_NAME)
     .update({
@@ -180,7 +413,14 @@ export async function updateAccountPayableDetails(params: {
   centroCusto?: string;
   observacoes?: string;
 }) {
+  if (params.id.startsWith("entrada-")) {
+    throw new Error(
+      "Esta conta foi gerada automaticamente pela sessão de Entradas. Para editar, crie uma conta a pagar manual ou provisione a tabela financeira."
+    );
+  }
+
   const supabase = getLegacySupabase();
+
   const { error } = await supabase
     .from(TABLE_NAME)
     .update({
@@ -197,13 +437,17 @@ export async function updateAccountPayableDetails(params: {
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar a conta a pagar");
 
-  await createFinancialHistoryEntry({
-    financeType: "pagar",
-    financeId: params.id,
-    action: "editado",
-    title: "Conta a pagar editada",
-    description: params.descricao ?? "",
-  });
+  try {
+    await createFinancialHistoryEntry({
+      financeType: "pagar",
+      financeId: params.id,
+      action: "editado",
+      title: "Conta a pagar editada",
+      description: params.descricao ?? "",
+    });
+  } catch (error) {
+    console.warn("[accounts-payable] Histórico financeiro não registrado.", error);
+  }
 }
 
 export async function markAccountPayableAsPaid(params: {
@@ -231,27 +475,35 @@ export async function markAccountPayableAsPaid(params: {
     params.bankAccountName &&
     Number(current.valor) > 0
   ) {
-    await createBankReconciliationEntry({
-      bankAccountId: params.bankAccountId,
-      bankAccountName: params.bankAccountName,
-      data: params.dataPagamento ?? todayYmd(),
-      descricao: `Pagamento - ${current.descricao}`,
-      tipo: "saida",
-      valor: Number(current.valor),
-      origem: "financeiro",
-      origemId: current.id,
-      observacoes: params.observacoes ?? "",
-    });
+    try {
+      await createBankReconciliationEntry({
+        bankAccountId: params.bankAccountId,
+        bankAccountName: params.bankAccountName,
+        data: params.dataPagamento ?? todayYmd(),
+        descricao: `Pagamento - ${current.descricao}`,
+        tipo: "saida",
+        valor: Number(current.valor),
+        origem: "financeiro",
+        origemId: current.id,
+        observacoes: params.observacoes ?? "",
+      });
+    } catch (error) {
+      console.warn("[accounts-payable] Conciliação bancária não registrada.", error);
+    }
   }
 
-  await createFinancialHistoryEntry({
-    financeType: "pagar",
-    financeId: params.id,
-    action: "pago",
-    title: "Conta marcada como paga",
-    description: params.formaPagamento ?? "",
-    bankAccountName: params.bankAccountName ?? "",
-  });
+  try {
+    await createFinancialHistoryEntry({
+      financeType: "pagar",
+      financeId: params.id,
+      action: "pago",
+      title: "Conta marcada como paga",
+      description: params.formaPagamento ?? "",
+      bankAccountName: params.bankAccountName ?? "",
+    });
+  } catch (error) {
+    console.warn("[accounts-payable] Histórico financeiro não registrado.", error);
+  }
 }
 
 export async function markAccountPayableAsPending(params: {
@@ -267,13 +519,17 @@ export async function markAccountPayableAsPending(params: {
     observacoes: params.observacoes ?? "",
   });
 
-  await createFinancialHistoryEntry({
-    financeType: "pagar",
-    financeId: params.id,
-    action: "pendente",
-    title: "Conta retornou para pendente",
-    description: params.observacoes ?? "",
-  });
+  try {
+    await createFinancialHistoryEntry({
+      financeType: "pagar",
+      financeId: params.id,
+      action: "pendente",
+      title: "Conta retornou para pendente",
+      description: params.observacoes ?? "",
+    });
+  } catch (error) {
+    console.warn("[accounts-payable] Histórico financeiro não registrado.", error);
+  }
 }
 
 export async function cancelAccountPayable(params: {
@@ -289,11 +545,15 @@ export async function cancelAccountPayable(params: {
     observacoes: params.observacoes ?? "",
   });
 
-  await createFinancialHistoryEntry({
-    financeType: "pagar",
-    financeId: params.id,
-    action: "cancelado",
-    title: "Conta a pagar cancelada",
-    description: params.observacoes ?? "",
-  });
+  try {
+    await createFinancialHistoryEntry({
+      financeType: "pagar",
+      financeId: params.id,
+      action: "cancelado",
+      title: "Conta a pagar cancelada",
+      description: params.observacoes ?? "",
+    });
+  } catch (error) {
+    console.warn("[accounts-payable] Histórico financeiro não registrado.", error);
+  }
 }

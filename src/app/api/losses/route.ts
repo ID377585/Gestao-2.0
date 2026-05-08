@@ -100,7 +100,10 @@ export async function POST(req: Request) {
   const body = await req.json();
 
   const { product_id, qty, lot, reason, reason_detail, qrcode } = body;
-  const unit_label = String(body.unit_label ?? body.unitLabel ?? "UN").trim();
+  const unit_label = String(body.unit_label ?? body.unitLabel ?? "UN")
+  .trim()
+  .replace(/\s+/g, "")
+  .toUpperCase();
 
   if (!product_id || qty == null || !reason) {
     return NextResponse.json(

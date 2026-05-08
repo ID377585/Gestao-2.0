@@ -260,8 +260,8 @@ function parseNumber(value: FormDataEntryValue | null, decimals = 2): number | n
   if (!raw) return null;
 
   const normalized = raw
-    .replace(/\./g, "")   // remove separador de milhar, se houver
-    .replace(",", ".");   // transforma vírgula decimal em ponto
+    .replace(/\./g, "")
+    .replace(",", ".");
 
   const parsed = Number(normalized);
 

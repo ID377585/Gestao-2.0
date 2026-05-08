@@ -418,9 +418,9 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                       name="price"
                       type="text"
                       inputMode="decimal"
-                      pattern="^[0-9]+([,.][0-9]{1,4})?$"
-                      placeholder="0,0000"
-                      title="Informe o valor no formato 0,0000. Exemplo: 43,6239"
+                      pattern="^[0-9]+([,.][0-9]{1,5})?$"
+                      placeholder="0,00000"
+                      title="Informe o valor no formato 0,00000. Exemplo: 8,25583"
                     />
                   </div>
 
@@ -880,9 +880,9 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                       name="price"
                       type="text"
                       inputMode="decimal"
-                      pattern="^[0-9]+([,.][0-9]{1,4})?$"
-                      placeholder="0,0000"
-                      title="Informe o valor no formato 0,0000. Exemplo: 43,6239"
+                      pattern="^[0-9]+([,.][0-9]{1,5})?$"
+                      placeholder="0,00000"
+                      title="Informe o valor no formato 0,00000. Exemplo: 8,25583"
                                       defaultValue={product.price ?? undefined}
                                     />
                                   </div>

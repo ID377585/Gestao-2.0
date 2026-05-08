@@ -575,7 +575,7 @@ export async function createProduct(formData: FormData) {
   }
 
   const package_qty = parseNumber(packageQtyRaw, 3);
-  const price = parseNumber(priceRaw, 4);
+  const price = parseNumber(priceRaw, 5);
   const conversion_factor = parseNumber(conversionRaw, 4);
   const shelf_life_days = parseIntSafe(shelfLifeRaw);
 
@@ -744,7 +744,7 @@ export async function updateProduct(formData: FormData) {
   }
 
   const package_qty = parseNumber(packageQtyRaw, 3);
-  const price = parseNumber(priceRaw, 4);
+  const price = parseNumber(priceRaw, 5);
   const conversion_factor = parseNumber(conversionRaw, 4);
   const shelf_life_days = parseIntSafe(shelfLifeRaw);
 

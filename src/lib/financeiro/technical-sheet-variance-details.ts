@@ -130,7 +130,7 @@ async function loadTechnicalSheetsWithNestedIngredients() {
     throw error;
   }
 
-  return Array.isArray(data) ? (data as RawTechnicalSheet[]) : [];
+  return Array.isArray(data) ? (data as unknown as RawTechnicalSheet[]) : [];
 }
 
 async function loadTechnicalSheetsWithSeparatedIngredients() {
@@ -144,8 +144,8 @@ async function loadTechnicalSheetsWithSeparatedIngredients() {
   }
 
   const sheets = Array.isArray(sheetsData)
-    ? (sheetsData as RawTechnicalSheet[])
-    : [];
+  ? (sheetsData as unknown as RawTechnicalSheet[])
+  : [];
 
   if (sheets.length === 0) {
     return [];
@@ -171,8 +171,8 @@ async function loadTechnicalSheetsWithSeparatedIngredients() {
   }
 
   const ingredients = Array.isArray(ingredientsData)
-    ? (ingredientsData as RawTechnicalSheetIngredient[])
-    : [];
+  ? (ingredientsData as unknown as RawTechnicalSheetIngredient[])
+  : [];
 
   const ingredientsBySheet = new Map<string, RawTechnicalSheetIngredient[]>();
 

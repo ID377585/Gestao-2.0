@@ -33,18 +33,6 @@ type Props = {
   formatCurrency: (value: number) => string;
 };
 
-const CATEGORY_OPTIONS = ["Pré-Preparo", "Empratamento"];
-const SECTOR_OPTIONS = [
-  "Produção",
-  "Massaria",
-  "Confeitaria",
-  "Burrataria",
-  "Padaria",
-  "Peixaria",
-  "Bar",
-  "Cozinha",
-];
-
 function calcularCustos(
   ingredientes: Ingrediente[],
   rendimento: number,
@@ -82,10 +70,8 @@ export default function FichaRapidaModal({
   const [isPending, startTransition] = useTransition();
 
   const [nome, setNome] = useState("");
-  const [categoria, setCategoria] = useState("");
   const [rendimento, setRendimento] = useState<number>(1);
   const [pesoPorcao, setPesoPorcao] = useState<number>(0);
-  const [setor, setSetor] = useState("");
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const [erro, setErro] = useState("");
 
@@ -95,10 +81,8 @@ export default function FichaRapidaModal({
 
   function resetForm() {
     setNome("");
-    setCategoria("");
     setRendimento(1);
     setPesoPorcao(0);
-    setSetor("");
     setIngredientes([]);
     setErro("");
   }
@@ -117,18 +101,8 @@ export default function FichaRapidaModal({
       return;
     }
 
-    if (!categoria.trim()) {
-      setErro("Informe a categoria.");
-      return;
-    }
-
     if (toNumber(rendimento, 0) <= 0) {
       setErro("Informe um rendimento válido.");
-      return;
-    }
-
-    if (!setor.trim()) {
-      setErro("Informe o setor.");
       return;
     }
 
@@ -144,7 +118,7 @@ export default function FichaRapidaModal({
       try {
         const payload = {
           name: nome.trim(),
-          category: categoria.trim(),
+          category: "Ficha Rápida",
           yield_portions: Math.max(1, toNumber(rendimento, 1)),
           portion_weight: Math.max(0, toNumber(pesoPorcao, 0)),
           prep_time_minutes: 0,
@@ -166,7 +140,7 @@ export default function FichaRapidaModal({
           shelf_life_frozen: null,
           shelf_life_refrigerated: null,
           shelf_life_room_temp: null,
-          sector: setor.trim(),
+          sector: null,
           allergens,
           source_updated_at: null,
           import_origin: "ficha_rapida",
@@ -206,30 +180,37 @@ export default function FichaRapidaModal({
     <Dialog open={open} onOpenChange={(value) => !value && handleClose()}>
       <DialogContent className="max-h-[94vh] overflow-y-auto bg-white text-slate-900 border border-slate-200 shadow-2xl sm:max-w-5xl">
         <DialogHeader>
-          <DialogTitle>Nova Ficha Técnica</DialogTitle>
-          <DialogDescription>
-            Cadastre uma nova ficha técnica de forma rápida e simplificada.
-          </DialogDescription>
+          <DialogTitle>Ficha Técnica Rápida</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="space-y-5">
           {erro ? (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {erro}
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="md:col-span-2">
-              <Label htmlFor="ficha-rapida-nome">Nome da receita</Label>
+          <div className="grid grid-cols-1 gap-4">
+            <div>
               <Input
                 id="ficha-rapida-nome"
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
-                placeholder="Ex.: Bolo de cenoura"
+                placeholder="Ex.: Bolo de fubá"
               />
             </div>
+          </div>
 
+          <IngredientEditor
+            products={products}
+            ingredientes={ingredientes}
+            onChange={setIngredientes}
+            uid={uid}
+            formatCurrency={formatCurrency}
+            compactMode
+          />
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <Label htmlFor="ficha-rapida-rendimento">Rendimento</Label>
               <Input
@@ -242,50 +223,6 @@ export default function FichaRapidaModal({
               />
             </div>
 
-            <div className="md:col-span-2">
-              <Label htmlFor="ficha-rapida-categoria">Categoria</Label>
-              <select
-                id="ficha-rapida-categoria"
-                className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={categoria}
-                onChange={(e) => setCategoria(e.target.value)}
-              >
-                <option value="">— Selecione —</option>
-                {CATEGORY_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <Label htmlFor="ficha-rapida-setor">Setor</Label>
-              <select
-                id="ficha-rapida-setor"
-                className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={setor}
-                onChange={(e) => setSetor(e.target.value)}
-              >
-                <option value="">— Selecione —</option>
-                {SECTOR_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <IngredientEditor
-            products={products}
-            ingredientes={ingredientes}
-            onChange={setIngredientes}
-            uid={uid}
-            formatCurrency={formatCurrency}
-          />
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <Label htmlFor="ficha-rapida-peso">Peso da porção</Label>
               <Input
@@ -298,31 +235,20 @@ export default function FichaRapidaModal({
                 placeholder="0"
               />
             </div>
+          </div>
 
-            <div className="rounded-lg bg-slate-50 p-4">
-              <h4 className="mb-3 font-semibold">Prévia automática</h4>
-
-              <div className="grid grid-cols-1 gap-3 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Custo total</p>
-                  <p className="font-bold text-red-600">
-                    {formatCurrency(preview.custoTotal)}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-muted-foreground">Custo por porção</p>
-                  <p className="font-bold text-red-600">
-                    {formatCurrency(preview.custoPorPorcao)}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-muted-foreground">Ingredientes cadastrados</p>
-                  <p className="font-bold">{ingredientes.length}</p>
-                </div>
-              </div>
-            </div>
+          <div className="rounded-lg bg-slate-50 px-4 py-3 text-sm">
+            <span className="font-semibold">Prévia:</span>{" "}
+            <span className="text-muted-foreground">Custo total</span>{" "}
+            <span className="font-bold text-red-600">
+              {formatCurrency(preview.custoTotal)}
+            </span>{" "}
+            <span className="text-muted-foreground">- Custo por porção</span>{" "}
+            <span className="font-bold text-red-600">
+              {formatCurrency(preview.custoPorPorcao)}
+            </span>{" "}
+            <span className="text-muted-foreground">- Itens</span>{" "}
+            <span className="font-bold">{ingredientes.length}</span>
           </div>
 
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

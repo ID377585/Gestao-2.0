@@ -303,6 +303,10 @@ export async function createInvoiceEntryDraftFromFiscalNfeAction(noteId: string)
     throw new Error("NF-e não encontrada.");
   }
 
+  if ((note as any).imported_entry_id) {
+    throw new Error("Essa NF-e já possui um rascunho ou entrada vinculada.");
+  }
+
   if (!note.xml_path) {
     throw new Error("Essa NF-e não possui XML salvo.");
   }
@@ -401,6 +405,19 @@ export async function createInvoiceEntryDraftFromFiscalNfeAction(noteId: string)
   if (draftError || !draft) {
     console.error(draftError);
     throw new Error("Não foi possível criar o rascunho de entrada.");
+  }
+
+  const { error: updateNoteError } = await supabase
+    .from("fiscal_nfe_inbox")
+    .update({
+      imported_entry_id: draft.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", noteId)
+    .eq("establishment_id", establishmentId);
+
+  if (updateNoteError) {
+    console.error(updateNoteError);
   }
 
   revalidatePath("/dashboard/fiscal/notas");

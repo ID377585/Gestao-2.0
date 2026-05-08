@@ -1462,7 +1462,6 @@ function ConsolidatedStockPieChart({
     .filter((item) => item.chartValue > 0);
 
   const hasChartData = pieData.length > 0;
-
   const kgQty = data.find((i) => i.name === "KG - R$")?.quantity ?? 0;
   const unidQty = data.find((i) => i.name === "UNID - R$")?.quantity ?? 0;
   const ltQty = data.find((i) => i.name === "LT - R$")?.quantity ?? 0;
@@ -1577,7 +1576,7 @@ function ConsolidatedStockPieChart({
                       <div>
                         <div className="text-sm font-semibold">{item.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {item.items} produto(s) • qtd atual: {formatQty(item.quantity)}{" "}
+                          {item.items} produto(s)
                           {quantityUnit}
                         </div>
                       </div>
@@ -1597,12 +1596,7 @@ function ConsolidatedStockPieChart({
                         {formatQty(item.quantity)} {quantityUnit}
                       </span>
                     </div>
-                    <div className="rounded-xl bg-white/20 px-2 py-1 dark:bg-white/5">
-                      Valor:{" "}
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {formatCurrency(item.amount)}
-                      </span>
-                    </div>
+                    
                   </div>
 
                   <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-white/25 dark:bg-white/10">
@@ -1617,22 +1611,6 @@ function ConsolidatedStockPieChart({
                 </div>
               );
             })}
-
-            <div className={`${GLASS_INNER_CLASS} p-3`}>
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                Total geral monitorado
-              </div>
-              <div className="mt-1 text-2xl font-bold">{formatCurrency(totalAmount)}</div>
-              <div className="text-xs text-muted-foreground">
-                Soma financeira calculada por quantidade atual x custo/preço unitário.
-              </div>
-              <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                <div>Qtd total monitorada: {formatQty(totalMonitoredQty)}</div>
-                <div>KG: {formatQty(kgQty)} KG</div>
-                <div>UNID: {formatQty(unidQty)} UNID</div>
-                <div>LT: {formatQty(ltQty)} LT</div>
-              </div>
-            </div>
 
             {unclassified.items > 0 ? (
               <div className="rounded-2xl border border-amber-200/70 bg-amber-50/70 p-3 text-xs text-amber-950 shadow-sm backdrop-blur-md dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
@@ -2639,40 +2617,6 @@ export default function EstoqueDashboardPage() {
     [stockIntelligence.immobilizedRows]
   );
 
-  const giroChartData = useMemo<ChartDatum[]>(
-    () =>
-      stockIntelligence.highTurnoverRows.slice(0, 12).map((row) => ({
-        name: row.productName,
-        qty: row.turnover30,
-        value: row.turnover30,
-      })),
-    [stockIntelligence.highTurnoverRows]
-  );
-
-  const coverageChartData = useMemo<ChartDatum[]>(
-    () =>
-      stockIntelligence.lowCoverageRows.slice(0, 12).map((row) => ({
-        name: row.productName,
-        qty: row.coverageDays ?? 0,
-        value: row.coverageDays ?? 0,
-      })),
-    [stockIntelligence.lowCoverageRows]
-  );
-
-  const cmvChartData = useMemo<ChartDatum[]>(
-    () =>
-      stockIntelligence.rows
-        .filter((row) => row.consumption30Value > 0)
-        .sort((a, b) => b.consumption30Value - a.consumption30Value)
-        .slice(0, 12)
-        .map((row) => ({
-          name: row.productName,
-          qty: row.consumption30Qty,
-          value: row.consumption30Value,
-        })),
-    [stockIntelligence.rows]
-  );
-
   const abcChartData = useMemo<ChartDatum[]>(
     () =>
       [
@@ -2724,26 +2668,6 @@ export default function EstoqueDashboardPage() {
     ],
     [metrics.consolidatedByUnit]
   );
-
-  const turnoverAndCoverageRows = useMemo(() => {
-    const map = new Map<string, StockAnalyticsRow>();
-
-    for (const row of stockIntelligence.highTurnoverRows) {
-      map.set(row.stockId, row);
-    }
-
-    for (const row of stockIntelligence.lowCoverageRows) {
-      map.set(row.stockId, row);
-    }
-
-    return Array.from(map.values())
-      .sort(
-        (a, b) =>
-          b.turnover30 - a.turnover30 ||
-          Number(a.coverageDays ?? 999999) - Number(b.coverageDays ?? 999999)
-      )
-      .slice(0, 20);
-  }, [stockIntelligence.highTurnoverRows, stockIntelligence.lowCoverageRows]);
 
   return (
     <div className="relative space-y-6 overflow-hidden rounded-[32px] bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_22%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.14),transparent_22%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.12),transparent_24%),linear-gradient(180deg,rgba(248,250,252,0.82),rgba(241,245,249,0.92))] p-1 dark:bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_22%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.16),transparent_22%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.14),transparent_24%),linear-gradient(180deg,rgba(2,6,23,0.86),rgba(15,23,42,0.94))]">
@@ -2842,7 +2766,6 @@ export default function EstoqueDashboardPage() {
         <DashboardPageHeader
           eyebrow="Estoque"
           title="Dashboard de Estoque"
-          description="Visão executiva do estoque com filtros de período, comparativos, listas, rankings, gráficos e cards analíticos."
           actions={
             <>
               <Button asChild variant="outline" className={`${GLASS_CARD_CLASS} rounded-full`}>
@@ -2886,16 +2809,6 @@ export default function EstoqueDashboardPage() {
           </DashboardTableShell>
         ) : (
           <>
-            <div className={`${GLASS_CARD_CLASS} rounded-3xl p-4 text-sm`}>
-              <div className="font-semibold">Período oficial aplicado nos dados analíticos</div>
-              <div className="mt-1 text-muted-foreground">
-                Todos os cards, rankings, listas, resumos e comparativos baseados em movimentação
-                estão usando o período de {filteredPeriodLabel}. Nenhuma análise de movimentação
-                considera registros anteriores a {formatDateLabel(businessStartDate)}.
-                O único bloco que continua sendo saldo atual é o consolidado do estoque,
-                porque ele depende do saldo corrente e não de histórico por data.
-              </div>
-            </div>
 
             <ConsolidatedStockPieChart
               data={consolidatedStockPieData}
@@ -3202,31 +3115,6 @@ export default function EstoqueDashboardPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
-              <HorizontalStockChart
-                title="Giro de estoque por produto"
-                description={`Ranking de giro com base no período filtrado: ${filteredPeriodLabel}.`}
-                data={giroChartData}
-                valueKey="qty"
-                formatValue={(value) => formatRatio(value)}
-              />
-
-              <HorizontalStockChart
-                title="Cobertura de estoque (dias)"
-                description={`Produtos com menor cobertura estimada pelo consumo médio diário no período filtrado: ${filteredPeriodLabel}.`}
-                data={coverageChartData}
-                valueKey="qty"
-                formatValue={(value) => formatDays(value)}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
-              <HorizontalStockChart
-                title="CMV do período por produto"
-                description={`Consumo valorizado no período filtrado: ${filteredPeriodLabel}.`}
-                data={cmvChartData}
-                valueKey="value"
-                formatValue={(value) => formatCurrency(value)}
-              />
 
               <HorizontalStockChart
                 title="Curva ABC de estoque"
@@ -3238,185 +3126,77 @@ export default function EstoqueDashboardPage() {
             </div>
 
             <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
-              <DashboardTableShell
-                title="Ranking de giro e cobertura"
-                description={`Produtos com maior giro recente e cobertura em dias no período filtrado (${filteredPeriodLabel}).`}
-                empty={turnoverAndCoverageRows.length === 0}
-                emptyState={
-                  <p className="text-sm text-muted-foreground">
-                    Não há consumo recente classificado para calcular giro e cobertura neste período.
-                  </p>
-                }
-              >
-                <div className={`${GLASS_INNER_CLASS} overflow-x-auto p-1`}>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Produto</TableHead>
-                        <TableHead>SKU</TableHead>
-                        <TableHead className="text-right">Giro</TableHead>
-                        <TableHead className="text-right">Cobertura</TableHead>
-                        <TableHead className="text-right">Consumo</TableHead>
-                        <TableHead className="text-right">CMV</TableHead>
-                        <TableHead className="text-right">Valor em estoque</TableHead>
-                        <TableHead>Risco</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {turnoverAndCoverageRows.map((row) => (
-                        <TableRow key={row.stockId}>
-                          <TableCell className="font-medium">{row.productName}</TableCell>
-                          <TableCell>{row.sku}</TableCell>
-                          <TableCell className="text-right font-semibold">
-                            {formatRatio(row.turnover30)}
-                          </TableCell>
-                          <TableCell className="text-right">{formatDays(row.coverageDays)}</TableCell>
-                          <TableCell className="text-right">
-                            {formatQty(row.consumption30Qty)} {row.unit}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatCurrency(row.consumption30Value)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatCurrency(row.stockValue)}
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={getRiskBadgeClass(row.riskLevel)}>
-                              {getRiskLabel(row.riskLevel)}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </DashboardTableShell>
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
-              <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
-                <DashboardTableShell
-                  title="Curva ABC de estoque"
-                  description="Classificação dos itens por participação no valor imobilizado: A até 80%, B até 95%, C restante."
-                  empty={stockIntelligence.abcRows.length === 0}
-                  emptyState={
-                    <p className="text-sm text-muted-foreground">
-                      Não há valor em estoque suficiente para montar a curva ABC.
-                    </p>
-                  }
-                  footer={
-                    <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-                      <span>
-                        A: {stockIntelligence.abcSummary.A.items} itens •{" "}
-                        {formatCurrency(stockIntelligence.abcSummary.A.value)} •{" "}
-                        {formatPercent(stockIntelligence.abcSummary.A.percent)}
-                      </span>
-                      <span>
-                        B: {stockIntelligence.abcSummary.B.items} itens •{" "}
-                        {formatCurrency(stockIntelligence.abcSummary.B.value)} •{" "}
-                        {formatPercent(stockIntelligence.abcSummary.B.percent)}
-                      </span>
-                      <span>
-                        C: {stockIntelligence.abcSummary.C.items} itens •{" "}
-                        {formatCurrency(stockIntelligence.abcSummary.C.value)} •{" "}
-                        {formatPercent(stockIntelligence.abcSummary.C.percent)}
-                      </span>
-                    </div>
-                  }
-                >
-                  <div className={`${GLASS_INNER_CLASS} overflow-x-auto p-1`}>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>ABC</TableHead>
-                          <TableHead>Produto</TableHead>
-                          <TableHead>SKU</TableHead>
-                          <TableHead className="text-right">Valor estoque</TableHead>
-                          <TableHead className="text-right">% item</TableHead>
-                          <TableHead className="text-right">% acum.</TableHead>
-                          <TableHead className="text-right">Saldo</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {stockIntelligence.abcRows.slice(0, 20).map((row) => (
-                          <TableRow key={row.stockId}>
-                            <TableCell>
-                              <Badge className={getAbcBadgeClass(row.abcClass)}>
-                                {row.abcClass}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="font-medium">{row.productName}</TableCell>
-                            <TableCell>{row.sku}</TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(row.stockValue)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatPercent(row.participationPercent)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatPercent(row.cumulativePercent)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatQty(row.currentQty)} {row.unit}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </DashboardTableShell>
-              </div>
-
-              <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>
-                <DashboardTableShell
-                  title="Produtos sem movimentação"
-                  description={`Itens com saldo parado há 30 dias ou sem registro recente dentro da leitura do período ${filteredPeriodLabel}.`}
-                  empty={stockIntelligence.noMovementRows.length === 0}
-                  emptyState={
-                    <p className="text-sm text-muted-foreground">
-                      Nenhum produto com saldo parado identificado no período analisado.
-                    </p>
-                  }
-                >
-                  <div className={`${GLASS_INNER_CLASS} overflow-x-auto p-1`}>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Produto</TableHead>
-                          <TableHead>SKU</TableHead>
-                          <TableHead className="text-right">Saldo</TableHead>
-                          <TableHead className="text-right">Valor parado</TableHead>
-                          <TableHead>Última mov.</TableHead>
-                          <TableHead className="text-right">Dias sem mov.</TableHead>
-                          <TableHead>Setor</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {stockIntelligence.noMovementRows.map((row) => (
-                          <TableRow key={row.stockId}>
-                            <TableCell className="font-medium">{row.productName}</TableCell>
-                            <TableCell>{row.sku}</TableCell>
-                            <TableCell className="text-right">
-                              {formatQty(row.currentQty)} {row.unit}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(row.stockValue)}
-                            </TableCell>
-                            <TableCell>{formatDateLabel(row.lastMovementAt)}</TableCell>
-                            <TableCell className="text-right">
-                              {row.daysWithoutMovement === null
-                                ? "Sem registro"
-                                : `${row.daysWithoutMovement} dias`}
-                            </TableCell>
-                            <TableCell>{row.sector}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </DashboardTableShell>
-              </div>
-            </div>
+  <DashboardTableShell
+    title="Curva ABC de estoque"
+    description="Classificação dos itens por participação no valor imobilizado: A até 80%, B até 95%, C restante."
+    empty={stockIntelligence.abcRows.length === 0}
+    emptyState={
+      <p className="text-sm text-muted-foreground">
+        Não há valor em estoque suficiente para montar a curva ABC.
+      </p>
+    }
+    footer={
+      <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+        <span>
+          A: {stockIntelligence.abcSummary.A.items} itens •{" "}
+          {formatCurrency(stockIntelligence.abcSummary.A.value)} •{" "}
+          {formatPercent(stockIntelligence.abcSummary.A.percent)}
+        </span>
+        <span>
+          B: {stockIntelligence.abcSummary.B.items} itens •{" "}
+          {formatCurrency(stockIntelligence.abcSummary.B.value)} •{" "}
+          {formatPercent(stockIntelligence.abcSummary.B.percent)}
+        </span>
+        <span>
+          C: {stockIntelligence.abcSummary.C.items} itens •{" "}
+          {formatCurrency(stockIntelligence.abcSummary.C.value)} •{" "}
+          {formatPercent(stockIntelligence.abcSummary.C.percent)}
+        </span>
+      </div>
+    }
+  >
+    <div className={`${GLASS_INNER_CLASS} overflow-x-auto p-1`}>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>ABC</TableHead>
+            <TableHead>Produto</TableHead>
+            <TableHead>SKU</TableHead>
+            <TableHead className="text-right">Valor estoque</TableHead>
+            <TableHead className="text-right">% item</TableHead>
+            <TableHead className="text-right">% acum.</TableHead>
+            <TableHead className="text-right">Saldo</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {stockIntelligence.abcRows.slice(0, 20).map((row) => (
+            <TableRow key={row.stockId}>
+              <TableCell>
+                <Badge className={getAbcBadgeClass(row.abcClass)}>
+                  {row.abcClass}
+                </Badge>
+              </TableCell>
+              <TableCell className="font-medium">{row.productName}</TableCell>
+              <TableCell>{row.sku}</TableCell>
+              <TableCell className="text-right">
+                {formatCurrency(row.stockValue)}
+              </TableCell>
+              <TableCell className="text-right">
+                {formatPercent(row.participationPercent)}
+              </TableCell>
+              <TableCell className="text-right">
+                {formatPercent(row.cumulativePercent)}
+              </TableCell>
+              <TableCell className="text-right">
+                {formatQty(row.currentQty)} {row.unit}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  </DashboardTableShell>
+</div>
 
             <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
               <div className={`${GLASS_CARD_CLASS} rounded-3xl`}>

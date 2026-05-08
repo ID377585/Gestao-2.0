@@ -31,6 +31,7 @@ type IngredientEditorProps = {
   onChange: (ingredientes: Ingrediente[]) => void;
   uid: () => string;
   formatCurrency: (value: number) => string;
+  compactMode?: boolean;
 };
 
 function formatDecimal3(value: number) {
@@ -48,13 +49,14 @@ export default function IngredientEditor({
   onChange,
   uid,
   formatCurrency,
+  compactMode = false,
 }: IngredientEditorProps) {
   const [showIngredientForm, setShowIngredientForm] = useState(
     ingredientes.length === 0
   );
-  const [editandoIngredienteId, setEditandoIngredienteId] = useState<string | null>(
-    null
-  );
+  const [editandoIngredienteId, setEditandoIngredienteId] = useState<
+    string | null
+  >(null);
   const [draftIngredienteId, setDraftIngredienteId] = useState("");
   const [draftIngredienteNome, setDraftIngredienteNome] = useState("");
   const [draftQuantidadeUso, setDraftQuantidadeUso] = useState<number | "">("");
@@ -83,7 +85,15 @@ export default function IngredientEditor({
       productLookup,
       products
     );
-  }, [draftIngredienteId, draftIngredienteNome, productLookup, productsById, products]);
+  }, [
+    draftIngredienteId,
+    draftIngredienteNome,
+    productLookup,
+    productsById,
+    products,
+  ]);
+
+  const canShowCompactIngredientFields = Boolean(draftIngredienteId);
 
   const previewIngrediente = useMemo(() => {
     const snapshot = matchedDraftProduct
@@ -105,7 +115,9 @@ export default function IngredientEditor({
       quantidadeUso: toNumber(draftQuantidadeUso, 0),
       unidadeUso: unidadeUsoPreview,
       precoCompra: snapshot ? snapshot.precoCompra : draftPrecoCompra,
-      quantidadeCompra: snapshot ? snapshot.quantidadeCompra : draftQuantidadeCompra,
+      quantidadeCompra: snapshot
+        ? snapshot.quantidadeCompra
+        : draftQuantidadeCompra,
       unidadeCompra: unidadeCompraPreview,
       fatorCorrecao: draftFCorrecao,
       fatorCoccao: draftFCoccao,
@@ -167,7 +179,14 @@ export default function IngredientEditor({
     if (hasChanges) {
       onChange(synced);
     }
-  }, [ingredientes, onChange, products.length, productsById, productLookup, products]);
+  }, [
+    ingredientes,
+    onChange,
+    products.length,
+    productsById,
+    productLookup,
+    products,
+  ]);
 
   const resetDraftIngrediente = () => {
     setEditandoIngredienteId(null);
@@ -192,6 +211,7 @@ export default function IngredientEditor({
 
     if (!productId) {
       setDraftIngredienteNome("");
+      setDraftQuantidadeUso("");
       setDraftUnidadeUso("UN");
       setDraftUnidadeCompra("UN");
       setDraftPrecoCompra(0);
@@ -218,7 +238,11 @@ export default function IngredientEditor({
 
     const productFromName =
       !productFromSelect && draftIngredienteNome.trim()
-        ? findProductByIngredientName(draftIngredienteNome, productLookup, products)
+        ? findProductByIngredientName(
+            draftIngredienteNome,
+            productLookup,
+            products
+          )
         : null;
 
     const selectedProduct = productFromSelect ?? productFromName;
@@ -332,43 +356,59 @@ export default function IngredientEditor({
 
   return (
     <div>
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h4 className="text-lg font-semibold">Ingredientes</h4>
-          <p className="text-sm text-muted-foreground">
-            Adicione, edite ou remova ingredientes da ficha técnica.
-          </p>
-        </div>
+      {!compactMode ? (
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h4 className="text-lg font-semibold">Ingredientes</h4>
+            <p className="text-sm text-muted-foreground">
+              Adicione, edite ou remova ingredientes da ficha técnica.
+            </p>
+          </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={iniciarNovoIngrediente}>
-            {editandoIngredienteId ? "Novo ingrediente" : "Adicionar ingrediente"}
-          </Button>
-
-          {showIngredientForm && ingredientes.length > 0 && !editandoIngredienteId ? (
+          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              variant="ghost"
-              onClick={() => setShowIngredientForm(false)}
+              variant="outline"
+              onClick={iniciarNovoIngrediente}
             >
-              Ocultar formulário
+              {editandoIngredienteId
+                ? "Novo ingrediente"
+                : "Adicionar ingrediente"}
             </Button>
-          ) : null}
-        </div>
-      </div>
 
-      <div className="space-y-4 rounded-lg border p-4">
+            {showIngredientForm &&
+            ingredientes.length > 0 &&
+            !editandoIngredienteId ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setShowIngredientForm(false)}
+              >
+                Ocultar formulário
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div className={`space-y-4 rounded-lg ${compactMode ? "" : "border p-4"}`}>
         {showIngredientForm ? (
           <div className="space-y-4 rounded-lg border border-dashed bg-slate-50/70 p-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-medium">
-                  {editandoIngredienteId ? "Editando ingrediente" : "Novo ingrediente"}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Preencha os dados abaixo e salve para atualizar a ficha.
-                </p>
-              </div>
+              {!compactMode ? (
+                <div>
+                  <p className="font-medium">
+                    {editandoIngredienteId
+                      ? "Editando ingrediente"
+                      : "Novo ingrediente"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Preencha os dados abaixo e salve para atualizar a ficha.
+                  </p>
+                </div>
+              ) : (
+                <div />
+              )}
 
               {editandoIngredienteId ? (
                 <Button
@@ -382,212 +422,357 @@ export default function IngredientEditor({
               ) : null}
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-              <div className="md:col-span-3">
-                <Label>Produto cadastrado</Label>
-                <select
-                  className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={draftIngredienteId}
-                  onChange={(e) => onSelectProductIngredient(e.target.value)}
-                >
-                  <option value="">— Selecionar produto —</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+            {compactMode ? (
+              <>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-12 items-end">
+                  <div className="md:col-span-4">
+                    <Label>Produto cadastrado</Label>
+                    <select
+                      className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={draftIngredienteId}
+                      onChange={(e) => onSelectProductIngredient(e.target.value)}
+                    >
+                      <option value="">— Selecionar produto —</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                {draftIngredienteId ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Produto vinculado: unidade, preço e qtd. comprada acompanham o cadastro de Produtos.
+                  {canShowCompactIngredientFields ? (
+                    <>
+                      <div className="md:col-span-4">
+                        <Label>Ingrediente</Label>
+                        <Input
+                          value={draftIngredienteNome}
+                          onChange={(e) =>
+                            setDraftIngredienteNome(e.target.value)
+                          }
+                          placeholder="Nome do ingrediente"
+                        />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <Label>Qtd de uso</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          value={
+                            draftQuantidadeUso === "" ? "" : draftQuantidadeUso
+                          }
+                          onChange={(e) =>
+                            setDraftQuantidadeUso(
+                              e.target.value === ""
+                                ? ""
+                                : Number(e.target.value)
+                            )
+                          }
+                        />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <Label>Unidade de uso</Label>
+                        <Input
+                          value={
+                            matchedDraftProduct
+                              ? normalizeUnitGroup(draftUnidadeUso) ===
+                                normalizeUnitGroup(
+                                  getProductLinkedSnapshot(matchedDraftProduct)
+                                    .unidadeBase
+                                )
+                                ? draftUnidadeUso
+                                : getProductLinkedSnapshot(matchedDraftProduct)
+                                    .unidadeBase
+                              : draftUnidadeUso
+                          }
+                          onChange={(e) =>
+                            setDraftUnidadeUso(
+                              normalizeUnit(e.target.value, "UN")
+                            )
+                          }
+                        />
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+
+                {!canShowCompactIngredientFields ? (
+                  <p className="text-sm text-muted-foreground">
+                    Selecione um produto cadastrado para liberar os campos do
+                    ingrediente, quantidade e unidade de uso.
                   </p>
                 ) : null}
-              </div>
 
-              <div className="md:col-span-3">
-                <Label>Ingrediente</Label>
-                <Input
-                  value={draftIngredienteNome}
-                  onChange={(e) => setDraftIngredienteNome(e.target.value)}
-                  placeholder="Nome do ingrediente"
-                />
+                {canShowCompactIngredientFields ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      className="w-full sm:w-auto bg-emerald-600 text-white font-semibold shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all duration-200"
+                      onClick={salvarIngrediente}
+                    >
+                      {editandoIngredienteId
+                        ? "Salvar ingrediente"
+                        : "Adicionar ingrediente"}
+                    </Button>
 
-                {!draftIngredienteId && matchedDraftProduct ? (
-                  <p className="mt-1 text-xs text-emerald-700">
-                    Produto encontrado automaticamente no catálogo: {matchedDraftProduct.name}
-                  </p>
+                    {editandoIngredienteId ? (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        className="w-full sm:w-auto bg-red-600 text-white font-semibold shadow-md hover:bg-red-700 hover:shadow-lg transition-all duration-200"
+                        onClick={() => {
+                          if (
+                            !confirm(
+                              "Deseja realmente excluir este ingrediente da receita?"
+                            )
+                          ) {
+                            return;
+                          }
+                          removerIngrediente(editandoIngredienteId);
+                          setShowIngredientForm(true);
+                        }}
+                      >
+                        Excluir ingrediente
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : null}
-              </div>
+              </>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+                <div className="md:col-span-4">
+                  <Label>Produto cadastrado</Label>
+                  <select
+                    className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={draftIngredienteId}
+                    onChange={(e) => onSelectProductIngredient(e.target.value)}
+                  >
+                    <option value="">— Selecionar produto —</option>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
 
-              <div>
-                <Label>Qtd de uso</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.001"
-                  placeholder=""
-                  value={draftQuantidadeUso === "" ? "" : draftQuantidadeUso}
-                  onChange={(e) =>
-                    setDraftQuantidadeUso(
-                      e.target.value === "" ? "" : Number(e.target.value)
-                    )
-                  }
-                />
-              </div>
+                  {!compactMode && draftIngredienteId ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Produto vinculado: unidade, preço e qtd. comprada
+                      acompanham o cadastro de Produtos.
+                    </p>
+                  ) : null}
+                </div>
 
-              <div className="md:col-span-2">
-                <Label>Unidade de uso</Label>
-                <Input
-                  value={
-                    matchedDraftProduct
-                      ? normalizeUnitGroup(draftUnidadeUso) ===
-                        normalizeUnitGroup(
-                          getProductLinkedSnapshot(matchedDraftProduct).unidadeBase
-                        )
-                        ? draftUnidadeUso
-                        : getProductLinkedSnapshot(matchedDraftProduct).unidadeBase
-                      : draftUnidadeUso
-                  }
-                  onChange={(e) =>
-                    setDraftUnidadeUso(normalizeUnit(e.target.value, "UN"))
-                  }
-                />
-              </div>
+                <div className="md:col-span-4">
+                  <Label>Ingrediente</Label>
+                  <Input
+                    value={draftIngredienteNome}
+                    onChange={(e) => setDraftIngredienteNome(e.target.value)}
+                    placeholder="Nome do ingrediente"
+                  />
 
-              <div className="md:col-span-2">
-                <Label>Preço da compra</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={
-                    matchedDraftProduct
-                      ? getProductLinkedSnapshot(matchedDraftProduct).precoCompra
-                      : draftPrecoCompra
-                  }
-                  onChange={(e) => setDraftPrecoCompra(toNumber(e.target.value, 0))}
-                  disabled={Boolean(matchedDraftProduct)}
-                />
-              </div>
+                  {!compactMode && !draftIngredienteId && matchedDraftProduct ? (
+                    <p className="mt-1 text-xs text-emerald-700">
+                      Produto encontrado automaticamente no catálogo:{" "}
+                      {matchedDraftProduct.name}
+                    </p>
+                  ) : null}
+                </div>
 
-              <div className="md:col-span-2">
-                <Label>Qtd comprada</Label>
-                <Input
-                  type="number"
-                  step="0.001"
-                  value={
-                    matchedDraftProduct
-                      ? getProductLinkedSnapshot(matchedDraftProduct).quantidadeCompra
-                      : draftQuantidadeCompra
-                  }
-                  onChange={(e) =>
-                    setDraftQuantidadeCompra(toNumber(e.target.value, 1))
-                  }
-                  disabled={Boolean(matchedDraftProduct)}
-                />
-              </div>
+                <div className="md:col-span-2">
+                  <Label>Qtd de uso</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    value={draftQuantidadeUso === "" ? "" : draftQuantidadeUso}
+                    onChange={(e) =>
+                      setDraftQuantidadeUso(
+                        e.target.value === "" ? "" : Number(e.target.value)
+                      )
+                    }
+                  />
+                </div>
 
-              <div className="md:col-span-2">
-                <Label>Unidade compra</Label>
-                <Input
-                  value={
-                    matchedDraftProduct
-                      ? getProductLinkedSnapshot(matchedDraftProduct).unidadeBase
-                      : draftUnidadeCompra
-                  }
-                  onChange={(e) =>
-                    setDraftUnidadeCompra(normalizeUnit(e.target.value, "UN"))
-                  }
-                  disabled={Boolean(matchedDraftProduct)}
-                />
-              </div>
+                <div className="md:col-span-2">
+                  <Label>Unidade de uso</Label>
+                  <Input
+                    value={
+                      matchedDraftProduct
+                        ? normalizeUnitGroup(draftUnidadeUso) ===
+                          normalizeUnitGroup(
+                            getProductLinkedSnapshot(matchedDraftProduct)
+                              .unidadeBase
+                          )
+                          ? draftUnidadeUso
+                          : getProductLinkedSnapshot(matchedDraftProduct)
+                              .unidadeBase
+                        : draftUnidadeUso
+                    }
+                    onChange={(e) =>
+                      setDraftUnidadeUso(normalizeUnit(e.target.value, "UN"))
+                    }
+                  />
+                </div>
 
-              <div className="md:col-span-2">
-                <Label>F. Correção</Label>
-                <Input
-                  type="number"
-                  step="0.001"
-                  value={draftFCorrecao}
-                  onChange={(e) => setDraftFCorrecao(toNumber(e.target.value, 1))}
-                />
-              </div>
+                <div className="md:col-span-2">
+                  <Label>Preço da compra</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={
+                      matchedDraftProduct
+                        ? getProductLinkedSnapshot(matchedDraftProduct)
+                            .precoCompra
+                        : draftPrecoCompra
+                    }
+                    onChange={(e) =>
+                      setDraftPrecoCompra(toNumber(e.target.value, 0))
+                    }
+                    disabled={Boolean(matchedDraftProduct)}
+                  />
+                </div>
 
-              <div className="md:col-span-2">
-                <Label>F. Cocção</Label>
-                <Input
-                  type="number"
-                  step="0.001"
-                  value={draftFCoccao}
-                  onChange={(e) => setDraftFCoccao(toNumber(e.target.value, 1))}
-                />
-              </div>
+                <div className="md:col-span-2">
+                  <Label>Qtd comprada</Label>
+                  <Input
+                    type="number"
+                    step="0.001"
+                    value={
+                      matchedDraftProduct
+                        ? getProductLinkedSnapshot(matchedDraftProduct)
+                            .quantidadeCompra
+                        : draftQuantidadeCompra
+                    }
+                    onChange={(e) =>
+                      setDraftQuantidadeCompra(toNumber(e.target.value, 1))
+                    }
+                    disabled={Boolean(matchedDraftProduct)}
+                  />
+                </div>
 
-              <div className="md:col-span-4 flex flex-wrap items-end gap-2">
-                <Button
-                  type="button"
-                  className="w-full sm:flex-1 bg-emerald-600 text-white font-semibold shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all duration-200"
-                  onClick={salvarIngrediente}
-                >
-                  {editandoIngredienteId ? "Salvar ingrediente" : "Adicionar ingrediente"}
-              </Button>
-                
-                {editandoIngredienteId ? (
-              <Button
-                type="button"
-                variant="destructive"
-                className="w-full sm:w-auto bg-red-600 text-white font-semibold shadow-md hover:bg-red-700 hover:shadow-lg transition-all duration-200"
-                onClick={() => {
-                  if (!confirm("Deseja realmente excluir este ingrediente da receita?")) return;
-                  removerIngrediente(editandoIngredienteId);
-                  setShowIngredientForm(true);
-                }}
-              >
-                Excluir ingrediente
-              </Button>
-            ) : null}
+                <div className="md:col-span-2">
+                  <Label>Unidade compra</Label>
+                  <Input
+                    value={
+                      matchedDraftProduct
+                        ? getProductLinkedSnapshot(matchedDraftProduct)
+                            .unidadeBase
+                        : draftUnidadeCompra
+                    }
+                    onChange={(e) =>
+                      setDraftUnidadeCompra(normalizeUnit(e.target.value, "UN"))
+                    }
+                    disabled={Boolean(matchedDraftProduct)}
+                  />
+                </div>
 
-            {editandoIngredienteId ? "Salvar ingrediente" : "Adicionar ingrediente"}
+                <div className="md:col-span-2">
+                  <Label>F. Correção</Label>
+                  <Input
+                    type="number"
+                    step="0.001"
+                    value={draftFCorrecao}
+                    onChange={(e) =>
+                      setDraftFCorrecao(toNumber(e.target.value, 1))
+                    }
+                  />
+                </div>
 
-                {!editandoIngredienteId && ingredientes.length > 0 ? (
+                <div className="md:col-span-2">
+                  <Label>F. Cocção</Label>
+                  <Input
+                    type="number"
+                    step="0.001"
+                    value={draftFCoccao}
+                    onChange={(e) =>
+                      setDraftFCoccao(toNumber(e.target.value, 1))
+                    }
+                  />
+                </div>
+
+                <div className="md:col-span-4 flex flex-wrap items-end gap-2">
                   <Button
                     type="button"
-                    variant="outline"
-                    onClick={() => setShowIngredientForm(false)}
+                    className="w-full sm:w-auto bg-emerald-600 text-white font-semibold shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all duration-200"
+                    onClick={salvarIngrediente}
                   >
-                    Fechar
+                    {editandoIngredienteId
+                      ? "Salvar ingrediente"
+                      : "Adicionar ingrediente"}
                   </Button>
-                ) : null}
-              </div>
-            </div>
 
-            <div className="rounded-lg bg-white p-3 text-sm">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div>
-                  <p className="text-gray-600">Custo unitário base</p>
-                  <p className="font-bold">
-                    {formatCurrency(previewIngrediente.custoUnitarioBase)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-600">Custo final do ingrediente</p>
-                  <p className="font-bold text-red-600">
-                    {formatCurrency(previewIngrediente.custoIngrediente)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-600">Itens cadastrados</p>
-                  <p className="font-medium">{ingredientes.length}</p>
+                  {editandoIngredienteId ? (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      className="w-full sm:w-auto bg-red-600 text-white font-semibold shadow-md hover:bg-red-700 hover:shadow-lg transition-all duration-200"
+                      onClick={() => {
+                        if (
+                          !confirm(
+                            "Deseja realmente excluir este ingrediente da receita?"
+                          )
+                        ) {
+                          return;
+                        }
+                        removerIngrediente(editandoIngredienteId);
+                        setShowIngredientForm(true);
+                      }}
+                    >
+                      Excluir ingrediente
+                    </Button>
+                  ) : null}
+
+                  {!editandoIngredienteId &&
+                  ingredientes.length > 0 &&
+                  !compactMode ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowIngredientForm(false)}
+                    >
+                      Fechar
+                    </Button>
+                  ) : null}
                 </div>
               </div>
-            </div>
+            )}
+
+            {!compactMode ? (
+              <div className="rounded-lg bg-white p-3 text-sm">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div>
+                    <p className="text-gray-600">Custo unitário base</p>
+                    <p className="font-bold">
+                      {formatCurrency(previewIngrediente.custoUnitarioBase)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600">Custo final do ingrediente</p>
+                    <p className="font-bold text-red-600">
+                      {formatCurrency(previewIngrediente.custoIngrediente)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600">Itens cadastrados</p>
+                    <p className="font-medium">{ingredientes.length}</p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
-        {ingredientes.length === 0 ? (
+        {ingredientes.length === 0 && !compactMode ? (
           <p className="text-sm text-gray-600">
             Nenhum ingrediente adicionado ainda.
           </p>
-        ) : (
+        ) : null}
+
+        {ingredientes.length > 0 ? (
           <div className="overflow-x-auto">
             <Table className="min-w-[920px]">
               <TableHeader>
@@ -607,7 +792,7 @@ export default function IngredientEditor({
                     <TableCell>
                       <div className="space-y-1">
                         <div>{item.nome}</div>
-                        {item.productId ? (
+                        {!compactMode && item.productId ? (
                           <div className="text-xs text-emerald-700">
                             Vinculado ao catálogo
                           </div>
@@ -618,10 +803,13 @@ export default function IngredientEditor({
                       {formatDecimal3(item.quantidadeUso)} {item.unidadeUso}
                     </TableCell>
                     <TableCell>
-                      {formatDecimal3(item.quantidadeCompra)} {item.unidadeCompra}
+                      {formatDecimal3(item.quantidadeCompra)}{" "}
+                      {item.unidadeCompra}
                     </TableCell>
                     <TableCell>{formatCurrency(item.precoCompra)}</TableCell>
-                    <TableCell>{formatCurrency(item.custoUnitarioBase)}</TableCell>
+                    <TableCell>
+                      {formatCurrency(item.custoUnitarioBase)}
+                    </TableCell>
                     <TableCell className="font-medium text-red-600">
                       {formatCurrency(item.custoIngrediente)}
                     </TableCell>
@@ -650,7 +838,7 @@ export default function IngredientEditor({
               </TableBody>
             </Table>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

@@ -232,12 +232,14 @@ export default function ContasAPagarPage() {
         (bankFilter === "conciliado" && item.bankStatus?.bankConciliated) ||
         (bankFilter === "nao_conciliado" && !item.bankStatus?.bankConciliated);
 
+      const searchTerm = search.toLowerCase();
+
       const searchOk =
         !search ||
-        item.descricao.toLowerCase().includes(search.toLowerCase()) ||
-        item.supplierName.toLowerCase().includes(search.toLowerCase()) ||
-        item.numeroDocumento.toLowerCase().includes(search.toLowerCase());
-
+        String(item.descricao ?? "").toLowerCase().includes(searchTerm) ||
+        String(item.supplierName ?? "").toLowerCase().includes(searchTerm) ||
+        String(item.numeroDocumento ?? "").toLowerCase().includes(searchTerm);
+        
       return (
         statusOk &&
         supplierOk &&

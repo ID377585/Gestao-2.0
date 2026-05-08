@@ -4,12 +4,37 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { getSupplierById, updateSupplier } from "@/lib/compras/suppliers";
+import { formatCep, formatCnpj, formatPhone } from "@/lib/formatters";
 import type { Supplier } from "@/types/compras";
 
 const UF_OPTIONS = [
-  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
-  "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
-  "SP", "SE", "TO",
+  "AC",
+  "AL",
+  "AP",
+  "AM",
+  "BA",
+  "CE",
+  "DF",
+  "ES",
+  "GO",
+  "MA",
+  "MT",
+  "MS",
+  "MG",
+  "PA",
+  "PB",
+  "PR",
+  "PE",
+  "PI",
+  "RJ",
+  "RN",
+  "RS",
+  "RO",
+  "RR",
+  "SC",
+  "SP",
+  "SE",
+  "TO",
 ];
 
 type SupplierForm = {
@@ -88,16 +113,16 @@ export default function EditarFornecedorPage() {
       setForm({
         razaoSocial: data.razaoSocial || "",
         nomeFantasia: data.nomeFantasia || "",
-        cnpj: data.cnpj || "",
+        cnpj: formatCnpj(data.cnpj || ""),
         contato: data.contato || "",
-        telefone: data.telefone || "",
-        telefone2: data.telefone2 || "",
+        telefone: formatPhone(data.telefone || ""),
+        telefone2: formatPhone(data.telefone2 || ""),
         email: data.email || "",
         endereco: data.endereco || "",
         numero: data.numero || "",
         complemento: data.complemento || "",
         bairro: data.bairro || "",
-        cep: data.cep || "",
+        cep: formatCep(data.cep || ""),
         estado: data.estado || "",
         uf: data.uf || "",
         observacoes: data.observacoes || "",
@@ -243,9 +268,11 @@ export default function EditarFornecedorPage() {
             <label className="mb-1 block text-sm font-medium">CNPJ</label>
             <input
               value={form.cnpj}
-              onChange={(e) => updateField("cnpj", e.target.value)}
+              onChange={(e) => updateField("cnpj", formatCnpj(e.target.value))}
               className="w-full rounded-xl border px-3 py-2 outline-none focus:border-black"
-              placeholder="00.000.000/0000-00"
+              placeholder="Digite o CNPJ"
+              inputMode="numeric"
+              autoComplete="off"
             />
           </div>
 
@@ -263,9 +290,13 @@ export default function EditarFornecedorPage() {
             <label className="mb-1 block text-sm font-medium">Telefone</label>
             <input
               value={form.telefone}
-              onChange={(e) => updateField("telefone", e.target.value)}
+              onChange={(e) =>
+                updateField("telefone", formatPhone(e.target.value))
+              }
               className="w-full rounded-xl border px-3 py-2 outline-none focus:border-black"
-              placeholder="(00) 00000-0000"
+              placeholder="Digite o telefone"
+              inputMode="numeric"
+              autoComplete="off"
             />
           </div>
 
@@ -273,9 +304,13 @@ export default function EditarFornecedorPage() {
             <label className="mb-1 block text-sm font-medium">Telefone 2</label>
             <input
               value={form.telefone2}
-              onChange={(e) => updateField("telefone2", e.target.value)}
+              onChange={(e) =>
+                updateField("telefone2", formatPhone(e.target.value))
+              }
               className="w-full rounded-xl border px-3 py-2 outline-none focus:border-black"
-              placeholder="(00) 00000-0000"
+              placeholder="Digite o telefone 2"
+              inputMode="numeric"
+              autoComplete="off"
             />
           </div>
 
@@ -346,9 +381,11 @@ export default function EditarFornecedorPage() {
             <label className="mb-1 block text-sm font-medium">CEP</label>
             <input
               value={form.cep}
-              onChange={(e) => updateField("cep", e.target.value)}
+              onChange={(e) => updateField("cep", formatCep(e.target.value))}
               className="w-full rounded-xl border px-3 py-2 outline-none focus:border-black"
-              placeholder="00000-000"
+              placeholder="Digite o CEP"
+              inputMode="numeric"
+              autoComplete="off"
             />
           </div>
 

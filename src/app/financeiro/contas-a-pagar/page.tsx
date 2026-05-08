@@ -8,7 +8,10 @@ import {
 } from "@/lib/financeiro/accounts-payable";
 import { listCostCenters } from "@/lib/financeiro/cost-centers";
 import { listFinancialCategories } from "@/lib/financeiro/financial-categories";
-import { getBankStatusMap, type FinancialBankStatus } from "@/lib/financeiro/reconciliation-status";
+import {
+  getBankStatusMap,
+  type FinancialBankStatus,
+} from "@/lib/financeiro/reconciliation-status";
 import type {
   AccountPayable,
   CostCenter,
@@ -46,6 +49,34 @@ function statusClass(status: PayableStatus) {
   }
 }
 
+function formatCurrency(value: number) {
+  return Number(value || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+function formatDate(value?: string) {
+  if (!value) return "-";
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleDateString("pt-BR");
+}
+
+async function safeLoad<T>(loader: () => Promise<T>, fallback: T) {
+  try {
+    return await loader();
+  } catch (error) {
+    console.warn("[contas-a-pagar] Falha ao carregar dado auxiliar.", error);
+    return fallback;
+  }
+}
+
 type PayableRow = AccountPayable & {
   bankStatus?: FinancialBankStatus;
 };
@@ -56,6 +87,7 @@ export default function ContasAPagarPage() {
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [warning, setWarning] = useState("");
 
   const [statusFilter, setStatusFilter] = useState<
     "todos" | "pendente" | "pago" | "vencido" | "cancelado"
@@ -66,7 +98,9 @@ export default function ContasAPagarPage() {
   >("todos");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [costCenterFilter, setCostCenterFilter] = useState("");
-  const [bankFilter, setBankFilter] = useState<"todos" | "conciliado" | "nao_conciliado">("todos");
+  const [bankFilter, setBankFilter] = useState<
+    "todos" | "conciliado" | "nao_conciliado"
+  >("todos");
   const [search, setSearch] = useState("");
 
   const [showForm, setShowForm] = useState(false);
@@ -85,13 +119,17 @@ export default function ContasAPagarPage() {
     try {
       setLoading(true);
       setError("");
+      setWarning("");
 
       const [payables, allCategories, allCostCenters, bankStatusMap] =
         await Promise.all([
-          listAccountsPayable(),
-          listFinancialCategories(),
-          listCostCenters(),
-          getBankStatusMap({ financeType: "pagar" }),
+          safeLoad(() => listAccountsPayable(), [] as AccountPayable[]),
+          safeLoad(() => listFinancialCategories(), [] as FinancialCategory[]),
+          safeLoad(() => listCostCenters(), [] as CostCenter[]),
+          safeLoad(
+            () => getBankStatusMap({ financeType: "pagar" }),
+            new Map<string, FinancialBankStatus>()
+          ),
         ]);
 
       const enriched: PayableRow[] = payables.map((item) => ({
@@ -104,6 +142,12 @@ export default function ContasAPagarPage() {
         allCategories.filter((item) => item.ativo && item.tipo !== "receita")
       );
       setCostCenters(allCostCenters.filter((item) => item.ativo));
+
+      if (enriched.some((item) => item.id.startsWith("entrada-"))) {
+        setWarning(
+          "Algumas contas foram geradas automaticamente a partir das notas lançadas em Entradas. Elas aparecem como contas gerenciais até a tabela financeira estar totalmente provisionada."
+        );
+      }
     } catch (err) {
       console.error(err);
       setError("Não foi possível carregar as contas a pagar.");
@@ -123,6 +167,7 @@ export default function ContasAPagarPage() {
 
     try {
       setSaving(true);
+      setError("");
 
       await createAccountPayable({
         origem: "manual",
@@ -156,7 +201,9 @@ export default function ContasAPagarPage() {
       alert("Conta a pagar criada com sucesso.");
     } catch (err) {
       console.error(err);
-      setError("Não foi possível criar a conta a pagar.");
+      setError(
+        "Não foi possível criar a conta a pagar. Verifique se a tabela accounts_payable existe no banco."
+      );
     } finally {
       setSaving(false);
     }
@@ -188,7 +235,8 @@ export default function ContasAPagarPage() {
       const searchOk =
         !search ||
         item.descricao.toLowerCase().includes(search.toLowerCase()) ||
-        item.supplierName.toLowerCase().includes(search.toLowerCase());
+        item.supplierName.toLowerCase().includes(search.toLowerCase()) ||
+        item.numeroDocumento.toLowerCase().includes(search.toLowerCase());
 
       return (
         statusOk &&
@@ -222,7 +270,7 @@ export default function ContasAPagarPage() {
   }, [filteredItems]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, []);
 
   return (
@@ -231,7 +279,8 @@ export default function ContasAPagarPage() {
         <div>
           <h1 className="text-2xl font-bold">Contas a pagar</h1>
           <p className="text-sm text-gray-500">
-            Títulos financeiros gerados pelos recebimentos de compras e lançamentos manuais.
+            Títulos financeiros gerados pelos recebimentos de compras, entradas
+            de notas fiscais e lançamentos manuais.
           </p>
         </div>
 
@@ -246,15 +295,16 @@ export default function ContasAPagarPage() {
 
           <div className="rounded-2xl border bg-white px-4 py-3 text-right shadow-sm">
             <div className="text-xs text-gray-500">Total em aberto</div>
-            <div className="text-lg font-bold">
-              {totalPendente.toLocaleString("pt-BR", {
-                style: "currency",
-                currency: "BRL",
-              })}
-            </div>
+            <div className="text-lg font-bold">{formatCurrency(totalPendente)}</div>
           </div>
         </div>
       </div>
+
+      {warning ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm">
+          {warning}
+        </div>
+      ) : null}
 
       {showForm ? (
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -265,6 +315,7 @@ export default function ContasAPagarPage() {
                 value={supplierName}
                 onChange={(e) => setSupplierName(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2 outline-none"
+                placeholder="Nome do fornecedor"
               />
             </div>
 
@@ -274,6 +325,7 @@ export default function ContasAPagarPage() {
                 value={descricao}
                 onChange={(e) => setDescricao(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2 outline-none"
+                placeholder="Ex.: Compra de mercadorias"
               />
             </div>
 
@@ -286,6 +338,7 @@ export default function ContasAPagarPage() {
                 value={valor}
                 onChange={(e) => setValor(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2 outline-none"
+                placeholder="0,00"
               />
             </div>
 
@@ -300,11 +353,14 @@ export default function ContasAPagarPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">Número do documento</label>
+              <label className="mb-1 block text-sm font-medium">
+                Número do documento
+              </label>
               <input
                 value={numeroDocumento}
                 onChange={(e) => setNumeroDocumento(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2 outline-none"
+                placeholder="Nota, boleto, referência..."
               />
             </div>
 
@@ -327,7 +383,9 @@ export default function ContasAPagarPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">Centro de custo</label>
+              <label className="mb-1 block text-sm font-medium">
+                Centro de custo
+              </label>
               <select
                 value={centroCustoId}
                 onChange={(e) => setCentroCustoId(e.target.value)}
@@ -348,6 +406,7 @@ export default function ContasAPagarPage() {
                 value={observacoes}
                 onChange={(e) => setObservacoes(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2 outline-none"
+                placeholder="Informações adicionais"
               />
             </div>
           </div>
@@ -438,7 +497,9 @@ export default function ContasAPagarPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">Centro de custo</label>
+            <label className="mb-1 block text-sm font-medium">
+              Centro de custo
+            </label>
             <select
               value={costCenterFilter}
               onChange={(e) => setCostCenterFilter(e.target.value)}
@@ -454,7 +515,9 @@ export default function ContasAPagarPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">Status bancário</label>
+            <label className="mb-1 block text-sm font-medium">
+              Status bancário
+            </label>
             <select
               value={bankFilter}
               onChange={(e) =>
@@ -498,6 +561,7 @@ export default function ContasAPagarPage() {
                 <tr className="border-b bg-gray-50 text-left">
                   <th className="px-4 py-3 font-medium">Fornecedor</th>
                   <th className="px-4 py-3 font-medium">Descrição</th>
+                  <th className="px-4 py-3 font-medium">Documento</th>
                   <th className="px-4 py-3 font-medium">Conta bancária</th>
                   <th className="px-4 py-3 font-medium">Status bancário</th>
                   <th className="px-4 py-3 font-medium">Origem</th>
@@ -507,56 +571,83 @@ export default function ContasAPagarPage() {
                   <th className="px-4 py-3 font-medium"></th>
                 </tr>
               </thead>
+
               <tbody>
-                {filteredItems.map((item) => (
-                  <tr key={item.id} className="border-b">
-                    <td className="px-4 py-3 font-medium">{item.supplierName}</td>
-                    <td className="px-4 py-3">{item.descricao}</td>
-                    <td className="px-4 py-3">
-                      {item.bankStatus?.bankAccountName || item.bankAccountName || "-"}
-                    </td>
-                    <td className="px-4 py-3">
-                      {item.bankStatus?.bankConciliated ? (
-                        <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">
-                          Conciliado
+                {filteredItems.map((item) => {
+                  const isVirtualEntry = item.id.startsWith("entrada-");
+
+                  return (
+                    <tr key={item.id} className="border-b">
+                      <td className="px-4 py-3 font-medium">
+                        {item.supplierName}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <div>{item.descricao}</div>
+                        {isVirtualEntry ? (
+                          <div className="mt-1 text-xs text-gray-500">
+                            Gerado pela sessão de Entradas
+                          </div>
+                        ) : null}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {item.numeroDocumento || "-"}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {item.bankStatus?.bankAccountName ||
+                          item.bankAccountName ||
+                          "-"}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {item.bankStatus?.bankConciliated ? (
+                          <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">
+                            Conciliado
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-800">
+                            Não conciliado
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="px-4 py-3">{item.origem}</td>
+
+                      <td className="px-4 py-3">{formatDate(item.vencimento)}</td>
+
+                      <td className="px-4 py-3">
+                        {formatCurrency(Number(item.valor))}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${statusClass(
+                            item.statusPagamento
+                          )}`}
+                        >
+                          {statusLabel(item.statusPagamento)}
                         </span>
-                      ) : (
-                        <span className="rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-800">
-                          Não conciliado
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">{item.origem}</td>
-                    <td className="px-4 py-3">
-                      {item.vencimento
-                        ? new Date(item.vencimento).toLocaleDateString("pt-BR")
-                        : "-"}
-                    </td>
-                    <td className="px-4 py-3">
-                      {Number(item.valor).toLocaleString("pt-BR", {
-                        style: "currency",
-                        currency: "BRL",
-                      })}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-medium ${statusClass(
-                          item.statusPagamento
-                        )}`}
-                      >
-                        {statusLabel(item.statusPagamento)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/financeiro/contas-a-pagar/${item.id}`}
-                        className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
-                      >
-                        Abrir
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {isVirtualEntry ? (
+                          <span className="rounded-lg border px-3 py-1 text-xs font-medium text-gray-500">
+                            Entrada
+                          </span>
+                        ) : (
+                          <Link
+                            href={`/financeiro/contas-a-pagar/${item.id}`}
+                            className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
+                          >
+                            Abrir
+                          </Link>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

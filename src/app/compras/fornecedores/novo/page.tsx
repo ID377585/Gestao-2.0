@@ -3,11 +3,36 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupplier } from "@/lib/compras/suppliers";
+import { formatCep, formatCnpj, formatPhone } from "@/lib/formatters";
 
 const UF_OPTIONS = [
-  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
-  "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
-  "SP", "SE", "TO",
+  "AC",
+  "AL",
+  "AP",
+  "AM",
+  "BA",
+  "CE",
+  "DF",
+  "ES",
+  "GO",
+  "MA",
+  "MT",
+  "MS",
+  "MG",
+  "PA",
+  "PB",
+  "PR",
+  "PE",
+  "PI",
+  "RJ",
+  "RN",
+  "RS",
+  "RO",
+  "RR",
+  "SC",
+  "SP",
+  "SE",
+  "TO",
 ];
 
 export default function NovoFornecedorPage() {
@@ -55,21 +80,21 @@ export default function NovoFornecedorPage() {
       setError("");
 
       await createSupplier({
-        razaoSocial: form.razaoSocial,
-        nomeFantasia: form.nomeFantasia,
-        cnpj: form.cnpj,
-        contato: form.contato,
-        telefone: form.telefone,
-        telefone2: form.telefone2,
-        email: form.email,
-        endereco: form.endereco,
-        numero: form.numero,
-        complemento: form.complemento,
-        bairro: form.bairro,
-        cep: form.cep,
-        estado: form.estado,
-        uf: form.uf,
-        observacoes: form.observacoes,
+        razaoSocial: form.razaoSocial.trim(),
+        nomeFantasia: form.nomeFantasia.trim(),
+        cnpj: form.cnpj.trim(),
+        contato: form.contato.trim(),
+        telefone: form.telefone.trim(),
+        telefone2: form.telefone2.trim(),
+        email: form.email.trim(),
+        endereco: form.endereco.trim(),
+        numero: form.numero.trim(),
+        complemento: form.complemento.trim(),
+        bairro: form.bairro.trim(),
+        cep: form.cep.trim(),
+        estado: form.estado.trim(),
+        uf: form.uf.trim(),
+        observacoes: form.observacoes.trim(),
         ativo: form.ativo,
       });
 
@@ -124,9 +149,11 @@ export default function NovoFornecedorPage() {
             <label className="mb-1 block text-sm font-medium">CNPJ</label>
             <input
               value={form.cnpj}
-              onChange={(e) => updateField("cnpj", e.target.value)}
+              onChange={(e) => updateField("cnpj", formatCnpj(e.target.value))}
               className="w-full rounded-xl border px-3 py-2 outline-none"
-              placeholder="00.000.000/0000-00"
+              placeholder="Digite o CNPJ"
+              inputMode="numeric"
+              autoComplete="off"
             />
           </div>
 
@@ -144,9 +171,13 @@ export default function NovoFornecedorPage() {
             <label className="mb-1 block text-sm font-medium">Telefone</label>
             <input
               value={form.telefone}
-              onChange={(e) => updateField("telefone", e.target.value)}
+              onChange={(e) =>
+                updateField("telefone", formatPhone(e.target.value))
+              }
               className="w-full rounded-xl border px-3 py-2 outline-none"
-              placeholder="(00) 00000-0000"
+              placeholder="Digite o telefone"
+              inputMode="numeric"
+              autoComplete="off"
             />
           </div>
 
@@ -154,9 +185,13 @@ export default function NovoFornecedorPage() {
             <label className="mb-1 block text-sm font-medium">Telefone 2</label>
             <input
               value={form.telefone2}
-              onChange={(e) => updateField("telefone2", e.target.value)}
+              onChange={(e) =>
+                updateField("telefone2", formatPhone(e.target.value))
+              }
               className="w-full rounded-xl border px-3 py-2 outline-none"
-              placeholder="(00) 00000-0000"
+              placeholder="Digite o telefone 2"
+              inputMode="numeric"
+              autoComplete="off"
             />
           </div>
 
@@ -227,9 +262,11 @@ export default function NovoFornecedorPage() {
             <label className="mb-1 block text-sm font-medium">CEP</label>
             <input
               value={form.cep}
-              onChange={(e) => updateField("cep", e.target.value)}
+              onChange={(e) => updateField("cep", formatCep(e.target.value))}
               className="w-full rounded-xl border px-3 py-2 outline-none"
-              placeholder="00000-000"
+              placeholder="Digite o CEP"
+              inputMode="numeric"
+              autoComplete="off"
             />
           </div>
 

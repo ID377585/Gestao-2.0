@@ -395,18 +395,19 @@ export default function PerdasPage() {
     setSubmitting(true);
     try {
       const payload = {
-        product_id: selectedProductId,
-        qty: qtyNumber,
-        lot: lot.trim() ? lot.trim() : null,
-        reason,
-        reason_detail:
-          reason === "Outro"
-            ? reasonDetail.trim()
-            : reasonDetail.trim()
-            ? reasonDetail.trim()
-            : null,
-        qrcode: qrcode.trim() ? qrcode.trim() : null,
-      };
+  product_id: selectedProductId,
+  qty: qtyNumber,
+  unit_label: unitLabel || selectedProduct?.unit_label || "UN",
+  lot: lot.trim() ? lot.trim() : null,
+  reason,
+  reason_detail:
+    reason === "Outro"
+      ? reasonDetail.trim()
+      : reasonDetail.trim()
+      ? reasonDetail.trim()
+      : null,
+  qrcode: qrcode.trim() ? qrcode.trim() : null,
+};
 
       const res = await fetch("/api/losses", {
         method: "POST",

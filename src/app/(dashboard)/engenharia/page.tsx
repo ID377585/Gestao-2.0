@@ -7,6 +7,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Legend,
   Pie,
   PieChart,
@@ -41,6 +42,7 @@ type FichaTecnica = {
   categoria: string;
   setor: string;
   rendimento: number;
+  pesoPorcao: number;
   custoTotal: number;
   custoPorPorcao: number;
   cmvAlvo: number;
@@ -113,6 +115,15 @@ function formatNumber(value: number, fractionDigits = 2) {
     minimumFractionDigits: 0,
     maximumFractionDigits: fractionDigits,
   }).format(Number.isFinite(value) ? value : 0);
+}
+
+function formatPesoPorcao(value: number) {
+  const peso = Number.isFinite(Number(value)) ? Number(value) : 0;
+
+  return `${new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  }).format(peso)} Gramas a Porção`;
 }
 
 function normalizeText(value: string) {
@@ -700,23 +711,24 @@ export default function EngenhariaDashboardPage() {
             : [];
 
           return {
-            id: String(item.id),
-            nome: String(item.name ?? ""),
-            categoria: String(item.category ?? "").trim(),
-            setor: normalizeSector(String(item.sector ?? "")),
-            rendimento,
-            custoTotal,
-            custoPorPorcao,
-            cmvAlvo: Number(item.profit_margin_percent ?? 0),
-            precoVenda: Number(item.sale_price ?? 0),
-            ativo: item.active !== false,
-            alergênicos: String(item.allergens ?? "").trim(),
-            armazenamento: String(item.storage_instructions ?? "").trim(),
-            shelfLifeFrozen: String(item.shelf_life_frozen ?? "").trim(),
-            shelfLifeRefrigerated: String(item.shelf_life_refrigerated ?? "").trim(),
-            shelfLifeRoomTemp: String(item.shelf_life_room_temp ?? "").trim(),
-            ingredientes,
-          };
+  id: String(item.id),
+  nome: String(item.name ?? ""),
+  categoria: String(item.category ?? "").trim(),
+  setor: normalizeSector(String(item.sector ?? "")),
+  rendimento,
+  pesoPorcao: Number(item.portion_weight ?? 0),
+  custoTotal,
+  custoPorPorcao,
+  cmvAlvo: Number(item.profit_margin_percent ?? 0),
+  precoVenda: Number(item.sale_price ?? 0),
+  ativo: item.active !== false,
+  alergênicos: String(item.allergens ?? "").trim(),
+  armazenamento: String(item.storage_instructions ?? "").trim(),
+  shelfLifeFrozen: String(item.shelf_life_frozen ?? "").trim(),
+  shelfLifeRefrigerated: String(item.shelf_life_refrigerated ?? "").trim(),
+  shelfLifeRoomTemp: String(item.shelf_life_room_temp ?? "").trim(),
+  ingredientes,
+};
         })
       );
     } catch (err) {
@@ -845,16 +857,20 @@ export default function EngenhariaDashboardPage() {
   }, [fichasEmpratamento]);
 
   const rankingEmpratamentoMaisCarasPorIngrediente = useMemo(() => {
-    return [...fichasEmpratamento]
-      .map((ficha) => ({
-        ficha,
-        ingrediente: getIngredienteMaisCaro(ficha),
-      }))
-      .filter(({ ficha, ingrediente }) => {
-        return Boolean(ingrediente) && Number(ficha.custoPorPorcao || 0) > 1;
-      })
-      .sort((a, b) => b.ficha.custoPorPorcao - a.ficha.custoPorPorcao);
-  }, [fichasEmpratamento]);
+  return [...fichasEmpratamento]
+    .map((ficha) => ({
+      ficha,
+      ingrediente: getIngredienteMaisCaro(ficha),
+    }))
+    .filter(({ ingrediente }) => {
+      return Boolean(ingrediente) && Number(ingrediente?.custoIngrediente || 0) > 0;
+    })
+    .sort(
+      (a, b) =>
+        Number(b.ingrediente?.custoIngrediente || 0) -
+        Number(a.ingrediente?.custoIngrediente || 0)
+    );
+}, [fichasEmpratamento]);
 
   const alergênicosChart = useMemo(() => {
     return fichasEmpratamento
@@ -1131,7 +1147,18 @@ export default function EngenhariaDashboardPage() {
                           name="Fichas"
                           radius={[8, 8, 0, 0]}
                           fill="#2563eb"
-                        />
+                        >
+                          <LabelList
+                            dataKey="quantidade"
+                            position="top"
+                            formatter={(value: unknown) => formatNumber(Number(value), 0)}
+                            style={{
+                              fill: "#0f172a",
+                              fontSize: 12,
+                              fontWeight: 800,
+                            }}
+                          />
+                        </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -1219,7 +1246,18 @@ export default function EngenhariaDashboardPage() {
                           name="Fichas"
                           radius={[8, 8, 0, 0]}
                           fill="#7c3aed"
-                        />
+                        >
+                          <LabelList
+                            dataKey="quantidade"
+                            position="top"
+                            formatter={(value: unknown) => formatNumber(Number(value), 0)}
+                            style={{
+                              fill: "#0f172a",
+                              fontSize: 12,
+                              fontWeight: 800,
+                            }}
+                          />
+                        </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -1329,8 +1367,8 @@ export default function EngenhariaDashboardPage() {
                               <div className="font-extrabold">
                                 {formatMoney(item.custoTotal)}
                               </div>
-                              <div className="text-xs opacity-85">
-                                {formatMoney(item.custoPorPorcao)}/porção
+                              <div className="text-xs font-semibold opacity-90">
+                                {formatPesoPorcao(item.pesoPorcao)}
                               </div>
                             </div>
                           </div>
@@ -1375,8 +1413,8 @@ export default function EngenhariaDashboardPage() {
                               <div className="font-extrabold">
                                 {formatMoney(item.custoPorPorcao)}
                               </div>
-                              <div className="text-xs opacity-85">
-                                custo por porção
+                              <div className="text-xs font-semibold opacity-90">
+                                {formatPesoPorcao(item.pesoPorcao)}
                               </div>
                             </div>
                           </div>
@@ -1405,7 +1443,7 @@ export default function EngenhariaDashboardPage() {
                         <BarChart
                           data={custoPorSetor}
                           layout="vertical"
-                          margin={{ top: 10, right: 24, left: 70, bottom: 10 }}
+                          margin={{ top: 10, right: 100, left: 70, bottom: 10 }}
                         >
                           <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                           <XAxis
@@ -1434,7 +1472,18 @@ export default function EngenhariaDashboardPage() {
                             name="Custo médio"
                             radius={[0, 8, 8, 0]}
                             fill="#dc2626"
-                          />
+                          >
+                            <LabelList
+                              dataKey="custoTotalMedio"
+                              position="right"
+                              formatter={(value: unknown) => formatMoney(Number(value))}
+                              style={{
+                                fill: "#0f172a",
+                                fontSize: 11,
+                                fontWeight: 800,
+                              }}
+                            />
+                          </Bar>
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -1479,8 +1528,8 @@ export default function EngenhariaDashboardPage() {
                   Ranking - Fichas de Empratamento mais caras devido ao Ingrediente utilizado
                 </h2>
                 <p className="mb-4 text-sm text-slate-600">
-                  Ranking por custo por porção, exibindo o ingrediente mais caro da
-                  receita com marca buscada no catálogo de produtos.
+                  Ranking pelo custo proporcional do ingrediente utilizado na receita,
+  exibindo o ingrediente mais caro com marca buscada no catálogo de produtos.
                 </p>
 
                 <div className="overflow-x-auto">
@@ -1494,7 +1543,7 @@ export default function EngenhariaDashboardPage() {
                         <th className="px-3 py-3">Unidade</th>
                         <th className="px-3 py-3">Marca</th>
                         <th className="px-3 py-3 text-right">Preço de Custo</th>
-                        <th className="px-3 py-3 text-right">Custo por porção</th>
+                        <th className="px-3 py-3 text-right">Custo Qtd. Utilizada</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1554,7 +1603,7 @@ export default function EngenhariaDashboardPage() {
                                   {formatMoney(ingrediente?.precoCompra ?? 0)}
                                 </td>
                                 <td className="px-3 py-3 text-right font-bold text-red-700">
-                                  {formatMoney(ficha.custoPorPorcao)}
+                                  {formatMoney(ingrediente?.custoIngrediente ?? 0)}
                                 </td>
                               </tr>
                             );

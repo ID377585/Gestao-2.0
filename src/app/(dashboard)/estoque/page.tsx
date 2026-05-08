@@ -1479,20 +1479,6 @@ function ConsolidatedStockPieChart({
       <div className={`${GLASS_INNER_CLASS} p-4`}>
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="relative h-[560px] min-w-0 rounded-3xl border border-white/20 bg-white/20 p-3 backdrop-blur-md dark:border-white/10 dark:bg-white/5">
-            <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
-              <div className="max-w-[340px] rounded-2xl border border-white/35 bg-white/80 px-4 py-3 text-center shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/70">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                  Valor total em estoque
-                </div>
-                <div className="mt-1 text-xl font-bold">{formatCurrency(totalAmount)}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  KG: {formatQty(kgQty)} • UNID: {formatQty(unidQty)} • LT: {formatQty(ltQty)}
-                </div>
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  {totalMonitoredItems} itens • qtd total {formatQty(totalMonitoredQty)}
-                </div>
-              </div>
-            </div>
 
             {hasChartData ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -1612,7 +1598,27 @@ function ConsolidatedStockPieChart({
               );
             })}
 
-            {unclassified.items > 0 ? (
+            <div className={`${GLASS_INNER_CLASS} p-4`}>
+  <div className="rounded-2xl border border-white/30 bg-white/35 px-4 py-4 text-center shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5">
+    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+      Valor total em estoque
+    </div>
+
+    <div className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
+      {formatCurrency(totalAmount)}
+    </div>
+
+    <div className="mt-2 text-xs text-muted-foreground">
+      KG: {formatQty(kgQty)} • UNID: {formatQty(unidQty)} • LT: {formatQty(ltQty)}
+    </div>
+
+    <div className="mt-1 text-[11px] text-muted-foreground">
+      {totalMonitoredItems} itens • qtd total {formatQty(totalMonitoredQty)}
+    </div>
+  </div>
+</div>
+
+{unclassified.items > 0 ? (
               <div className="rounded-2xl border border-amber-200/70 bg-amber-50/70 p-3 text-xs text-amber-950 shadow-sm backdrop-blur-md dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
                 <div className="font-semibold">Unidades fora do consolidado</div>
                 <div className="mt-1">

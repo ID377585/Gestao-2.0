@@ -501,8 +501,6 @@ export default function IngredientEditor({
 
                 {!canShowCompactIngredientFields ? (
                   <p className="text-sm text-muted-foreground">
-                    Selecione um produto cadastrado para liberar os campos do
-                    ingrediente, quantidade e unidade de uso.
                   </p>
                 ) : null}
 

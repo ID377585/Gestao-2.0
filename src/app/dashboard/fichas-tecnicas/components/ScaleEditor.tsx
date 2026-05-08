@@ -60,6 +60,14 @@ function formatNumber(value: number) {
   }).format(value);
 }
 
+function formatYieldNumber(value: number) {
+  if (!Number.isFinite(value)) return "0";
+
+  return new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: 0,
+  }).format(Math.round(value));
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "—";
 
@@ -106,6 +114,100 @@ function getPreparationFontSize(text: string) {
   if (length > 700) return 9.8;
 
   return 10.4;
+}
+
+function getNumberFontSize(value: number, baseSize = 9) {
+  const text = formatNumber(value);
+  const length = text.length;
+
+  if (length >= 16) return 4.8;
+  if (length >= 15) return 5.1;
+  if (length >= 14) return 5.4;
+  if (length >= 13) return 5.8;
+  if (length >= 12) return 6.2;
+  if (length >= 11) return 6.7;
+  if (length >= 10) return 7.2;
+  if (length >= 9) return 7.8;
+  if (length >= 8) return 8.4;
+
+  return baseSize;
+}
+
+function getHeaderNumberFontSize(value: number) {
+  const text = formatNumber(value);
+  const length = text.length;
+
+  if (length >= 16) return 4.6;
+  if (length >= 15) return 4.9;
+  if (length >= 14) return 5.2;
+  if (length >= 13) return 5.5;
+  if (length >= 12) return 5.8;
+  if (length >= 11) return 6.2;
+  if (length >= 10) return 6.6;
+  if (length >= 9) return 7.1;
+
+  return 8;
+}
+
+function getWeightNumberFontSize(value: number) {
+  const text = formatNumber(value);
+  const length = text.length;
+
+  if (length >= 16) return 5;
+  if (length >= 15) return 5.3;
+  if (length >= 14) return 5.6;
+  if (length >= 13) return 6;
+  if (length >= 12) return 6.5;
+  if (length >= 11) return 7;
+  if (length >= 10) return 7.8;
+  if (length >= 9) return 8.8;
+  if (length >= 8) return 9.8;
+
+  return 12;
+}
+
+function getIngredientNameFontSize(value: string) {
+  const length = String(value ?? "").trim().length;
+
+  if (length >= 54) return 5.8;
+  if (length >= 48) return 6.2;
+  if (length >= 42) return 6.8;
+  if (length >= 36) return 7.3;
+  if (length >= 30) return 7.8;
+  if (length >= 24) return 8.4;
+
+  return 9;
+}
+
+function FitNumber({
+  value,
+  className = "",
+  variant = "body",
+}: {
+  value: number;
+  className?: string;
+  variant?: "body" | "header" | "weight";
+}) {
+  const fontSize =
+    variant === "header"
+      ? getHeaderNumberFontSize(value)
+      : variant === "weight"
+        ? getWeightNumberFontSize(value)
+        : getNumberFontSize(value);
+
+  return (
+    <span
+      className={`block w-full max-w-full overflow-hidden whitespace-nowrap text-center leading-none ${className}`}
+      style={{
+        fontSize: `${fontSize}px`,
+        letterSpacing: "-0.35px",
+        fontVariantNumeric: "tabular-nums",
+      }}
+      title={formatNumber(value)}
+    >
+      {formatNumber(value)}
+    </span>
+  );
 }
 
 function escapeHtml(value: string) {
@@ -222,6 +324,30 @@ export default function ScaleEditor({
             .scale-print-button {
               display: none !important;
             }
+
+            table {
+              width: 100% !important;
+              table-layout: fixed !important;
+              border-collapse: collapse !important;
+            }
+
+            th,
+            td {
+              overflow: hidden !important;
+              white-space: nowrap !important;
+              text-overflow: clip !important;
+            }
+
+            .fit-number {
+              display: block !important;
+              width: 100% !important;
+              max-width: 100% !important;
+              overflow: hidden !important;
+              white-space: nowrap !important;
+              text-align: center !important;
+              line-height: 1 !important;
+              font-variant-numeric: tabular-nums !important;
+            }
           </style>
         </head>
         <body>
@@ -246,7 +372,8 @@ export default function ScaleEditor({
         <div>
           <h4 className="text-lg font-semibold">Escalas</h4>
           <p className="text-sm text-muted-foreground">
-            Gere automaticamente a escala completa de 1X até 10X em uma página única.
+            Gere automaticamente a escala completa de 1X até 10X em uma página
+            única.
           </p>
         </div>
 
@@ -261,14 +388,15 @@ export default function ScaleEditor({
 
       {!showScalePage ? (
         <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          Clique em “Gerar escala 1X a 10X” para visualizar a página de escala da ficha.
+          Clique em “Gerar escala 1X a 10X” para visualizar a página de escala
+          da ficha.
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border bg-slate-100 p-4">
           <div ref={printRef}>
             <div className="scale-print-page mx-auto w-[794px] overflow-hidden rounded-xl bg-white p-5 text-slate-900 shadow-sm">
               <div className="mb-3 flex justify-center">
-                <div className="rounded-full bg-yellow-300 px-10 py-2 text-center text-[27px] font-extrabold italic tracking-wide text-black shadow-sm">
+                <div className="max-w-[520px] truncate rounded-full bg-yellow-300 px-10 py-2 text-center text-[27px] font-extrabold italic tracking-wide text-black shadow-sm">
                   {nome || "Ficha Técnica"}
                 </div>
               </div>
@@ -284,9 +412,11 @@ export default function ScaleEditor({
                 <div>
                   Temperatura
                   <div className="mt-1 text-[16px] font-black normal-case">
-                    {temperatureCelsius !== null && temperatureCelsius !== undefined
-                    ? formatNumber(temperatureCelsius)
-                    : "—"}º
+                    {temperatureCelsius !== null &&
+                    temperatureCelsius !== undefined
+                      ? formatNumber(temperatureCelsius)
+                      : "—"}
+                    º
                   </div>
                 </div>
 
@@ -301,7 +431,8 @@ export default function ScaleEditor({
                 <div>
                   Tempo cocção
                   <div className="mt-1 text-[16px] font-black normal-case">
-                    {cookingTimeMinutes !== null && cookingTimeMinutes !== undefined
+                    {cookingTimeMinutes !== null &&
+                    cookingTimeMinutes !== undefined
                       ? formatNumber(cookingTimeMinutes)
                       : ""}
                     <span className="ml-1 text-[9px] font-semibold">min</span>
@@ -335,7 +466,7 @@ export default function ScaleEditor({
                 </div>
               </div>
 
-              <table className="w-full table-fixed border-collapse text-center text-[9px] leading-[1.15]">
+              <table className="w-full table-fixed border-collapse text-center leading-none">
                 <thead>
                   <tr>
                     <th className="w-[150px] border bg-white py-1"></th>
@@ -353,15 +484,26 @@ export default function ScaleEditor({
                     <th className="border bg-yellow-300 px-2 py-1 text-left text-[14px] font-extrabold italic">
                       Ingredientes:
                     </th>
-                    {scaleNumbers.map((scale) => (
-                      <th
-                        key={`yield-${scale}`}
-                        className="border bg-yellow-300 py-1 text-[8px] font-bold leading-tight"
-                      >
-                        <div>{formatNumber((rendimento || 1) * scale)}</div>
-                        <div className="uppercase">{yieldUnit}</div>
-                      </th>
-                    ))}
+                    {scaleNumbers.map((scale) => {
+                      const yieldValue = Number(rendimento || 1) * scale;
+
+                      return (
+                        <th
+                          key={`yield-${scale}`}
+                          className="border bg-yellow-300 px-[1px] py-1 font-bold leading-none"
+                        >
+                          <span
+                          className="block w-full max-w-full overflow-hidden whitespace-nowrap text-center text-[9px] font-extrabold leading-none"
+                          title={formatYieldNumber(yieldValue)}
+                        >
+                          {formatYieldNumber(yieldValue)}
+                        </span>
+                        <span className="block w-full max-w-full overflow-hidden whitespace-nowrap text-center text-[6px] uppercase leading-none">
+                          {yieldUnit}
+                        </span>
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
 
@@ -369,18 +511,32 @@ export default function ScaleEditor({
                   {ingredientes.length > 0 ? (
                     ingredientes.map((ingredient) => (
                       <tr key={ingredient.id}>
-                        <td className="border bg-white px-2 py-1 text-left text-[9px] font-semibold uppercase">
-                          {ingredient.nome}
+                        <td
+                          className="border bg-white px-2 py-1 text-left font-semibold uppercase leading-tight"
+                          style={{
+                            fontSize: `${getIngredientNameFontSize(
+                              ingredient.nome
+                            )}px`,
+                          }}
+                        >
+                          <span className="block max-w-full overflow-hidden break-words leading-tight">
+                            {ingredient.nome}
+                          </span>
                         </td>
 
-                        {scaleNumbers.map((scale) => (
-                          <td
-                            key={`${ingredient.id}-${scale}`}
-                            className="border bg-white py-1 text-[9px] font-semibold"
-                          >
-                            {formatNumber(Number(ingredient.quantidadeUso || 0) * scale)}
-                          </td>
-                        ))}
+                        {scaleNumbers.map((scale) => {
+                          const value =
+                            Number(ingredient.quantidadeUso || 0) * scale;
+
+                          return (
+                            <td
+                              key={`${ingredient.id}-${scale}`}
+                              className="border bg-white px-[1px] py-1 text-center font-semibold leading-none"
+                            >
+                              <FitNumber value={value} variant="body" />
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))
                   ) : (
@@ -398,14 +554,18 @@ export default function ScaleEditor({
                     <td className="border bg-yellow-300 px-2 py-1 text-left text-[14px] font-extrabold uppercase">
                       Peso líquido:
                     </td>
-                    {scaleNumbers.map((scale) => (
-                      <td
-                        key={`weight-${scale}`}
-                        className="border bg-yellow-300 py-1 text-[12px] font-extrabold"
-                      >
-                        {formatNumber(baseLiquidWeight * scale)}
-                      </td>
-                    ))}
+                    {scaleNumbers.map((scale) => {
+                      const value = baseLiquidWeight * scale;
+
+                      return (
+                        <td
+                          key={`weight-${scale}`}
+                          className="border bg-yellow-300 px-[1px] py-1 text-center font-extrabold leading-none"
+                        >
+                          <FitNumber value={value} variant="weight" />
+                        </td>
+                      );
+                    })}
                   </tr>
                 </tbody>
               </table>

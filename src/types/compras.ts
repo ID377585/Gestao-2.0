@@ -7,8 +7,15 @@ export interface Supplier {
   cnpj?: string;
   contato?: string;
   telefone?: string;
+  telefone2?: string;
   email?: string;
   endereco?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  cep?: string;
+  estado?: string;
+  uf?: string;
   observacoes?: string;
   ativo: SupplierStatus;
   createdAt: string;
@@ -21,8 +28,15 @@ export interface CreateSupplierInput {
   cnpj?: string;
   contato?: string;
   telefone?: string;
+  telefone2?: string;
   email?: string;
   endereco?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  cep?: string;
+  estado?: string;
+  uf?: string;
   observacoes?: string;
   ativo?: SupplierStatus;
 }
@@ -33,8 +47,15 @@ export interface UpdateSupplierInput {
   cnpj?: string;
   contato?: string;
   telefone?: string;
+  telefone2?: string;
   email?: string;
   endereco?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  cep?: string;
+  estado?: string;
+  uf?: string;
   observacoes?: string;
   ativo?: SupplierStatus;
 }

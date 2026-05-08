@@ -1,5 +1,6 @@
 "use server";
 
+import { markFiscalNfeAsImportedEntryAction } from "@/app/(dashboard)/dashboard/fiscal/actions";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
@@ -607,7 +608,6 @@ export async function deleteInvoiceEntryDraft(draftId: string) {
 
 export async function createInvoiceEntry(input: InvoiceEntryInput) {
   const { supabase, establishmentId, userId } = await getContext();
-
   const supplierName = normalizeText(input.supplier_name);
   const supplierDocument = normalizeText(input.supplier_document);
   const invoiceNumber = normalizeText(input.invoice_number);
@@ -732,6 +732,10 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
     }
 
     createdEntryId = String(entry.id);
+
+    if (invoiceKey && createdEntryId) {
+  await markFiscalNfeAsImportedEntryAction(invoiceKey, createdEntryId);
+}
 
     const itemsPayload = normalizedItems.map((item) => ({
       invoice_entry_id: createdEntryId,

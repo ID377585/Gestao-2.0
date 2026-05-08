@@ -439,21 +439,116 @@ function buildPrintHtml(
   currentTab: ViewerTab
 ) {
   const scaled = getScaledFicha(ficha, desiredServings);
+
   const custoPorPorcao = ficha.custoPorPorcao || 0;
   const precoVenda = ficha.precoVenda || 0;
   const custoTotalAjustado = scaled.custoTotal || 0;
-  const cmv = calcularCMV(custoPorPorcao, precoVenda);
-  const lucro = calcularLucroUnitario(precoVenda, custoPorPorcao);
+
+  const quantidadeRendimento = Number(ficha.rendimento || 0);
+  const textoPorcao = quantidadeRendimento === 1 ? "porção" : "porções";
+
+  function escapeHtml(value: string) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function escapeAttr(value: string) {
+    return escapeHtml(value).replace(/"/g, "&quot;");
+  }
+
+  function normalizarUnidadePeso(value?: string | null) {
+    const unidade = String(value || "").trim().toUpperCase();
+
+    if (
+      unidade === "KG" ||
+      unidade === "G" ||
+      unidade === "L" ||
+      unidade === "ML"
+    ) {
+      return unidade;
+    }
+
+    return "KG";
+  }
+
+  function converterQuantidadeParaKg(quantidade: number, unidade: string) {
+    const unidadeNormalizada = String(unidade || "").trim().toUpperCase();
+
+    if (unidadeNormalizada === "KG") return quantidade;
+    if (unidadeNormalizada === "G") return quantidade / 1000;
+
+    return 0;
+  }
+
+  function calcularPesoIngredientesEmKg() {
+    return ficha.ingredientes.reduce((acc, item) => {
+      const quantidade = Number(item.quantidadeUso || 0);
+      const unidade = String(item.unidadeUso || "").trim().toUpperCase();
+
+      return acc + converterQuantidadeParaKg(quantidade, unidade);
+    }, 0);
+  }
+
+  const unidadePesoPorcao = normalizarUnidadePeso(ficha.portionWeightUnit);
+
+  const pesoTotalIngredientesKg = calcularPesoIngredientesEmKg();
+
+  const pesoReceitaTotalKg =
+    Number(ficha.correctionFactorGrams || 0) > 0
+      ? Number(ficha.correctionFactorGrams || 0)
+      : pesoTotalIngredientesKg;
+
+  const pesoPorcaoKg =
+    Number(ficha.pesoPorcao || 0) > 0
+      ? Number(ficha.pesoPorcao || 0)
+      : quantidadeRendimento > 0
+        ? pesoReceitaTotalKg / quantidadeRendimento
+        : 0;
+
+  const formatPeso = (value: number) =>
+    new Intl.NumberFormat("pt-BR", {
+      minimumFractionDigits: 3,
+      maximumFractionDigits: 3,
+    }).format(value || 0);
+
+  const textoRendimentoCompleto = `Rende: ${quantidadeRendimento} ${textoPorcao} de ${formatPeso(
+    pesoPorcaoKg
+  )} ${unidadePesoPorcao} - Peso Receita Total: ${formatPeso(
+    pesoReceitaTotalKg
+  )} ${unidadePesoPorcao}`;
+
+  const cmv =
+    Number.isFinite(Number(ficha.margemLucro)) && Number(ficha.margemLucro) > 0
+      ? Number(ficha.margemLucro)
+      : calcularCMV(custoPorPorcao, precoVenda);
+
+  const imageHtml = ficha.imageUrl
+    ? `
+      <div class="photo-box has-photo">
+        <img src="${escapeAttr(ficha.imageUrl)}" alt="${escapeAttr(
+        ficha.nome
+      )}" />
+      </div>
+    `
+    : `
+      <div class="photo-box empty-photo">
+        <div>
+          <span>Foto da receita</span>
+          <small>Imagem não cadastrada</small>
+        </div>
+      </div>
+    `;
 
   const ingredientesHtml = `
     <table class="ingredients-table">
       <thead>
         <tr>
           <th class="col-ingredient">Ingrediente</th>
-          <th class="col-usage">Qtd. Utilizada</th>
-          <th class="col-purchase">Qtd. Embalagem</th>
+          <th class="col-usage">Qtd. utilizada</th>
           <th class="col-price right">Preço compra</th>
-          <th class="col-final right">Preço qtd utilizada</th>
+          <th class="col-final right">Preço qtd. utilizada</th>
         </tr>
       </thead>
       <tbody>
@@ -463,10 +558,15 @@ function buildPrintHtml(
                 .map(
                   (i) => `
                     <tr>
-                      <td class="col-ingredient ingredient-name">${i.nome}</td>
-                      <td class="col-usage">${i.quantidadeUso} ${i.unidadeUso}</td>
-                      <td class="col-purchase">${i.quantidadeCompra} ${i.unidadeCompra}</td>
-                      <td class="col-price right">${formatCurrency(i.precoCompra)}</td>
+                      <td class="col-ingredient ingredient-name">${escapeHtml(
+                        i.nome
+                      )}</td>
+                      <td class="col-usage">${i.quantidadeUso} ${escapeHtml(
+                        i.unidadeUso
+                      )}</td>
+                      <td class="col-price right">${formatCurrency(
+                        i.precoCompra
+                      )}</td>
                       <td class="col-final right highlight-cost">${formatCurrency(
                         i.custoIngrediente
                       )}</td>
@@ -476,7 +576,7 @@ function buildPrintHtml(
                 .join("")
             : `
               <tr>
-                <td colspan="5" class="empty-state">
+                <td colspan="4" class="empty-state">
                   Nenhum ingrediente cadastrado.
                 </td>
               </tr>
@@ -507,7 +607,7 @@ function buildPrintHtml(
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Ficha Técnica - ${ficha.nome}</title>
+<title>Ficha Técnica - ${escapeHtml(ficha.nome)}</title>
 <style>
   * {
     box-sizing: border-box;
@@ -517,14 +617,15 @@ function buildPrintHtml(
 
   @page {
     size: A4;
-    margin: 14mm;
+    margin: 10mm;
   }
 
-  html, body {
+  html,
+  body {
     margin: 0;
     padding: 0;
-    background: #ffffff;
-    color: #111827;
+    background: #f8fafc;
+    color: #0f172a;
     font-family: Arial, Helvetica, sans-serif;
   }
 
@@ -534,69 +635,122 @@ function buildPrintHtml(
 
   .page {
     width: 100%;
+    background: #ffffff;
   }
 
-  .header {
+  .hero {
+    display: grid;
+    grid-template-columns: 1fr 185px;
+    gap: 18px;
+    align-items: stretch;
     border: 1px solid #dbe2ea;
     border-radius: 18px;
-    padding: 22px 24px 18px;
+    padding: 22px;
     background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-    margin-bottom: 14px;
+    margin-bottom: 12px;
+  }
+
+  .title-area {
+    min-width: 0;
   }
 
   .title {
     margin: 0;
-    font-size: 30px;
-    line-height: 1.1;
-    font-weight: 800;
-    letter-spacing: -0.02em;
+    font-size: 34px;
+    line-height: 1.05;
+    font-weight: 900;
+    letter-spacing: -0.04em;
     color: #0f172a;
+    text-transform: uppercase;
   }
 
   .category {
-    margin-top: 6px;
-    font-size: 13px;
-    font-weight: 700;
+    margin-top: 8px;
+    font-size: 14px;
+    font-weight: 800;
     color: #475569;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
   }
 
   .header-meta {
-    margin-top: 12px;
-    font-size: 12px;
-    color: #64748b;
+    margin-top: 18px;
+    font-size: 13px;
+    color: #334155;
     border-top: 1px solid #e5e7eb;
-    padding-top: 10px;
+    padding-top: 12px;
+    font-weight: 800;
+    line-height: 1.4;
+  }
+
+  .photo-box {
+    width: 185px;
+    height: 140px;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid #dbe2ea;
+    background: #f1f5f9;
+  }
+
+  .photo-box img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .empty-photo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: #64748b;
+    border-style: dashed;
+  }
+
+  .empty-photo span {
+    display: block;
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .empty-photo small {
+    display: block;
+    margin-top: 4px;
+    font-size: 10px;
+    color: #94a3b8;
   }
 
   .metrics-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 10px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
 
   .metric-card {
     border: 1px solid #dbe2ea;
-    border-radius: 14px;
-    padding: 12px 12px 10px;
+    border-radius: 16px;
+    padding: 12px 14px;
     background: #ffffff;
+    min-height: 78px;
   }
 
   .metric-label {
-    font-size: 11px;
+    font-size: 10px;
     color: #64748b;
-    margin-bottom: 6px;
+    margin-bottom: 7px;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
-    font-weight: 700;
+    letter-spacing: 0.06em;
+    font-weight: 900;
   }
 
   .metric-value {
-    font-size: 20px;
-    line-height: 1.15;
-    font-weight: 800;
+    font-size: 22px;
+    line-height: 1.1;
+    font-weight: 900;
     color: #0f172a;
   }
 
@@ -640,26 +794,24 @@ function buildPrintHtml(
   }
 
   .section {
-    margin-top: 16px;
+    margin-top: 14px;
   }
 
   .section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
 
   .section-header h2 {
     margin: 0;
-    font-size: 17px;
-    font-weight: 800;
+    font-size: 18px;
+    font-weight: 900;
     color: #0f172a;
+    letter-spacing: -0.02em;
   }
 
   .ingredients-wrap {
     border: 1px solid #dbe2ea;
-    border-radius: 18px;
+    border-radius: 16px;
     overflow: hidden;
     background: #ffffff;
   }
@@ -673,18 +825,18 @@ function buildPrintHtml(
   .ingredients-table thead th {
     background: #f8fafc;
     color: #334155;
-    font-size: 11px;
+    font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
-    font-weight: 800;
-    padding: 11px 10px;
+    letter-spacing: 0.05em;
+    font-weight: 900;
+    padding: 10px 11px;
     border-bottom: 1px solid #dbe2ea;
   }
 
   .ingredients-table tbody td {
-    font-size: 12px;
+    font-size: 11.5px;
     color: #111827;
-    padding: 10px 10px;
+    padding: 9px 11px;
     border-bottom: 1px solid #edf2f7;
     vertical-align: top;
   }
@@ -698,30 +850,26 @@ function buildPrintHtml(
   }
 
   .col-ingredient {
-    width: 38%;
+    width: 43%;
   }
 
   .col-usage {
-    width: 16%;
-  }
-
-  .col-purchase {
-    width: 14%;
+    width: 18%;
   }
 
   .col-price {
-    width: 16%;
+    width: 19%;
   }
 
   .col-final {
-    width: 16%;
+    width: 20%;
   }
 
   .ingredient-name {
     white-space: normal;
     word-break: break-word;
     overflow-wrap: anywhere;
-    font-weight: 700;
+    font-weight: 800;
   }
 
   .right {
@@ -729,17 +877,17 @@ function buildPrintHtml(
   }
 
   .highlight-cost {
-    color: #b91c1c;
-    font-weight: 800;
+    color: #0f172a;
+    font-weight: 900;
   }
 
   .preparo-box {
     border: 1px solid #dbe2ea;
-    border-radius: 18px;
+    border-radius: 16px;
     background: #ffffff;
-    padding: 16px 18px;
-    font-size: 13px;
-    line-height: 1.7;
+    padding: 14px 16px;
+    font-size: 12px;
+    line-height: 1.55;
     color: #111827;
     white-space: normal;
   }
@@ -752,27 +900,47 @@ function buildPrintHtml(
   }
 
   .footer-note {
-    margin-top: 14px;
-    font-size: 11px;
-    color: #64748b;
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid #e5e7eb;
+    font-size: 9px;
+    color: #94a3b8;
     text-align: right;
   }
 
   @media print {
+    html,
+    body {
+      background: #ffffff;
+    }
+
     .page {
       width: 100%;
+    }
+
+    .hero,
+    .metric-card,
+    .ingredients-wrap,
+    .preparo-box {
+      break-inside: avoid;
     }
   }
 </style>
 </head>
 <body>
   <div class="page">
-    <section class="header">
-      <h1 class="title">${ficha.nome}</h1>
-      <div class="category">${ficha.categoria || "Sem categoria"}</div>
-      <div class="header-meta">
-      Rendimento: <strong>${ficha.rendimento} porções</strong>
-  </div>
+    <section class="hero">
+      <div class="title-area">
+        <h1 class="title">${escapeHtml(ficha.nome)}</h1>
+        <div class="category">${escapeHtml(
+          ficha.categoria || "Sem categoria"
+        )}</div>
+        <div class="header-meta">
+          ${escapeHtml(textoRendimentoCompleto)}
+        </div>
+      </div>
+
+      ${imageHtml}
     </section>
 
     <section class="metrics-grid">
@@ -783,10 +951,10 @@ function buildPrintHtml(
 
       <div class="metric-card primary">
         <div class="metric-label">Rendimento</div>
-        <div class="metric-value">${ficha.correctionFactorGrams ?? 0} g</div>
+        <div class="metric-value">${quantidadeRendimento} ${textoPorcao}</div>
       </div>
 
-      <div class="metric-card.success">
+      <div class="metric-card success">
         <div class="metric-label">Preço de venda</div>
         <div class="metric-value">${formatCurrency(precoVenda)}</div>
       </div>
@@ -809,14 +977,19 @@ function buildPrintHtml(
 
     ${modoPreparoHtml}
 
-  <script>
-    window.onload = function () {
-      window.focus();
-      setTimeout(function () {
-        window.print();
-      }, 250);
-    };
-  </script>
+    <div class="footer-note">
+      Ficha técnica gerada automaticamente pelo sistema.
+    </div>
+
+    <script>
+      window.onload = function () {
+        window.focus();
+        setTimeout(function () {
+          window.print();
+        }, 250);
+      };
+    </script>
+  </div>
 </body>
 </html>
   `.trim();
@@ -924,9 +1097,12 @@ function RecipeViewerInline({
     );
   }
 
-  const scaled = getScaledFicha(ficha, desiredServings);
-  const cmv = calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
-  const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
+ const scaled = getScaledFicha(ficha, desiredServings);
+const cmv =
+  Number.isFinite(Number(ficha.margemLucro)) && Number(ficha.margemLucro) > 0
+    ? Number(ficha.margemLucro)
+    : calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
+const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
 
   return (
     <Card className="overflow-hidden border border-slate-200 bg-white text-slate-900 shadow-sm">
@@ -1012,43 +1188,43 @@ function RecipeViewerInline({
       </div>
 
       <CardContent className="space-y-6 bg-white p-4 text-slate-900 sm:p-6">
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs text-slate-500">Custo total</p>
-            <p className="mt-1 text-2xl font-bold text-red-600">
-              {formatCurrency(scaled.custoTotal)}
-            </p>
-          </div>
+  <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs text-slate-500">Custo total</p>
+      <p className="mt-1 text-2xl font-bold text-red-600">
+        {formatCurrency(scaled.custoTotal)}
+      </p>
+    </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs text-slate-500">Custo por porção</p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">
-              {formatCurrency(ficha.custoPorPorcao)}
-            </p>
-          </div>
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs text-slate-500">Custo por porção</p>
+      <p className="mt-1 text-2xl font-bold text-slate-900">
+        {formatCurrency(ficha.custoPorPorcao)}
+      </p>
+    </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs text-slate-500">Preço de venda</p>
-            <p className="mt-1 text-2xl font-bold text-green-600">
-              {formatCurrency(ficha.precoVenda)}
-            </p>
-          </div>
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs text-slate-500">Preço de venda</p>
+      <p className="mt-1 text-2xl font-bold text-green-600">
+        {formatCurrency(ficha.precoVenda)}
+      </p>
+    </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs text-slate-500">CMV</p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">
-              {cmv.toFixed(1)}%
-            </p>
-          </div>
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs text-slate-500">Lucro unitário</p>
+      <p className="mt-1 text-2xl font-bold text-blue-600">
+        {formatCurrency(lucro)}
+      </p>
+    </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs text-slate-500">Lucro unitário</p>
-            <p className="mt-1 text-2xl font-bold text-blue-600">
-              {formatCurrency(lucro)}
-            </p>
-          </div>
-        </div>
-      </CardContent>
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs text-slate-500">CMV</p>
+      <p className="mt-1 text-2xl font-bold text-slate-900">
+        {cmv.toFixed(1)}%
+      </p>
+    </div>
+  </div>
+</CardContent>
     </Card>
   );
 }

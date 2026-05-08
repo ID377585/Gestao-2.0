@@ -7,7 +7,6 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -59,6 +58,59 @@ function calcularCustos(
   };
 }
 
+function calcularFinanceiroFichaRapida({
+  custoPorPorcao,
+  cmvAlvoPercent,
+  impostosDespesasPercent,
+  precoVendaReal,
+}: {
+  custoPorPorcao: number;
+  cmvAlvoPercent: number;
+  impostosDespesasPercent: number;
+  precoVendaReal: number;
+}) {
+  const cmvAlvoDecimal = cmvAlvoPercent > 0 ? cmvAlvoPercent / 100 : 0;
+  const impostosDespesasDecimal =
+    impostosDespesasPercent > 0 ? impostosDespesasPercent / 100 : 0;
+
+  const precoVendaDesejavel =
+    custoPorPorcao > 0 && cmvAlvoDecimal > 0
+      ? custoPorPorcao / cmvAlvoDecimal
+      : 0;
+
+  const precoVendaComImpostos =
+    precoVendaDesejavel > 0
+      ? precoVendaDesejavel + precoVendaDesejavel * impostosDespesasDecimal
+      : 0;
+
+  const precoVendaBase =
+    precoVendaReal > 0 ? precoVendaReal : precoVendaComImpostos;
+
+  const lucroPorProduto =
+    precoVendaBase > 0 ? precoVendaBase - custoPorPorcao : 0;
+
+  const impostosDespesasValor =
+    precoVendaBase > 0 ? precoVendaBase * impostosDespesasDecimal : 0;
+
+  const cmvReal =
+    precoVendaBase > 0 && custoPorPorcao > 0
+      ? custoPorPorcao / precoVendaBase
+      : 0;
+
+  const lucroLiquido =
+    precoVendaBase > 0 ? lucroPorProduto - impostosDespesasValor : 0;
+
+  return {
+    precoVendaDesejavel: Number(precoVendaDesejavel.toFixed(4)),
+    precoVendaComImpostos: Number(precoVendaComImpostos.toFixed(4)),
+    precoVendaBase: Number(precoVendaBase.toFixed(4)),
+    lucroPorProduto: Number(lucroPorProduto.toFixed(4)),
+    impostosDespesasValor: Number(impostosDespesasValor.toFixed(4)),
+    cmvReal: Number(cmvReal.toFixed(4)),
+    lucroLiquido: Number(lucroLiquido.toFixed(4)),
+  };
+}
+
 export default function FichaRapidaModal({
   open,
   onClose,
@@ -73,17 +125,39 @@ export default function FichaRapidaModal({
   const [rendimento, setRendimento] = useState<number | "">("");
   const [pesoPorcao, setPesoPorcao] = useState<number | "">("");
   const [pesoFinal, setPesoFinal] = useState<number | "">("");
+
+  const [cmvAlvo, setCmvAlvo] = useState<number | "">(25);
+
+  // Mantido oculto para preservar a lógica da planilha sem poluir a tela.
+  const [impostosDespesas, setImpostosDespesas] = useState<number | "">(34.42);
+
+  // Mantido oculto. Quando vazio, o sistema usa o preço sugerido com impostos/despesas.
+  const [precoVendaReal, setPrecoVendaReal] = useState<number | "">("");
+
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const [erro, setErro] = useState("");
+
   const preview = useMemo(() => {
-  return calcularCustos(ingredientes, toNumber(rendimento, 1), 0);
+    return calcularCustos(ingredientes, toNumber(rendimento, 1), 0);
   }, [ingredientes, rendimento]);
+
+  const financeiro = useMemo(() => {
+    return calcularFinanceiroFichaRapida({
+      custoPorPorcao: preview.custoPorPorcao,
+      cmvAlvoPercent: toNumber(cmvAlvo, 0),
+      impostosDespesasPercent: toNumber(impostosDespesas, 0),
+      precoVendaReal: toNumber(precoVendaReal, 0),
+    });
+  }, [preview.custoPorPorcao, cmvAlvo, impostosDespesas, precoVendaReal]);
 
   function resetForm() {
     setNome("");
     setRendimento("");
     setPesoPorcao("");
     setPesoFinal("");
+    setCmvAlvo(25);
+    setImpostosDespesas(34.42);
+    setPrecoVendaReal("");
     setIngredientes([]);
     setErro("");
   }
@@ -93,7 +167,7 @@ export default function FichaRapidaModal({
     resetForm();
     onClose();
   }
-  
+
   function calcularRendimentoPorPesoFinal(
     pesoFinal: number | "" | null | undefined,
     pesoPorPorcao: number | "" | null | undefined
@@ -136,13 +210,13 @@ export default function FichaRapidaModal({
     startTransition(async () => {
       try {
         const payload = {
-          name: nome.trim(),
+          name: nome.trim().toUpperCase(),
           category: "Ficha Rápida",
           yield_portions: Math.max(1, toNumber(rendimento, 1)),
           portion_weight: Math.max(0, toNumber(pesoPorcao, 0)),
           prep_time_minutes: 0,
-          profit_margin_percent: 0,
-          sale_price: preview.precoVenda,
+          profit_margin_percent: toNumber(cmvAlvo, 0),
+          sale_price: financeiro.precoVendaBase,
           total_cost: preview.custoTotal,
           cost_per_portion: preview.custoPorPorcao,
           preparation_method: "",
@@ -214,8 +288,9 @@ export default function FichaRapidaModal({
               <Input
                 id="ficha-rapida-nome"
                 value={nome}
-                onChange={(e) => setNome(e.target.value)}
-                placeholder="Ex.: Bolo de fubá"
+                onChange={(e) => setNome(e.target.value.toUpperCase())}
+                placeholder="Ex.: BOLO DE FUBÁ"
+                className="uppercase"
               />
             </div>
           </div>
@@ -247,7 +322,6 @@ export default function FichaRapidaModal({
                     calcularRendimentoPorPesoFinal(nextPesoFinal, pesoPorcao)
                   );
                 }}
-                placeholder=""
               />
             </div>
 
@@ -268,7 +342,6 @@ export default function FichaRapidaModal({
                     calcularRendimentoPorPesoFinal(pesoFinal, nextPesoPorcao)
                   );
                 }}
-                placeholder=""
               />
             </div>
 
@@ -282,23 +355,65 @@ export default function FichaRapidaModal({
                 value={rendimento}
                 readOnly
                 className="bg-slate-100 font-semibold text-slate-700"
-                placeholder="0"
               />
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-50 px-4 py-3 text-sm">
-            <span className="font-semibold">Prévia:</span>{" "}
-            <span className="text-muted-foreground">Custo total</span>{" "}
-            <span className="font-bold text-red-600">
-              {formatCurrency(preview.custoTotal)}
-            </span>{" "}
-            <span className="text-muted-foreground">- Custo por porção</span>{" "}
-            <span className="font-bold text-red-600">
-              {formatCurrency(preview.custoPorPorcao)}
-            </span>{" "}
-            <span className="text-muted-foreground">- Itens</span>{" "}
-            <span className="font-bold">{ingredientes.length}</span>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div>
+                <Label htmlFor="ficha-rapida-cmv-alvo">
+                  CMV desejado (%)
+                </Label>
+                <Input
+                  id="ficha-rapida-cmv-alvo"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={cmvAlvo}
+                  onChange={(e) =>
+                    setCmvAlvo(
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                    )
+                  }
+                  placeholder="25"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg bg-slate-50 p-4">
+                <p className="text-xs text-slate-500">
+                  Preço de Custo Receita Total
+                </p>
+                <p className="text-2xl font-bold text-red-600">
+                  {formatCurrency(preview.custoTotal)}
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-slate-50 p-4">
+                <p className="text-xs text-slate-500">Custo por porção</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {formatCurrency(preview.custoPorPorcao)}
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-slate-50 p-4">
+                <p className="text-xs text-slate-500">
+                  Preço venda sugerido
+                </p>
+                <p className="text-2xl font-bold text-emerald-700">
+                  {formatCurrency(financeiro.precoVendaComImpostos)}
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-slate-50 p-4">
+                <p className="text-xs text-slate-500">Lucro por produto</p>
+                <p className="text-2xl font-bold text-blue-700">
+                  {formatCurrency(financeiro.lucroPorProduto)}
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

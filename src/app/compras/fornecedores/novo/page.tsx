@@ -4,6 +4,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupplier } from "@/lib/compras/suppliers";
 
+const UF_OPTIONS = [
+  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
+  "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
+  "SP", "SE", "TO",
+];
+
 export default function NovoFornecedorPage() {
   const router = useRouter();
 
@@ -13,8 +19,15 @@ export default function NovoFornecedorPage() {
     cnpj: "",
     contato: "",
     telefone: "",
+    telefone2: "",
     email: "",
     endereco: "",
+    numero: "",
+    complemento: "",
+    bairro: "",
+    cep: "",
+    estado: "",
+    uf: "",
     observacoes: "",
     ativo: true,
   });
@@ -47,8 +60,15 @@ export default function NovoFornecedorPage() {
         cnpj: form.cnpj,
         contato: form.contato,
         telefone: form.telefone,
+        telefone2: form.telefone2,
         email: form.email,
         endereco: form.endereco,
+        numero: form.numero,
+        complemento: form.complemento,
+        bairro: form.bairro,
+        cep: form.cep,
+        estado: form.estado,
+        uf: form.uf,
         observacoes: form.observacoes,
         ativo: form.ativo,
       });
@@ -63,7 +83,7 @@ export default function NovoFornecedorPage() {
   }
 
   return (
-    <div className="max-w-3xl space-y-6 p-6">
+    <div className="max-w-5xl space-y-6 p-6">
       <div>
         <h1 className="text-2xl font-bold">Novo fornecedor</h1>
         <p className="text-sm text-gray-500">
@@ -131,6 +151,16 @@ export default function NovoFornecedorPage() {
           </div>
 
           <div>
+            <label className="mb-1 block text-sm font-medium">Telefone 2</label>
+            <input
+              value={form.telefone2}
+              onChange={(e) => updateField("telefone2", e.target.value)}
+              className="w-full rounded-xl border px-3 py-2 outline-none"
+              placeholder="(00) 00000-0000"
+            />
+          </div>
+
+          <div>
             <label className="mb-1 block text-sm font-medium">E-mail</label>
             <input
               type="email"
@@ -159,8 +189,74 @@ export default function NovoFornecedorPage() {
               value={form.endereco}
               onChange={(e) => updateField("endereco", e.target.value)}
               className="w-full rounded-xl border px-3 py-2 outline-none"
-              placeholder="Rua, número, bairro, cidade"
+              placeholder="Rua / Avenida"
             />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">Nº</label>
+            <input
+              value={form.numero}
+              onChange={(e) => updateField("numero", e.target.value)}
+              className="w-full rounded-xl border px-3 py-2 outline-none"
+              placeholder="Número"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">Complemento</label>
+            <input
+              value={form.complemento}
+              onChange={(e) => updateField("complemento", e.target.value)}
+              className="w-full rounded-xl border px-3 py-2 outline-none"
+              placeholder="Sala, bloco, referência..."
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">Bairro</label>
+            <input
+              value={form.bairro}
+              onChange={(e) => updateField("bairro", e.target.value)}
+              className="w-full rounded-xl border px-3 py-2 outline-none"
+              placeholder="Bairro"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">CEP</label>
+            <input
+              value={form.cep}
+              onChange={(e) => updateField("cep", e.target.value)}
+              className="w-full rounded-xl border px-3 py-2 outline-none"
+              placeholder="00000-000"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">Estado</label>
+            <input
+              value={form.estado}
+              onChange={(e) => updateField("estado", e.target.value)}
+              className="w-full rounded-xl border px-3 py-2 outline-none"
+              placeholder="Ex.: São Paulo"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">UF</label>
+            <select
+              value={form.uf}
+              onChange={(e) => updateField("uf", e.target.value)}
+              className="w-full rounded-xl border px-3 py-2 outline-none"
+            >
+              <option value="">— Selecione —</option>
+              {UF_OPTIONS.map((uf) => (
+                <option key={uf} value={uf}>
+                  {uf}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="md:col-span-2">

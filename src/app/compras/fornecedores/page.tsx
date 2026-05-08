@@ -89,20 +89,24 @@ export default function FornecedoresPage() {
                   <th className="px-4 py-3 font-medium">Ações</th>
                 </tr>
               </thead>
+
               <tbody>
                 {suppliers.map((item) => (
                   <tr key={item.id} className="border-b">
                     <td className="px-4 py-3">
                       <div className="font-medium">{item.razaoSocial}</div>
+
                       {item.nomeFantasia ? (
                         <div className="text-xs text-gray-500">
                           {item.nomeFantasia}
                         </div>
                       ) : null}
                     </td>
+
                     <td className="px-4 py-3">{item.contato || "-"}</td>
                     <td className="px-4 py-3">{item.telefone || "-"}</td>
                     <td className="px-4 py-3">{item.email || "-"}</td>
+
                     <td className="px-4 py-3">
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-medium ${
@@ -114,30 +118,39 @@ export default function FornecedoresPage() {
                         {item.ativo ? "Ativo" : "Inativo"}
                       </span>
                     </td>
+
                     <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
-                          <Link
-                            href={`/compras/fornecedores/${item.id}`}
-                            className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
-                          >
-                            Abrir
-                          </Link>
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          href={`/compras/fornecedores/${item.id}`}
+                          className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
+                        >
+                          Abrir
+                        </Link>
 
-                          <Link
-                            href={`/compras/fornecedores/${item.id}/plano-de-acao`}
-                            className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
-                          >
-                            Plano de ação
-                          </Link>
+                        <Link
+                          href={`/compras/fornecedores/${item.id}/editar`}
+                          className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                        >
+                          Editar
+                        </Link>
 
-                          <button
-                            onClick={() => handleToggleStatus(item)}
-                            className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
-                          >
-                            {item.ativo ? "Inativar" : "Ativar"}
-                          </button>
-                        </div>
-                      </td>
+                        <Link
+                          href={`/compras/fornecedores/${item.id}/plano-de-acao`}
+                          className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
+                        >
+                          Plano de ação
+                        </Link>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStatus(item)}
+                          className="rounded-lg border px-3 py-1 text-xs font-medium hover:bg-gray-50"
+                        >
+                          {item.ativo ? "Inativar" : "Ativar"}
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

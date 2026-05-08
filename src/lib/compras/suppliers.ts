@@ -22,8 +22,15 @@ function normalizeSupplier(row: Record<string, unknown>): Supplier {
     cnpj: toText(row.cnpj) ?? undefined,
     contato: toText(row.contato) ?? undefined,
     telefone: toText(row.telefone) ?? undefined,
+    telefone2: toText(row.telefone_2) ?? undefined,
     email: toText(row.email) ?? undefined,
     endereco: toText(row.endereco) ?? undefined,
+    numero: toText(row.numero) ?? undefined,
+    complemento: toText(row.complemento) ?? undefined,
+    bairro: toText(row.bairro) ?? undefined,
+    cep: toText(row.cep) ?? undefined,
+    estado: toText(row.estado) ?? undefined,
+    uf: toText(row.uf) ?? undefined,
     observacoes: toText(row.observacoes) ?? undefined,
     ativo: toBoolean(row.ativo, true),
     createdAt: toIsoString(toText(row.created_at)),
@@ -41,8 +48,15 @@ function buildCreatePayload(input: CreateSupplierInput) {
     cnpj: input.cnpj?.trim() || null,
     contato: input.contato?.trim() || null,
     telefone: input.telefone?.trim() || null,
+    telefone_2: input.telefone2?.trim() || null,
     email: input.email?.trim() || null,
     endereco: input.endereco?.trim() || null,
+    numero: input.numero?.trim() || null,
+    complemento: input.complemento?.trim() || null,
+    bairro: input.bairro?.trim() || null,
+    cep: input.cep?.trim() || null,
+    estado: input.estado?.trim() || null,
+    uf: input.uf?.trim() || null,
     observacoes: input.observacoes?.trim() || null,
     ativo: input.ativo ?? true,
     created_at: now,
@@ -75,12 +89,40 @@ function buildUpdatePayload(input: UpdateSupplierInput) {
     payload.telefone = input.telefone.trim() || null;
   }
 
+  if (input.telefone2 !== undefined) {
+    payload.telefone_2 = input.telefone2.trim() || null;
+  }
+
   if (input.email !== undefined) {
     payload.email = input.email.trim() || null;
   }
 
   if (input.endereco !== undefined) {
     payload.endereco = input.endereco.trim() || null;
+  }
+
+  if (input.numero !== undefined) {
+    payload.numero = input.numero.trim() || null;
+  }
+
+  if (input.complemento !== undefined) {
+    payload.complemento = input.complemento.trim() || null;
+  }
+
+  if (input.bairro !== undefined) {
+    payload.bairro = input.bairro.trim() || null;
+  }
+
+  if (input.cep !== undefined) {
+    payload.cep = input.cep.trim() || null;
+  }
+
+  if (input.estado !== undefined) {
+    payload.estado = input.estado.trim() || null;
+  }
+
+  if (input.uf !== undefined) {
+    payload.uf = input.uf.trim() || null;
   }
 
   if (input.observacoes !== undefined) {

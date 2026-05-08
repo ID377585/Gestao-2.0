@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPtBrDecimal, parsePtBrNumber } from "@/lib/number-format";
 import Image from "next/image";
 import {
   useCallback,
@@ -1354,9 +1355,10 @@ export default function FichasTecnicasPage() {
             sector_category: p.sector_category ?? p.category ?? "",
             category: p.category ?? null,
             package_qty:
-              p.package_qty !== null && p.package_qty !== undefined
-                ? Number(p.package_qty)
-                : 1,
+              package_qty:
+            p.package_qty !== null && p.package_qty !== undefined
+              ? parsePtBrNumber(p.package_qty, 1)
+              : 1,
             qty_per_package: p.qty_per_package
               ? String(p.qty_per_package)
               : null,

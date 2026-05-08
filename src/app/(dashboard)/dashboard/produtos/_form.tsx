@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPtBrDecimal } from "@/lib/number-format";
 import { useTransition } from "react";
 import { createProduct, updateProduct } from "./actions";
 import {
@@ -102,19 +103,32 @@ export function ProductForm({ product }: ProductFormProps) {
           </label>
           <input
             name="package_qty"
-            type="number"
-            step="0.001"
-            defaultValue={product?.package_qty ?? ""}
+            type="text"
+            inputMode="decimal"
+            defaultValue={
+              product?.package_qty !== null &&
+              product?.package_qty !== undefined
+                ? formatPtBrDecimal(product.package_qty, {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 3,
+                  })
+                : ""
+            }
             className="w-full rounded border px-3 py-2"
-            placeholder="Ex.: 1, 2.5, 0.5"
+            placeholder="Ex.: 6,438"
           />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Use vírgula para decimal. Ex.: 6,438 KG.
+          </p>
         </div>
 
         <div>
           <label className="block text-sm font-medium">Unidade padrão</label>
           <select
             name="default_unit_label"
-            defaultValue={(product?.default_unit_label?.toUpperCase() as any) ?? "UN"}
+            defaultValue={
+              (product?.default_unit_label?.toUpperCase() as any) ?? "UN"
+            }
             className="w-full rounded border px-3 py-2"
           >
             {UNIT_OPTIONS.map((u) => (
@@ -133,12 +147,14 @@ export function ProductForm({ product }: ProductFormProps) {
             name="qty_per_package"
             defaultValue={product?.qty_per_package ?? ""}
             className="w-full rounded border px-3 py-2"
-            placeholder="Ex.: 12 unidades, BDJ c/ 30 un"
+            placeholder="Ex.: KILO, 12 unidades, BDJ c/ 30 un"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium">Categoria (armazenamento)</label>
+          <label className="block text-sm font-medium">
+            Categoria (armazenamento)
+          </label>
           <select
             name="category"
             defaultValue={product?.category ?? ""}
@@ -202,7 +218,7 @@ export function ProductForm({ product }: ProductFormProps) {
                 name="allergens"
                 value={item}
                 defaultChecked={normalizeAllergenList(
-                  product?.allergens,
+                  product?.allergens
                 ).includes(item)}
               />
               <span>{item}</span>
@@ -228,27 +244,50 @@ export function ProductForm({ product }: ProductFormProps) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium">Preço / Custo padrão</label>
+          <label className="block text-sm font-medium">
+            Preço / Custo padrão
+          </label>
           <input
             name="price"
-            type="number"
-            step="0.01"
-            defaultValue={product?.price ?? ""}
+            type="text"
+            inputMode="decimal"
+            defaultValue={
+              product?.price !== null && product?.price !== undefined
+                ? formatPtBrDecimal(product.price, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })
+                : ""
+            }
             className="w-full rounded border px-3 py-2"
-            placeholder="0,00"
+            placeholder="Ex.: 92,50"
           />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Use vírgula para centavos. Ex.: 92,50.
+          </p>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium">Fator de conversão</label>
+          <label className="block text-sm font-medium">
+            Fator de conversão
+          </label>
           <input
             name="conversion_factor"
-            type="number"
-            step="0.0001"
-            defaultValue={product?.conversion_factor ?? 1}
+            type="text"
+            inputMode="decimal"
+            defaultValue={
+              product?.conversion_factor !== null &&
+              product?.conversion_factor !== undefined
+                ? formatPtBrDecimal(product.conversion_factor, {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 4,
+                  })
+                : "1"
+            }
             className="w-full rounded border px-3 py-2"
+            placeholder="Ex.: 1"
           />
         </div>
 
@@ -267,7 +306,11 @@ export function ProductForm({ product }: ProductFormProps) {
         disabled={isPending}
         className="w-full rounded bg-black px-4 py-2 text-white disabled:opacity-60"
       >
-        {isPending ? "Salvando..." : isEdit ? "Gravar alterações" : "Criar produto"}
+        {isPending
+          ? "Salvando..."
+          : isEdit
+            ? "Gravar alterações"
+            : "Criar produto"}
       </button>
     </form>
   );

@@ -1,5 +1,6 @@
 "use server";
 
+import { parsePtBrNumber } from "@/lib/number-format";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -253,19 +254,10 @@ function isMissingRelationError(error: any) {
   );
 }
 
-function parseNumber(value: FormDataEntryValue | null, decimals = 2): number | null {
-  if (value == null) return null;
+function parseNumber(value: FormDataEntryValue | null, decimals = 2) {
+  const parsed = parsePtBrNumber(value, null);
 
-  const raw = String(value).trim();
-  if (!raw) return null;
-
-  const normalized = raw
-    .replace(/\./g, "")
-    .replace(",", ".");
-
-  const parsed = Number(normalized);
-
-  if (!Number.isFinite(parsed)) return null;
+  if (parsed === null) return null;
 
   return Number(parsed.toFixed(decimals));
 }

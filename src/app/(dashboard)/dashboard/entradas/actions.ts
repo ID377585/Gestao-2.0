@@ -226,7 +226,8 @@ async function validateAndNormalizeItems(
 
     return {
       product_id: productId,
-      product_name_snapshot: normalizeText(item.product_name_snapshot) || found.name,
+      product_name_snapshot:
+        normalizeText(item.product_name_snapshot) || found.name,
       quantity,
       unit_label: unitLabel,
       unit_cost: unitCost,
@@ -339,7 +340,11 @@ async function cleanupFailedInvoiceEntry(
   entryId: string
 ) {
   try {
-    await supabase.from("invoice_entry_items").delete().eq("invoice_entry_id", entryId);
+    await supabase
+      .from("invoice_entry_items")
+      .delete()
+      .eq("invoice_entry_id", entryId);
+
     await supabase.from("invoice_entries").delete().eq("id", entryId);
   } catch (cleanupError) {
     console.error(
@@ -372,6 +377,7 @@ export async function uploadInvoiceEntryAttachmentAction(formData: FormData) {
 
   if (kind === "xml") {
     const fileName = file.name.toLowerCase();
+
     if (
       file.type !== "text/xml" &&
       file.type !== "application/xml" &&
@@ -383,6 +389,7 @@ export async function uploadInvoiceEntryAttachmentAction(formData: FormData) {
 
   if (kind === "pdf") {
     const fileName = file.name.toLowerCase();
+
     if (file.type !== "application/pdf" && !fileName.endsWith(".pdf")) {
       throw new Error("O anexo PDF precisa ser um arquivo .pdf válido.");
     }
@@ -608,6 +615,7 @@ export async function deleteInvoiceEntryDraft(draftId: string) {
 
 export async function createInvoiceEntry(input: InvoiceEntryInput) {
   const { supabase, establishmentId, userId } = await getContext();
+
   const supplierName = normalizeText(input.supplier_name);
   const supplierDocument = normalizeText(input.supplier_document);
   const invoiceNumber = normalizeText(input.invoice_number);
@@ -654,15 +662,16 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
     }
   }
 
-  const { data: existingByNumberSeries, error: duplicateNumberError } = await supabase
-    .from("invoice_entries")
-    .select("id")
-    .eq("establishment_id", establishmentId)
-    .eq("invoice_number", invoiceNumber)
-    .eq("invoice_series", invoiceSeries || null)
-    .eq("status", "active")
-    .limit(1)
-    .maybeSingle();
+  const { data: existingByNumberSeries, error: duplicateNumberError } =
+    await supabase
+      .from("invoice_entries")
+      .select("id")
+      .eq("establishment_id", establishmentId)
+      .eq("invoice_number", invoiceNumber)
+      .eq("invoice_series", invoiceSeries || null)
+      .eq("status", "active")
+      .limit(1)
+      .maybeSingle();
 
   if (duplicateNumberError) {
     console.error(
@@ -712,7 +721,8 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
         notes: notes || null,
         status: "active",
         approval_status: approvalStatus,
-        approved_at: approvalStatus === "approved" ? new Date().toISOString() : null,
+        approved_at:
+          approvalStatus === "approved" ? new Date().toISOString() : null,
         approved_by: approvalStatus === "approved" ? userId : null,
         imported_from_xml: Boolean(input.imported_from_xml),
         attachment_xml_url: input.attachment_xml_url?.trim() || null,
@@ -727,15 +737,12 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
     if (entryError || !entry) {
       console.error("Erro ao criar entrada:", entryError);
       throw new Error(
-        entryError?.message ?? "Não foi possível gravar a entrada da nota fiscal."
+        entryError?.message ??
+          "Não foi possível gravar a entrada da nota fiscal."
       );
     }
 
     createdEntryId = String(entry.id);
-
-    if (invoiceKey && createdEntryId) {
-  await markFiscalNfeAsImportedEntryAction(invoiceKey, createdEntryId);
-}
 
     const itemsPayload = normalizedItems.map((item) => ({
       invoice_entry_id: createdEntryId,
@@ -765,6 +772,8 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
 
         await cleanupFailedInvoiceEntry(supabase, createdEntryId);
 
+        createdEntryId = null;
+
         throw new Error(
           `Falha ao registrar a entrada no estoque. A operação foi revertida. Detalhe: ${getReadableErrorMessage(
             stockError,
@@ -779,6 +788,17 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
         normalizedItems,
         input.update_product_standard_cost
       );
+    }
+
+    if (invoiceKey && createdEntryId) {
+      try {
+        await markFiscalNfeAsImportedEntryAction(invoiceKey, createdEntryId);
+      } catch (fiscalError) {
+        console.error(
+          "Entrada registrada, mas falhou ao vincular NF-e fiscal:",
+          fiscalError
+        );
+      }
     }
 
     revalidatePath("/dashboard/entradas");
@@ -857,7 +877,9 @@ export async function approveInvoiceEntry(entryId: string) {
 
   if (updateError) {
     console.error("Erro ao aprovar entrada:", updateError);
-    throw new Error("O estoque foi aplicado, mas falhou ao atualizar o status da nota.");
+    throw new Error(
+      "O estoque foi aplicado, mas falhou ao atualizar o status da nota."
+    );
   }
 
   revalidatePath("/dashboard/entradas");
@@ -940,7 +962,10 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
       .maybeSingle();
 
     if (duplicateKeyError) {
-      console.error("Erro ao validar duplicidade por chave na edição:", duplicateKeyError);
+      console.error(
+        "Erro ao validar duplicidade por chave na edição:",
+        duplicateKeyError
+      );
       throw new Error("Não foi possível validar duplicidade por chave NF-e.");
     }
 
@@ -949,16 +974,17 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
     }
   }
 
-  const { data: duplicateByNumberSeries, error: duplicateNumberError } = await supabase
-    .from("invoice_entries")
-    .select("id")
-    .eq("establishment_id", establishmentId)
-    .eq("invoice_number", invoiceNumber)
-    .eq("invoice_series", invoiceSeries || null)
-    .eq("status", "active")
-    .neq("id", input.id)
-    .limit(1)
-    .maybeSingle();
+  const { data: duplicateByNumberSeries, error: duplicateNumberError } =
+    await supabase
+      .from("invoice_entries")
+      .select("id")
+      .eq("establishment_id", establishmentId)
+      .eq("invoice_number", invoiceNumber)
+      .eq("invoice_series", invoiceSeries || null)
+      .eq("status", "active")
+      .neq("id", input.id)
+      .limit(1)
+      .maybeSingle();
 
   if (duplicateNumberError) {
     console.error(
@@ -978,7 +1004,9 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
     input.items
   );
 
-  const currentItems = Array.isArray((current as any).items) ? (current as any).items : [];
+  const currentItems = Array.isArray((current as any).items)
+    ? (current as any).items
+    : [];
   const currentApprovalStatus = String((current as any).approval_status);
 
   const totalAmount = Number(
@@ -1018,7 +1046,8 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
       category_snapshot: categorySnapshot,
       notes: notes || null,
       approval_status: approvalStatus,
-      approved_at: approvalStatus === "approved" ? new Date().toISOString() : null,
+      approved_at:
+        approvalStatus === "approved" ? new Date().toISOString() : null,
       approved_by: approvalStatus === "approved" ? userId : null,
       imported_from_xml: Boolean(input.imported_from_xml),
       attachment_xml_url: input.attachment_xml_url?.trim() || null,
@@ -1042,7 +1071,9 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
 
   if (deleteItemsError) {
     console.error("Erro ao limpar itens antigos da entrada:", deleteItemsError);
-    throw new Error("A entrada foi atualizada, mas houve erro ao recriar os itens.");
+    throw new Error(
+      "A entrada foi atualizada, mas houve erro ao recriar os itens."
+    );
   }
 
   const itemsPayload = normalizedItems.map((item) => ({
@@ -1062,17 +1093,31 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
 
   if (insertItemsError) {
     console.error("Erro ao inserir itens novos da entrada:", insertItemsError);
-    throw new Error("A entrada foi atualizada, mas houve erro ao salvar os novos itens.");
+    throw new Error(
+      "A entrada foi atualizada, mas houve erro ao salvar os novos itens."
+    );
   }
 
   if (approvalStatus === "approved") {
     await applyStockFromItems(supabase, establishmentId, normalizedItems);
+
     await updateProductsStandardCostIfNeeded(
       supabase,
       establishmentId,
       normalizedItems,
       input.update_product_standard_cost
     );
+  }
+
+  if (invoiceKey && input.id) {
+    try {
+      await markFiscalNfeAsImportedEntryAction(invoiceKey, input.id);
+    } catch (fiscalError) {
+      console.error(
+        "Entrada atualizada, mas falhou ao vincular NF-e fiscal:",
+        fiscalError
+      );
+    }
   }
 
   revalidatePath("/dashboard/entradas");

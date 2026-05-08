@@ -178,6 +178,20 @@ function calcularLucroUnitario(precoVenda: number, custoPorPorcao: number) {
   return (precoVenda || 0) - (custoPorPorcao || 0);
 }
 
+  function calcularRendimentoPorPesoFinal(
+  pesoFinal: number | "" | null | undefined,
+  pesoPorPorcao: number | "" | null | undefined
+) {
+  const pesoFinalNumber = toNumber(pesoFinal, 0);
+  const pesoPorPorcaoNumber = toNumber(pesoPorPorcao, 0);
+
+  if (pesoFinalNumber <= 0 || pesoPorPorcaoNumber <= 0) {
+    return 0;
+  }
+
+  return Number((pesoFinalNumber / pesoPorPorcaoNumber).toFixed(3));
+}
+
 function calcularCustos(
   ingredientes: Ingrediente[],
   rendimento: number,
@@ -1478,6 +1492,20 @@ export default function FichasTecnicasPage() {
       return;
     }
 
+    function calcularRendimentoPorPesoFinal(
+  pesoFinal: number | "" | null | undefined,
+  pesoPorPorcao: number | "" | null | undefined
+) {
+  const pesoFinalNumber = toNumber(pesoFinal, 0);
+  const pesoPorPorcaoNumber = toNumber(pesoPorPorcao, 0);
+
+  if (pesoFinalNumber <= 0 || pesoPorPorcaoNumber <= 0) {
+    return 0;
+  }
+
+  return Number((pesoFinalNumber / pesoPorPorcaoNumber).toFixed(3));
+}
+
     const custos = calcularCustos(ingredientes, rendimento, cmvAlvo);
     const updatedDate = getTodayIsoDate();
     const detectedAllergens = autoAllergens;
@@ -2157,9 +2185,11 @@ export default function FichasTecnicasPage() {
                 <Label>Rendimento</Label>
                 <Input
                   type="number"
-                  min={1}
+                  min={0}
+                  step="0.001"
                   value={rendimento}
-                  onChange={(e) => setRendimento(toNumber(e.target.value, 1))}
+                  readOnly
+                  className="bg-slate-100 font-semibold text-slate-700"
                 />
               </div>
             </div>
@@ -2176,11 +2206,19 @@ export default function FichasTecnicasPage() {
               <div>
                 <Label>Peso por porção</Label>
                 <Input
-                  type="number"
-                  step="0.001"
-                  value={pesoPorcao}
-                  onChange={(e) => setPesoPorcao(toNumber(e.target.value, 0))}
-                />
+                type="number"
+                step="0.001"
+                value={pesoPorcao}
+                onChange={(e) => {
+                  const nextPesoPorcao =
+                    e.target.value === "" ? "" : toNumber(e.target.value, 0);
+
+                  setPesoPorcao(nextPesoPorcao);
+                  setRendimento(
+                    calcularRendimentoPorPesoFinal(correctionFactorGrams, nextPesoPorcao)
+                  );
+                }}
+              />
               </div>
 
               <div>
@@ -2261,15 +2299,19 @@ export default function FichasTecnicasPage() {
               </div>
 
               <div>
-                <Label>Fator de cocção (g)</Label>
+                <Label>Peso Final (g)</Label>
                 <Input
                   type="number"
-                  value={cookingFactorGrams}
-                  onChange={(e) =>
-                    setCookingFactorGrams(
-                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
-                    )
-                  }
+                  value={correctionFactorGrams}
+                  onChange={(e) => {
+                    const nextPesoFinal =
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0);
+
+                    setCorrectionFactorGrams(nextPesoFinal);
+                    setRendimento(
+                      calcularRendimentoPorPesoFinal(nextPesoFinal, pesoPorcao)
+                    );
+                  }}
                 />
               </div>
 
@@ -2549,15 +2591,11 @@ export default function FichasTecnicasPage() {
                   <Label>Rendimento</Label>
                   <Input
                     type="number"
-                    min={1}
+                    min={0}
+                    step="0.001"
                     value={fichaEditando.rendimento}
-                    onChange={(e) =>
-                      setFichaEditando((prev) =>
-                        prev
-                          ? { ...prev, rendimento: toNumber(e.target.value, 1) }
-                          : prev
-                      )
-                    }
+                    readOnly
+                    className="bg-slate-100 font-semibold text-slate-700"
                   />
                 </div>
               </div>
@@ -2584,11 +2622,20 @@ export default function FichasTecnicasPage() {
                     step="0.001"
                     value={fichaEditando.pesoPorcao}
                     onChange={(e) =>
-                      setFichaEditando((prev) =>
-                        prev
-                          ? { ...prev, pesoPorcao: toNumber(e.target.value, 0) }
-                          : prev
-                      )
+                      setFichaEditando((prev) => {
+                        if (!prev) return prev;
+
+                        const nextPesoPorcao = toNumber(e.target.value, 0);
+
+                        return {
+                          ...prev,
+                          pesoPorcao: nextPesoPorcao,
+                          rendimento: calcularRendimentoPorPesoFinal(
+                            prev.correctionFactorGrams,
+                            nextPesoPorcao
+                          ),
+                        };
+                      })
                     }
                   />
                 </div>
@@ -2735,22 +2782,26 @@ export default function FichasTecnicasPage() {
                 </div>
 
                 <div>
-                  <Label>Fator de correção (g)</Label>
+                  <Label>Peso Final (g)</Label>
                   <Input
                     type="number"
                     value={fichaEditando.correctionFactorGrams ?? ""}
                     onChange={(e) =>
-                      setFichaEditando((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              correctionFactorGrams:
-                                e.target.value === ""
-                                  ? null
-                                  : toNumber(e.target.value, 0),
-                            }
-                          : prev
-                      )
+                      setFichaEditando((prev) => {
+                        if (!prev) return prev;
+
+                        const nextPesoFinal =
+                          e.target.value === "" ? null : toNumber(e.target.value, 0);
+
+                        return {
+                          ...prev,
+                          correctionFactorGrams: nextPesoFinal,
+                          rendimento: calcularRendimentoPorPesoFinal(
+                            nextPesoFinal,
+                            prev.pesoPorcao
+                          ),
+                        };
+                      })
                     }
                   />
                 </div>

@@ -70,19 +70,20 @@ export default function FichaRapidaModal({
   const [isPending, startTransition] = useTransition();
 
   const [nome, setNome] = useState("");
-  const [rendimento, setRendimento] = useState<number>(1);
-  const [pesoPorcao, setPesoPorcao] = useState<number>(0);
+  const [rendimento, setRendimento] = useState<number | "">("");
+  const [pesoPorcao, setPesoPorcao] = useState<number | "">("");
+  const [pesoFinal, setPesoFinal] = useState<number | "">("");
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const [erro, setErro] = useState("");
-
   const preview = useMemo(() => {
-    return calcularCustos(ingredientes, rendimento, 0);
+  return calcularCustos(ingredientes, toNumber(rendimento, 1), 0);
   }, [ingredientes, rendimento]);
 
   function resetForm() {
     setNome("");
-    setRendimento(1);
-    setPesoPorcao(0);
+    setRendimento("");
+    setPesoPorcao("");
+    setPesoFinal("");
     setIngredientes([]);
     setErro("");
   }
@@ -91,6 +92,24 @@ export default function FichaRapidaModal({
     if (isPending) return;
     resetForm();
     onClose();
+  }
+  
+  function calcularRendimentoPorPesoFinal(
+    pesoFinal: number | "" | null | undefined,
+    pesoPorPorcao: number | "" | null | undefined
+  ): number | "" {
+    if (pesoFinal === "" || pesoPorPorcao === "") {
+      return "";
+    }
+
+    const pesoFinalNumber = toNumber(pesoFinal, 0);
+    const pesoPorPorcaoNumber = toNumber(pesoPorPorcao, 0);
+
+    if (pesoFinalNumber <= 0 || pesoPorPorcaoNumber <= 0) {
+      return "";
+    }
+
+    return Number((pesoFinalNumber / pesoPorPorcaoNumber).toFixed(3));
   }
 
   function salvarFichaRapida() {
@@ -133,7 +152,7 @@ export default function FichaRapidaModal({
           temperature_celsius: null,
           cooking_time_minutes: null,
           cooking_factor_grams: null,
-          correction_factor_grams: null,
+          correction_factor_grams: Math.max(0, toNumber(pesoFinal, 0)),
           yield_label: null,
           portion_weight_unit: "KG",
           storage_instructions: null,
@@ -210,28 +229,59 @@ export default function FichaRapidaModal({
             compactMode
           />
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
-              <Label htmlFor="ficha-rapida-rendimento">Rendimento</Label>
+              <Label htmlFor="ficha-rapida-peso-final">Peso Final</Label>
               <Input
-                id="ficha-rapida-rendimento"
+                id="ficha-rapida-peso-final"
                 type="number"
-                min="1"
-                step="1"
-                value={rendimento}
-                onChange={(e) => setRendimento(toNumber(e.target.value, 1))}
+                min="0"
+                step="0.001"
+                value={pesoFinal}
+                onChange={(e) => {
+                  const nextPesoFinal =
+                    e.target.value === "" ? "" : toNumber(e.target.value, 0);
+
+                  setPesoFinal(nextPesoFinal);
+                  setRendimento(
+                    calcularRendimentoPorPesoFinal(nextPesoFinal, pesoPorcao)
+                  );
+                }}
+                placeholder=""
               />
             </div>
 
             <div>
-              <Label htmlFor="ficha-rapida-peso">Peso da porção</Label>
+              <Label htmlFor="ficha-rapida-peso">Peso da Porção</Label>
               <Input
                 id="ficha-rapida-peso"
                 type="number"
                 min="0"
                 step="0.001"
                 value={pesoPorcao}
-                onChange={(e) => setPesoPorcao(toNumber(e.target.value, 0))}
+                onChange={(e) => {
+                  const nextPesoPorcao =
+                    e.target.value === "" ? "" : toNumber(e.target.value, 0);
+
+                  setPesoPorcao(nextPesoPorcao);
+                  setRendimento(
+                    calcularRendimentoPorPesoFinal(pesoFinal, nextPesoPorcao)
+                  );
+                }}
+                placeholder=""
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="ficha-rapida-rendimento">Rendimento</Label>
+              <Input
+                id="ficha-rapida-rendimento"
+                type="number"
+                min="0"
+                step="0.001"
+                value={rendimento}
+                readOnly
+                className="bg-slate-100 font-semibold text-slate-700"
                 placeholder="0"
               />
             </div>

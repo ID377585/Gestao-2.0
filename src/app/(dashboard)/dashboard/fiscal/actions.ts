@@ -425,3 +425,35 @@ export async function createInvoiceEntryDraftFromFiscalNfeAction(noteId: string)
 
   return { draftId: draft.id };
 }
+
+export async function markFiscalNfeAsImportedEntryAction(
+  invoiceKey: string | null | undefined,
+  entryId: string
+) {
+  const { supabase, establishmentId } = await getFiscalContext();
+
+  const normalizedInvoiceKey = String(invoiceKey ?? "").trim();
+  const normalizedEntryId = String(entryId ?? "").trim();
+
+  if (!normalizedInvoiceKey || !normalizedEntryId) {
+    return { success: false };
+  }
+
+  const { error } = await supabase
+    .from("fiscal_nfe_inbox")
+    .update({
+      imported_entry_id: normalizedEntryId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("establishment_id", establishmentId)
+    .eq("chave_acesso", normalizedInvoiceKey);
+
+  if (error) {
+    console.error(error);
+    throw new Error("Entrada criada, mas não foi possível atualizar o vínculo fiscal da NF-e.");
+  }
+
+  revalidatePath("/dashboard/fiscal/notas");
+
+  return { success: true };
+}

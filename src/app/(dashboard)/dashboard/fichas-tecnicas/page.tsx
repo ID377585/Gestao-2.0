@@ -2359,7 +2359,7 @@ export default function FichasTecnicasPage() {
               </div>
 
               <div>
-                <Label>Rendimento</Label>
+                <Label>Qtd de Porções</Label>
                 <Input
                   type="number"
                   min={0}
@@ -2765,7 +2765,7 @@ export default function FichasTecnicasPage() {
                 </div>
 
                 <div>
-                  <Label>Rendimento</Label>
+                  <Label>Qtd de Porções</Label>
                   <Input
                     type="number"
                     min={0}

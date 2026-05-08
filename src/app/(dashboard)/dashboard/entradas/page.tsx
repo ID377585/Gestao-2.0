@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,14 +26,12 @@ import {
   createInvoiceEntry,
   deleteInvoiceEntryAttachmentAction,
   deleteInvoiceEntryDraft,
-  listInvoiceEntries,
-  listInvoiceEntryDrafts,
   reverseInvoiceEntry,
   saveInvoiceEntryDraft,
   updateInvoiceEntry,
   uploadInvoiceEntryAttachmentAction,
+  listInvoiceEntries,
   type InvoiceEntryDraftPayload,
-  type InvoiceEntryDraftRow,
   type InvoiceEntryInput,
 } from "./actions";
 
@@ -134,8 +132,11 @@ function formatCurrency(value: number) {
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
+
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return "—";
+
   return new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "short",
   }).format(date);
@@ -143,8 +144,11 @@ function formatDate(value?: string | null) {
 
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
+
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return "—";
+
   return new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
@@ -153,9 +157,11 @@ function formatDateTime(value?: string | null) {
 
 function escapeCsv(val: unknown) {
   const s = String(val ?? "");
+
   if (/[",;\n]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }
+
   return s;
 }
 
@@ -175,10 +181,18 @@ function normalizeEntry(raw: any): InvoiceEntryRow {
     notes: raw.notes ? String(raw.notes) : null,
     status: String(raw.status ?? "active") as "active" | "cancelled",
     imported_from_xml: Boolean(raw.imported_from_xml),
-    attachment_xml_url: raw.attachment_xml_url ? String(raw.attachment_xml_url) : null,
-    attachment_xml_path: raw.attachment_xml_path ? String(raw.attachment_xml_path) : null,
-    attachment_pdf_url: raw.attachment_pdf_url ? String(raw.attachment_pdf_url) : null,
-    attachment_pdf_path: raw.attachment_pdf_path ? String(raw.attachment_pdf_path) : null,
+    attachment_xml_url: raw.attachment_xml_url
+      ? String(raw.attachment_xml_url)
+      : null,
+    attachment_xml_path: raw.attachment_xml_path
+      ? String(raw.attachment_xml_path)
+      : null,
+    attachment_pdf_url: raw.attachment_pdf_url
+      ? String(raw.attachment_pdf_url)
+      : null,
+    attachment_pdf_path: raw.attachment_pdf_path
+      ? String(raw.attachment_pdf_path)
+      : null,
     created_at: String(raw.created_at ?? ""),
     items: Array.isArray(raw.items)
       ? raw.items
@@ -210,6 +224,7 @@ function findTagText(node: Document | Element, tagName: string) {
   const found = elements.find(
     (el) => el.localName?.toLowerCase() === tagName.toLowerCase()
   );
+
   return found?.textContent?.trim() ?? "";
 }
 
@@ -246,12 +261,14 @@ function parseNfeXml(xmlContent: string): ParsedNfe {
   const invoiceKey = rawKey.replace(/^NFe/i, "") || null;
 
   const supplierName = emit ? findTagText(emit, "xNome") : "";
-  const supplierDocument =
-    emit ? findTagText(emit, "CNPJ") || findTagText(emit, "CPF") : "";
+  const supplierDocument = emit
+    ? findTagText(emit, "CNPJ") || findTagText(emit, "CPF")
+    : "";
   const invoiceNumber = ide ? findTagText(ide, "nNF") : "";
   const invoiceSeries = ide ? findTagText(ide, "serie") : "";
-  const issueDateRaw =
-    ide ? findTagText(ide, "dhEmi") || findTagText(ide, "dEmi") : "";
+  const issueDateRaw = ide
+    ? findTagText(ide, "dhEmi") || findTagText(ide, "dEmi")
+    : "";
 
   const issueDate = issueDateRaw ? issueDateRaw.slice(0, 10) : "";
 
@@ -373,7 +390,6 @@ export default function EntradasPage() {
   const [products, setProducts] = useState<ProductCatalogItem[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierCatalogItem[]>([]);
   const [entries, setEntries] = useState<InvoiceEntryRow[]>([]);
-  const [drafts, setDrafts] = useState<InvoiceEntryDraftRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
@@ -395,7 +411,8 @@ export default function EntradasPage() {
   });
   const [notes, setNotes] = useState("");
   const [importedFromXml, setImportedFromXml] = useState(false);
-  const [updateProductStandardCost, setUpdateProductStandardCost] = useState(false);
+  const [updateProductStandardCost, setUpdateProductStandardCost] =
+    useState(false);
 
   const [attachmentXmlUrl, setAttachmentXmlUrl] = useState<string | null>(null);
   const [attachmentXmlPath, setAttachmentXmlPath] = useState<string | null>(null);
@@ -403,7 +420,9 @@ export default function EntradasPage() {
   const [attachmentPdfPath, setAttachmentPdfPath] = useState<string | null>(null);
 
   const [items, setItems] = useState<EntryItemDraft[]>([]);
-  const [selectedEntry, setSelectedEntry] = useState<InvoiceEntryRow | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<InvoiceEntryRow | null>(
+    null
+  );
 
   const [draftProductId, setDraftProductId] = useState("");
   const [draftProductName, setDraftProductName] = useState("");
@@ -414,7 +433,9 @@ export default function EntradasPage() {
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "cancelled">("all");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "active" | "cancelled"
+  >("all");
   const [supplierFilter, setSupplierFilter] = useState("all");
   const [productFilter, setProductFilter] = useState("all");
   const [periodStart, setPeriodStart] = useState("");
@@ -424,6 +445,7 @@ export default function EntradasPage() {
 
   const xmlInputRef = useRef<HTMLInputElement | null>(null);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
+  const formRef = useRef<HTMLDivElement | null>(null);
 
   const handleSupplierSelection = (supplierId: string) => {
     setSelectedSupplierId(supplierId);
@@ -444,15 +466,15 @@ export default function EntradasPage() {
     try {
       setLoading(true);
 
-      const [productsRes, suppliersRes, entriesRes, draftsRes] = await Promise.all([
+      const [productsRes, suppliersRes, entriesRes] = await Promise.all([
         fetch("/api/products/catalog", { cache: "no-store" }),
         fetch("/api/suppliers/catalog", { cache: "no-store" }),
         listInvoiceEntries(),
-        listInvoiceEntryDrafts(),
       ]);
 
       if (productsRes.ok) {
         const productsData = await productsRes.json();
+
         const normalizedProducts = Array.isArray(productsData)
           ? productsData.map((product: any) => ({
               id: String(product.id),
@@ -468,6 +490,7 @@ export default function EntradasPage() {
               shelf_life_days: Number(product.shelf_life_days ?? 0),
             }))
           : [];
+
         setProducts(normalizedProducts);
       } else {
         setProducts([]);
@@ -475,6 +498,7 @@ export default function EntradasPage() {
 
       if (suppliersRes.ok) {
         const suppliersData = await suppliersRes.json();
+
         const normalizedSuppliers = Array.isArray(suppliersData)
           ? suppliersData.map((supplier: any) => ({
               id: String(supplier.id),
@@ -482,6 +506,7 @@ export default function EntradasPage() {
               document: supplier.document ? String(supplier.document) : null,
             }))
           : [];
+
         setSuppliers(normalizedSuppliers);
       } else {
         setSuppliers([]);
@@ -492,13 +517,16 @@ export default function EntradasPage() {
         : [];
 
       setEntries(normalizedEntries);
-      setSelectedEntry((prev) => {
-        if (!normalizedEntries.length) return null;
-        if (!prev) return normalizedEntries[0];
-        return normalizedEntries.find((entry) => entry.id === prev.id) ?? normalizedEntries[0];
-      });
 
-      setDrafts(Array.isArray(draftsRes) ? draftsRes : []);
+      setSelectedEntry((prev) => {
+        if (!prev) return null;
+
+        const stillExists = normalizedEntries.some(
+          (entry) => entry.id === prev.id
+        );
+
+        return stillExists ? prev : null;
+      });
     } catch (error) {
       console.error("Erro ao carregar entradas:", error);
       alert("Erro ao carregar a sessão de entradas.");
@@ -514,7 +542,10 @@ export default function EntradasPage() {
   useEffect(() => {
     if (!selectedSupplierId || suppliers.length === 0) return;
 
-    const currentSupplier = suppliers.find((item) => item.id === selectedSupplierId);
+    const currentSupplier = suppliers.find(
+      (item) => item.id === selectedSupplierId
+    );
+
     if (!currentSupplier) return;
 
     setSupplierName(currentSupplier.name);
@@ -580,56 +611,19 @@ export default function EntradasPage() {
     })),
   });
 
-  const applyDraftPayload = (payload: InvoiceEntryDraftPayload) => {
-    setSupplierName(payload.supplier_name || "");
-    setSupplierDocument(payload.supplier_document || "");
-
-    const matchedSupplier = suppliers.find(
-      (item) =>
-        item.name.trim().toLowerCase() === String(payload.supplier_name || "").trim().toLowerCase()
-    );
-
-    setSelectedSupplierId(matchedSupplier?.id ?? "");
-
-    setInvoiceNumber(payload.invoice_number || "");
-    setInvoiceSeries(payload.invoice_series || "");
-    setInvoiceKey(payload.invoice_key || "");
-    setIssueDate(payload.issue_date || "");
-    setEntryDate(payload.entry_date || new Date().toISOString().slice(0, 10));
-    setNotes(payload.notes || "");
-    setImportedFromXml(Boolean(payload.imported_from_xml));
-    setAttachmentXmlUrl(payload.attachment_xml_url || null);
-    setAttachmentXmlPath(payload.attachment_xml_path || null);
-    setAttachmentPdfUrl(payload.attachment_pdf_url || null);
-    setAttachmentPdfPath(payload.attachment_pdf_path || null);
-    setUpdateProductStandardCost(Boolean(payload.update_product_standard_cost));
-    setItems(
-      (payload.items ?? []).map((item) => {
-        const product = products.find((p) => p.id === item.product_id);
-        return {
-          id: uid(),
-          productId: String(item.product_id),
-          productName: item.product_name_snapshot,
-          productSku: product?.sku ?? null,
-          quantity: Number(item.quantity),
-          unitLabel: item.unit_label,
-          unitCost: Number(item.unit_cost),
-          totalCost: Number(item.total_cost),
-        };
-      })
-    );
-    resetDraftItem();
-  };
-
   const totalItemsDraft = useMemo(() => items.length, [items]);
 
   const totalAmountDraft = useMemo(() => {
-    return Number(items.reduce((acc, item) => acc + item.totalCost, 0).toFixed(2));
+    return Number(
+      items.reduce((acc, item) => acc + item.totalCost, 0).toFixed(2)
+    );
   }, [items]);
 
   const onSelectProduct = (productId: string) => {
     setDraftProductId(productId);
+
     const product = products.find((item) => item.id === productId);
+
     if (!product) return;
 
     setDraftProductName(product.name);
@@ -683,6 +677,7 @@ export default function EntradasPage() {
 
   const editItem = (id: string) => {
     const found = items.find((item) => item.id === id);
+
     if (!found) return;
 
     setEditingItemId(found.id);
@@ -696,6 +691,7 @@ export default function EntradasPage() {
 
   const removeItem = (id: string) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
+
     if (editingItemId === id) {
       resetDraftItem();
     }
@@ -703,8 +699,10 @@ export default function EntradasPage() {
 
   const uploadAttachment = async (file: File, kind: "xml" | "pdf") => {
     const formData = new FormData();
+
     formData.append("file", file);
     formData.append("kind", kind);
+
     return uploadInvoiceEntryAttachmentAction(formData);
   };
 
@@ -714,6 +712,7 @@ export default function EntradasPage() {
 
     const bySku = products.find((product) => {
       const sku = normalizeTextForCompare(product.sku ?? "");
+
       return sku && normalizedCode && sku === normalizedCode;
     });
 
@@ -727,6 +726,7 @@ export default function EntradasPage() {
 
     const byNameContains = products.find((product) => {
       const productName = normalizeTextForCompare(product.name);
+
       return (
         productName.includes(normalizedDescription) ||
         normalizedDescription.includes(productName)
@@ -736,8 +736,11 @@ export default function EntradasPage() {
     return byNameContains ?? null;
   };
 
-  const handleImportXml = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportXml = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0];
+
     if (!file) return;
 
     try {
@@ -764,7 +767,9 @@ export default function EntradasPage() {
 
       setSelectedSupplierId(matchedSupplier?.id ?? "");
       setSupplierName(parsed.supplierName || matchedSupplier?.name || "");
-      setSupplierDocument(parsed.supplierDocument || matchedSupplier?.document || "");
+      setSupplierDocument(
+        parsed.supplierDocument || matchedSupplier?.document || ""
+      );
       setInvoiceNumber(parsed.invoiceNumber || "");
       setInvoiceSeries(parsed.invoiceSeries || "");
       setInvoiceKey(parsed.invoiceKey || "");
@@ -777,7 +782,12 @@ export default function EntradasPage() {
       const parsedItems: EntryItemDraft[] = parsed.items
         .map((item) => {
           const matched = findProductMatch(item);
+
           if (!matched) return null;
+
+          const unitCost = Number(
+            item.unitCost || matched.standard_cost || matched.price || 0
+          );
 
           return {
             id: uid(),
@@ -788,12 +798,8 @@ export default function EntradasPage() {
             unitLabel: String(
               matched.default_unit_label || item.unit || "UN"
             ).toUpperCase(),
-            unitCost: Number(item.unitCost || matched.standard_cost || matched.price || 0),
-            totalCost: Number(
-              (item.quantity *
-                Number(item.unitCost || matched.standard_cost || matched.price || 0)
-              ).toFixed(2)
-            ),
+            unitCost,
+            totalCost: Number((item.quantity * unitCost).toFixed(2)),
             xmlCode: item.code || null,
           };
         })
@@ -813,26 +819,38 @@ export default function EntradasPage() {
       alert(error?.message ?? "Não foi possível importar o XML.");
     } finally {
       setUploadingAttachment(false);
-      if (event.target) event.target.value = "";
+
+      if (event.target) {
+        event.target.value = "";
+      }
     }
   };
 
-  const handleUploadPdf = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadPdf = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0];
+
     if (!file) return;
 
     try {
       setUploadingAttachment(true);
+
       const uploaded = await uploadAttachment(file, "pdf");
+
       setAttachmentPdfUrl(uploaded.fileUrl);
       setAttachmentPdfPath(uploaded.filePath);
+
       alert("PDF anexado com sucesso.");
     } catch (error: any) {
       console.error(error);
       alert(error?.message ?? "Não foi possível anexar o PDF.");
     } finally {
       setUploadingAttachment(false);
-      if (event.target) event.target.value = "";
+
+      if (event.target) {
+        event.target.value = "";
+      }
     }
   };
 
@@ -846,8 +864,11 @@ export default function EntradasPage() {
           payload,
           currentDraftId || undefined
         );
+
         setCurrentDraftId(result.id);
+
         await loadData();
+
         alert("Rascunho salvo com sucesso.");
       } catch (error: any) {
         console.error(error);
@@ -856,38 +877,15 @@ export default function EntradasPage() {
     });
   };
 
-  const loadDraft = (draft: InvoiceEntryDraftRow) => {
-    setCurrentDraftId(draft.id);
-    setDraftName(draft.name);
-    setEditingEntryId(null);
-    applyDraftPayload(draft.data);
-  };
-
-  const removeDraft = (draftId: string) => {
-    if (!confirm("Deseja excluir este rascunho?")) return;
-
-    startTransition(async () => {
-      try {
-        await deleteInvoiceEntryDraft(draftId);
-        if (currentDraftId === draftId) {
-          resetForm();
-        }
-        await loadData();
-      } catch (error: any) {
-        console.error(error);
-        alert(error?.message ?? "Não foi possível excluir o rascunho.");
-      }
-    });
-  };
-
   const loadEntryForEdit = (entry: InvoiceEntryRow) => {
     setEditingEntryId(entry.id);
     setCurrentDraftId(null);
-    setDraftName(`Edicao NF ${entry.invoice_number}`);
+    setDraftName(`Edição NF ${entry.invoice_number}`);
 
     const matchedSupplier = suppliers.find(
       (item) =>
-        item.name.trim().toLowerCase() === entry.supplier_name.trim().toLowerCase()
+        item.name.trim().toLowerCase() ===
+        entry.supplier_name.trim().toLowerCase()
     );
 
     setSelectedSupplierId(matchedSupplier?.id ?? "");
@@ -905,9 +903,11 @@ export default function EntradasPage() {
     setAttachmentPdfUrl(entry.attachment_pdf_url || null);
     setAttachmentPdfPath(entry.attachment_pdf_path || null);
     setUpdateProductStandardCost(false);
+
     setItems(
       entry.items.map((item) => {
         const product = products.find((p) => p.id === item.product_id);
+
         return {
           id: uid(),
           productId: item.product_id,
@@ -920,8 +920,15 @@ export default function EntradasPage() {
         };
       })
     );
+
     resetDraftItem();
-    window.scrollTo({ top: 0, behavior: "smooth" });
+
+    requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
   };
 
   const saveEntry = () => {
@@ -993,6 +1000,7 @@ export default function EntradasPage() {
         }
 
         resetForm();
+
         await loadData();
       } catch (error: any) {
         console.error(error);
@@ -1002,14 +1010,20 @@ export default function EntradasPage() {
   };
 
   const handleReverse = (entryId: string) => {
-    if (!confirm("Deseja estornar esta entrada? O saldo do estoque será revertido.")) {
+    if (
+      !confirm(
+        "Deseja estornar esta entrada? O saldo do estoque será revertido."
+      )
+    ) {
       return;
     }
 
     startTransition(async () => {
       try {
         await reverseInvoiceEntry(entryId);
+
         await loadData();
+
         alert("Entrada estornada com sucesso.");
       } catch (error: any) {
         console.error(error);
@@ -1020,8 +1034,14 @@ export default function EntradasPage() {
 
   const handlePrint = (entry: InvoiceEntryRow) => {
     const html = buildPrintHtml(entry);
-    const win = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
+    const win = window.open(
+      "",
+      "_blank",
+      "noopener,noreferrer,width=1200,height=900"
+    );
+
     if (!win) return;
+
     win.document.open();
     win.document.write(html);
     win.document.close();
@@ -1039,7 +1059,9 @@ export default function EntradasPage() {
     const unique = Array.from(
       new Set(
         entries.flatMap((entry) =>
-          entry.items.map((item) => item.product_name_snapshot.trim()).filter(Boolean)
+          entry.items
+            .map((item) => item.product_name_snapshot.trim())
+            .filter(Boolean)
         )
       )
     ).sort((a, b) => a.localeCompare(b, "pt-BR"));
@@ -1069,7 +1091,9 @@ export default function EntradasPage() {
 
       const matchesProduct =
         productFilter === "all" ||
-        entry.items.some((item) => item.product_name_snapshot === productFilter);
+        entry.items.some(
+          (item) => item.product_name_snapshot === productFilter
+        );
 
       const matchesStart = !periodStart || entry.entry_date >= periodStart;
       const matchesEnd = !periodEnd || entry.entry_date <= periodEnd;
@@ -1100,21 +1124,15 @@ export default function EntradasPage() {
     maxValue,
   ]);
 
-  const selectedFilteredEntry = useMemo(() => {
-    if (!selectedEntry) return null;
-    return filteredEntries.find((entry) => entry.id === selectedEntry.id) ?? null;
-  }, [selectedEntry, filteredEntries]);
-
   useEffect(() => {
-    if (!filteredEntries.length) {
-      setSelectedEntry(null);
-      return;
-    }
+    setSelectedEntry((prev) => {
+      if (!prev) return null;
 
-    if (!selectedFilteredEntry) {
-      setSelectedEntry(filteredEntries[0]);
-    }
-  }, [filteredEntries, selectedFilteredEntry]);
+      const stillVisible = filteredEntries.some((entry) => entry.id === prev.id);
+
+      return stillVisible ? prev : null;
+    });
+  }, [filteredEntries]);
 
   const totalFilteredEntries = filteredEntries.length;
 
@@ -1187,11 +1205,14 @@ export default function EntradasPage() {
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement("a");
+
     a.href = url;
     a.download = "historico_entradas_v3.csv";
+
     document.body.appendChild(a);
     a.click();
     a.remove();
+
     URL.revokeObjectURL(url);
   };
 
@@ -1206,14 +1227,15 @@ export default function EntradasPage() {
     setMaxValue("");
   };
 
-  const getCostReview = (item: EntryItemDraft | InvoiceEntryRow["items"][number]) => {
+  const getCostReview = (
+    item: EntryItemDraft | InvoiceEntryRow["items"][number]
+  ) => {
     const product =
       "productId" in item
         ? products.find((p) => p.id === item.productId)
         : products.find((p) => p.id === item.product_id);
 
     const currentCost = Number(product?.standard_cost || product?.price || 0);
-
     const incomingCost = Number(
       "unitCost" in item ? item.unitCost : item.unit_cost
     );
@@ -1232,6 +1254,7 @@ export default function EntradasPage() {
     );
 
     let label = "Dentro da faixa";
+
     if (diffPercent > 10) label = "Acima do custo atual";
     if (diffPercent < -10) label = "Abaixo do custo atual";
 
@@ -1249,7 +1272,8 @@ export default function EntradasPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Entradas</h1>
           <p className="text-gray-600">
-            Versão 3 com rascunho persistente, edição de entrada lançada, XML, anexos e conferência de custos.
+            Versão 3 com rascunho persistente, edição de entrada lançada, XML,
+            anexos e conferência de custos.
           </p>
         </div>
 
@@ -1257,9 +1281,11 @@ export default function EntradasPage() {
           <Button type="button" variant="outline" onClick={exportFilteredCsv}>
             Exportar CSV
           </Button>
+
           <Button type="button" variant="outline" onClick={clearFilters}>
             Limpar filtros
           </Button>
+
           <Button type="button" variant="outline" onClick={resetForm}>
             Novo lançamento
           </Button>
@@ -1275,8 +1301,11 @@ export default function EntradasPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Notas filtradas</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Notas filtradas
+            </CardTitle>
           </CardHeader>
+
           <CardContent>
             <div className="text-2xl font-bold">{totalFilteredEntries}</div>
             <p className="text-xs text-muted-foreground">Histórico visível</p>
@@ -1287,8 +1316,11 @@ export default function EntradasPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Ativas</CardTitle>
           </CardHeader>
+
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{activeEntries}</div>
+            <div className="text-2xl font-bold text-green-600">
+              {activeEntries}
+            </div>
             <p className="text-xs text-muted-foreground">Notas válidas</p>
           </CardContent>
         </Card>
@@ -1297,8 +1329,11 @@ export default function EntradasPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Estornadas</CardTitle>
           </CardHeader>
+
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{cancelledEntries}</div>
+            <div className="text-2xl font-bold text-red-600">
+              {cancelledEntries}
+            </div>
             <p className="text-xs text-muted-foreground">Notas canceladas</p>
           </CardContent>
         </Card>
@@ -1307,8 +1342,11 @@ export default function EntradasPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Valor total</CardTitle>
           </CardHeader>
+
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(totalHistoryAmount)}</div>
+            <div className="text-2xl font-bold">
+              {formatCurrency(totalHistoryAmount)}
+            </div>
             <p className="text-xs text-muted-foreground">Entradas ativas</p>
           </CardContent>
         </Card>
@@ -1318,9 +1356,11 @@ export default function EntradasPage() {
         <CardHeader>
           <CardTitle>Filtros e pesquisa avançada</CardTitle>
           <CardDescription>
-            Busque por número da nota, fornecedor, chave NF-e, produto e faixa de valor.
+            Busque por número da nota, fornecedor, chave NF-e, produto e faixa
+            de valor.
           </CardDescription>
         </CardHeader>
+
         <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
           <div className="xl:col-span-2">
             <Label htmlFor="search_term">Pesquisa</Label>
@@ -1339,7 +1379,9 @@ export default function EntradasPage() {
               className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={statusFilter}
               onChange={(e) =>
-                setStatusFilter(e.target.value as "all" | "active" | "cancelled")
+                setStatusFilter(
+                  e.target.value as "all" | "active" | "cancelled"
+                )
               }
             >
               <option value="all">Todos</option>
@@ -1426,12 +1468,13 @@ export default function EntradasPage() {
         </CardContent>
       </Card>
 
-      <div className="space-y-6">
+      <div ref={formRef}>
         <Card>
           <CardHeader>
             <CardTitle>
               {editingEntryId ? "Editar entrada lançada" : "Nova entrada"}
             </CardTitle>
+
             <CardDescription>
               Importe XML da NF-e, anexe arquivos, revise itens e confirme.
             </CardDescription>
@@ -1446,6 +1489,7 @@ export default function EntradasPage() {
                 className="hidden"
                 onChange={handleImportXml}
               />
+
               <input
                 ref={pdfInputRef}
                 type="file"
@@ -1492,7 +1536,9 @@ export default function EntradasPage() {
               </div>
 
               <div>
-                <Label htmlFor="supplier_document">Documento do fornecedor</Label>
+                <Label htmlFor="supplier_document">
+                  Documento do fornecedor
+                </Label>
                 <Input
                   id="supplier_document"
                   value={supplierDocument}
@@ -1567,7 +1613,7 @@ export default function EntradasPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border p-4 space-y-3">
+            <div className="space-y-3 rounded-xl border p-4">
               <h3 className="text-base font-semibold">Anexos e origem</h3>
 
               <div className="flex flex-wrap gap-2">
@@ -1589,7 +1635,9 @@ export default function EntradasPage() {
                     Ver XML anexado
                   </a>
                 ) : (
-                  <span className="text-sm text-muted-foreground">Sem XML anexado</span>
+                  <span className="text-sm text-muted-foreground">
+                    Sem XML anexado
+                  </span>
                 )}
 
                 {attachmentPdfUrl ? (
@@ -1602,7 +1650,9 @@ export default function EntradasPage() {
                     Ver PDF anexado
                   </a>
                 ) : (
-                  <span className="text-sm text-muted-foreground">Sem PDF anexado</span>
+                  <span className="text-sm text-muted-foreground">
+                    Sem PDF anexado
+                  </span>
                 )}
               </div>
 
@@ -1612,7 +1662,9 @@ export default function EntradasPage() {
                     type="button"
                     variant="outline"
                     onClick={async () => {
-                      await deleteInvoiceEntryAttachmentAction(attachmentXmlPath);
+                      await deleteInvoiceEntryAttachmentAction(
+                        attachmentXmlPath
+                      );
                       setAttachmentXmlUrl(null);
                       setAttachmentXmlPath(null);
                       setImportedFromXml(false);
@@ -1627,7 +1679,9 @@ export default function EntradasPage() {
                     type="button"
                     variant="outline"
                     onClick={async () => {
-                      await deleteInvoiceEntryAttachmentAction(attachmentPdfPath);
+                      await deleteInvoiceEntryAttachmentAction(
+                        attachmentPdfPath
+                      );
                       setAttachmentPdfUrl(null);
                       setAttachmentPdfPath(null);
                     }}
@@ -1639,7 +1693,9 @@ export default function EntradasPage() {
             </div>
 
             <div className="rounded-xl border p-4">
-              <h3 className="mb-4 text-base font-semibold">Itens da entrada</h3>
+              <h3 className="mb-4 text-base font-semibold">
+                Itens da entrada
+              </h3>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
                 <div className="md:col-span-5">
@@ -1652,7 +1708,8 @@ export default function EntradasPage() {
                     <option value="">— Selecionar produto —</option>
                     {products.map((product) => (
                       <option key={product.id} value={product.id}>
-                        {product.name}{product.sku ? ` (${product.sku})` : ""}
+                        {product.name}
+                        {product.sku ? ` (${product.sku})` : ""}
                       </option>
                     ))}
                   </select>
@@ -1664,7 +1721,9 @@ export default function EntradasPage() {
                     type="number"
                     step="0.001"
                     value={draftQuantity}
-                    onChange={(e) => setDraftQuantity(toNumber(e.target.value, 0))}
+                    onChange={(e) =>
+                      setDraftQuantity(toNumber(e.target.value, 0))
+                    }
                   />
                 </div>
 
@@ -1672,7 +1731,9 @@ export default function EntradasPage() {
                   <Label>Unidade</Label>
                   <Input
                     value={draftUnitLabel}
-                    onChange={(e) => setDraftUnitLabel(e.target.value.toUpperCase())}
+                    onChange={(e) =>
+                      setDraftUnitLabel(e.target.value.toUpperCase())
+                    }
                   />
                 </div>
 
@@ -1682,7 +1743,9 @@ export default function EntradasPage() {
                     type="number"
                     step="0.01"
                     value={draftUnitCost}
-                    onChange={(e) => setDraftUnitCost(toNumber(e.target.value, 0))}
+                    onChange={(e) =>
+                      setDraftUnitCost(toNumber(e.target.value, 0))
+                    }
                   />
                 </div>
               </div>
@@ -1693,7 +1756,11 @@ export default function EntradasPage() {
                 </Button>
 
                 {editingItemId ? (
-                  <Button type="button" variant="outline" onClick={resetDraftItem}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={resetDraftItem}
+                  >
                     Cancelar edição
                   </Button>
                 ) : null}
@@ -1705,9 +1772,12 @@ export default function EntradasPage() {
                     <p className="text-gray-600">Total de itens</p>
                     <p className="font-bold">{totalItemsDraft}</p>
                   </div>
+
                   <div>
                     <p className="text-gray-600">Valor total da entrada</p>
-                    <p className="font-bold">{formatCurrency(totalAmountDraft)}</p>
+                    <p className="font-bold">
+                      {formatCurrency(totalAmountDraft)}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1730,6 +1800,7 @@ export default function EntradasPage() {
                         <TableHead>Ações</TableHead>
                       </TableRow>
                     </TableHeader>
+
                     <TableBody>
                       {items.map((item) => {
                         const review = getCostReview(item);
@@ -1737,23 +1808,32 @@ export default function EntradasPage() {
                         return (
                           <TableRow key={item.id}>
                             <TableCell>
-                              <div className="font-medium">{item.productName}</div>
+                              <div className="font-medium">
+                                {item.productName}
+                              </div>
+
                               {item.productSku ? (
                                 <div className="text-xs text-muted-foreground">
                                   SKU: {item.productSku}
                                 </div>
                               ) : null}
                             </TableCell>
+
                             <TableCell>{item.quantity}</TableCell>
                             <TableCell>{item.unitLabel}</TableCell>
-                            <TableCell>{formatCurrency(item.unitCost)}</TableCell>
+                            <TableCell>
+                              {formatCurrency(item.unitCost)}
+                            </TableCell>
                             <TableCell>{formatCurrency(item.totalCost)}</TableCell>
+
                             <TableCell>
                               <div className="text-xs">
                                 <div>{review.label}</div>
+
                                 <div className="text-muted-foreground">
                                   Base: {formatCurrency(review.currentCost)}
                                 </div>
+
                                 <div className="text-muted-foreground">
                                   Variação:{" "}
                                   {review.diffPercent === null
@@ -1762,6 +1842,7 @@ export default function EntradasPage() {
                                 </div>
                               </div>
                             </TableCell>
+
                             <TableCell>
                               <div className="flex gap-2">
                                 <Button
@@ -1772,6 +1853,7 @@ export default function EntradasPage() {
                                 >
                                   Editar
                                 </Button>
+
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -1797,8 +1879,11 @@ export default function EntradasPage() {
                   id="update_product_standard_cost"
                   type="checkbox"
                   checked={updateProductStandardCost}
-                  onChange={(e) => setUpdateProductStandardCost(e.target.checked)}
+                  onChange={(e) =>
+                    setUpdateProductStandardCost(e.target.checked)
+                  }
                 />
+
                 <Label htmlFor="update_product_standard_cost">
                   Atualizar custo padrão dos produtos com base nesta entrada
                 </Label>
@@ -1809,9 +1894,16 @@ export default function EntradasPage() {
               <Button type="button" variant="outline" onClick={resetForm}>
                 Limpar
               </Button>
-              <Button type="button" variant="outline" onClick={saveDraft} disabled={isPending}>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={saveDraft}
+                disabled={isPending}
+              >
                 Salvar rascunho
               </Button>
+
               <Button type="button" onClick={saveEntry} disabled={isPending}>
                 {isPending
                   ? "Processando..."
@@ -1822,63 +1914,87 @@ export default function EntradasPage() {
             </div>
           </CardContent>
         </Card>
+      </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Histórico de notas lançadas</CardTitle>
-            <CardDescription>
-              Consulte as entradas registradas, imprima, edite, filtre e faça estorno quando necessário.
-            </CardDescription>
-          </CardHeader>
+      <Card>
+        <CardHeader>
+          <CardTitle>Histórico de notas lançadas</CardTitle>
+          <CardDescription>
+            Consulte as entradas registradas, imprima, edite, filtre e faça
+            estorno quando necessário.
+          </CardDescription>
+        </CardHeader>
 
-          <CardContent className="space-y-4">
-            {filteredEntries.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                Nenhuma entrada encontrada com os filtros atuais.
-              </div>
-            ) : (
-              <>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Nota</TableHead>
-                        <TableHead>Fornecedor</TableHead>
-                        <TableHead>Entrada</TableHead>
-                        <TableHead>Total</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredEntries.map((entry) => (
+        <CardContent className="space-y-4">
+          {filteredEntries.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+              Nenhuma entrada encontrada com os filtros atuais.
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nota</TableHead>
+                      <TableHead>Fornecedor</TableHead>
+                      <TableHead>Entrada</TableHead>
+                      <TableHead>Total</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+
+                  <TableBody>
+                    {filteredEntries.map((entry) => (
+                      <Fragment key={entry.id}>
                         <TableRow
-                          key={entry.id}
-                          className={selectedEntry?.id === entry.id ? "bg-slate-50" : ""}
+                          className={
+                            selectedEntry?.id === entry.id ? "bg-slate-50" : ""
+                          }
                         >
                           <TableCell className="font-medium">
                             NF {entry.invoice_number}
-                            {entry.invoice_series ? ` / ${entry.invoice_series}` : ""}
+                            {entry.invoice_series
+                              ? ` / ${entry.invoice_series}`
+                              : ""}
                           </TableCell>
+
                           <TableCell>{entry.supplier_name}</TableCell>
                           <TableCell>{formatDate(entry.entry_date)}</TableCell>
-                          <TableCell>{formatCurrency(entry.total_amount)}</TableCell>
+                          <TableCell>
+                            {formatCurrency(entry.total_amount)}
+                          </TableCell>
+
                           <TableCell>
                             <Badge
-                              variant={entry.status === "active" ? "default" : "secondary"}
+                              variant={
+                                entry.status === "active"
+                                  ? "default"
+                                  : "secondary"
+                              }
                             >
-                              {entry.status === "active" ? "Ativa" : "Estornada"}
+                              {entry.status === "active"
+                                ? "Ativa"
+                                : "Estornada"}
                             </Badge>
                           </TableCell>
+
                           <TableCell>
                             <div className="flex flex-wrap gap-2">
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={() => setSelectedEntry(entry)}
+                                onClick={() =>
+                                  setSelectedEntry((prev) =>
+                                    prev?.id === entry.id ? null : entry
+                                  )
+                                }
                               >
-                                Ver detalhes
+                                {selectedEntry?.id === entry.id
+                                  ? "Ocultar detalhes"
+                                  : "Ver detalhes"}
                               </Button>
 
                               <Button
@@ -1915,178 +2031,223 @@ export default function EntradasPage() {
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
 
-                {selectedFilteredEntry && (
-                  <div className="rounded-xl border p-4">
-                    <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold">
-                          NF {selectedFilteredEntry.invoice_number}
-                          {selectedFilteredEntry.invoice_series
-                            ? ` / ${selectedFilteredEntry.invoice_series}`
-                            : ""}
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          Fornecedor: {selectedFilteredEntry.supplier_name}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          Lançada em: {formatDateTime(selectedFilteredEntry.created_at)}
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <Badge
-                          variant={
-                            selectedFilteredEntry.status === "active"
-                              ? "default"
-                              : "secondary"
-                          }
-                        >
-                          {selectedFilteredEntry.status === "active"
-                            ? "Ativa"
-                            : "Estornada"}
-                        </Badge>
-                        <Badge variant="outline">
-                          {selectedFilteredEntry.imported_from_xml
-                            ? "Importada de XML"
-                            : "Manual"}
-                        </Badge>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Emissão</p>
-                        <p className="font-semibold">
-                          {formatDate(selectedFilteredEntry.issue_date)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Entrada</p>
-                        <p className="font-semibold">
-                          {formatDate(selectedFilteredEntry.entry_date)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Itens</p>
-                        <p className="font-semibold">
-                          {selectedFilteredEntry.items.length}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Total</p>
-                        <p className="font-semibold">
-                          {formatCurrency(selectedFilteredEntry.total_amount)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {selectedFilteredEntry.supplier_document && (
-                      <div className="mt-4">
-                        <p className="text-xs text-muted-foreground">Documento fornecedor</p>
-                        <p className="text-sm font-medium">
-                          {selectedFilteredEntry.supplier_document}
-                        </p>
-                      </div>
-                    )}
-
-                    {selectedFilteredEntry.invoice_key && (
-                      <div className="mt-4">
-                        <p className="text-xs text-muted-foreground">Chave NF-e</p>
-                        <p className="text-sm font-medium break-all">
-                          {selectedFilteredEntry.invoice_key}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      {selectedFilteredEntry.attachment_xml_url ? (
-                        <a
-                          href={selectedFilteredEntry.attachment_xml_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm underline"
-                        >
-                          Abrir XML anexado
-                        </a>
-                      ) : null}
-
-                      {selectedFilteredEntry.attachment_pdf_url ? (
-                        <a
-                          href={selectedFilteredEntry.attachment_pdf_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm underline"
-                        >
-                          Abrir PDF anexado
-                        </a>
-                      ) : null}
-                    </div>
-
-                    {selectedFilteredEntry.notes && (
-                      <div className="mt-4">
-                        <p className="text-xs text-muted-foreground">Observações</p>
-                        <p className="text-sm whitespace-pre-wrap">
-                          {selectedFilteredEntry.notes}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="mt-4">
-                      <h4 className="mb-2 font-semibold">Itens da nota</h4>
-                      <Table>
-                        <TableHeader>
+                        {selectedEntry?.id === entry.id && (
                           <TableRow>
-                            <TableHead>Produto</TableHead>
-                            <TableHead>Qtd</TableHead>
-                            <TableHead>Un.</TableHead>
-                            <TableHead>Custo unit.</TableHead>
-                            <TableHead>Total</TableHead>
-                            <TableHead>Conferência</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {selectedFilteredEntry.items.map((item) => {
-                            const review = getCostReview(item);
+                            <TableCell colSpan={6}>
+                              <div className="rounded-xl border bg-white p-4">
+                                <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                  <div>
+                                    <h3 className="text-lg font-semibold">
+                                      NF {entry.invoice_number}
+                                      {entry.invoice_series
+                                        ? ` / ${entry.invoice_series}`
+                                        : ""}
+                                    </h3>
 
-                            return (
-                              <TableRow key={item.id}>
-                                <TableCell>{item.product_name_snapshot}</TableCell>
-                                <TableCell>{item.quantity}</TableCell>
-                                <TableCell>{item.unit_label}</TableCell>
-                                <TableCell>{formatCurrency(item.unit_cost)}</TableCell>
-                                <TableCell>{formatCurrency(item.total_cost)}</TableCell>
-                                <TableCell>
-                                  <div className="text-xs">
-                                    <div>{review.label}</div>
-                                    <div className="text-muted-foreground">
-                                      Base: {formatCurrency(review.currentCost)}
-                                    </div>
-                                    <div className="text-muted-foreground">
-                                      Variação:{" "}
-                                      {review.diffPercent === null
-                                        ? "—"
-                                        : `${review.diffPercent.toFixed(2)}%`}
-                                    </div>
+                                    <p className="text-sm text-muted-foreground">
+                                      Fornecedor: {entry.supplier_name}
+                                    </p>
+
+                                    <p className="text-sm text-muted-foreground">
+                                      Lançada em:{" "}
+                                      {formatDateTime(entry.created_at)}
+                                    </p>
                                   </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+
+                                  <div className="flex flex-wrap gap-2">
+                                    <Badge
+                                      variant={
+                                        entry.status === "active"
+                                          ? "default"
+                                          : "secondary"
+                                      }
+                                    >
+                                      {entry.status === "active"
+                                        ? "Ativa"
+                                        : "Estornada"}
+                                    </Badge>
+
+                                    <Badge variant="outline">
+                                      {entry.imported_from_xml
+                                        ? "Importada de XML"
+                                        : "Manual"}
+                                    </Badge>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                                  <div>
+                                    <p className="text-xs text-muted-foreground">
+                                      Emissão
+                                    </p>
+                                    <p className="font-semibold">
+                                      {formatDate(entry.issue_date)}
+                                    </p>
+                                  </div>
+
+                                  <div>
+                                    <p className="text-xs text-muted-foreground">
+                                      Entrada
+                                    </p>
+                                    <p className="font-semibold">
+                                      {formatDate(entry.entry_date)}
+                                    </p>
+                                  </div>
+
+                                  <div>
+                                    <p className="text-xs text-muted-foreground">
+                                      Itens
+                                    </p>
+                                    <p className="font-semibold">
+                                      {entry.items.length}
+                                    </p>
+                                  </div>
+
+                                  <div>
+                                    <p className="text-xs text-muted-foreground">
+                                      Total
+                                    </p>
+                                    <p className="font-semibold">
+                                      {formatCurrency(entry.total_amount)}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {entry.supplier_document && (
+                                  <div className="mt-4">
+                                    <p className="text-xs text-muted-foreground">
+                                      Documento fornecedor
+                                    </p>
+                                    <p className="text-sm font-medium">
+                                      {entry.supplier_document}
+                                    </p>
+                                  </div>
+                                )}
+
+                                {entry.invoice_key && (
+                                  <div className="mt-4">
+                                    <p className="text-xs text-muted-foreground">
+                                      Chave NF-e
+                                    </p>
+                                    <p className="break-all text-sm font-medium">
+                                      {entry.invoice_key}
+                                    </p>
+                                  </div>
+                                )}
+
+                                <div className="mt-4 flex flex-wrap gap-3">
+                                  {entry.attachment_xml_url ? (
+                                    <a
+                                      href={entry.attachment_xml_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-sm underline"
+                                    >
+                                      Abrir XML anexado
+                                    </a>
+                                  ) : null}
+
+                                  {entry.attachment_pdf_url ? (
+                                    <a
+                                      href={entry.attachment_pdf_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-sm underline"
+                                    >
+                                      Abrir PDF anexado
+                                    </a>
+                                  ) : null}
+                                </div>
+
+                                {entry.notes && (
+                                  <div className="mt-4">
+                                    <p className="text-xs text-muted-foreground">
+                                      Observações
+                                    </p>
+                                    <p className="whitespace-pre-wrap text-sm">
+                                      {entry.notes}
+                                    </p>
+                                  </div>
+                                )}
+
+                                <div className="mt-4">
+                                  <h4 className="mb-2 font-semibold">
+                                    Itens da nota
+                                  </h4>
+
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead>Produto</TableHead>
+                                        <TableHead>Qtd</TableHead>
+                                        <TableHead>Un.</TableHead>
+                                        <TableHead>Custo unit.</TableHead>
+                                        <TableHead>Total</TableHead>
+                                        <TableHead>Conferência</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+
+                                    <TableBody>
+                                      {entry.items.map((item) => {
+                                        const review = getCostReview(item);
+
+                                        return (
+                                          <TableRow key={item.id}>
+                                            <TableCell>
+                                              {item.product_name_snapshot}
+                                            </TableCell>
+                                            <TableCell>{item.quantity}</TableCell>
+                                            <TableCell>
+                                              {item.unit_label}
+                                            </TableCell>
+                                            <TableCell>
+                                              {formatCurrency(item.unit_cost)}
+                                            </TableCell>
+                                            <TableCell>
+                                              {formatCurrency(item.total_cost)}
+                                            </TableCell>
+
+                                            <TableCell>
+                                              <div className="text-xs">
+                                                <div>{review.label}</div>
+
+                                                <div className="text-muted-foreground">
+                                                  Base:{" "}
+                                                  {formatCurrency(
+                                                    review.currentCost
+                                                  )}
+                                                </div>
+
+                                                <div className="text-muted-foreground">
+                                                  Variação:{" "}
+                                                  {review.diffPercent === null
+                                                    ? "—"
+                                                    : `${review.diffPercent.toFixed(
+                                                        2
+                                                      )}%`}
+                                                </div>
+                                              </div>
+                                            </TableCell>
+                                          </TableRow>
+                                        );
+                                      })}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

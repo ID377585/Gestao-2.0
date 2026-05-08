@@ -1355,7 +1355,6 @@ export default function FichasTecnicasPage() {
             sector_category: p.sector_category ?? p.category ?? "",
             category: p.category ?? null,
             package_qty:
-              package_qty:
             p.package_qty !== null && p.package_qty !== undefined
               ? parsePtBrNumber(p.package_qty, 1)
               : 1,

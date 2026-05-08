@@ -5,6 +5,7 @@ import {
   createInvoiceEntryDraftFromFiscalNfeAction,
   importFiscalNfeXmlAction,
   listFiscalNfeInboxAction,
+  syncSefazNfeAction,
 } from "../actions";
 
 function formatCurrency(value: number) {
@@ -31,6 +32,8 @@ export default function FiscalNfeInboxPage() {
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
   const [draftingNoteId, setDraftingNoteId] = useState<string | null>(null);
+  const [syncingSefaz, setSyncingSefaz] = useState(false);
+  const [lastSyncResult, setLastSyncResult] = useState<any | null>(null);
 
   const loadNotes = async () => {
     try {
@@ -78,6 +81,31 @@ export default function FiscalNfeInboxPage() {
     });
   };
 
+  const handleSyncSefaz = async () => {
+    setSyncingSefaz(true);
+    setLastSyncResult(null);
+
+    startTransition(async () => {
+      try {
+        const result = await syncSefazNfeAction();
+
+        setLastSyncResult(result);
+
+        await loadNotes();
+
+        alert(
+          `Sincronização concluída. Recebidos: ${result.received}. Importados: ${result.imported}. Ignorados: ${result.ignored}. Status SEFAZ: ${result.cStat} - ${result.xMotivo}`
+        );
+      } catch (error: any) {
+        console.error(error);
+
+        alert(error?.message || "Erro ao sincronizar SEFAZ.");
+      } finally {
+        setSyncingSefaz(false);
+      }
+    });
+  };
+
   const handleCreateDraft = async (noteId: string) => {
     setDraftingNoteId(noteId);
 
@@ -113,7 +141,16 @@ export default function FiscalNfeInboxPage() {
           </p>
         </div>
 
-        <div>
+        <div className="flex flex-wrap gap-2 justify-end">
+          <button
+            type="button"
+            onClick={handleSyncSefaz}
+            disabled={isPending || syncingSefaz}
+            className="border rounded-md px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
+          >
+            {syncingSefaz ? "Sincronizando..." : "Sincronizar SEFAZ"}
+          </button>
+
           <label className="bg-primary text-primary-foreground px-4 py-2 rounded-md cursor-pointer text-sm inline-flex">
             {isPending ? "Processando..." : "Importar XML NF-e"}
 
@@ -126,6 +163,35 @@ export default function FiscalNfeInboxPage() {
           </label>
         </div>
       </div>
+
+      {lastSyncResult && (
+        <div className="border rounded-xl p-4 bg-card text-sm grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div>
+            <div className="text-xs text-muted-foreground">Status</div>
+            <div className="font-medium">{lastSyncResult.cStat}</div>
+          </div>
+
+          <div>
+            <div className="text-xs text-muted-foreground">Motivo</div>
+            <div className="font-medium">{lastSyncResult.xMotivo}</div>
+          </div>
+
+          <div>
+            <div className="text-xs text-muted-foreground">Recebidos</div>
+            <div className="font-medium">{lastSyncResult.received}</div>
+          </div>
+
+          <div>
+            <div className="text-xs text-muted-foreground">Importados</div>
+            <div className="font-medium">{lastSyncResult.imported}</div>
+          </div>
+
+          <div>
+            <div className="text-xs text-muted-foreground">Último NSU</div>
+            <div className="font-medium">{lastSyncResult.ultNSU}</div>
+          </div>
+        </div>
+      )}
 
       <div className="border rounded-xl overflow-hidden bg-card">
 

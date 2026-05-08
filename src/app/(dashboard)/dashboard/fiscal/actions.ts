@@ -24,16 +24,20 @@ function extractCertificateExpiration(_buffer: ArrayBuffer) {
   return null;
 }
 
-export async function uploadFiscalCertificateAction(formData: FormData) {
+async function getFiscalContext() {
   const supabase = await createSupabaseServerClient();
-
   const { membership } = await getActiveMembershipOrRedirect();
-
   const establishmentId = (membership as any)?.establishment_id;
 
   if (!establishmentId) {
     throw new Error("Estabelecimento não encontrado.");
   }
+
+  return { supabase, establishmentId };
+}
+
+export async function uploadFiscalCertificateAction(formData: FormData) {
+  const { supabase, establishmentId } = await getFiscalContext();
 
   const fileEntry = formData.get("file");
   const password = String(formData.get("password") ?? "").trim();
@@ -76,6 +80,16 @@ export async function uploadFiscalCertificateAction(formData: FormData) {
 
   const expiresAt = extractCertificateExpiration(await file.arrayBuffer());
 
+  const { error: deactivateError } = await supabase
+    .from("fiscal_certificates")
+    .update({ status: "inactive", updated_at: new Date().toISOString() })
+    .eq("establishment_id", establishmentId)
+    .eq("status", "active");
+
+  if (deactivateError) {
+    console.error(deactivateError);
+  }
+
   const { error: insertError } = await supabase
     .from("fiscal_certificates")
     .insert({
@@ -94,7 +108,39 @@ export async function uploadFiscalCertificateAction(formData: FormData) {
 
   revalidatePath("/dashboard/fiscal/certificado");
 
-  return {
-    success: true,
-  };
+  return { success: true };
+}
+
+export async function listFiscalCertificatesAction() {
+  const { supabase, establishmentId } = await getFiscalContext();
+
+  const { data, error } = await supabase
+    .from("fiscal_certificates")
+    .select("id, establishment_id, cnpj, certificate_path, expires_at, status, created_at, updated_at")
+    .eq("establishment_id", establishmentId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    throw new Error("Não foi possível carregar os certificados fiscais.");
+  }
+
+  return data ?? [];
+}
+
+export async function listFiscalNfeInboxAction() {
+  const { supabase, establishmentId } = await getFiscalContext();
+
+  const { data, error } = await supabase
+    .from("fiscal_nfe_inbox")
+    .select("*")
+    .eq("establishment_id", establishmentId)
+    .order("data_emissao", { ascending: false, nullsFirst: false });
+
+  if (error) {
+    console.error(error);
+    throw new Error("Não foi possível carregar as notas disponíveis.");
+  }
+
+  return data ?? [];
 }

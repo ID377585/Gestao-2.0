@@ -4,8 +4,10 @@ import forge from "node-forge";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { parseNfeXml } from "@/lib/fiscal/nfe-parser";
 
 const CERTIFICATE_BUCKET = "fiscal-certificates";
+const NFE_XML_BUCKET = "fiscal-nfe-xmls";
 
 function sanitizeFileName(fileName: string) {
   return fileName
@@ -143,4 +145,92 @@ export async function listFiscalNfeInboxAction() {
   }
 
   return data ?? [];
+}
+
+export async function importFiscalNfeXmlAction(formData: FormData) {
+  const { supabase, establishmentId } = await getFiscalContext();
+
+  const fileEntry = formData.get("file");
+
+  if (!(fileEntry instanceof File)) {
+    throw new Error("Nenhum XML foi enviado.");
+  }
+
+  const file = fileEntry;
+  const fileName = file.name.toLowerCase();
+
+  if (!fileName.endsWith(".xml")) {
+    throw new Error("Envie um arquivo XML válido.");
+  }
+
+  const xmlContent = await file.text();
+  const parsed = parseNfeXml(xmlContent);
+
+  if (!parsed.invoiceKey) {
+    throw new Error("Não foi possível identificar a chave de acesso da NF-e.");
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("fiscal_nfe_inbox")
+    .select("id")
+    .eq("establishment_id", establishmentId)
+    .eq("chave_acesso", parsed.invoiceKey)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    console.error(existingError);
+    throw new Error("Não foi possível validar duplicidade da NF-e.");
+  }
+
+  if (existing) {
+    throw new Error("Essa NF-e já está cadastrada nas notas disponíveis.");
+  }
+
+  const safeName = sanitizeFileName(file.name);
+  const filePath = `${establishmentId}/${parsed.invoiceKey}-${Date.now()}-${safeName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(NFE_XML_BUCKET)
+    .upload(filePath, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || "application/xml",
+    });
+
+  if (uploadError) {
+    console.error(uploadError);
+    throw new Error("Não foi possível salvar o XML fiscal.");
+  }
+
+  const { data, error } = await supabase
+    .from("fiscal_nfe_inbox")
+    .insert({
+      establishment_id: establishmentId,
+      nsu: null,
+      chave_acesso: parsed.invoiceKey,
+      numero: parsed.invoiceNumber || null,
+      serie: parsed.invoiceSeries || null,
+      fornecedor_nome: parsed.supplierName || null,
+      fornecedor_cnpj: parsed.supplierDocument || null,
+      valor_total: parsed.totalAmount || null,
+      data_emissao: parsed.issueDate || null,
+      status_manifestacao: "pendente",
+      xml_path: filePath,
+      imported_entry_id: null,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    console.error(error);
+    throw new Error("Não foi possível gravar a NF-e na inbox fiscal.");
+  }
+
+  revalidatePath("/dashboard/fiscal/notas");
+
+  return {
+    id: data.id,
+    parsed,
+  };
 }

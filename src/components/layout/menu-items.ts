@@ -27,6 +27,7 @@ export type MenuSectionKey =
   | "estoque"
   | "engenharia"
   | "compras"
+  | "fiscal"
   | "financeiro"
   | "administracao";
 
@@ -94,6 +95,11 @@ export const menuSections: MenuSectionConfig[] = [
         label: "Entradas",
         href: "/dashboard/entradas",
         icon: FileInput,
+      },
+      {
+        label: "Rascunhos de Entradas",
+        href: "/dashboard/entradas/rascunhos",
+        icon: FileText,
       },
       {
         label: "Inventário",
@@ -218,6 +224,48 @@ export const menuSections: MenuSectionConfig[] = [
         label: "Auditoria",
         href: "/compras/auditoria",
         icon: History,
+      },
+    ],
+  },
+  {
+    key: "fiscal",
+    label: "Fiscal",
+    icon: Receipt,
+    items: [
+      {
+        label: "Dashboard Fiscal",
+        href: "/dashboard/fiscal/dashboard",
+        icon: BarChart3,
+      },
+      {
+        label: "Notas disponíveis",
+        href: "/dashboard/fiscal/notas",
+        icon: Receipt,
+      },
+      {
+        label: "Auditoria Fiscal",
+        href: "/dashboard/fiscal/auditoria",
+        icon: AlertTriangle,
+      },
+      {
+        label: "Divergências Fiscais",
+        href: "/dashboard/fiscal/divergencias",
+        icon: ArrowLeftRight,
+      },
+      {
+        label: "Vínculos Fiscais",
+        href: "/dashboard/fiscal/vinculos",
+        icon: Tag,
+      },
+      {
+        label: "Dados da Empresa",
+        href: "/dashboard/fiscal/empresa",
+        icon: Building2,
+      },
+      {
+        label: "Certificado A1",
+        href: "/dashboard/fiscal/certificado",
+        icon: FileText,
       },
     ],
   },

@@ -57,7 +57,51 @@ function normalizeForMatch(value: unknown) {
     .trim();
 }
 
-function findProductMatch(item: any, products: any[]) {
+function mappingScore(item: any, supplierDocument: string | null | undefined, mapping: any) {
+  let score = 0;
+  const supplier = normalizeForMatch(supplierDocument);
+  const mappingSupplier = normalizeForMatch(mapping.supplier_document);
+
+  if (mappingSupplier && supplier && mappingSupplier !== supplier) {
+    return -1;
+  }
+
+  if (mappingSupplier && supplier && mappingSupplier === supplier) score += 10;
+  if (mapping.xml_code && normalizeForMatch(mapping.xml_code) === normalizeForMatch(item.code)) score += 8;
+  if (mapping.xml_ean && normalizeForMatch(mapping.xml_ean) === normalizeForMatch(item.ean)) score += 10;
+  if (mapping.xml_description && normalizeForMatch(mapping.xml_description) === normalizeForMatch(item.description)) score += 6;
+  if (mapping.xml_description && normalizeForMatch(item.description).includes(normalizeForMatch(mapping.xml_description))) score += 3;
+  if (mapping.xml_unit && normalizeForMatch(mapping.xml_unit) === normalizeForMatch(item.unit)) score += 2;
+
+  return score;
+}
+
+function findMappedProduct(item: any, supplierDocument: string | null | undefined, products: any[], mappings: any[]) {
+  const candidates = mappings
+    .map((mapping) => ({ mapping, score: mappingScore(item, supplierDocument, mapping) }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  const best = candidates[0];
+
+  if (!best) return null;
+
+  const product = products.find((row) => String(row.id) === String(best.mapping.product_id));
+
+  if (!product) return null;
+
+  return {
+    product,
+    matchType: "vinculo_manual",
+    mappingId: best.mapping.id,
+  };
+}
+
+function findProductMatch(item: any, products: any[], mappings: any[] = [], supplierDocument?: string | null) {
+  const mapped = findMappedProduct(item, supplierDocument, products, mappings);
+
+  if (mapped) return mapped;
+
   const code = normalizeForMatch(item.code);
   const ean = normalizeForMatch(item.ean);
   const description = normalizeForMatch(item.description);
@@ -67,11 +111,11 @@ function findProductMatch(item: any, products: any[]) {
     return Boolean(sku && (sku === code || sku === ean));
   });
 
-  if (bySkuOrEan) return { product: bySkuOrEan, matchType: "sku_ean" };
+  if (bySkuOrEan) return { product: bySkuOrEan, matchType: "sku_ean", mappingId: null };
 
   const byExactName = products.find((product) => normalizeForMatch(product.name) === description);
 
-  if (byExactName) return { product: byExactName, matchType: "nome_exato" };
+  if (byExactName) return { product: byExactName, matchType: "nome_exato", mappingId: null };
 
   const byContainsName = products.find((product) => {
     const productName = normalizeForMatch(product.name);
@@ -82,9 +126,9 @@ function findProductMatch(item: any, products: any[]) {
     );
   });
 
-  if (byContainsName) return { product: byContainsName, matchType: "nome_aproximado" };
+  if (byContainsName) return { product: byContainsName, matchType: "nome_aproximado", mappingId: null };
 
-  return { product: null, matchType: "sem_vinculo" };
+  return { product: null, matchType: "sem_vinculo", mappingId: null };
 }
 
 export async function getFiscalAuditAction() {
@@ -126,7 +170,7 @@ export async function auditFiscalNfeProductsAction(noteId: string) {
 
   const { data: note, error: noteError } = await supabase
     .from("fiscal_nfe_inbox")
-    .select("id, numero, serie, fornecedor_nome, chave_acesso, xml_path, status_manifestacao")
+    .select("id, numero, serie, fornecedor_nome, fornecedor_cnpj, chave_acesso, xml_path, status_manifestacao")
     .eq("id", noteId)
     .eq("establishment_id", establishmentId)
     .single();
@@ -167,8 +211,18 @@ export async function auditFiscalNfeProductsAction(noteId: string) {
     throw new Error("Não foi possível carregar os produtos cadastrados.");
   }
 
+  const { data: mappings, error: mappingsError } = await supabase
+    .from("fiscal_product_mappings")
+    .select("*")
+    .eq("establishment_id", establishmentId);
+
+  if (mappingsError) {
+    console.error(mappingsError);
+    throw new Error("Não foi possível carregar os vínculos fiscais.");
+  }
+
   const rows = parsed.items.map((item, index) => {
-    const match = findProductMatch(item, products ?? []);
+    const match = findProductMatch(item, products ?? [], mappings ?? [], note.fornecedor_cnpj);
     const product = match.product;
     const productCost = Number(product?.standard_cost ?? product?.price ?? 0);
     const xmlCost = Number(item.unitCost || 0);
@@ -212,6 +266,7 @@ export async function auditFiscalNfeProductsAction(noteId: string) {
           }
         : null,
       matchType: match.matchType,
+      mappingId: match.mappingId,
       costDifference,
       costDifferencePercent,
       issues,
@@ -224,12 +279,14 @@ export async function auditFiscalNfeProductsAction(noteId: string) {
       numero: note.numero,
       serie: note.serie,
       fornecedor_nome: note.fornecedor_nome,
+      fornecedor_cnpj: note.fornecedor_cnpj,
       chave_acesso: note.chave_acesso,
       status_manifestacao: note.status_manifestacao,
     },
     summary: {
       totalItems: rows.length,
       matched: rows.filter((row) => row.product).length,
+      mapped: rows.filter((row) => row.matchType === "vinculo_manual").length,
       unmatched: rows.filter((row) => !row.product).length,
       withIssues: rows.filter((row) => row.issues.length > 0).length,
       costDivergences: rows.filter((row) => row.issues.includes("custo_divergente")).length,

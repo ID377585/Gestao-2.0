@@ -4,6 +4,7 @@ import forge from "node-forge";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { syncSefazNfeAction } from "../actions";
 import {
   sendNfeManifestationEvent,
   type NfeManifestationType,
@@ -18,6 +19,10 @@ function decryptPassword(encryptedPassword: string) {
   } catch {
     return encryptedPassword;
   }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function getContext() {
@@ -116,4 +121,33 @@ export async function manifestFiscalNfeAction(params: {
   revalidatePath("/dashboard/fiscal/notas");
 
   return result;
+}
+
+export async function manifestAndSyncFiscalNfeAction(params: {
+  noteId: string;
+  manifestationType: NfeManifestationType;
+  justification?: string | null;
+}) {
+  const manifestation = await manifestFiscalNfeAction(params);
+
+  let syncResult: Awaited<ReturnType<typeof syncSefazNfeAction>> | null = null;
+  let syncError: string | null = null;
+
+  if (["135", "136", "573"].includes(manifestation.cStat)) {
+    try {
+      await sleep(1500);
+      syncResult = await syncSefazNfeAction();
+    } catch (error: any) {
+      console.error(error);
+      syncError = error?.message || "Manifestação registrada, mas a sincronização automática falhou.";
+    }
+  }
+
+  revalidatePath("/dashboard/fiscal/notas");
+
+  return {
+    manifestation,
+    syncResult,
+    syncError,
+  };
 }

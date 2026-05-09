@@ -7,6 +7,13 @@ import {
   listFiscalNfeInboxAction,
   syncSefazNfeAction,
 } from "../actions";
+import { manifestFiscalNfeAction } from "../manifestacao/actions";
+
+type ManifestationType =
+  | "ciencia_operacao"
+  | "confirmacao_operacao"
+  | "desconhecimento_operacao"
+  | "operacao_nao_realizada";
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -27,11 +34,23 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
+function getManifestationLabel(type: ManifestationType) {
+  const labels: Record<ManifestationType, string> = {
+    ciencia_operacao: "Ciência",
+    confirmacao_operacao: "Confirmar",
+    desconhecimento_operacao: "Desconhecer",
+    operacao_nao_realizada: "Não realizada",
+  };
+
+  return labels[type];
+}
+
 export default function FiscalNfeInboxPage() {
   const [notes, setNotes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
   const [draftingNoteId, setDraftingNoteId] = useState<string | null>(null);
+  const [manifestingNoteId, setManifestingNoteId] = useState<string | null>(null);
   const [syncingSefaz, setSyncingSefaz] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<any | null>(null);
 
@@ -102,6 +121,50 @@ export default function FiscalNfeInboxPage() {
         alert(error?.message || "Erro ao sincronizar SEFAZ.");
       } finally {
         setSyncingSefaz(false);
+      }
+    });
+  };
+
+  const handleManifest = async (
+    noteId: string,
+    type: ManifestationType
+  ) => {
+    let justification: string | null = null;
+
+    if (type === "operacao_nao_realizada") {
+      justification = window.prompt(
+        "Informe a justificativa da operação não realizada com pelo menos 15 caracteres:"
+      );
+
+      if (!justification) return;
+    }
+
+    const confirmed = window.confirm(
+      `Enviar evento de manifestação: ${getManifestationLabel(type)}?`
+    );
+
+    if (!confirmed) return;
+
+    setManifestingNoteId(noteId);
+
+    startTransition(async () => {
+      try {
+        const result = await manifestFiscalNfeAction({
+          noteId,
+          manifestationType: type,
+          justification,
+        });
+
+        await loadNotes();
+
+        alert(
+          `Manifestação enviada. Status SEFAZ: ${result.cStat} - ${result.xMotivo}`
+        );
+      } catch (error: any) {
+        console.error(error);
+        alert(error?.message || "Erro ao manifestar NF-e.");
+      } finally {
+        setManifestingNoteId(null);
       }
     });
   };
@@ -246,7 +309,47 @@ export default function FiscalNfeInboxPage() {
                   : "Pendente"}
               </div>
 
-              <div>
+              <div className="flex flex-col gap-1 items-start">
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleManifest(String(note.id), "ciencia_operacao")}
+                    disabled={isPending || manifestingNoteId === note.id}
+                    className="border rounded-md px-2 py-1 text-[11px] hover:bg-muted disabled:opacity-50"
+                  >
+                    Ciência
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleManifest(String(note.id), "confirmacao_operacao")}
+                    disabled={isPending || manifestingNoteId === note.id}
+                    className="border rounded-md px-2 py-1 text-[11px] hover:bg-muted disabled:opacity-50"
+                  >
+                    Confirmar
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleManifest(String(note.id), "desconhecimento_operacao")}
+                    disabled={isPending || manifestingNoteId === note.id}
+                    className="border rounded-md px-2 py-1 text-[11px] hover:bg-muted disabled:opacity-50"
+                  >
+                    Desconhecer
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleManifest(String(note.id), "operacao_nao_realizada")}
+                    disabled={isPending || manifestingNoteId === note.id}
+                    className="border rounded-md px-2 py-1 text-[11px] hover:bg-muted disabled:opacity-50"
+                  >
+                    Não realizada
+                  </button>
+                </div>
+
                 {!note.imported_entry_id && (
                   <button
                     type="button"

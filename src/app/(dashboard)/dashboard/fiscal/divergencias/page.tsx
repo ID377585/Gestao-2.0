@@ -5,6 +5,7 @@ import {
   auditFiscalNoteDivergencesAction,
   listFiscalNotesForDivergenceAction,
 } from "./actions";
+import { createAutomaticInvoiceEntryFromFiscalNfeAction } from "../automatico/actions";
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -25,6 +26,7 @@ function translateIssue(issue: string) {
 
 function translateMatchType(type: string) {
   const map: Record<string, string> = {
+    vinculo_manual: "Vínculo aprendido",
     sku_ean: "SKU/EAN",
     nome_exato: "Nome exato",
     nome_aproximado: "Nome aproximado",
@@ -39,6 +41,7 @@ export default function FiscalDivergencesPage() {
   const [selectedNoteId, setSelectedNoteId] = useState<string>("");
   const [audit, setAudit] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [creatingEntry, setCreatingEntry] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const loadNotes = async () => {
@@ -57,6 +60,16 @@ export default function FiscalDivergencesPage() {
     }
   };
 
+  const loadAudit = async (noteId: string) => {
+    try {
+      const response = await auditFiscalNoteDivergencesAction(noteId);
+      setAudit(response);
+    } catch (error: any) {
+      console.error(error);
+      setAudit({ error: error?.message || "Erro ao auditar NF-e." });
+    }
+  };
+
   useEffect(() => {
     loadNotes();
   }, []);
@@ -65,23 +78,71 @@ export default function FiscalDivergencesPage() {
     if (!selectedNoteId) return;
 
     startTransition(async () => {
-      try {
-        const response = await auditFiscalNoteDivergencesAction(selectedNoteId);
-        setAudit(response);
-      } catch (error: any) {
-        console.error(error);
-        setAudit({ error: error?.message || "Erro ao auditar NF-e." });
-      }
+      await loadAudit(selectedNoteId);
     });
   }, [selectedNoteId]);
 
+  const canCreateAutomaticEntry = Boolean(
+    audit &&
+      !audit.error &&
+      audit.summary?.totalItems > 0 &&
+      audit.summary?.unmatched === 0 &&
+      audit.summary?.unitDivergences === 0
+  );
+
+  const handleCreateAutomaticEntry = () => {
+    if (!selectedNoteId) return;
+
+    const confirmed = window.confirm(
+      "Gerar entrada automática e movimentar estoque agora? Essa ação aprova a entrada imediatamente."
+    );
+
+    if (!confirmed) return;
+
+    setCreatingEntry(true);
+
+    startTransition(async () => {
+      try {
+        const result = await createAutomaticInvoiceEntryFromFiscalNfeAction(selectedNoteId);
+
+        await loadNotes();
+        await loadAudit(selectedNoteId);
+
+        alert(
+          `Entrada automática criada com sucesso. Itens: ${result.totalItems}. ID: ${result.entryId}`
+        );
+      } catch (error: any) {
+        console.error(error);
+        alert(error?.message || "Erro ao gerar entrada automática.");
+      } finally {
+        setCreatingEntry(false);
+      }
+    });
+  };
+
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Divergências Fiscais</h1>
-        <p className="text-sm text-muted-foreground">
-          Comparação entre XML NF-e e produtos cadastrados.
-        </p>
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Divergências Fiscais</h1>
+          <p className="text-sm text-muted-foreground">
+            Comparação entre XML NF-e e produtos cadastrados.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleCreateAutomaticEntry}
+          disabled={!canCreateAutomaticEntry || isPending || creatingEntry}
+          className="bg-primary text-primary-foreground rounded-md px-4 py-2 text-sm disabled:opacity-50"
+          title={
+            canCreateAutomaticEntry
+              ? "Gerar entrada automática"
+              : "Resolva produtos sem vínculo e unidades divergentes antes de gerar entrada automática"
+          }
+        >
+          {creatingEntry ? "Gerando entrada..." : "Gerar entrada automática"}
+        </button>
       </div>
 
       <div className="border rounded-xl bg-card p-5 space-y-4">
@@ -115,11 +176,18 @@ export default function FiscalDivergencesPage() {
             Carregando NF-es...
           </div>
         )}
+
+        {audit && !audit.error && !canCreateAutomaticEntry && (
+          <div className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+            A entrada automática fica liberada somente quando todos os itens estiverem vinculados e sem divergência de unidade.
+            Divergências de custo são informativas e o custo do XML será usado na entrada.
+          </div>
+        )}
       </div>
 
       {isPending && (
         <div className="text-sm text-muted-foreground">
-          Auditando produtos da NF-e...
+          Processando auditoria fiscal...
         </div>
       )}
 
@@ -131,7 +199,7 @@ export default function FiscalDivergencesPage() {
 
       {audit && !audit.error && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
             <div className="border rounded-xl bg-card p-5">
               <div className="text-sm text-muted-foreground">
                 Total itens
@@ -147,6 +215,15 @@ export default function FiscalDivergencesPage() {
               </div>
               <div className="text-3xl font-bold mt-2">
                 {audit.summary.matched}
+              </div>
+            </div>
+
+            <div className="border rounded-xl bg-card p-5">
+              <div className="text-sm text-muted-foreground">
+                Vínculo aprendido
+              </div>
+              <div className="text-3xl font-bold mt-2">
+                {audit.summary.mapped || 0}
               </div>
             </div>
 

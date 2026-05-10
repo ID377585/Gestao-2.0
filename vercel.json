@@ -8,6 +8,15 @@
   "functions": {
     "app/api/**/*.ts": {
       "maxDuration": 30
+    },
+    "app/api/fiscal/sync/route.ts": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/fiscal/sync?secret=gestify_fiscal_sync_2025",
+      "schedule": "*/15 * * * *"
+    }
+  ]
 }

@@ -14,6 +14,7 @@ export type TenantMembership = {
   org_id: string | null;
   unit_id: string | null;
   establishment_id: string | null;
+  display_name?: string | null;
   is_active: boolean;
   created_at: string;
 };
@@ -26,4 +27,5 @@ export type TenantContext = {
   orgId: string | null;
   unitId: string | null;
   establishmentId: string;
+  displayName: string | null;
 };

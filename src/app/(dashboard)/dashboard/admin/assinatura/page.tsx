@@ -5,6 +5,10 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import {
+  getLimitWarning,
+  getLimitWarningClassName,
+} from "@/lib/billing/limit-warnings";
 import { formatBillingPrice, getBillingPlan } from "@/lib/billing/plans";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
 import { getCompanyPlanUsage, type PlanUsageMetric } from "@/lib/billing/usage-limits";
@@ -43,13 +47,6 @@ function formatDate(value?: string | null) {
 function formatLimit(metric: PlanUsageMetric) {
   if (metric.isUnlimited) return `${metric.used} de ilimitado`;
   return `${metric.used} de ${metric.limit}`;
-}
-
-function getMetricHint(metric: PlanUsageMetric) {
-  if (metric.isUnlimited) return "Uso ilimitado neste plano.";
-  if (metric.isAtLimit) return "Limite atingido. Futuramente será sugerido upgrade.";
-  if (metric.isNearLimit) return "Uso próximo ao limite. Bom momento para considerar upgrade.";
-  return "Dentro do limite do plano.";
 }
 
 export default async function AssinaturaPage() {
@@ -149,43 +146,50 @@ export default async function AssinaturaPage() {
         </p>
 
         <div className="mt-5 grid gap-4 md:grid-cols-3">
-          {(usage?.metrics ?? []).map((metric) => (
-            <div
-              key={metric.key}
-              className="rounded-xl border border-gray-200 p-4 dark:border-slate-800"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-slate-400">
-                    {metric.label}
-                  </p>
-                  <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-slate-100">
-                    {formatLimit(metric)}
-                  </p>
+          {(usage?.metrics ?? []).map((metric) => {
+            const warning = getLimitWarning(metric);
+
+            return (
+              <div
+                key={metric.key}
+                className="rounded-xl border border-gray-200 p-4 dark:border-slate-800"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-slate-400">
+                      {metric.label}
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-slate-100">
+                      {formatLimit(metric)}
+                    </p>
+                  </div>
+                  {warning.severity === "danger" || warning.severity === "warning" ? (
+                    <ShieldAlert className="h-5 w-5 text-amber-500" />
+                  ) : (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  )}
                 </div>
-                {metric.isAtLimit ? (
-                  <ShieldAlert className="h-5 w-5 text-red-500" />
-                ) : metric.isNearLimit ? (
-                  <ShieldAlert className="h-5 w-5 text-amber-500" />
-                ) : (
-                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                )}
+
+                {metric.percentage !== null ? (
+                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-800">
+                    <div
+                      className="h-full rounded-full bg-blue-600"
+                      style={{ width: `${metric.percentage}%` }}
+                    />
+                  </div>
+                ) : null}
+
+                <div
+                  className={`mt-4 rounded-lg border px-3 py-2 text-xs ${getLimitWarningClassName(
+                    warning.severity
+                  )}`}
+                >
+                  <p className="font-semibold">{warning.title}</p>
+                  <p className="mt-1 opacity-90">{warning.message}</p>
+                </div>
               </div>
-
-              {metric.percentage !== null ? (
-                <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-800">
-                  <div
-                    className="h-full rounded-full bg-blue-600"
-                    style={{ width: `${metric.percentage}%` }}
-                  />
-                </div>
-              ) : null}
-
-              <p className="mt-3 text-xs text-gray-500 dark:text-slate-400">
-                {getMetricHint(metric)}
-              </p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
@@ -201,6 +205,7 @@ export default async function AssinaturaPage() {
               <li>Status de assinatura por empresa</li>
               <li>Planos Starter, Growth e Enterprise</li>
               <li>Uso atual comparado aos limites do plano</li>
+              <li>Avisos reutilizáveis para 80%, 90% e 100% de uso</li>
               <li>Base para auditoria global por empresa</li>
             </ul>
           </div>
@@ -210,7 +215,7 @@ export default async function AssinaturaPage() {
             <ul className="mt-2 space-y-1 text-sm text-gray-600 dark:text-slate-400">
               <li>Integrar checkout/portal de pagamento</li>
               <li>Criar webhooks de assinatura</li>
-              <li>Exibir avisos ao atingir 80% e 90% do limite</li>
+              <li>Exibir avisos nos formulários de usuários e produtos</li>
               <li>Bloquear novos cadastros apenas após validação em produção</li>
             </ul>
           </div>

@@ -10,6 +10,11 @@ export const runtime = "nodejs";
 const CERTIFICATE_BUCKET = "fiscal-certificates";
 const NFE_XML_BUCKET = "fiscal-nfe-xmls";
 
+type FiscalNsuControlRow = {
+  id: string;
+  ultimo_nsu: string | null;
+};
+
 function getAdminSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -114,13 +119,14 @@ async function syncEstablishment(params: {
     throw new Error(`Não foi possível ler o certificado do estabelecimento ${establishmentId}.`);
   }
 
-  const { data: nsuControl } = await supabase
+  const { data: nsuControlData } = await supabase
     .from("fiscal_nsu_control")
     .select("id, ultimo_nsu")
     .eq("establishment_id", establishmentId)
     .maybeSingle();
 
-  let nsuControlId = nsuControl?.id as string | undefined;
+  const nsuControl = nsuControlData as FiscalNsuControlRow | null;
+  let nsuControlId = nsuControl?.id;
   const ultimoNsu = String(nsuControl?.ultimo_nsu ?? "000000000000000");
 
   if (!nsuControlId) {
@@ -137,7 +143,7 @@ async function syncEstablishment(params: {
       throw new Error(`Não foi possível criar controle de NSU para ${establishmentId}.`);
     }
 
-    nsuControlId = String(createdControl.id);
+    nsuControlId = String((createdControl as { id: string }).id);
   }
 
   const result = await consultarDistribuicaoDfe({

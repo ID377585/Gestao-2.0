@@ -1,7 +1,9 @@
 import "server-only";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ensureCurrentTermsAcceptedOrRedirect } from "@/lib/auth/terms-compliance.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { TENANT_COOKIE_NAME } from "@/lib/tenant/constants";
 
 export type Role =
   | "cliente"
@@ -41,9 +43,29 @@ type Options = {
   redirectToNoMembership?: string; // default: "/sem-acesso"
 };
 
+function mapMembership(membershipData: any): ActiveMembership {
+  return {
+    id: String(membershipData.id),
+    user_id: String(membershipData.user_id),
+    role: membershipData.role as Role,
+    establishment_id: membershipData.establishment_id ?? null,
+    is_active: Boolean(membershipData.is_active),
+    created_at: String(membershipData.created_at),
+    org_id: membershipData.org_id ?? null,
+    unit_id: membershipData.unit_id ?? null,
+  };
+}
+
+function getSelectedEstablishmentId() {
+  return cookies().get(TENANT_COOKIE_NAME)?.value ?? null;
+}
+
 /**
- * ✅ Fonte ÚNICA: public.memberships
- * Motivo: public.establishment_memberships está com RLS em recursão (42P17)
+ * Fonte única: public.memberships.
+ *
+ * Em modo SaaS multiempresa, respeita o cookie de empresa ativa criado em
+ * /api/tenant/switch. Se o usuário ainda não escolheu empresa, mantém o
+ * comportamento anterior e usa a membership ativa mais recente.
  */
 export async function getActiveMembershipOrRedirect(
   options?: Options,
@@ -53,7 +75,6 @@ export async function getActiveMembershipOrRedirect(
 
   const supabase = await createSupabaseServerClient();
 
-  // 1) auth obrigatório
   const {
     data: { user },
     error: userErr,
@@ -72,12 +93,19 @@ export async function getActiveMembershipOrRedirect(
     loginPath: redirectToLogin,
   });
 
-  // 2) membership (FONTE ÚNICA)
-  const { data: membershipData, error: membershipErr } = await supabase
+  const selectedEstablishmentId = getSelectedEstablishmentId();
+
+  let query = supabase
     .from("memberships")
     .select("id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at")
     .eq("user_id", user.id)
-    .eq("is_active", true)
+    .eq("is_active", true);
+
+  if (selectedEstablishmentId) {
+    query = query.eq("establishment_id", selectedEstablishmentId);
+  }
+
+  const { data: membershipData, error: membershipErr } = await query
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -90,6 +118,7 @@ export async function getActiveMembershipOrRedirect(
       code: membershipErr.code,
       user_id: user.id,
       email: user.email,
+      selected_establishment_id: selectedEstablishmentId,
     });
     redirect(redirectToNoMembership);
   }
@@ -98,20 +127,12 @@ export async function getActiveMembershipOrRedirect(
     console.error("[getActiveMembershipOrRedirect] no active membership found:", {
       user_id: user.id,
       email: user.email,
+      selected_establishment_id: selectedEstablishmentId,
     });
     redirect(redirectToNoMembership);
   }
 
-  const membership: ActiveMembership = {
-    id: String((membershipData as any).id),
-    user_id: String((membershipData as any).user_id),
-    role: (membershipData as any).role as Role,
-    establishment_id: (membershipData as any).establishment_id ?? null,
-    is_active: Boolean((membershipData as any).is_active),
-    created_at: String((membershipData as any).created_at),
-    org_id: (membershipData as any).org_id ?? null,
-    unit_id: (membershipData as any).unit_id ?? null,
-  };
+  const membership = mapMembership(membershipData);
 
   return {
     user,
@@ -145,11 +166,19 @@ export async function getActiveMembership() {
     return { user, membership: null };
   }
 
-  const { data: membershipData, error: membershipErr } = await supabase
+  const selectedEstablishmentId = getSelectedEstablishmentId();
+
+  let query = supabase
     .from("memberships")
     .select("id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at")
     .eq("user_id", user.id)
-    .eq("is_active", true)
+    .eq("is_active", true);
+
+  if (selectedEstablishmentId) {
+    query = query.eq("establishment_id", selectedEstablishmentId);
+  }
+
+  const { data: membershipData, error: membershipErr } = await query
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -160,22 +189,14 @@ export async function getActiveMembership() {
       code: membershipErr.code,
       user_id: user.id,
       email: user.email,
+      selected_establishment_id: selectedEstablishmentId,
     });
     return { user, membership: null };
   }
 
   if (!membershipData) return { user, membership: null };
 
-  const membership: ActiveMembership = {
-    id: String((membershipData as any).id),
-    user_id: String((membershipData as any).user_id),
-    role: (membershipData as any).role as Role,
-    establishment_id: (membershipData as any).establishment_id ?? null,
-    is_active: Boolean((membershipData as any).is_active),
-    created_at: String((membershipData as any).created_at),
-    org_id: (membershipData as any).org_id ?? null,
-    unit_id: (membershipData as any).unit_id ?? null,
-  };
+  const membership = mapMembership(membershipData);
 
   return { user, membership };
 }

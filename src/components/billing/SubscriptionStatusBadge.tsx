@@ -11,6 +11,7 @@ export type SubscriptionStatusBadgeData = {
 
 type SubscriptionStatusBadgeProps = {
   subscription?: SubscriptionStatusBadgeData;
+  showFallback?: boolean;
 };
 
 function getStatusLabel(status?: string | null) {
@@ -47,18 +48,30 @@ function getPlanLabel(planSlug?: string | null) {
 
 export function SubscriptionStatusBadge({
   subscription,
+  showFallback = true,
 }: SubscriptionStatusBadgeProps) {
-  if (!subscription) return null;
+  const safeSubscription =
+    subscription ??
+    (showFallback
+      ? {
+          status: "not_configured",
+          planSlug: null,
+          currentPeriodEnd: null,
+          canAccessSystem: true,
+        }
+      : null);
 
-  const planLabel = getPlanLabel(subscription.planSlug);
-  const statusLabel = getStatusLabel(subscription.status);
+  if (!safeSubscription) return null;
+
+  const planLabel = getPlanLabel(safeSubscription.planSlug);
+  const statusLabel = getStatusLabel(safeSubscription.status);
   const label = planLabel ? `${planLabel} · ${statusLabel}` : statusLabel;
 
   return (
     <Badge
-      variant={subscription.canAccessSystem === false ? "destructive" : "secondary"}
+      variant={safeSubscription.canAccessSystem === false ? "destructive" : "secondary"}
       className="hidden h-9 items-center rounded-xl px-3 text-xs font-medium md:inline-flex"
-      title={subscription.currentPeriodEnd ?? undefined}
+      title={safeSubscription.currentPeriodEnd ?? undefined}
     >
       {label}
     </Badge>

@@ -21,7 +21,20 @@ function normalizeRole(value: unknown): TenantMembershipRole {
     : "cliente";
 }
 
+function normalizeDisplayName(value: unknown) {
+  const name = String(value ?? "").trim();
+  return name || null;
+}
+
 function mapMembership(row: any): TenantMembership {
+  const fiscalProfile = Array.isArray(row.fiscal_company_profiles)
+    ? row.fiscal_company_profiles[0]
+    : row.fiscal_company_profiles;
+
+  const displayName =
+    normalizeDisplayName(fiscalProfile?.nome_fantasia) ??
+    normalizeDisplayName(fiscalProfile?.razao_social);
+
   return {
     id: String(row.id),
     user_id: String(row.user_id),
@@ -29,10 +42,23 @@ function mapMembership(row: any): TenantMembership {
     org_id: row.org_id ? String(row.org_id) : null,
     unit_id: row.unit_id ? String(row.unit_id) : null,
     establishment_id: row.establishment_id ? String(row.establishment_id) : null,
+    display_name: displayName,
     is_active: Boolean(row.is_active),
     created_at: String(row.created_at),
   };
 }
+
+const MEMBERSHIP_SELECT = `
+  id,
+  user_id,
+  role,
+  org_id,
+  unit_id,
+  establishment_id,
+  is_active,
+  created_at,
+  fiscal_company_profiles:establishment_id(nome_fantasia,razao_social)
+`;
 
 export async function listCurrentUserTenants(): Promise<TenantMembership[]> {
   const supabase = await createSupabaseServerClient();
@@ -48,7 +74,7 @@ export async function listCurrentUserTenants(): Promise<TenantMembership[]> {
 
   const { data, error } = await supabase
     .from("memberships")
-    .select("id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at")
+    .select(MEMBERSHIP_SELECT)
     .eq("user_id", user.id)
     .eq("is_active", true)
     .order("created_at", { ascending: false });
@@ -81,7 +107,7 @@ export async function getCurrentTenant(): Promise<TenantContext | null> {
 
   let query = supabase
     .from("memberships")
-    .select("id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at")
+    .select(MEMBERSHIP_SELECT)
     .eq("user_id", user.id)
     .eq("is_active", true);
 
@@ -122,5 +148,6 @@ export async function getCurrentTenant(): Promise<TenantContext | null> {
     orgId: membership.org_id,
     unitId: membership.unit_id,
     establishmentId: membership.establishment_id,
+    displayName: membership.display_name ?? null,
   };
 }

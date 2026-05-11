@@ -39,7 +39,7 @@ function companyDisplayName(value?: string | null) {
 }
 
 function tenantLabel(tenant: TenantItem) {
-  return `Empresa ${companyDisplayName(tenant.display_name) ?? shortId(tenant.establishment_id)}`;
+  return companyDisplayName(tenant.display_name) ?? shortId(tenant.establishment_id);
 }
 
 export function TenantSummary({ compact = false, className }: TenantSummaryProps) {
@@ -181,7 +181,7 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
             ))}
           </select>
         ) : hasTenant ? (
-          <div className="truncate text-sm font-medium">Empresa {companyLabel}</div>
+          <div className="truncate text-sm font-medium">{companyLabel}</div>
         ) : (
           <div className="truncate text-sm font-medium">Empresa não carregada</div>
         )}

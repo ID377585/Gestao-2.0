@@ -38,6 +38,8 @@ function tenantLabel(tenant: TenantItem) {
 export function TenantSummary({ compact = false, className }: TenantSummaryProps) {
   const [tenant, setTenant] = useState<TenantSummaryPayload["tenant"]>(null);
   const [tenants, setTenants] = useState<TenantItem[]>([]);
+  const [loadingTenant, setLoadingTenant] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
@@ -45,21 +47,45 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
 
     async function loadTenant() {
       try {
+        setLoadingTenant(true);
+        setLoadError(null);
+
         const response = await fetch("/api/tenant/me", {
           method: "GET",
           cache: "no-store",
         });
 
-        if (!response.ok) return;
-
-        const data = (await response.json()) as TenantSummaryPayload;
+        const data = (await response.json().catch(() => ({}))) as
+          | TenantSummaryPayload
+          | { error?: string };
 
         if (!mounted) return;
 
-        setTenant(data.tenant ?? null);
-        setTenants(data.tenants ?? []);
+        if (!response.ok) {
+          setTenant(null);
+          setTenants([]);
+          setLoadError(
+            "error" in data && data.error
+              ? data.error
+              : "Não foi possível carregar a empresa ativa."
+          );
+          return;
+        }
+
+        const payload = data as TenantSummaryPayload;
+        setTenant(payload.tenant ?? null);
+        setTenants(payload.tenants ?? []);
       } catch (error) {
+        if (!mounted) return;
+
         console.error("Erro ao carregar empresa ativa:", error);
+        setTenant(null);
+        setTenants([]);
+        setLoadError("Não foi possível carregar a empresa ativa.");
+      } finally {
+        if (mounted) {
+          setLoadingTenant(false);
+        }
       }
     }
 
@@ -74,8 +100,6 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
     () => tenants.filter((item) => item.is_active && item.establishment_id),
     [tenants]
   );
-
-  if (!tenant?.establishmentId) return null;
 
   async function handleChange(nextEstablishmentId: string) {
     if (!nextEstablishmentId || nextEstablishmentId === tenant?.establishmentId) return;
@@ -103,16 +127,23 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
     }
   }
 
+  const hasTenant = Boolean(tenant?.establishmentId);
+  const isBusy = loadingTenant || switching;
+  const title = hasTenant
+    ? tenant?.establishmentId
+    : loadError ?? "Empresa ativa não carregada";
+
   return (
     <div
       className={cn(
         "flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-gray-800 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100",
         compact ? "w-full" : "min-w-[220px]",
+        !hasTenant && !loadingTenant ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100" : null,
         className
       )}
-      title={tenant.establishmentId}
+      title={title}
     >
-      {switching ? (
+      {isBusy ? (
         <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-500" />
       ) : (
         <Building2 className="h-4 w-4 shrink-0 text-gray-500" />
@@ -123,9 +154,11 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
           Empresa ativa
         </div>
 
-        {activeTenants.length > 1 ? (
+        {loadingTenant ? (
+          <div className="truncate text-sm font-medium">Carregando...</div>
+        ) : hasTenant && activeTenants.length > 1 ? (
           <select
-            value={tenant.establishmentId}
+            value={tenant?.establishmentId ?? ""}
             onChange={(event) => void handleChange(event.target.value)}
             disabled={switching}
             className="w-full truncate bg-transparent text-sm font-medium outline-none disabled:cursor-wait disabled:opacity-70"
@@ -137,10 +170,12 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
               </option>
             ))}
           </select>
-        ) : (
+        ) : hasTenant ? (
           <div className="truncate text-sm font-medium">
-            Empresa {shortId(tenant.establishmentId)}
+            Empresa {shortId(tenant?.establishmentId)}
           </div>
+        ) : (
+          <div className="truncate text-sm font-medium">Empresa não carregada</div>
         )}
       </div>
     </div>

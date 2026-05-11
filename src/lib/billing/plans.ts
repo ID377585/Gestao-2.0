@@ -2,7 +2,7 @@ export type BillingPlan = {
   slug: string;
   name: string;
   description: string;
-  monthlyPriceInCents: number;
+  monthlyPriceInCents: number | null;
   limits: {
     users: number | null;
     establishments: number | null;
@@ -14,8 +14,9 @@ export const BILLING_PLANS: BillingPlan[] = [
   {
     slug: "starter",
     name: "Starter",
-    description: "Plano inicial para pequenas operações.",
-    monthlyPriceInCents: 9900,
+    description:
+      "Plano para pequena operação, cozinha, confeitaria ou restaurante pequeno.",
+    monthlyPriceInCents: 3990,
     limits: {
       users: 5,
       establishments: 1,
@@ -25,8 +26,9 @@ export const BILLING_PLANS: BillingPlan[] = [
   {
     slug: "growth",
     name: "Growth",
-    description: "Plano para operações em crescimento.",
-    monthlyPriceInCents: 19900,
+    description:
+      "Plano para operação maior, empresa com mais setores ou pequena rede.",
+    monthlyPriceInCents: 9990,
     limits: {
       users: 20,
       establishments: 3,
@@ -36,8 +38,9 @@ export const BILLING_PLANS: BillingPlan[] = [
   {
     slug: "enterprise",
     name: "Enterprise",
-    description: "Plano personalizado para redes e operações maiores.",
-    monthlyPriceInCents: 0,
+    description:
+      "Plano personalizado para redes, operação premium ou implantação sob medida.",
+    monthlyPriceInCents: null,
     limits: {
       users: null,
       establishments: null,
@@ -49,4 +52,14 @@ export const BILLING_PLANS: BillingPlan[] = [
 export function getBillingPlan(slug: string | null | undefined) {
   if (!slug) return null;
   return BILLING_PLANS.find((plan) => plan.slug === slug) ?? null;
+}
+
+export function formatBillingPrice(plan: BillingPlan | null) {
+  if (!plan) return "Plano não configurado";
+  if (plan.monthlyPriceInCents === null) return "Personalizado";
+
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(plan.monthlyPriceInCents / 100);
 }

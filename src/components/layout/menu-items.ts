@@ -356,6 +356,11 @@ export const menuSections: MenuSectionConfig[] = [
         href: "/dashboard/admin/usuarios",
         icon: Users,
       },
+      {
+        label: "Assinatura",
+        href: "/dashboard/admin/assinatura",
+        icon: BadgeDollarSign,
+      },
     ],
   },
 ];

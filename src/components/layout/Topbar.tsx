@@ -28,6 +28,10 @@ import { SettingsModal } from "@/components/modals/SettingsModal";
 import { HelpModal } from "@/components/modals/HelpModal";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TenantSummary } from "@/components/tenant/TenantSummary";
+import {
+  SubscriptionStatusBadge,
+  type SubscriptionStatusBadgeData,
+} from "@/components/billing/SubscriptionStatusBadge";
 
 import { clearSession } from "@/lib/auth/session";
 import {
@@ -56,6 +60,7 @@ type TopbarUser = {
   establishmentId?: string | null;
   orgId?: string | null;
   unitId?: string | null;
+  subscription?: SubscriptionStatusBadgeData;
   isActive?: boolean;
   lastSignInAt?: string | null;
 };
@@ -281,8 +286,9 @@ export function Topbar({ className }: TopbarProps) {
             <Sidebar />
           </div>
 
-          <div className="hidden min-w-0 flex-1 items-center md:flex">
+          <div className="hidden min-w-0 flex-1 items-center gap-2 md:flex">
             <TenantSummary />
+            <SubscriptionStatusBadge subscription={user?.subscription} />
           </div>
 
           <div className="flex items-center gap-2">

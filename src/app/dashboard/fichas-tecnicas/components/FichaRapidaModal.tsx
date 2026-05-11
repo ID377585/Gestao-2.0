@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import IngredientEditor from "@/app/dashboard/fichas-tecnicas/components/IngredientEditor";
-import { createTechnicalSheet } from "@/app/(dashboard)/dashboard/fichas-tecnicas/actions";
+import { createTechnicalSheetWithOptionalProductLink } from "@/app/(dashboard)/dashboard/fichas-tecnicas/create-linked-actions";
 import {
   type ProductOption as MatcherProductOption,
   type Ingrediente as MatcherIngrediente,
@@ -127,6 +127,7 @@ export default function FichaRapidaModal({
   const [pesoFinal, setPesoFinal] = useState<number | "">("");
 
   const [cmvAlvo, setCmvAlvo] = useState<number | "">(25);
+  const [atrelarFichaTecnica, setAtrelarFichaTecnica] = useState(true);
 
   // Mantido oculto para preservar a lógica da planilha sem poluir a tela.
   const [impostosDespesas, setImpostosDespesas] = useState<number | "">(34.42);
@@ -156,6 +157,7 @@ export default function FichaRapidaModal({
     setPesoPorcao("");
     setPesoFinal("");
     setCmvAlvo(25);
+    setAtrelarFichaTecnica(true);
     setImpostosDespesas(34.42);
     setPrecoVendaReal("");
     setIngredientes([]);
@@ -240,6 +242,7 @@ export default function FichaRapidaModal({
           source_file_name: null,
           source_page_number: null,
           video_url: null,
+          attachTechnicalSheetToProduct: atrelarFichaTecnica,
           ingredients: ingredientes.map((item, index) => ({
             product_id: item.productId || null,
             ingredient_name: item.nome.trim(),
@@ -257,7 +260,7 @@ export default function FichaRapidaModal({
           scales: [],
         };
 
-        await createTechnicalSheet(payload);
+        await createTechnicalSheetWithOptionalProductLink(payload);
 
         resetForm();
         await onSaved();
@@ -294,6 +297,21 @@ export default function FichaRapidaModal({
               />
             </div>
           </div>
+
+          <label className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={atrelarFichaTecnica}
+              onChange={(event) => setAtrelarFichaTecnica(event.target.checked)}
+            />
+            <span>
+              <span className="block font-semibold">Atrelar ficha técnica</span>
+              <span className="block text-xs opacity-90">
+                Ao salvar, também cria ou atualiza o item em Produtos e garante o item no Estoque.
+              </span>
+            </span>
+          </label>
 
           <IngredientEditor
             products={products}
@@ -432,7 +450,11 @@ export default function FichaRapidaModal({
               disabled={isPending}
               className="bg-emerald-600 text-white font-semibold shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {isPending ? "Salvando..." : "Salvar ficha técnica"}
+              {isPending
+                ? "Salvando..."
+                : atrelarFichaTecnica
+                  ? "Salvar e atrelar ficha"
+                  : "Salvar ficha técnica"}
             </Button>
           </div>
         </div>

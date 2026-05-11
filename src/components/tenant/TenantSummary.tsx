@@ -8,6 +8,7 @@ type TenantItem = {
   id: string;
   role: string;
   establishment_id: string | null;
+  display_name?: string | null;
   org_id: string | null;
   unit_id: string | null;
   is_active: boolean;
@@ -17,6 +18,7 @@ type TenantSummaryPayload = {
   tenant?: {
     establishmentId: string;
     role: string;
+    displayName?: string | null;
   } | null;
   tenants?: TenantItem[];
 };
@@ -31,8 +33,13 @@ function shortId(value?: string | null) {
   return value.slice(0, 8);
 }
 
+function companyDisplayName(value?: string | null) {
+  const name = String(value ?? "").trim();
+  return name || null;
+}
+
 function tenantLabel(tenant: TenantItem) {
-  return `Empresa ${shortId(tenant.establishment_id)}`;
+  return `Empresa ${companyDisplayName(tenant.display_name) ?? shortId(tenant.establishment_id)}`;
 }
 
 export function TenantSummary({ compact = false, className }: TenantSummaryProps) {
@@ -129,8 +136,11 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
 
   const hasTenant = Boolean(tenant?.establishmentId);
   const isBusy = loadingTenant || switching;
+  const activeCompanyName = companyDisplayName(tenant?.displayName);
+  const fallbackCompanyId = shortId(tenant?.establishmentId);
+  const companyLabel = activeCompanyName ?? fallbackCompanyId;
   const title = hasTenant
-    ? tenant?.establishmentId
+    ? activeCompanyName ?? tenant?.establishmentId
     : loadError ?? "Empresa ativa não carregada";
 
   return (
@@ -171,9 +181,7 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
             ))}
           </select>
         ) : hasTenant ? (
-          <div className="truncate text-sm font-medium">
-            Empresa {shortId(tenant?.establishmentId)}
-          </div>
+          <div className="truncate text-sm font-medium">Empresa {companyLabel}</div>
         ) : (
           <div className="truncate text-sm font-medium">Empresa não carregada</div>
         )}

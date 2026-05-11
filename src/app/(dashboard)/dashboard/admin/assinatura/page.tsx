@@ -1,7 +1,13 @@
-import { BadgeDollarSign, CalendarDays, CheckCircle2, ShieldAlert } from "lucide-react";
+import {
+  BadgeDollarSign,
+  CalendarDays,
+  CheckCircle2,
+  ShieldAlert,
+} from "lucide-react";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
-import { getBillingPlan } from "@/lib/billing/plans";
+import { formatBillingPrice, getBillingPlan } from "@/lib/billing/plans";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
+import { getCompanyPlanUsage, type PlanUsageMetric } from "@/lib/billing/usage-limits";
 
 function getStatusLabel(status: string) {
   switch (status) {
@@ -34,6 +40,18 @@ function formatDate(value?: string | null) {
   }
 }
 
+function formatLimit(metric: PlanUsageMetric) {
+  if (metric.isUnlimited) return `${metric.used} de ilimitado`;
+  return `${metric.used} de ${metric.limit}`;
+}
+
+function getMetricHint(metric: PlanUsageMetric) {
+  if (metric.isUnlimited) return "Uso ilimitado neste plano.";
+  if (metric.isAtLimit) return "Limite atingido. Futuramente será sugerido upgrade.";
+  if (metric.isNearLimit) return "Uso próximo ao limite. Bom momento para considerar upgrade.";
+  return "Dentro do limite do plano.";
+}
+
 export default async function AssinaturaPage() {
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = ctx.establishmentId;
@@ -43,6 +61,9 @@ export default async function AssinaturaPage() {
     : null;
 
   const plan = getBillingPlan(subscription?.planSlug ?? null);
+  const usage = establishmentId
+    ? await getCompanyPlanUsage({ establishmentId, plan })
+    : null;
 
   return (
     <main className="space-y-6 p-6">
@@ -73,6 +94,10 @@ export default async function AssinaturaPage() {
             </div>
             <BadgeDollarSign className="h-5 w-5 text-gray-400" />
           </div>
+          <p className="mt-2 text-sm font-medium text-gray-900 dark:text-slate-100">
+            {formatBillingPrice(plan)}
+            {plan?.monthlyPriceInCents ? " / mês" : ""}
+          </p>
           <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
             {plan?.description ?? "A empresa ainda não possui um plano comercial vinculado."}
           </p>
@@ -117,6 +142,55 @@ export default async function AssinaturaPage() {
 
       <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+          Uso e limites do plano
+        </h2>
+        <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+          Nesta etapa os limites são apenas informativos. Nenhum cadastro será bloqueado automaticamente.
+        </p>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          {(usage?.metrics ?? []).map((metric) => (
+            <div
+              key={metric.key}
+              className="rounded-xl border border-gray-200 p-4 dark:border-slate-800"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-slate-400">
+                    {metric.label}
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-slate-100">
+                    {formatLimit(metric)}
+                  </p>
+                </div>
+                {metric.isAtLimit ? (
+                  <ShieldAlert className="h-5 w-5 text-red-500" />
+                ) : metric.isNearLimit ? (
+                  <ShieldAlert className="h-5 w-5 text-amber-500" />
+                ) : (
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                )}
+              </div>
+
+              {metric.percentage !== null ? (
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-800">
+                  <div
+                    className="h-full rounded-full bg-blue-600"
+                    style={{ width: `${metric.percentage}%` }}
+                  />
+                </div>
+              ) : null}
+
+              <p className="mt-3 text-xs text-gray-500 dark:text-slate-400">
+                {getMetricHint(metric)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
           Preparação para cobrança mensal
         </h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -126,6 +200,7 @@ export default async function AssinaturaPage() {
               <li>Empresa ativa por tenant</li>
               <li>Status de assinatura por empresa</li>
               <li>Planos Starter, Growth e Enterprise</li>
+              <li>Uso atual comparado aos limites do plano</li>
               <li>Base para auditoria global por empresa</li>
             </ul>
           </div>
@@ -135,8 +210,8 @@ export default async function AssinaturaPage() {
             <ul className="mt-2 space-y-1 text-sm text-gray-600 dark:text-slate-400">
               <li>Integrar checkout/portal de pagamento</li>
               <li>Criar webhooks de assinatura</li>
-              <li>Definir limites por plano</li>
-              <li>Bloquear acesso apenas após validação em produção</li>
+              <li>Exibir avisos ao atingir 80% e 90% do limite</li>
+              <li>Bloquear novos cadastros apenas após validação em produção</li>
             </ul>
           </div>
         </div>

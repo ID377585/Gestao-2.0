@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getActiveMembership } from "@/lib/auth/get-membership";
+import { listCurrentUserTenants } from "@/lib/tenant/get-current-tenant";
+import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
 
 export const dynamic = "force-dynamic";
 
@@ -38,21 +41,21 @@ export async function GET() {
       );
     }
 
-    const [{ data: profile }, { data: membership }] = await Promise.all([
+    const [{ data: profile }, activeMembershipResult, tenants] = await Promise.all([
       supabase
         .from("profiles")
         .select("id, full_name, role, sector")
         .eq("id", user.id)
         .maybeSingle(),
-      supabase
-        .from("establishment_memberships")
-        .select("establishment_id, role, is_active, created_at")
-        .eq("user_id", user.id)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+      getActiveMembership(),
+      listCurrentUserTenants(),
     ]);
+
+    const membership = activeMembershipResult.membership;
+    const establishmentId = membership?.establishment_id ?? null;
+    const subscription = establishmentId
+      ? await getCompanySubscriptionStatus(establishmentId)
+      : null;
 
     const payload = {
       id: user.id,
@@ -62,16 +65,18 @@ export async function GET() {
         metadataName: (user.user_metadata as any)?.full_name ?? null,
         email: user.email ?? null,
       }),
-      role:
-        String((membership as any)?.role ?? (profile as any)?.role ?? "user"),
+      role: String((membership as any)?.role ?? (profile as any)?.role ?? "user"),
       sector: ((profile as any)?.sector as string | null) ?? null,
       avatar:
         ((user.user_metadata as any)?.avatar_url as string | null) ??
         ((user.user_metadata as any)?.picture as string | null) ??
         null,
-      establishmentId:
-        ((membership as any)?.establishment_id as string | null) ?? null,
+      establishmentId,
+      orgId: (membership as any)?.org_id ?? null,
+      unitId: (membership as any)?.unit_id ?? null,
       isActive: Boolean((membership as any)?.is_active ?? true),
+      tenants,
+      subscription,
       lastSignInAt: user.last_sign_in_at ?? null,
     };
 

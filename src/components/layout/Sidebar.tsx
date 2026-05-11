@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { GestifyMark } from "@/components/brand/GestifyMark";
+import { TenantSummary } from "@/components/tenant/TenantSummary";
 import {
   menuSections,
   type MenuSectionConfig,
@@ -321,79 +322,85 @@ export function Sidebar({ className }: SidebarProps) {
   }
 
   function SidebarContent({ variant }: { variant: "desktop" | "mobile" }) {
-  const isDesktop = variant === "desktop";
+    const isDesktop = variant === "desktop";
 
-  return (
-    <div
-      className={cn(
-        "flex h-full flex-col bg-white text-gray-900 dark:bg-slate-950 dark:text-slate-100",
-        isDesktop
-          ? "min-h-screen w-[var(--sidebar-w)] border-r border-gray-200 transition-[width] duration-200 ease-out dark:border-slate-800"
-          : "h-[100dvh] w-full"
-      )}
-    >
+    return (
       <div
         className={cn(
-          "flex h-16 shrink-0 items-center border-b border-gray-200 px-4 dark:border-slate-800",
+          "flex h-full flex-col bg-white text-gray-900 dark:bg-slate-950 dark:text-slate-100",
           isDesktop
-            ? desktopHovered
-              ? "justify-start"
-              : "justify-center"
-            : "justify-start"
+            ? "min-h-screen w-[var(--sidebar-w)] border-r border-gray-200 transition-[width] duration-200 ease-out dark:border-slate-800"
+            : "h-[100dvh] w-full"
         )}
       >
         <div
           className={cn(
-            "flex min-w-0 items-center transition-all duration-200",
-            isDesktop && !desktopHovered ? "justify-center" : ""
+            "flex h-16 shrink-0 items-center border-b border-gray-200 px-4 dark:border-slate-800",
+            isDesktop
+              ? desktopHovered
+                ? "justify-start"
+                : "justify-center"
+              : "justify-start"
           )}
         >
-          <GestifyMark size={40} compact={isDesktop && !desktopHovered} />
+          <div
+            className={cn(
+              "flex min-w-0 items-center transition-all duration-200",
+              isDesktop && !desktopHovered ? "justify-center" : ""
+            )}
+          >
+            <GestifyMark size={40} compact={isDesktop && !desktopHovered} />
+          </div>
         </div>
+
+        {!isDesktop && (
+          <div className="border-b border-gray-200 px-4 py-3 dark:border-slate-800">
+            <TenantSummary compact />
+          </div>
+        )}
+
+        <nav className="flex-1 overflow-y-auto overscroll-contain px-3 py-4 [webkit-overflow-scrolling:touch]">
+          <div className="space-y-3">
+            {menuSections.map((section, index) => {
+              const isMobileExpanded = mobileExpandedSection === section.key;
+
+              return (
+                <div
+                  key={section.key}
+                  ref={(element) => {
+                    sectionRefs.current[section.key] = element;
+                  }}
+                  className="space-y-2"
+                  onMouseEnter={() => {
+                    if (isDesktop) handleSectionEnter(section.key);
+                  }}
+                  onFocusCapture={() => {
+                    if (isDesktop) handleSectionEnter(section.key);
+                  }}
+                >
+                  {renderSectionButton(section, variant)}
+
+                  {!isDesktop && isMobileExpanded && (
+                    <div className="space-y-2 pl-3">
+                      {section.items.map((item, itemIndex) =>
+                        renderSubItem(item, "mobile", itemIndex)
+                      )}
+                    </div>
+                  )}
+
+                  {index < menuSections.length - 1 && (
+                    <div className="pt-2">
+                      <Separator className="bg-gray-200 dark:bg-slate-800" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </nav>
       </div>
-
-      <nav className="flex-1 overflow-y-auto overscroll-contain px-3 py-4 [webkit-overflow-scrolling:touch]">
-        <div className="space-y-3">
-          {menuSections.map((section, index) => {
-            const isMobileExpanded = mobileExpandedSection === section.key;
-
-            return (
-              <div
-                key={section.key}
-                ref={(element) => {
-                  sectionRefs.current[section.key] = element;
-                }}
-                className="space-y-2"
-                onMouseEnter={() => {
-                  if (isDesktop) handleSectionEnter(section.key);
-                }}
-                onFocusCapture={() => {
-                  if (isDesktop) handleSectionEnter(section.key);
-                }}
-              >
-                {renderSectionButton(section, variant)}
-
-                {!isDesktop && isMobileExpanded && (
-                  <div className="space-y-2 pl-3">
-                    {section.items.map((item, itemIndex) =>
-                      renderSubItem(item, "mobile", itemIndex)
-                    )}
-                  </div>
-                )}
-
-                {index < menuSections.length - 1 && (
-                  <div className="pt-2">
-                    <Separator className="bg-gray-200 dark:bg-slate-800" />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </nav>
-    </div>
-  );
-}
+    );
+  }
 
   return (
     <>

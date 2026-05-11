@@ -26,10 +26,14 @@ function normalizeDisplayName(value: unknown) {
   return name || null;
 }
 
-function mapMembership(row: any): TenantMembership {
-  const fiscalProfile = Array.isArray(row.fiscal_company_profiles)
-    ? row.fiscal_company_profiles[0]
-    : row.fiscal_company_profiles;
+function mapMembership(
+  row: any,
+  fiscalProfilesByEstablishmentId: Map<string, any> = new Map()
+): TenantMembership {
+  const establishmentId = row.establishment_id ? String(row.establishment_id) : null;
+  const fiscalProfile = establishmentId
+    ? fiscalProfilesByEstablishmentId.get(establishmentId)
+    : null;
 
   const displayName =
     normalizeDisplayName(fiscalProfile?.nome_fantasia) ??
@@ -41,24 +45,49 @@ function mapMembership(row: any): TenantMembership {
     role: normalizeRole(row.role),
     org_id: row.org_id ? String(row.org_id) : null,
     unit_id: row.unit_id ? String(row.unit_id) : null,
-    establishment_id: row.establishment_id ? String(row.establishment_id) : null,
+    establishment_id: establishmentId,
     display_name: displayName,
     is_active: Boolean(row.is_active),
     created_at: String(row.created_at),
   };
 }
 
-const MEMBERSHIP_SELECT = `
-  id,
-  user_id,
-  role,
-  org_id,
-  unit_id,
-  establishment_id,
-  is_active,
-  created_at,
-  fiscal_company_profiles:establishment_id(nome_fantasia,razao_social)
-`;
+const MEMBERSHIP_SELECT =
+  "id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at";
+
+async function getFiscalProfilesByEstablishmentId(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  establishmentIds: string[]
+) {
+  const uniqueIds = Array.from(new Set(establishmentIds.filter(Boolean)));
+  const profilesByEstablishmentId = new Map<string, any>();
+
+  if (uniqueIds.length === 0) {
+    return profilesByEstablishmentId;
+  }
+
+  const { data, error } = await supabase
+    .from("fiscal_company_profiles")
+    .select("establishment_id,nome_fantasia,razao_social")
+    .in("establishment_id", uniqueIds);
+
+  if (error) {
+    console.error("[getFiscalProfilesByEstablishmentId] fiscal profiles error:", {
+      message: error.message,
+      code: error.code,
+      establishment_ids: uniqueIds,
+    });
+    return profilesByEstablishmentId;
+  }
+
+  for (const profile of data ?? []) {
+    if (profile?.establishment_id) {
+      profilesByEstablishmentId.set(String(profile.establishment_id), profile);
+    }
+  }
+
+  return profilesByEstablishmentId;
+}
 
 export async function listCurrentUserTenants(): Promise<TenantMembership[]> {
   const supabase = await createSupabaseServerClient();
@@ -88,7 +117,15 @@ export async function listCurrentUserTenants(): Promise<TenantMembership[]> {
     return [];
   }
 
-  return (data ?? []).map(mapMembership).filter((membership) => Boolean(membership.establishment_id));
+  const memberships = (data ?? []).filter((membership) => Boolean(membership.establishment_id));
+  const fiscalProfilesByEstablishmentId = await getFiscalProfilesByEstablishmentId(
+    supabase,
+    memberships.map((membership) => String(membership.establishment_id))
+  );
+
+  return memberships.map((membership) =>
+    mapMembership(membership, fiscalProfilesByEstablishmentId)
+  );
 }
 
 export async function getCurrentTenant(): Promise<TenantContext | null> {
@@ -130,11 +167,15 @@ export async function getCurrentTenant(): Promise<TenantContext | null> {
     return null;
   }
 
-  if (!data) {
+  if (!data?.establishment_id) {
     return null;
   }
 
-  const membership = mapMembership(data);
+  const fiscalProfilesByEstablishmentId = await getFiscalProfilesByEstablishmentId(
+    supabase,
+    [String(data.establishment_id)]
+  );
+  const membership = mapMembership(data, fiscalProfilesByEstablishmentId);
 
   if (!membership.establishment_id) {
     return null;

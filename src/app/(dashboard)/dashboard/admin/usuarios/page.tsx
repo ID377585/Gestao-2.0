@@ -3,7 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import {
+  getLimitWarning,
+  getLimitWarningClassName,
+} from "@/lib/billing/limit-warnings";
+import { getBillingPlan } from "@/lib/billing/plans";
+import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
+import { getCompanyPlanUsage } from "@/lib/billing/usage-limits";
 
 import {
   createCollaborator,
@@ -49,6 +56,11 @@ function formatDate(value?: string | null) {
 function getQueryValue(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value[0] ?? "";
   return value ?? "";
+}
+
+function formatLimit(used: number, limit: number | null) {
+  if (limit === null) return `${used} de ilimitado`;
+  return `${used} de ${limit}`;
 }
 
 function AuditLogCard({ log }: { log: UserAccessAuditLog }) {
@@ -116,29 +128,21 @@ export default async function UsuariosPage({
     sector?: string | string[];
   };
 }) {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  let establishmentId = "";
-
-  if (user?.id) {
-    const { data: membership } = await supabase
-      .from("establishment_memberships")
-      .select("establishment_id")
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    establishmentId = String(membership?.establishment_id ?? "");
-  }
+  const membershipContext = await getActiveMembershipOrRedirect();
+  const establishmentId = String(membershipContext.establishmentId ?? "");
 
   const collaborators = await listCollaborators();
   const auditLogs = await listUserAccessAuditLogs(30);
+
+  const subscription = establishmentId
+    ? await getCompanySubscriptionStatus(establishmentId)
+    : null;
+  const plan = getBillingPlan(subscription?.planSlug ?? null);
+  const usage = establishmentId
+    ? await getCompanyPlanUsage({ establishmentId, plan })
+    : null;
+  const usersMetric = usage?.metrics.find((metric) => metric.key === "users") ?? null;
+  const usersWarning = usersMetric ? getLimitWarning(usersMetric) : null;
 
   const q = getQueryValue(searchParams?.q).trim().toLowerCase();
   const roleFilter = getQueryValue(searchParams?.role).trim();
@@ -261,6 +265,22 @@ export default async function UsuariosPage({
           </CardHeader>
 
           <CardContent>
+            {usersMetric && usersWarning ? (
+              <div
+                className={`mb-4 rounded-lg border px-3 py-2 text-xs ${getLimitWarningClassName(
+                  usersWarning.severity
+                )}`}
+              >
+                <p className="font-semibold">
+                  {usersWarning.title} · {formatLimit(usersMetric.used, usersMetric.limit)} usuários
+                </p>
+                <p className="mt-1 opacity-90">{usersWarning.message}</p>
+                <p className="mt-1 text-[11px] opacity-80">
+                  Aviso informativo: o cadastro ainda não será bloqueado automaticamente.
+                </p>
+              </div>
+            ) : null}
+
             <form action={handleCreate} className="space-y-4">
               <div className="space-y-1">
                 <Label htmlFor="full_name">Nome completo</Label>

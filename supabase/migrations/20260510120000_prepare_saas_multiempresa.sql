@@ -6,7 +6,7 @@ create table if not exists public.subscription_plans (
   slug text not null unique,
   name text not null,
   description text,
-  monthly_price_in_cents integer not null default 0,
+  monthly_price_in_cents integer,
   limits jsonb not null default '{}'::jsonb,
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
@@ -59,22 +59,22 @@ values
   (
     'starter',
     'Starter',
-    'Plano inicial para pequenas operacoes.',
-    9900,
+    'Plano para pequena operacao, cozinha, confeitaria ou restaurante pequeno.',
+    3990,
     '{"users":5,"establishments":1,"products":500}'::jsonb
   ),
   (
     'growth',
     'Growth',
-    'Plano para operacoes em crescimento.',
-    19900,
+    'Plano para operacao maior, empresa com mais setores ou pequena rede.',
+    9990,
     '{"users":20,"establishments":3,"products":5000}'::jsonb
   ),
   (
     'enterprise',
     'Enterprise',
-    'Plano personalizado para redes e operacoes maiores.',
-    0,
+    'Plano personalizado para redes, operacao premium ou implantacao sob medida.',
+    null,
     '{"users":null,"establishments":null,"products":null}'::jsonb
   )
 on conflict (slug) do update set

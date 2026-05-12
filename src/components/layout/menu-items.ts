@@ -139,6 +139,11 @@ export const menuSections: MenuSectionConfig[] = [
         icon: FileText,
       },
       {
+        label: "Lista Rápida",
+        href: "/dashboard/lista-rapida",
+        icon: ClipboardList,
+      },
+      {
         label: "Etiquetas",
         href: "/dashboard/etiquetas",
         icon: Tag,

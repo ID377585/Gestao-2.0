@@ -21,12 +21,10 @@ type ParsedIngredientRow = {
   ingredientName: string;
   values: number[];
   unit: string;
-  sourceLine: string;
 };
 
 type ParsedTable = {
   scaleLabels: string[];
-  scaleFactors: number[];
   yieldDescriptions: string[];
   ingredientRows: ParsedIngredientRow[];
   netWeights: number[];
@@ -223,7 +221,7 @@ function parseScaleTable(pageText: string): ParsedTable | null {
     if (valuesOnly && nameBuffer.length) {
       const ingredientName = nameBuffer.join(" ").replace(/\s+/g, " ").trim();
       nameBuffer.length = 0;
-      ingredientRows.push({ ingredientName, values: valuesOnly, unit: inferUnit(ingredientName), sourceLine: line });
+      ingredientRows.push({ ingredientName, values: valuesOnly, unit: inferUnit(ingredientName) });
       continue;
     }
 
@@ -239,7 +237,6 @@ function parseScaleTable(pageText: string): ParsedTable | null {
         ingredientName,
         values: inlineRow.values,
         unit: inferUnit(ingredientName),
-        sourceLine: line,
       });
       continue;
     }
@@ -274,7 +271,6 @@ function parseScaleTable(pageText: string): ParsedTable | null {
 
   return {
     scaleLabels,
-    scaleFactors,
     yieldDescriptions: extractYieldDescriptions(yieldArea.join(" "), scaleLabels.length),
     ingredientRows,
     netWeights,
@@ -284,8 +280,7 @@ function parseScaleTable(pageText: string): ParsedTable | null {
 
 function extractTitle(pageText: string) {
   const lines = cleanLines(pageText);
-  const ingredientIndex = lines.findIndex((line) => /^Ingredientes\s*:?
-?$/i.test(line));
+  const ingredientIndex = lines.findIndex((line) => /^Ingredientes\s*:?$/i.test(line));
 
   const blocked = /^(1X|\d+X|PESO|MODO|TEMPO|TE M PO|GRAU|CONFEITEIRO|ATUALIZADA|INGREDIENTES|CONT[ÉE]M|ALERG[ÊE]NICOS|ARMAZENAMENTO)/i;
 
@@ -406,10 +401,10 @@ function buildRecipeFromPage(
     product_id: null,
     ingredient_name: row.ingredientName,
     usage_quantity: row.values[0] ?? 0,
-    usage_unit: row.unit,
+    usage_unit: normalizeUnit(row.unit, "G"),
     purchase_price: 0,
     purchase_quantity: 1,
-    purchase_unit: row.unit,
+    purchase_unit: normalizeUnit(row.unit, "G"),
     correction_factor: 1,
     cooking_factor: 1,
     base_unit_cost: 0,
@@ -425,7 +420,7 @@ function buildRecipeFromPage(
     ingredients: table.ingredientRows.map((row, ingredientIndex) => ({
       ingredient_name: row.ingredientName,
       amount: row.values[scaleIndex] ?? 0,
-      unit: row.unit,
+      unit: normalizeUnit(row.unit, "G"),
       sort_order: ingredientIndex,
     })),
   }));

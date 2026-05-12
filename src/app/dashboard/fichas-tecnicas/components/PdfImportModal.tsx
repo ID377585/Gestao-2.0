@@ -5,8 +5,13 @@ import {
   createTechnicalSheetsFromPreviewAction,
   previewTechnicalSheetsFromPdfAction,
 } from "@/app/(dashboard)/dashboard/fichas-tecnicas/pdf-import-actions";
+import {
+  type ProductOption,
+  normalizeUnit,
+} from "@/app/dashboard/fichas-tecnicas/lib/ingredient-product-matcher";
 
 const MAX_FILE_SIZE = 40 * 1024 * 1024; // 40 MB
+const SCALE_COUNT = 10;
 
 type Props = {
   open: boolean;
@@ -77,8 +82,30 @@ type PreviewPage = {
 };
 
 function asNumber(value: unknown, fallback = 0) {
-  const numberValue = Number(value);
+  const numberValue = Number(String(value ?? "").replace(",", "."));
   return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function toDecimalInput(value: unknown) {
+  if (value === null || value === undefined || value === "") return "";
+  return String(value).replace(".", ",");
+}
+
+function normalizeProductList(raw: unknown): ProductOption[] {
+  const list = Array.isArray(raw) ? raw : Array.isArray((raw as any)?.products) ? (raw as any).products : [];
+
+  return list
+    .map((product: any) => ({
+      ...product,
+      id: String(product?.id ?? ""),
+      name: String(product?.name ?? product?.product_name ?? ""),
+      default_unit_label: product?.default_unit_label ?? product?.unit_label ?? product?.unit ?? null,
+      category: product?.category ? String(product.category) : null,
+      sector_category: product?.sector_category ? String(product.sector_category) : null,
+      price: Number(product?.price ?? product?.standard_cost ?? 0),
+      standard_cost: Number(product?.standard_cost ?? product?.price ?? 0),
+    }))
+    .filter((product) => product.id && product.name);
 }
 
 function blankIngredient(index = 0): PreviewIngredient {
@@ -108,8 +135,46 @@ function blankScale(index = 0): PreviewScale {
   };
 }
 
+function buildTenScales(recipe: PreviewRecipe, ingredients: PreviewIngredient[]): PreviewScale[] {
+  const existingScales = recipe.scales ?? [];
+  const baseScale =
+    existingScales.find((scale) => String(scale.scale_label || "").trim().toUpperCase() === "1X") ??
+    existingScales[0] ??
+    blankScale(0);
+  const baseScaleIngredients = baseScale.ingredients ?? [];
+  const baseNetWeight =
+    baseScale.net_weight === null || baseScale.net_weight === undefined || baseScale.net_weight === ""
+      ? null
+      : asNumber(baseScale.net_weight, 0);
+
+  return Array.from({ length: SCALE_COUNT }, (_, index) => {
+    const factor = index + 1;
+    const existingScale = existingScales[index];
+
+    return {
+      scale_label: `${factor}X`,
+      yield_description: existingScale?.yield_description ?? (factor === 1 ? baseScale.yield_description ?? null : null),
+      net_weight: baseNetWeight === null ? null : Number((baseNetWeight * factor).toFixed(3)),
+      sort_order: index,
+      ingredients: ingredients.map((ingredient, ingredientIndex) => {
+        const baseScaleIngredient = baseScaleIngredients.find(
+          (item) => item.ingredient_name === ingredient.ingredient_name
+        );
+        const baseAmount = asNumber(baseScaleIngredient?.amount ?? ingredient.usage_quantity, 0);
+
+        return {
+          ingredient_name: ingredient.ingredient_name,
+          amount: Number((baseAmount * factor).toFixed(3)),
+          unit: baseScaleIngredient?.unit || ingredient.usage_unit || "G",
+          sort_order: ingredientIndex,
+        };
+      }),
+    };
+  });
+}
+
 function buildDraftRecipe(page: Pick<PreviewPage, "page" | "title">, category: string): PreviewRecipe {
-  return {
+  const draft: PreviewRecipe = {
     name: page.title && page.title !== "Receita importada" ? page.title : `Ficha página ${page.page}`,
     category: category || "Importado PDF",
     yield_portions: 1,
@@ -140,6 +205,8 @@ function buildDraftRecipe(page: Pick<PreviewPage, "page" | "title">, category: s
     ingredients: [blankIngredient(0)],
     scales: [blankScale(0)],
   };
+
+  return syncScaleIngredients(draft);
 }
 
 function getRecipeErrors(recipe: PreviewRecipe | null) {
@@ -166,9 +233,9 @@ function getRecipeErrors(recipe: PreviewRecipe | null) {
   });
 
   const scales = recipe.scales ?? [];
-  if (scales.length < 1) errors.push("Inclua pelo menos 1 escala.");
+  if (scales.length !== SCALE_COUNT) errors.push("As escalas precisam estar calculadas de 1X a 10X.");
   scales.forEach((scale, index) => {
-    if (!scale.scale_label?.trim()) errors.push(`Escala ${index + 1} está sem nome.`);
+    if (scale.scale_label !== `${index + 1}X`) errors.push(`Escala ${index + 1} precisa ser ${index + 1}X.`);
     if (scale.net_weight !== null && scale.net_weight !== undefined && !Number.isFinite(Number(scale.net_weight))) {
       errors.push(`Escala ${scale.scale_label || index + 1} tem peso líquido inválido.`);
     }
@@ -181,33 +248,14 @@ function syncScaleIngredients(recipe: PreviewRecipe): PreviewRecipe {
   const ingredients = (recipe.ingredients ?? []).map((ingredient, index) => ({
     ...blankIngredient(index),
     ...ingredient,
+    ingredient_name: String(ingredient.ingredient_name ?? ""),
     usage_quantity: asNumber(ingredient.usage_quantity, 0),
+    usage_unit: String(ingredient.usage_unit || "G").toUpperCase(),
+    purchase_unit: String(ingredient.purchase_unit || ingredient.usage_unit || "G").toUpperCase(),
     sort_order: index,
   }));
 
-  const scales = (recipe.scales?.length ? recipe.scales : [blankScale(0)]).map((scale, scaleIndex) => {
-    const existingScaleIngredients = scale.ingredients ?? [];
-    return {
-      ...scale,
-      scale_label: scale.scale_label || `${scaleIndex + 1}X`,
-      net_weight:
-        scale.net_weight === null || scale.net_weight === undefined || scale.net_weight === ""
-          ? null
-          : asNumber(scale.net_weight, 0),
-      sort_order: scaleIndex,
-      ingredients: ingredients.map((ingredient, ingredientIndex) => {
-        const existing = existingScaleIngredients.find(
-          (item) => item.ingredient_name === ingredient.ingredient_name
-        );
-        return {
-          ingredient_name: ingredient.ingredient_name,
-          amount: asNumber(existing?.amount ?? ingredient.usage_quantity, 0),
-          unit: existing?.unit || ingredient.usage_unit || "G",
-          sort_order: ingredientIndex,
-        };
-      }),
-    };
-  });
+  const scales = buildTenScales(recipe, ingredients);
 
   return {
     ...recipe,
@@ -236,6 +284,24 @@ function normalizePageAfterEdit(page: PreviewPage): PreviewPage {
   };
 }
 
+function productToIngredientPatch(product: ProductOption): Partial<PreviewIngredient> {
+  const unit = normalizeUnit(
+    (product as any).default_unit_label ?? (product as any).unit_label ?? (product as any).unit ?? "UN",
+    "UN"
+  );
+  const purchasePrice = Number((product as any).standard_cost ?? (product as any).price ?? 0) || 0;
+
+  return {
+    product_id: product.id,
+    ingredient_name: product.name,
+    usage_unit: unit,
+    purchase_unit: unit,
+    purchase_quantity: 1,
+    purchase_price: purchasePrice,
+    base_unit_cost: purchasePrice,
+  };
+}
+
 export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
   const [category, setCategory] = useState("Importado PDF");
   const [file, setFile] = useState<File | null>(null);
@@ -244,6 +310,22 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
   const [message, setMessage] = useState("");
   const [previewPages, setPreviewPages] = useState<PreviewPage[]>([]);
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState("");
+
+  const productsById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+
+  const categoryOptions = useMemo(() => {
+    const categories = new Set<string>(["Importado PDF"]);
+    products.forEach((product) => {
+      const categoryValue = String((product as any).category ?? "").trim();
+      const sectorValue = String((product as any).sector_category ?? "").trim();
+      if (categoryValue) categories.add(categoryValue);
+      if (sectorValue) categories.add(sectorValue);
+    });
+    return Array.from(categories).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [products]);
 
   const readyCount = useMemo(
     () => previewPages.filter((page) => page.status === "ready").length,
@@ -261,6 +343,40 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
   useEffect(() => {
     if (!open) resetState();
   }, [open]);
+
+  useEffect(() => {
+    if (!open || products.length > 0 || productsLoading) return;
+
+    let mounted = true;
+
+    async function loadProducts() {
+      try {
+        setProductsLoading(true);
+        setProductsError("");
+
+        const response = await fetch("/api/products/catalog", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Erro ao carregar catálogo de produtos (HTTP ${response.status}).`);
+        }
+
+        const data = await response.json();
+        if (!mounted) return;
+        setProducts(normalizeProductList(data));
+      } catch (error: any) {
+        if (!mounted) return;
+        setProducts([]);
+        setProductsError(error?.message || "Não foi possível carregar o catálogo de produtos.");
+      } finally {
+        if (mounted) setProductsLoading(false);
+      }
+    }
+
+    loadProducts();
+
+    return () => {
+      mounted = false;
+    };
+  }, [open, products.length, productsLoading]);
 
   if (!open) return null;
 
@@ -348,7 +464,7 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
         `Pré-visualização concluída.\n\n` +
           `Fichas prontas para criar: ${pages.filter((page) => page.status === "ready").length}\n` +
           `Páginas bloqueadas para revisão: ${pages.filter((page) => page.status === "blocked").length}\n\n` +
-          `As páginas bloqueadas agora podem ser corrigidas nesta tela. Quando os erros forem resolvidos, elas ficam prontas para seleção.`
+          `As escalas agora são recalculadas automaticamente de 1X a 10X usando a quantidade de referência 1X.`
       );
     } catch (error: any) {
       console.error("Erro na análise do PDF:", error);
@@ -388,6 +504,11 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
     });
   }
 
+  function updateIngredientProduct(pageNumber: number, index: number, productId: string) {
+    const product = productsById.get(productId);
+    updateIngredient(pageNumber, index, product ? productToIngredientPatch(product) : { product_id: null, ingredient_name: "" });
+  }
+
   function addIngredient(pageNumber: number) {
     updatePageRecipe(pageNumber, (recipe) => ({
       ...recipe,
@@ -408,20 +529,6 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
       scales[index] = { ...blankScale(index), ...scales[index], ...patch, sort_order: index };
       return { ...recipe, scales };
     });
-  }
-
-  function addScale(pageNumber: number) {
-    updatePageRecipe(pageNumber, (recipe) => ({
-      ...recipe,
-      scales: [...(recipe.scales ?? []), blankScale(recipe.scales?.length ?? 0)],
-    }));
-  }
-
-  function removeScale(pageNumber: number, index: number) {
-    updatePageRecipe(pageNumber, (recipe) => ({
-      ...recipe,
-      scales: (recipe.scales ?? []).filter((_, itemIndex) => itemIndex !== index),
-    }));
   }
 
   function togglePage(pageNumber: number) {
@@ -510,13 +617,17 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
           <div className="grid gap-4 md:grid-cols-[1fr_1.4fr]">
             <div>
               <label className="mb-1 block text-sm font-medium">Categoria padrão</label>
-              <input
+              <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 disabled={loading || step !== "upload"}
                 className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
-                placeholder="Importado PDF"
-              />
+              >
+                {categoryOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+              {productsError && <p className="mt-1 text-xs text-amber-700">{productsError}</p>}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">PDF</label>
@@ -603,12 +714,16 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
                       </div>
                       <div>
                         <label className="mb-1 block font-medium">Categoria</label>
-                        <input
+                        <select
                           value={page.recipe.category}
                           onChange={(e) => updatePreviewRecipe(page.page, { category: e.target.value })}
                           disabled={loading}
                           className="w-full rounded-lg border px-3 py-2 outline-none"
-                        />
+                        >
+                          {categoryOptions.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
                       </div>
                       <div className="md:col-span-2">
                         <label className="mb-1 block font-medium">Modo de preparo</label>
@@ -630,20 +745,24 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
                         <div className="space-y-2">
                           {(page.recipe.ingredients ?? []).map((ingredient, index) => (
                             <div key={`${page.page}-ingredient-${index}`} className="grid gap-2 md:grid-cols-[1fr_120px_90px_auto]">
-                              <input
-                                value={ingredient.ingredient_name}
-                                onChange={(e) => updateIngredient(page.page, index, { ingredient_name: e.target.value })}
-                                disabled={loading}
+                              <select
+                                value={ingredient.product_id ?? ""}
+                                onChange={(e) => updateIngredientProduct(page.page, index, e.target.value)}
+                                disabled={loading || productsLoading}
                                 className="rounded-lg border px-3 py-2 outline-none"
-                                placeholder="Ingrediente"
-                              />
+                              >
+                                <option value="">{productsLoading ? "Carregando produtos..." : "Selecionar produto"}</option>
+                                {products.map((product) => (
+                                  <option key={product.id} value={product.id}>{product.name}</option>
+                                ))}
+                              </select>
                               <input
-                                type="number"
-                                value={ingredient.usage_quantity}
+                                inputMode="decimal"
+                                value={toDecimalInput(ingredient.usage_quantity)}
                                 onChange={(e) => updateIngredient(page.page, index, { usage_quantity: asNumber(e.target.value, 0) })}
                                 disabled={loading}
                                 className="rounded-lg border px-3 py-2 outline-none"
-                                placeholder="Qtd."
+                                placeholder="Qtd. 1X"
                               />
                               <input
                                 value={ingredient.usage_unit}
@@ -663,27 +782,26 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
                       <div className="rounded-lg bg-slate-50 p-3 md:col-span-2">
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <strong>Escalas</strong>
-                          <button type="button" onClick={() => addScale(page.page)} disabled={loading} className="rounded border px-2 py-1 text-xs">
-                            + Escala
-                          </button>
+                          <span className="text-xs text-gray-500">Calculadas automaticamente com base no 1X</span>
                         </div>
                         <div className="space-y-2">
                           {(page.recipe.scales ?? []).map((scale, index) => (
-                            <div key={`${page.page}-scale-${index}`} className="grid gap-2 md:grid-cols-[140px_160px_1fr_auto]">
+                            <div key={`${page.page}-scale-${index}`} className="grid gap-2 md:grid-cols-[140px_160px_1fr]">
                               <input
                                 value={scale.scale_label}
-                                onChange={(e) => updateScale(page.page, index, { scale_label: e.target.value })}
+                                readOnly
                                 disabled={loading}
-                                className="rounded-lg border px-3 py-2 outline-none"
+                                className="rounded-lg border bg-gray-50 px-3 py-2 outline-none"
                                 placeholder="1X"
                               />
                               <input
-                                type="number"
-                                value={scale.net_weight ?? ""}
-                                onChange={(e) => updateScale(page.page, index, { net_weight: e.target.value === "" ? null : asNumber(e.target.value, 0) })}
+                                inputMode="decimal"
+                                value={toDecimalInput(scale.net_weight)}
+                                onChange={(e) => index === 0 && updateScale(page.page, index, { net_weight: e.target.value === "" ? null : asNumber(e.target.value, 0) })}
+                                readOnly={index !== 0}
                                 disabled={loading}
-                                className="rounded-lg border px-3 py-2 outline-none"
-                                placeholder="Peso líquido"
+                                className="rounded-lg border px-3 py-2 outline-none read-only:bg-gray-50"
+                                placeholder={index === 0 ? "Peso 1X" : "Peso calculado"}
                               />
                               <input
                                 value={scale.yield_description ?? ""}
@@ -692,14 +810,11 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
                                 className="rounded-lg border px-3 py-2 outline-none"
                                 placeholder="Rendimento/descrição"
                               />
-                              <button type="button" onClick={() => removeScale(page.page, index)} disabled={loading} className="rounded border px-2 py-1 text-xs">
-                                Remover
-                              </button>
                             </div>
                           ))}
                         </div>
                         <p className="mt-2 text-xs text-gray-500">
-                          Ao criar, os ingredientes das escalas são sincronizados com a lista corrigida acima.
+                          Edite somente o peso 1X e as quantidades dos ingredientes. O sistema calcula 2X até 10X automaticamente.
                         </p>
                       </div>
                     </div>
@@ -710,7 +825,7 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
           )}
 
           <div className="rounded-md bg-slate-50 p-3 text-sm text-muted-foreground">
-            Agora o fluxo permite corrigir páginas bloqueadas na própria importação. Depois que nome, preparo, ingredientes e escalas estiverem válidos, a página muda para pronta e pode ser selecionada para criação.
+            O importador agora usa produtos do catálogo para ingredientes, categorias do cadastro de produtos e escalas automáticas de 1X a 10X para evitar erros de leitura do PDF.
           </div>
 
           <div className="flex flex-wrap justify-end gap-2 pt-2">

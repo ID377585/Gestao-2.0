@@ -491,7 +491,7 @@ export default function ListaRapidaPage() {
           ) : null}
 
           <div className="space-y-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex flex-col gap-3 rounded-xl border bg-slate-50 p-4 shadow-sm sm:flex-row sm:items-end sm:justify-between dark:bg-slate-900/40">
               <div className="space-y-1">
                 <Label>Produto</Label>
                 <p className="text-sm text-muted-foreground">
@@ -499,7 +499,7 @@ export default function ListaRapidaPage() {
                   Exemplo: digite 1 para 1X, 2 para 2X, 10 para 10X ou 33,5 para 33,5X.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-3 sm:justify-end">
                 {removedFichaIds.length > 0 ? (
                   <Button
                     type="button"
@@ -515,6 +515,7 @@ export default function ListaRapidaPage() {
                   variant="outline"
                   disabled={loading || selectedFichas.length === 0}
                   onClick={clearScales}
+                  className="h-12 min-w-[170px] border-amber-300 bg-amber-50 px-5 font-semibold text-amber-800 shadow-sm transition-all hover:border-amber-400 hover:bg-amber-100 hover:text-amber-900 disabled:opacity-50"
                 >
                   Limpar escalas
                 </Button>
@@ -522,6 +523,7 @@ export default function ListaRapidaPage() {
                   type="button"
                   disabled={!canCalculate || loading}
                   onClick={() => setHasCalculated(true)}
+                  className="h-12 min-w-[230px] bg-blue-600 px-6 text-base font-semibold text-white shadow-lg shadow-blue-600/25 transition-all hover:bg-blue-700 hover:shadow-blue-700/30 disabled:opacity-50"
                 >
                   Calcular Lista de Compra
                 </Button>

@@ -17,6 +17,29 @@ type ImportTechnicalSheetsFromPdfResult =
     }
   | { ok: false; error: string };
 
+type PreviewTechnicalSheetsFromPdfResult =
+  | {
+      ok: true;
+      pages: Array<{
+        page: number;
+        title: string;
+        status: "ready" | "blocked";
+        reason: string | null;
+        warnings: string[];
+        recipe: TechnicalSheetInput | null;
+      }>;
+    }
+  | { ok: false; error: string };
+
+type CreateTechnicalSheetsFromPreviewResult =
+  | {
+      ok: true;
+      importedCount: number;
+      recipes: Array<{ id: string; name: string; page: number | null }>;
+      ignoredPages: Array<{ page: number | null; title: string; reason: string }>;
+    }
+  | { ok: false; error: string };
+
 type ParsedIngredientRow = {
   ingredientName: string;
   values: number[];
@@ -277,13 +300,8 @@ function parseScaleTable(pageText: string): ParsedTable | null {
     }
   }
 
-  if (ingredientRows.length === 0) {
-    errors.push("Nenhum ingrediente foi lido com segurança na tabela.");
-  }
-
-  if (nameBuffer.length > 0) {
-    errors.push(`Ingrediente sem linha de quantidades: ${nameBuffer.join(" ")}.`);
-  }
+  if (ingredientRows.length === 0) errors.push("Nenhum ingrediente foi lido com segurança na tabela.");
+  if (nameBuffer.length > 0) errors.push(`Ingrediente sem linha de quantidades: ${nameBuffer.join(" ")}.`);
 
   for (const row of ingredientRows) {
     if (row.values.length !== scaleLabels.length) {
@@ -313,22 +331,13 @@ function parseScaleTable(pageText: string): ParsedTable | null {
     warnings.push("Descrições de rendimento não cobrem todas as escalas.");
   }
 
-  return {
-    scaleLabels,
-    yieldDescriptions,
-    ingredientRows,
-    netWeights,
-    errors,
-    warnings,
-  };
+  return { scaleLabels, yieldDescriptions, ingredientRows, netWeights, errors, warnings };
 }
 
 function extractTitle(pageText: string) {
   const lines = cleanLines(pageText);
   const ingredientIndex = lines.findIndex((line) => /^Ingredientes\s*:?$/i.test(line));
-
   const blocked = /^(1X|\d+X|PESO|MODO|TEMPO|TE M PO|GRAU|CONFEITEIRO|ATUALIZADA|INGREDIENTES|CONT[ÉE]M|ALERG[ÊE]NICOS|ARMAZENAMENTO|ASSISTA|FICOU)/i;
-
   const candidates = [
     ...lines.slice(0, 14),
     ...(ingredientIndex > 0 ? lines.slice(Math.max(0, ingredientIndex - 5), ingredientIndex).reverse() : []),
@@ -347,7 +356,6 @@ function extractTitle(pageText: string) {
       return cleaned;
     }
   }
-
   return "Receita importada";
 }
 
@@ -355,7 +363,6 @@ function extractBetween(text: string, start: RegExp, end: RegExp) {
   const normalized = normalizeText(text);
   const startMatch = normalized.match(start);
   if (!startMatch || startMatch.index === undefined) return "";
-
   const afterStart = normalized.slice(startMatch.index + startMatch[0].length);
   const endMatch = afterStart.match(end);
   return (endMatch?.index !== undefined ? afterStart.slice(0, endMatch.index) : afterStart).trim();
@@ -373,7 +380,6 @@ function extractFirstNumberNear(pageText: string, label: RegExp) {
   const normalized = normalizeText(pageText);
   const labelMatch = normalized.match(label);
   if (!labelMatch || labelMatch.index === undefined) return null;
-
   const after = normalized.slice(labelMatch.index + labelMatch[0].length, labelMatch.index + labelMatch[0].length + 120);
   const match = after.match(/-?\d+(?:[.,]\d+)?/);
   return match ? toNumber(match[0], 0) : null;
@@ -387,7 +393,6 @@ function extractTemperature(pageText: string) {
 function extractPortionWeight(pageText: string) {
   const matches = [...pageText.matchAll(/(\d+(?:[.,]\d+)?)\s*(GRAMAS|G|KG|KILO|KILOS)\b/gi)];
   if (!matches.length) return 0;
-
   const last = matches[matches.length - 1];
   const value = toNumber(last[1], 0);
   const unit = String(last[2] ?? "").toUpperCase();
@@ -413,10 +418,8 @@ function extractStorage(pageText: string) {
 function extractAllergens(pageText: string) {
   const normalized = normalizeText(pageText);
   if (/N[ÃA]O\s+CONT[ÉE]M/i.test(normalized)) return "NÃO CONTÉM";
-
   const match = normalized.match(/Cont[eé]m\s*:\s*([\s\S]*?)(?:Atualizada em:|$)/i);
   if (!match?.[1]) return null;
-
   const cleaned = match[1]
     .split("\n")
     .map((line) => line.trim())
@@ -424,22 +427,18 @@ function extractAllergens(pageText: string) {
     .join(", ")
     .replace(/\s+,/g, ",")
     .trim();
-
   return cleaned || null;
 }
 
 function validateRecipePayload(recipe: TechnicalSheetInput, table: ParsedTable) {
   const errors: string[] = [];
-
   if (!recipe.name || recipe.name === "Receita importada") errors.push("Título da ficha não foi identificado com segurança.");
   if (recipe.ingredients.length < 2) errors.push("Menos de 2 ingredientes foram identificados com segurança.");
   if (!recipe.scales?.length) errors.push("Nenhuma escala foi montada com segurança.");
-
   const baseIngredientNames = recipe.ingredients.map((ingredient) => ingredient.ingredient_name.trim()).filter(Boolean);
   if (baseIngredientNames.length !== new Set(baseIngredientNames.map((name) => stripAccents(name).toUpperCase())).size) {
     errors.push("Ingredientes duplicados foram detectados na tabela extraída.");
   }
-
   if (table.scaleLabels.length > 1) {
     for (const row of table.ingredientRows) {
       if (row.values.some((value) => !Number.isFinite(value) || value < 0)) {
@@ -447,33 +446,19 @@ function validateRecipePayload(recipe: TechnicalSheetInput, table: ParsedTable) 
       }
     }
   }
-
   return errors;
 }
 
-function buildRecipeFromPage(
-  pageText: string,
-  pageNumber: number,
-  fileName: string,
-  defaultCategory: string
-): { recipe: TechnicalSheetInput | null; title: string; errors: string[]; warnings: string[] } {
+function buildRecipeFromPage(pageText: string, pageNumber: number, fileName: string, defaultCategory: string): { recipe: TechnicalSheetInput | null; title: string; errors: string[]; warnings: string[] } {
   const title = extractTitle(pageText);
   const table = parseScaleTable(pageText);
   const errors: string[] = [];
   const warnings: string[] = [];
-
-  if (!table) {
-    return { recipe: null, title, errors: ["Tabela de escalas não encontrada ou ilegível."], warnings };
-  }
-
+  if (!table) return { recipe: null, title, errors: ["Tabela de escalas não encontrada ou ilegível."], warnings };
   errors.push(...table.errors);
   warnings.push(...table.warnings);
-
   const preparationMethod = extractPreparationMethod(pageText);
-  if (!preparationMethod || preparationMethod.length < 20) {
-    errors.push("Modo de preparo ausente ou curto demais.");
-  }
-
+  if (!preparationMethod || preparationMethod.length < 20) errors.push("Modo de preparo ausente ou curto demais.");
   const ingredients: TechnicalSheetIngredientInput[] = table.ingredientRows.map((row, index) => ({
     product_id: null,
     ingredient_name: row.ingredientName,
@@ -488,7 +473,6 @@ function buildRecipeFromPage(
     final_cost: 0,
     sort_order: index,
   }));
-
   const scales: TechnicalSheetScaleInput[] = table.scaleLabels.map((scaleLabel, scaleIndex) => ({
     scale_label: scaleLabel,
     yield_description: table.yieldDescriptions[scaleIndex] ?? table.yieldDescriptions[0] ?? null,
@@ -501,9 +485,7 @@ function buildRecipeFromPage(
       sort_order: ingredientIndex,
     })),
   }));
-
   const fallbackYield = table.yieldDescriptions[0]?.match(/\d+(?:[.,]\d+)?/)?.[0];
-
   const recipe: TechnicalSheetInput = {
     name: title,
     category: defaultCategory || "Importado PDF",
@@ -535,62 +517,46 @@ function buildRecipeFromPage(
     ingredients,
     scales,
   };
-
   errors.push(...validateRecipePayload(recipe, table));
-
-  if (errors.length > 0) {
-    return { recipe: null, title, errors, warnings };
-  }
-
+  if (errors.length > 0) return { recipe: null, title, errors, warnings };
   return { title, errors, warnings, recipe };
 }
 
 async function loadPdfParse() {
   const pdfParseModule = await import("pdf-parse/lib/pdf-parse.js");
   const pdfParse = (pdfParseModule as any).default ?? pdfParseModule;
-
-  if (typeof pdfParse !== "function") {
-    throw new Error('A versão instalada de "pdf-parse" não é compatível. Rode: npm install pdf-parse@1.1.1');
-  }
-
+  if (typeof pdfParse !== "function") throw new Error('A versão instalada de "pdf-parse" não é compatível. Rode: npm install pdf-parse@1.1.1');
   return pdfParse;
 }
 
 function buildLinesFromTextItems(items: TextItem[]) {
   const rows = new Map<number, TextItem[]>();
-
   for (const item of items) {
     const value = typeof item?.str === "string" ? item.str : "";
     if (!value.trim()) continue;
-
     const y = typeof item?.transform?.[5] === "number" ? Math.round(item.transform[5]) : 0;
     const bucket = Array.from(rows.keys()).find((existing) => Math.abs(existing - y) <= 2) ?? y;
     const row = rows.get(bucket) ?? [];
     row.push(item);
     rows.set(bucket, row);
   }
-
   return Array.from(rows.entries())
     .sort(([a], [b]) => b - a)
     .map(([, rowItems]) => {
       const sorted = rowItems.sort((a, b) => (a.transform?.[4] ?? 0) - (b.transform?.[4] ?? 0));
       let line = "";
       let previousEnd: number | null = null;
-
       for (const item of sorted) {
         const value = String(item.str ?? "");
         const x = item.transform?.[4] ?? 0;
         const width = item.width ?? value.length * 4;
-
         if (previousEnd !== null) {
           const gap = x - previousEnd;
           if (gap > 2) line += gap > 10 ? "  " : " ";
         }
-
         line += value;
         previousEnd = x + width;
       }
-
       return line.trim();
     })
     .filter(Boolean)
@@ -598,11 +564,7 @@ function buildLinesFromTextItems(items: TextItem[]) {
 }
 
 async function renderPdfPageText(pageData: any) {
-  const textContent = await pageData.getTextContent({
-    normalizeWhitespace: false,
-    disableCombineTextItems: false,
-  });
-
+  const textContent = await pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false });
   const pageText = buildLinesFromTextItems((textContent.items ?? []) as TextItem[]);
   return pageText || String((textContent.items ?? []).map((item: TextItem) => item.str ?? "").join("\n"));
 }
@@ -610,19 +572,15 @@ async function renderPdfPageText(pageData: any) {
 function splitFallbackPages(rawText: string) {
   const normalized = normalizeText(rawText);
   const matches = [...normalized.matchAll(/Atualizada em:\s*\d{2}\/\d{2}\/\d{4}/gi)];
-
   if (matches.length <= 1) return [normalized];
-
   const pages: string[] = [];
   let start = 0;
-
   for (let index = 0; index < matches.length; index++) {
     const next = index + 1 < matches.length ? matches[index + 1].index ?? normalized.length : normalized.length;
     const chunk = normalized.slice(start, next).trim();
     if (chunk) pages.push(chunk);
     start = next;
   }
-
   return pages;
 }
 
@@ -630,7 +588,6 @@ async function extractPdfPages(file: File) {
   const buffer = Buffer.from(await file.arrayBuffer());
   const pdfParse = await loadPdfParse();
   const pages: string[] = [];
-
   const parsed = await pdfParse(buffer, {
     pagerender: async (pageData: any) => {
       const pageText = await renderPdfPageText(pageData);
@@ -639,60 +596,92 @@ async function extractPdfPages(file: File) {
       return pageText;
     },
   });
-
   if (pages.length > 0) return pages;
-
   const rawText = String(parsed?.text ?? "");
-  if (!rawText.trim()) {
-    throw new Error("Não foi possível extrair texto do PDF.");
-  }
-
+  if (!rawText.trim()) throw new Error("Não foi possível extrair texto do PDF.");
   return splitFallbackPages(rawText);
 }
 
-export async function importTechnicalSheetsFromPdfAction(
-  formData: FormData
-): Promise<ImportTechnicalSheetsFromPdfResult> {
+function validateEditableRecipe(recipe: TechnicalSheetInput) {
+  const errors: string[] = [];
+  if (!recipe.name?.trim()) errors.push("Nome da ficha é obrigatório.");
+  if (!recipe.preparation_method?.trim() || recipe.preparation_method.trim().length < 20) errors.push("Modo de preparo precisa ter pelo menos 20 caracteres.");
+  if (!Array.isArray(recipe.ingredients) || recipe.ingredients.length < 1) errors.push("Inclua pelo menos 1 ingrediente.");
+  if (!Array.isArray(recipe.scales) || recipe.scales.length < 1) errors.push("Inclua pelo menos 1 escala.");
+  for (const [index, ingredient] of (recipe.ingredients ?? []).entries()) {
+    if (!ingredient.ingredient_name?.trim()) errors.push(`Ingrediente ${index + 1} está sem nome.`);
+    if (!Number.isFinite(Number(ingredient.usage_quantity)) || Number(ingredient.usage_quantity) < 0) errors.push(`Ingrediente ${ingredient.ingredient_name || index + 1} tem quantidade inválida.`);
+  }
+  return errors;
+}
+
+export async function previewTechnicalSheetsFromPdfAction(formData: FormData): Promise<PreviewTechnicalSheetsFromPdfResult> {
   try {
     const file = formData.get("file");
     const defaultCategory = String(formData.get("defaultCategory") ?? "Importado PDF").trim();
-
-    if (!(file instanceof File)) {
-      throw new Error("Envie um arquivo PDF válido.");
-    }
-
+    if (!(file instanceof File)) throw new Error("Envie um arquivo PDF válido.");
     const pages = await extractPdfPages(file);
-    const recipes: Array<{ id: string; name: string; page: number | null }> = [];
-    const ignoredPages: Array<{ page: number; title: string; reason: string }> = [];
-
-    for (const [index, pageText] of pages.entries()) {
-      const pageNumber = index + 1;
-      const parsed = buildRecipeFromPage(pageText, pageNumber, file.name, defaultCategory);
-
-      if (!parsed.recipe) {
-        ignoredPages.push({
-          page: pageNumber,
-          title: parsed.title,
-          reason: parsed.errors.slice(0, 4).join(" | ") || "Página sem dados suficientes.",
-        });
-        continue;
-      }
-
-      const created = await createTechnicalSheet(parsed.recipe);
-      recipes.push({ id: String((created as any).id), name: parsed.recipe.name, page: pageNumber });
-    }
-
     return {
       ok: true,
-      importedCount: recipes.length,
-      recipes,
-      ignoredPages,
+      pages: pages.map((pageText, index) => {
+        const pageNumber = index + 1;
+        const parsed = buildRecipeFromPage(pageText, pageNumber, file.name, defaultCategory);
+        return {
+          page: pageNumber,
+          title: parsed.title,
+          status: parsed.recipe ? "ready" : "blocked",
+          reason: parsed.recipe ? null : parsed.errors.slice(0, 5).join(" | ") || "Página sem dados suficientes.",
+          warnings: parsed.warnings,
+          recipe: parsed.recipe,
+        };
+      }),
     };
   } catch (error: any) {
-    console.error("[validatedPDFImport] erro ao importar PDF", error);
-    return {
-      ok: false,
-      error: error?.message || "Não foi possível importar o PDF.",
-    };
+    console.error("[validatedPDFPreview] erro ao analisar PDF", error);
+    return { ok: false, error: error?.message || "Não foi possível analisar o PDF." };
   }
+}
+
+export async function createTechnicalSheetsFromPreviewAction(formData: FormData): Promise<CreateTechnicalSheetsFromPreviewResult> {
+  try {
+    const rawRecipes = String(formData.get("recipes") ?? "");
+    const recipesToCreate = JSON.parse(rawRecipes) as TechnicalSheetInput[];
+    if (!Array.isArray(recipesToCreate) || recipesToCreate.length === 0) throw new Error("Nenhuma ficha aprovada para criar.");
+    const recipes: Array<{ id: string; name: string; page: number | null }> = [];
+    const ignoredPages: Array<{ page: number | null; title: string; reason: string }> = [];
+    for (const recipe of recipesToCreate) {
+      const errors = validateEditableRecipe(recipe);
+      if (errors.length > 0) {
+        ignoredPages.push({ page: recipe.source_page_number ?? null, title: recipe.name || "Ficha sem nome", reason: errors.join(" | ") });
+        continue;
+      }
+      const created = await createTechnicalSheet(recipe);
+      recipes.push({ id: String((created as any).id), name: recipe.name, page: recipe.source_page_number ?? null });
+    }
+    return { ok: true, importedCount: recipes.length, recipes, ignoredPages };
+  } catch (error: any) {
+    console.error("[validatedPDFConfirm] erro ao criar fichas aprovadas", error);
+    return { ok: false, error: error?.message || "Não foi possível criar as fichas aprovadas." };
+  }
+}
+
+export async function importTechnicalSheetsFromPdfAction(formData: FormData): Promise<ImportTechnicalSheetsFromPdfResult> {
+  const preview = await previewTechnicalSheetsFromPdfAction(formData);
+  if (!preview.ok) return preview;
+  const recipesToCreate = preview.pages.filter((page) => page.status === "ready" && page.recipe).map((page) => page.recipe as TechnicalSheetInput);
+  const confirmForm = new FormData();
+  confirmForm.append("recipes", JSON.stringify(recipesToCreate));
+  const created = await createTechnicalSheetsFromPreviewAction(confirmForm);
+  if (!created.ok) return created;
+  return {
+    ok: true,
+    importedCount: created.importedCount,
+    recipes: created.recipes,
+    ignoredPages: [
+      ...preview.pages
+        .filter((page) => page.status === "blocked")
+        .map((page) => ({ page: page.page, title: page.title, reason: page.reason || "Página bloqueada para revisão." })),
+      ...created.ignoredPages.map((page) => ({ page: page.page ?? 0, title: page.title, reason: page.reason })),
+    ],
+  };
 }

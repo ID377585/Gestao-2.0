@@ -28,6 +28,7 @@ const titles: Record<string, string> = {
   "/dashboard/inventario": "Inventário",
   "/dashboard/produtos": "Produtos",
   "/dashboard/fichas-tecnicas": "Fichas Técnicas",
+  "/dashboard/lista-rapida": "Lista Rápida",
   "/dashboard/etiquetas": "Etiquetas",
   "/dashboard/historico-pedidos": "Histórico",
   "/dashboard/perdas": "Perdas",

@@ -16,13 +16,52 @@ type Props = {
   uploadedBy?: string;
 };
 
+type PreviewIngredient = {
+  product_id?: string | null;
+  ingredient_name: string;
+  usage_quantity: number;
+  usage_unit: string;
+  purchase_price?: number;
+  purchase_quantity?: number;
+  purchase_unit?: string;
+  correction_factor?: number;
+  cooking_factor?: number;
+  base_unit_cost?: number;
+  final_cost?: number;
+  sort_order?: number;
+};
+
+type PreviewScaleIngredient = {
+  ingredient_name: string;
+  amount: number;
+  unit: string;
+  sort_order?: number;
+};
+
+type PreviewScale = {
+  scale_label: string;
+  yield_description?: string | null;
+  net_weight: number | null;
+  sort_order?: number;
+  ingredients?: PreviewScaleIngredient[];
+};
+
 type PreviewRecipe = {
   name: string;
   category: string;
+  yield_portions?: number;
+  portion_weight?: number;
+  prep_time_minutes?: number;
+  profit_margin_percent?: number;
+  sale_price?: number;
+  total_cost?: number;
+  cost_per_portion?: number;
   preparation_method: string;
-  ingredients?: Array<{ ingredient_name: string; usage_quantity: number; usage_unit: string }>;
-  scales?: Array<{ scale_label: string; net_weight: number | null }>;
+  ingredients?: PreviewIngredient[];
+  scales?: PreviewScale[];
   source_page_number?: number | null;
+  import_origin?: string | null;
+  source_file_name?: string | null;
   [key: string]: any;
 };
 
@@ -31,10 +70,171 @@ type PreviewPage = {
   title: string;
   status: "ready" | "blocked";
   reason: string | null;
+  originalReason?: string | null;
   warnings: string[];
   recipe: PreviewRecipe | null;
   selected: boolean;
 };
+
+function asNumber(value: unknown, fallback = 0) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function blankIngredient(index = 0): PreviewIngredient {
+  return {
+    product_id: null,
+    ingredient_name: "",
+    usage_quantity: 0,
+    usage_unit: "G",
+    purchase_price: 0,
+    purchase_quantity: 1,
+    purchase_unit: "G",
+    correction_factor: 1,
+    cooking_factor: 1,
+    base_unit_cost: 0,
+    final_cost: 0,
+    sort_order: index,
+  };
+}
+
+function blankScale(index = 0): PreviewScale {
+  return {
+    scale_label: `${index + 1}X`,
+    yield_description: null,
+    net_weight: null,
+    sort_order: index,
+    ingredients: [],
+  };
+}
+
+function buildDraftRecipe(page: Pick<PreviewPage, "page" | "title">, category: string): PreviewRecipe {
+  return {
+    name: page.title && page.title !== "Receita importada" ? page.title : `Ficha página ${page.page}`,
+    category: category || "Importado PDF",
+    yield_portions: 1,
+    portion_weight: 0,
+    prep_time_minutes: 0,
+    profit_margin_percent: 0,
+    sale_price: 0,
+    total_cost: 0,
+    cost_per_portion: 0,
+    preparation_method: "",
+    difficulty_level: null,
+    temperature_celsius: null,
+    cooking_time_minutes: null,
+    cooking_factor_grams: null,
+    correction_factor_grams: null,
+    yield_label: null,
+    portion_weight_unit: "G",
+    storage_instructions: null,
+    shelf_life_frozen: null,
+    shelf_life_refrigerated: null,
+    shelf_life_room_temp: null,
+    allergens: null,
+    source_updated_at: null,
+    import_origin: "pdf_import_reviewed",
+    source_file_name: null,
+    source_page_number: page.page,
+    video_url: null,
+    ingredients: [blankIngredient(0)],
+    scales: [blankScale(0)],
+  };
+}
+
+function getRecipeErrors(recipe: PreviewRecipe | null) {
+  const errors: string[] = [];
+  if (!recipe) {
+    errors.push("Revise e preencha os dados da ficha.");
+    return errors;
+  }
+
+  if (!recipe.name?.trim()) errors.push("Nome da ficha é obrigatório.");
+  if (!recipe.category?.trim()) errors.push("Categoria é obrigatória.");
+  if (!recipe.preparation_method?.trim() || recipe.preparation_method.trim().length < 20) {
+    errors.push("Modo de preparo precisa ter pelo menos 20 caracteres.");
+  }
+
+  const ingredients = recipe.ingredients ?? [];
+  if (ingredients.length < 1) errors.push("Inclua pelo menos 1 ingrediente.");
+  ingredients.forEach((ingredient, index) => {
+    if (!ingredient.ingredient_name?.trim()) errors.push(`Ingrediente ${index + 1} está sem nome.`);
+    if (!Number.isFinite(Number(ingredient.usage_quantity)) || Number(ingredient.usage_quantity) < 0) {
+      errors.push(`Ingrediente ${ingredient.ingredient_name || index + 1} tem quantidade inválida.`);
+    }
+    if (!ingredient.usage_unit?.trim()) errors.push(`Ingrediente ${ingredient.ingredient_name || index + 1} está sem unidade.`);
+  });
+
+  const scales = recipe.scales ?? [];
+  if (scales.length < 1) errors.push("Inclua pelo menos 1 escala.");
+  scales.forEach((scale, index) => {
+    if (!scale.scale_label?.trim()) errors.push(`Escala ${index + 1} está sem nome.`);
+    if (scale.net_weight !== null && scale.net_weight !== undefined && !Number.isFinite(Number(scale.net_weight))) {
+      errors.push(`Escala ${scale.scale_label || index + 1} tem peso líquido inválido.`);
+    }
+  });
+
+  return errors;
+}
+
+function syncScaleIngredients(recipe: PreviewRecipe): PreviewRecipe {
+  const ingredients = (recipe.ingredients ?? []).map((ingredient, index) => ({
+    ...blankIngredient(index),
+    ...ingredient,
+    usage_quantity: asNumber(ingredient.usage_quantity, 0),
+    sort_order: index,
+  }));
+
+  const scales = (recipe.scales?.length ? recipe.scales : [blankScale(0)]).map((scale, scaleIndex) => {
+    const existingScaleIngredients = scale.ingredients ?? [];
+    return {
+      ...scale,
+      scale_label: scale.scale_label || `${scaleIndex + 1}X`,
+      net_weight:
+        scale.net_weight === null || scale.net_weight === undefined || scale.net_weight === ""
+          ? null
+          : asNumber(scale.net_weight, 0),
+      sort_order: scaleIndex,
+      ingredients: ingredients.map((ingredient, ingredientIndex) => {
+        const existing = existingScaleIngredients.find(
+          (item) => item.ingredient_name === ingredient.ingredient_name
+        );
+        return {
+          ingredient_name: ingredient.ingredient_name,
+          amount: asNumber(existing?.amount ?? ingredient.usage_quantity, 0),
+          unit: existing?.unit || ingredient.usage_unit || "G",
+          sort_order: ingredientIndex,
+        };
+      }),
+    };
+  });
+
+  return {
+    ...recipe,
+    yield_portions: asNumber(recipe.yield_portions, 1) || 1,
+    portion_weight: asNumber(recipe.portion_weight, 0),
+    prep_time_minutes: asNumber(recipe.prep_time_minutes, 0),
+    profit_margin_percent: asNumber(recipe.profit_margin_percent, 0),
+    sale_price: asNumber(recipe.sale_price, 0),
+    total_cost: asNumber(recipe.total_cost, 0),
+    cost_per_portion: asNumber(recipe.cost_per_portion, 0),
+    ingredients,
+    scales,
+  };
+}
+
+function normalizePageAfterEdit(page: PreviewPage): PreviewPage {
+  const recipe = page.recipe ? syncScaleIngredients(page.recipe) : null;
+  const errors = getRecipeErrors(recipe);
+  const status = errors.length === 0 ? "ready" : "blocked";
+  return {
+    ...page,
+    recipe,
+    status,
+    reason: status === "ready" ? null : errors.slice(0, 5).join(" | "),
+    selected: status === "ready" ? page.selected : false,
+  };
+}
 
 export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
   const [category, setCategory] = useState("Importado PDF");
@@ -130,10 +330,16 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
       }
       if (!result.ok) throw new Error(result.error || "Erro ao analisar o PDF.");
 
-      const pages = result.pages.map((page) => ({
-        ...page,
-        selected: page.status === "ready",
-      })) as PreviewPage[];
+      const pages = result.pages.map((page) => {
+        const originalReason = page.reason ?? null;
+        const recipe = page.recipe ?? buildDraftRecipe(page, category);
+        return normalizePageAfterEdit({
+          ...page,
+          originalReason,
+          recipe,
+          selected: page.status === "ready",
+        } as PreviewPage);
+      });
 
       setPreviewPages(pages);
       setStep("preview");
@@ -142,25 +348,80 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
         `Pré-visualização concluída.\n\n` +
           `Fichas prontas para criar: ${pages.filter((page) => page.status === "ready").length}\n` +
           `Páginas bloqueadas para revisão: ${pages.filter((page) => page.status === "blocked").length}\n\n` +
-          `Revise os dados abaixo e clique em “Criar fichas selecionadas” somente quando estiver tudo correto.`
+          `As páginas bloqueadas agora podem ser corrigidas nesta tela. Quando os erros forem resolvidos, elas ficam prontas para seleção.`
       );
     } catch (error: any) {
       console.error("Erro na análise do PDF:", error);
-      setMessage(error?.message || "Falha ao analisar o PDF.");
+      setMessage(
+        error?.message ||
+          "Falha ao analisar o PDF. Se isso ocorrer somente na versão publicada, faça um novo deploy para aplicar as configurações do servidor."
+      );
       setUploadProgress(0);
     } finally {
       setLoading(false);
     }
   }
 
-  function updatePreviewRecipe(pageNumber: number, patch: Partial<PreviewRecipe>) {
+  function updatePageRecipe(pageNumber: number, updater: (recipe: PreviewRecipe) => PreviewRecipe) {
     setPreviewPages((pages) =>
-      pages.map((page) =>
-        page.page === pageNumber && page.recipe
-          ? { ...page, recipe: { ...page.recipe, ...patch } }
-          : page
-      )
+      pages.map((page) => {
+        if (page.page !== pageNumber) return page;
+        const currentRecipe = page.recipe ?? buildDraftRecipe(page, category);
+        return normalizePageAfterEdit({
+          ...page,
+          recipe: updater(currentRecipe),
+          selected: page.selected,
+        });
+      })
     );
+  }
+
+  function updatePreviewRecipe(pageNumber: number, patch: Partial<PreviewRecipe>) {
+    updatePageRecipe(pageNumber, (recipe) => ({ ...recipe, ...patch }));
+  }
+
+  function updateIngredient(pageNumber: number, index: number, patch: Partial<PreviewIngredient>) {
+    updatePageRecipe(pageNumber, (recipe) => {
+      const ingredients = [...(recipe.ingredients ?? [])];
+      ingredients[index] = { ...blankIngredient(index), ...ingredients[index], ...patch, sort_order: index };
+      return { ...recipe, ingredients };
+    });
+  }
+
+  function addIngredient(pageNumber: number) {
+    updatePageRecipe(pageNumber, (recipe) => ({
+      ...recipe,
+      ingredients: [...(recipe.ingredients ?? []), blankIngredient(recipe.ingredients?.length ?? 0)],
+    }));
+  }
+
+  function removeIngredient(pageNumber: number, index: number) {
+    updatePageRecipe(pageNumber, (recipe) => ({
+      ...recipe,
+      ingredients: (recipe.ingredients ?? []).filter((_, itemIndex) => itemIndex !== index),
+    }));
+  }
+
+  function updateScale(pageNumber: number, index: number, patch: Partial<PreviewScale>) {
+    updatePageRecipe(pageNumber, (recipe) => {
+      const scales = [...(recipe.scales ?? [])];
+      scales[index] = { ...blankScale(index), ...scales[index], ...patch, sort_order: index };
+      return { ...recipe, scales };
+    });
+  }
+
+  function addScale(pageNumber: number) {
+    updatePageRecipe(pageNumber, (recipe) => ({
+      ...recipe,
+      scales: [...(recipe.scales ?? []), blankScale(recipe.scales?.length ?? 0)],
+    }));
+  }
+
+  function removeScale(pageNumber: number, index: number) {
+    updatePageRecipe(pageNumber, (recipe) => ({
+      ...recipe,
+      scales: (recipe.scales ?? []).filter((_, itemIndex) => itemIndex !== index),
+    }));
   }
 
   function togglePage(pageNumber: number) {
@@ -175,8 +436,9 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
 
   async function handleCreateSelected() {
     const recipes = previewPages
+      .map(normalizePageAfterEdit)
       .filter((page) => page.status === "ready" && page.selected && page.recipe)
-      .map((page) => page.recipe as PreviewRecipe);
+      .map((page) => syncScaleIngredients(page.recipe as PreviewRecipe));
 
     if (recipes.length === 0) {
       setMessage("Nenhuma ficha pronta foi selecionada para criação.");
@@ -213,11 +475,10 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
       setMessage(
         `Criação concluída.\n\n` +
           `Fichas criadas: ${result.importedCount}\n` +
-          `Páginas bloqueadas originalmente: ${blockedCount}\n` +
           `Fichas selecionadas que não foram criadas: ${result.ignoredPages.length}\n\n` +
           (createdList ? `Receitas criadas:\n${createdList}\n\n` : "") +
           (ignoredList ? `Não criadas:\n${ignoredList}\n\n` : "") +
-          `As páginas bloqueadas na pré-visualização não foram criadas.`
+          `As fichas corrigidas na revisão também puderam ser importadas quando ficaram prontas.`
       );
       onSuccess?.();
     } catch (error: any) {
@@ -231,12 +492,12 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-      <div className="max-h-[92vh] w-full max-w-5xl overflow-auto rounded-2xl bg-white p-5 shadow-xl">
+      <div className="max-h-[92vh] w-full max-w-6xl overflow-auto rounded-2xl bg-white p-5 shadow-xl">
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold">Importar Ficha Técnica</h2>
             <p className="text-sm text-gray-500">
-              Analise o PDF, revise a pré-visualização e crie apenas as fichas selecionadas.
+              Analise o PDF, revise a pré-visualização, corrija páginas bloqueadas e crie apenas as fichas selecionadas.
             </p>
           </div>
 
@@ -299,7 +560,7 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
             <div className="space-y-3">
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-lg border p-3 text-sm"><strong>{readyCount}</strong><br />prontas para criar</div>
-                <div className="rounded-lg border p-3 text-sm"><strong>{blockedCount}</strong><br />bloqueadas</div>
+                <div className="rounded-lg border p-3 text-sm"><strong>{blockedCount}</strong><br />bloqueadas para revisão</div>
                 <div className="rounded-lg border p-3 text-sm"><strong>{selectedCount}</strong><br />selecionadas</div>
               </div>
 
@@ -311,16 +572,22 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
                       <p className={page.status === "ready" ? "text-green-700" : "text-red-700"}>
                         {page.status === "ready" ? "Pronta para criação" : `Bloqueada: ${page.reason}`}
                       </p>
+                      {page.originalReason && page.originalReason !== page.reason && (
+                        <p className="text-xs text-gray-500">Erro original: {page.originalReason}</p>
+                      )}
                       {page.warnings.length > 0 && (
                         <p className="text-amber-700">Avisos: {page.warnings.join(" | ")}</p>
                       )}
                     </div>
-                    {page.status === "ready" && (
-                      <label className="flex items-center gap-2">
-                        <input type="checkbox" checked={page.selected} onChange={() => togglePage(page.page)} disabled={loading} />
-                        Criar esta ficha
-                      </label>
-                    )}
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={page.selected}
+                        onChange={() => togglePage(page.page)}
+                        disabled={loading || page.status !== "ready"}
+                      />
+                      Criar esta ficha
+                    </label>
                   </div>
 
                   {page.recipe && (
@@ -352,25 +619,88 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
                           className="h-24 w-full rounded-lg border px-3 py-2 outline-none"
                         />
                       </div>
-                      <div className="rounded-lg bg-slate-50 p-3">
-                        <strong>Ingredientes:</strong> {page.recipe.ingredients?.length ?? 0}
-                        <div className="mt-2 max-h-24 overflow-auto text-xs">
-                          {(page.recipe.ingredients ?? []).slice(0, 8).map((ingredient, index) => (
-                            <p key={`${ingredient.ingredient_name}-${index}`}>
-                              {ingredient.ingredient_name}: {ingredient.usage_quantity} {ingredient.usage_unit}
-                            </p>
+
+                      <div className="rounded-lg bg-slate-50 p-3 md:col-span-2">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <strong>Ingredientes</strong>
+                          <button type="button" onClick={() => addIngredient(page.page)} disabled={loading} className="rounded border px-2 py-1 text-xs">
+                            + Ingrediente
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {(page.recipe.ingredients ?? []).map((ingredient, index) => (
+                            <div key={`${page.page}-ingredient-${index}`} className="grid gap-2 md:grid-cols-[1fr_120px_90px_auto]">
+                              <input
+                                value={ingredient.ingredient_name}
+                                onChange={(e) => updateIngredient(page.page, index, { ingredient_name: e.target.value })}
+                                disabled={loading}
+                                className="rounded-lg border px-3 py-2 outline-none"
+                                placeholder="Ingrediente"
+                              />
+                              <input
+                                type="number"
+                                value={ingredient.usage_quantity}
+                                onChange={(e) => updateIngredient(page.page, index, { usage_quantity: asNumber(e.target.value, 0) })}
+                                disabled={loading}
+                                className="rounded-lg border px-3 py-2 outline-none"
+                                placeholder="Qtd."
+                              />
+                              <input
+                                value={ingredient.usage_unit}
+                                onChange={(e) => updateIngredient(page.page, index, { usage_unit: e.target.value.toUpperCase(), purchase_unit: e.target.value.toUpperCase() })}
+                                disabled={loading}
+                                className="rounded-lg border px-3 py-2 outline-none"
+                                placeholder="Un."
+                              />
+                              <button type="button" onClick={() => removeIngredient(page.page, index)} disabled={loading} className="rounded border px-2 py-1 text-xs">
+                                Remover
+                              </button>
+                            </div>
                           ))}
                         </div>
                       </div>
-                      <div className="rounded-lg bg-slate-50 p-3">
-                        <strong>Escalas:</strong> {page.recipe.scales?.length ?? 0}
-                        <div className="mt-2 max-h-24 overflow-auto text-xs">
-                          {(page.recipe.scales ?? []).slice(0, 10).map((scale, index) => (
-                            <p key={`${scale.scale_label}-${index}`}>
-                              {scale.scale_label}: peso líquido {scale.net_weight ?? "-"}
-                            </p>
+
+                      <div className="rounded-lg bg-slate-50 p-3 md:col-span-2">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <strong>Escalas</strong>
+                          <button type="button" onClick={() => addScale(page.page)} disabled={loading} className="rounded border px-2 py-1 text-xs">
+                            + Escala
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {(page.recipe.scales ?? []).map((scale, index) => (
+                            <div key={`${page.page}-scale-${index}`} className="grid gap-2 md:grid-cols-[140px_160px_1fr_auto]">
+                              <input
+                                value={scale.scale_label}
+                                onChange={(e) => updateScale(page.page, index, { scale_label: e.target.value })}
+                                disabled={loading}
+                                className="rounded-lg border px-3 py-2 outline-none"
+                                placeholder="1X"
+                              />
+                              <input
+                                type="number"
+                                value={scale.net_weight ?? ""}
+                                onChange={(e) => updateScale(page.page, index, { net_weight: e.target.value === "" ? null : asNumber(e.target.value, 0) })}
+                                disabled={loading}
+                                className="rounded-lg border px-3 py-2 outline-none"
+                                placeholder="Peso líquido"
+                              />
+                              <input
+                                value={scale.yield_description ?? ""}
+                                onChange={(e) => updateScale(page.page, index, { yield_description: e.target.value || null })}
+                                disabled={loading}
+                                className="rounded-lg border px-3 py-2 outline-none"
+                                placeholder="Rendimento/descrição"
+                              />
+                              <button type="button" onClick={() => removeScale(page.page, index)} disabled={loading} className="rounded border px-2 py-1 text-xs">
+                                Remover
+                              </button>
+                            </div>
                           ))}
                         </div>
+                        <p className="mt-2 text-xs text-gray-500">
+                          Ao criar, os ingredientes das escalas são sincronizados com a lista corrigida acima.
+                        </p>
                       </div>
                     </div>
                   )}
@@ -380,7 +710,7 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
           )}
 
           <div className="rounded-md bg-slate-50 p-3 text-sm text-muted-foreground">
-            Agora o fluxo separa análise e criação. Páginas bloqueadas não entram no banco. Páginas prontas podem ser revisadas, desmarcadas ou ter nome, categoria e modo de preparo ajustados antes de criar.
+            Agora o fluxo permite corrigir páginas bloqueadas na própria importação. Depois que nome, preparo, ingredientes e escalas estiverem válidos, a página muda para pronta e pode ser selecionada para criação.
           </div>
 
           <div className="flex flex-wrap justify-end gap-2 pt-2">

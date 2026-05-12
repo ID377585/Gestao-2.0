@@ -263,6 +263,7 @@ export default function ListaRapidaPage() {
   const [fichas, setFichas] = useState<FichaTecnica[]>([]);
   const [products, setProducts] = useState<ProductCatalogItem[]>([]);
   const [scalesByFichaId, setScalesByFichaId] = useState<Record<string, string>>({});
+  const [removedFichaIds, setRemovedFichaIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [hasCalculated, setHasCalculated] = useState(false);
@@ -315,8 +316,14 @@ export default function ListaRapidaPage() {
     );
   }, [products]);
 
+  const visibleFichas = useMemo(() => {
+    const removed = new Set(removedFichaIds);
+
+    return fichas.filter((ficha) => !removed.has(ficha.id));
+  }, [fichas, removedFichaIds]);
+
   const selectedFichas = useMemo<SelectedFicha[]>(() => {
-    return fichas
+    return visibleFichas
       .map((ficha) => {
         const escala = toNumber(scalesByFichaId[ficha.id], 0);
 
@@ -326,7 +333,7 @@ export default function ListaRapidaPage() {
         };
       })
       .filter((ficha) => ficha.escala > 0);
-  }, [fichas, scalesByFichaId]);
+  }, [visibleFichas, scalesByFichaId]);
 
   const shoppingList = useMemo(() => {
     const map = new Map<string, ShoppingListItem>();
@@ -403,8 +410,25 @@ export default function ListaRapidaPage() {
     updateScale(fichaId, event.target.value);
   };
 
+  const removeFichaFromList = (fichaId: string) => {
+    setRemovedFichaIds((prev) =>
+      prev.includes(fichaId) ? prev : [...prev, fichaId]
+    );
+    setScalesByFichaId((prev) => {
+      const next = { ...prev };
+      delete next[fichaId];
+      return next;
+    });
+    setHasCalculated(false);
+  };
+
   const clearScales = () => {
     setScalesByFichaId({});
+    setHasCalculated(false);
+  };
+
+  const restoreRemovedFichas = () => {
+    setRemovedFichaIds([]);
     setHasCalculated(false);
   };
 
@@ -475,7 +499,17 @@ export default function ListaRapidaPage() {
                   Exemplo: use 1 para 1X, 2 para 2X, 10 para 10X.
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                {removedFichaIds.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={loading}
+                    onClick={restoreRemovedFichas}
+                  >
+                    Restaurar removidos
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="outline"
@@ -500,7 +534,7 @@ export default function ListaRapidaPage() {
                   <TableRow>
                     <TableHead>Produto</TableHead>
                     <TableHead className="w-36 text-right">Rendimento base</TableHead>
-                    <TableHead className="w-40">Escala</TableHead>
+                    <TableHead className="w-48">Escala</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -516,8 +550,14 @@ export default function ListaRapidaPage() {
                         Nenhuma ficha técnica cadastrada.
                       </TableCell>
                     </TableRow>
+                  ) : visibleFichas.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="py-8 text-center text-sm text-muted-foreground">
+                        Todos os itens foram removidos desta lista. Use Restaurar removidos para exibir novamente.
+                      </TableCell>
+                    </TableRow>
                   ) : (
-                    fichas.map((ficha) => {
+                    visibleFichas.map((ficha) => {
                       const scaleValue = scalesByFichaId[ficha.id] ?? "";
                       const isActive = toNumber(scaleValue, 0) > 0;
 
@@ -548,7 +588,15 @@ export default function ListaRapidaPage() {
                                 onChange={(event) => handleScaleChange(ficha.id, event)}
                                 className="h-9"
                               />
-                              <span className="text-sm font-medium text-muted-foreground">X</span>
+                              <button
+                                type="button"
+                                aria-label={`Remover ${ficha.nome} da lista rápida`}
+                                title="Remover item desta lista"
+                                onClick={() => removeFichaFromList(ficha.id)}
+                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-sm font-semibold text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                              >
+                                X
+                              </button>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -561,7 +609,8 @@ export default function ListaRapidaPage() {
 
             <p className="text-xs text-muted-foreground">
               Receitas com escala vazia ou zero não entram no cálculo. Você pode
-              preencher várias escalas e calcular tudo junto.
+              preencher várias escalas e calcular tudo junto. Use o X para remover
+              uma receita desta lista sem apagar a ficha técnica cadastrada.
             </p>
           </div>
         </CardContent>

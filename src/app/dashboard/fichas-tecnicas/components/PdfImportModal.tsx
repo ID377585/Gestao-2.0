@@ -41,7 +41,7 @@ type PreviewScaleIngredient = {
 type PreviewScale = {
   scale_label: string;
   yield_description?: string | null;
-  net_weight: number | null;
+  net_weight: number | null | "";
   sort_order?: number;
   ingredients?: PreviewScaleIngredient[];
 };

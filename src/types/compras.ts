@@ -14,6 +14,7 @@ export interface Supplier {
   complemento?: string;
   bairro?: string;
   cep?: string;
+  cidade?: string;
   estado?: string;
   uf?: string;
   observacoes?: string;
@@ -35,6 +36,7 @@ export interface CreateSupplierInput {
   complemento?: string;
   bairro?: string;
   cep?: string;
+  cidade?: string;
   estado?: string;
   uf?: string;
   observacoes?: string;
@@ -54,6 +56,7 @@ export interface UpdateSupplierInput {
   complemento?: string;
   bairro?: string;
   cep?: string;
+  cidade?: string;
   estado?: string;
   uf?: string;
   observacoes?: string;

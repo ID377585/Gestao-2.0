@@ -29,6 +29,7 @@ function normalizeSupplier(row: Record<string, unknown>): Supplier {
     complemento: toText(row.complemento) ?? undefined,
     bairro: toText(row.bairro) ?? undefined,
     cep: toText(row.cep) ?? undefined,
+    cidade: toText(row.cidade) ?? undefined,
     estado: toText(row.estado) ?? undefined,
     uf: toText(row.uf) ?? undefined,
     observacoes: toText(row.observacoes) ?? undefined,
@@ -55,6 +56,7 @@ function buildCreatePayload(input: CreateSupplierInput) {
     complemento: input.complemento?.trim() || null,
     bairro: input.bairro?.trim() || null,
     cep: input.cep?.trim() || null,
+    cidade: input.cidade?.trim() || null,
     estado: input.estado?.trim() || null,
     uf: input.uf?.trim() || null,
     observacoes: input.observacoes?.trim() || null,
@@ -115,6 +117,10 @@ function buildUpdatePayload(input: UpdateSupplierInput) {
 
   if (input.cep !== undefined) {
     payload.cep = input.cep.trim() || null;
+  }
+
+  if (input.cidade !== undefined) {
+    payload.cidade = input.cidade.trim() || null;
   }
 
   if (input.estado !== undefined) {

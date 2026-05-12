@@ -1,6 +1,12 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  type ChangeEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Download, Printer, ShoppingCart } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -45,6 +51,10 @@ type FichaTecnica = {
   categoria: string;
   rendimento: number;
   ingredientes: IngredienteFicha[];
+};
+
+type SelectedFicha = FichaTecnica & {
+  escala: number;
 };
 
 type ShoppingListItem = {
@@ -252,8 +262,7 @@ function buildPrintHtml(groups: Array<[string, ShoppingListItem[]]>) {
 export default function ListaRapidaPage() {
   const [fichas, setFichas] = useState<FichaTecnica[]>([]);
   const [products, setProducts] = useState<ProductCatalogItem[]>([]);
-  const [selectedFichaIds, setSelectedFichaIds] = useState<string[]>([]);
-  const [scalesByFichaId, setScalesByFichaId] = useState<Record<string, number>>({});
+  const [scalesByFichaId, setScalesByFichaId] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [hasCalculated, setHasCalculated] = useState(false);
@@ -294,18 +303,6 @@ export default function ListaRapidaPage() {
     loadData();
   }, []);
 
-  useEffect(() => {
-    setScalesByFichaId((prev) => {
-      const next: Record<string, number> = {};
-
-      selectedFichaIds.forEach((id) => {
-        next[id] = Math.max(0.001, toNumber(prev[id], 1) || 1);
-      });
-
-      return next;
-    });
-  }, [selectedFichaIds]);
-
   const productsById = useMemo(() => {
     return new Map(products.map((product) => [product.id, product]));
   }, [products]);
@@ -318,20 +315,25 @@ export default function ListaRapidaPage() {
     );
   }, [products]);
 
-  const selectedFichas = useMemo(() => {
-    const ids = new Set(selectedFichaIds);
+  const selectedFichas = useMemo<SelectedFicha[]>(() => {
+    return fichas
+      .map((ficha) => {
+        const escala = toNumber(scalesByFichaId[ficha.id], 0);
 
-    return fichas.filter((ficha) => ids.has(ficha.id));
-  }, [fichas, selectedFichaIds]);
+        return {
+          ...ficha,
+          escala,
+        };
+      })
+      .filter((ficha) => ficha.escala > 0);
+  }, [fichas, scalesByFichaId]);
 
   const shoppingList = useMemo(() => {
     const map = new Map<string, ShoppingListItem>();
 
     selectedFichas.forEach((ficha) => {
-      const scale = Math.max(0.001, toNumber(scalesByFichaId[ficha.id], 1) || 1);
-
       ficha.ingredientes.forEach((ingredient) => {
-        const quantidade = Number((ingredient.quantidadeUso * scale).toFixed(3));
+        const quantidade = Number((ingredient.quantidadeUso * ficha.escala).toFixed(3));
         const unidade = String(ingredient.unidadeUso || "UN").toUpperCase();
         const key = `${ingredient.productId || normalizeText(ingredient.nome)}::${unidade}`;
         const categoria = getProductCategory(
@@ -341,6 +343,7 @@ export default function ListaRapidaPage() {
           products
         );
         const current = map.get(key);
+        const recipeLabel = `${ficha.nome} (${formatQuantity(ficha.escala)}X)`;
 
         if (!current) {
           map.set(key, {
@@ -350,14 +353,14 @@ export default function ListaRapidaPage() {
             categoria,
             quantidade,
             unidade,
-            receitas: [ficha.nome],
+            receitas: [recipeLabel],
           });
 
           return;
         }
 
         current.quantidade = Number((current.quantidade + quantidade).toFixed(3));
-        if (!current.receitas.includes(ficha.nome)) current.receitas.push(ficha.nome);
+        if (!current.receitas.includes(recipeLabel)) current.receitas.push(recipeLabel);
       });
     });
 
@@ -367,7 +370,7 @@ export default function ListaRapidaPage() {
 
       return a.nome.localeCompare(b.nome, "pt-BR");
     });
-  }, [products, productsById, productsByName, scalesByFichaId, selectedFichas]);
+  }, [products, productsById, productsByName, selectedFichas]);
 
   const groupedShoppingList = useMemo(() => {
     const grouped = shoppingList.reduce<Record<string, ShoppingListItem[]>>(
@@ -383,24 +386,26 @@ export default function ListaRapidaPage() {
     return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b, "pt-BR"));
   }, [shoppingList]);
 
-  const canCalculate = selectedFichaIds.length > 0;
+  const canCalculate = selectedFichas.length > 0;
 
-  const handleSelectFichas = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const ids = Array.from(event.currentTarget.selectedOptions).map(
-      (option) => option.value
-    );
-
-    setSelectedFichaIds(ids);
+  const updateScale = (fichaId: string, value: string) => {
+    setScalesByFichaId((prev) => ({
+      ...prev,
+      [fichaId]: value,
+    }));
     setHasCalculated(false);
   };
 
-  const updateScale = (fichaId: string, value: string) => {
-    const scale = Math.max(0.001, toNumber(value, 1));
+  const handleScaleChange = (
+    fichaId: string,
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    updateScale(fichaId, event.target.value);
+  };
 
-    setScalesByFichaId((prev) => ({
-      ...prev,
-      [fichaId]: scale,
-    }));
+  const clearScales = () => {
+    setScalesByFichaId({});
+    setHasCalculated(false);
   };
 
   const exportCsv = () => {
@@ -450,8 +455,8 @@ export default function ListaRapidaPage() {
             Lista Rápida
           </CardTitle>
           <CardDescription>
-            Selecione uma ou mais fichas técnicas, defina a escala de produção e
-            gere uma lista de compras consolidada por categoria.
+            Digite a escala na frente de cada ficha técnica que deseja produzir e
+            gere uma lista de compras consolidada de uma só vez.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -461,82 +466,103 @@ export default function ListaRapidaPage() {
             </div>
           ) : null}
 
-          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="space-y-2">
-              <Label htmlFor="produto">Produto</Label>
-              <select
-                id="produto"
-                multiple
-                value={selectedFichaIds}
-                onChange={handleSelectFichas}
-                disabled={loading}
-                className="min-h-60 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {fichas.map((ficha) => (
-                  <option key={ficha.id} value={ficha.id}>
-                    {ficha.nome}
-                    {ficha.categoria ? ` — ${ficha.categoria}` : ""}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-muted-foreground">
-                Use Ctrl/Cmd ou Shift para selecionar várias receitas.
-              </p>
-            </div>
-
-            <div className="space-y-3 rounded-lg border bg-slate-50/70 p-4 dark:bg-slate-900/30">
-              <div>
-                <h3 className="font-semibold">Itens selecionados</h3>
+          <div className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div className="space-y-1">
+                <Label>Produto</Label>
                 <p className="text-sm text-muted-foreground">
-                  A escala inicia em 1X e multiplica todos os ingredientes da
-                  ficha técnica.
+                  Preencha a escala somente nas receitas que entram na lista.
+                  Exemplo: use 1 para 1X, 2 para 2X, 10 para 10X.
                 </p>
               </div>
-
-              {selectedFichas.length === 0 ? (
-                <div className="rounded-md border border-dashed bg-background p-4 text-sm text-muted-foreground">
-                  Nenhum produto selecionado.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {selectedFichas.map((ficha) => (
-                    <div
-                      key={ficha.id}
-                      className="grid gap-3 rounded-md border bg-background p-3 sm:grid-cols-[1fr_120px] sm:items-end"
-                    >
-                      <div>
-                        <p className="font-medium">{ficha.nome}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Rendimento base: {formatQuantity(ficha.rendimento)}
-                        </p>
-                      </div>
-                      <div className="space-y-1">
-                        <Label htmlFor={`scale-${ficha.id}`}>Escala</Label>
-                        <Input
-                          id={`scale-${ficha.id}`}
-                          type="number"
-                          min="0.001"
-                          step="0.5"
-                          value={scalesByFichaId[ficha.id] ?? 1}
-                          onChange={(event) =>
-                            updateScale(ficha.id, event.target.value)
-                          }
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <Button
-                type="button"
-                className="w-full"
-                disabled={!canCalculate || loading}
-                onClick={() => setHasCalculated(true)}
-              >
-                Calcular Lista de Compra
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={loading || selectedFichas.length === 0}
+                  onClick={clearScales}
+                >
+                  Limpar escalas
+                </Button>
+                <Button
+                  type="button"
+                  disabled={!canCalculate || loading}
+                  onClick={() => setHasCalculated(true)}
+                >
+                  Calcular Lista de Compra
+                </Button>
+              </div>
             </div>
+
+            <div className="overflow-hidden rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Produto</TableHead>
+                    <TableHead className="w-36 text-right">Rendimento base</TableHead>
+                    <TableHead className="w-40">Escala</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="py-8 text-center text-sm text-muted-foreground">
+                        Carregando fichas técnicas...
+                      </TableCell>
+                    </TableRow>
+                  ) : fichas.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="py-8 text-center text-sm text-muted-foreground">
+                        Nenhuma ficha técnica cadastrada.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    fichas.map((ficha) => {
+                      const scaleValue = scalesByFichaId[ficha.id] ?? "";
+                      const isActive = toNumber(scaleValue, 0) > 0;
+
+                      return (
+                        <TableRow
+                          key={ficha.id}
+                          className={isActive ? "bg-blue-50/60 dark:bg-blue-950/20" : undefined}
+                        >
+                          <TableCell>
+                            <div className="font-medium">{ficha.nome}</div>
+                            {ficha.categoria ? (
+                              <div className="text-xs text-muted-foreground">
+                                {ficha.categoria}
+                              </div>
+                            ) : null}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatQuantity(ficha.rendimento)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.5"
+                                placeholder="1"
+                                value={scaleValue}
+                                onChange={(event) => handleScaleChange(ficha.id, event)}
+                                className="h-9"
+                              />
+                              <span className="text-sm font-medium text-muted-foreground">X</span>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Receitas com escala vazia ou zero não entram no cálculo. Você pode
+              preencher várias escalas e calcular tudo junto.
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -547,7 +573,8 @@ export default function ListaRapidaPage() {
             <div>
               <CardTitle>Lista de Compras</CardTitle>
               <CardDescription>
-                {shoppingList.length} ingrediente(s) consolidado(s) em {groupedShoppingList.length} categoria(s).
+                {shoppingList.length} ingrediente(s) consolidado(s) em {groupedShoppingList.length} categoria(s),
+                com {selectedFichas.length} receita(s) selecionada(s).
               </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -574,7 +601,7 @@ export default function ListaRapidaPage() {
           <CardContent>
             {shoppingList.length === 0 ? (
               <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                Nenhum ingrediente encontrado para as fichas selecionadas.
+                Nenhum ingrediente encontrado para as fichas com escala informada.
               </div>
             ) : (
               <div className="overflow-hidden rounded-lg border">

@@ -496,7 +496,7 @@ export default function ListaRapidaPage() {
                 <Label>Produto</Label>
                 <p className="text-sm text-muted-foreground">
                   Preencha a escala somente nas receitas que entram na lista.
-                  Exemplo: use 1 para 1X, 2 para 2X, 10 para 10X.
+                  Exemplo: digite 1 para 1X, 2 para 2X, 10 para 10X ou 33,5 para 33,5X.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -580,10 +580,9 @@ export default function ListaRapidaPage() {
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Input
-                                type="number"
-                                min="0"
-                                step="0.5"
-                                placeholder="1"
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="Digite"
                                 value={scaleValue}
                                 onChange={(event) => handleScaleChange(ficha.id, event)}
                                 className="h-9"
@@ -609,8 +608,8 @@ export default function ListaRapidaPage() {
 
             <p className="text-xs text-muted-foreground">
               Receitas com escala vazia ou zero não entram no cálculo. Você pode
-              preencher várias escalas e calcular tudo junto. Use o X para remover
-              uma receita desta lista sem apagar a ficha técnica cadastrada.
+              digitar livremente valores inteiros ou decimais, como 1, 2, 10 ou 33,5.
+              Use o X para remover uma receita desta lista sem apagar a ficha técnica cadastrada.
             </p>
           </div>
         </CardContent>

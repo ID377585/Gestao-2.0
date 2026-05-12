@@ -50,6 +50,7 @@ type SupplierForm = {
   complemento: string;
   bairro: string;
   cep: string;
+  cidade: string;
   estado: string;
   uf: string;
   observacoes: string;
@@ -69,6 +70,7 @@ const emptyForm: SupplierForm = {
   complemento: "",
   bairro: "",
   cep: "",
+  cidade: "",
   estado: "",
   uf: "",
   observacoes: "",
@@ -123,6 +125,7 @@ export default function EditarFornecedorPage() {
         complemento: data.complemento || "",
         bairro: data.bairro || "",
         cep: formatCep(data.cep || ""),
+        cidade: data.cidade || "",
         estado: data.estado || "",
         uf: data.uf || "",
         observacoes: data.observacoes || "",
@@ -161,6 +164,7 @@ export default function EditarFornecedorPage() {
         complemento: form.complemento.trim(),
         bairro: form.bairro.trim(),
         cep: form.cep.trim(),
+        cidade: form.cidade.trim(),
         estado: form.estado.trim(),
         uf: form.uf.trim(),
         observacoes: form.observacoes.trim(),
@@ -386,6 +390,16 @@ export default function EditarFornecedorPage() {
               placeholder="Digite o CEP"
               inputMode="numeric"
               autoComplete="off"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">Cidade</label>
+            <input
+              value={form.cidade}
+              onChange={(e) => updateField("cidade", e.target.value)}
+              className="w-full rounded-xl border px-3 py-2 outline-none focus:border-black"
+              placeholder="Ex.: São Paulo"
             />
           </div>
 

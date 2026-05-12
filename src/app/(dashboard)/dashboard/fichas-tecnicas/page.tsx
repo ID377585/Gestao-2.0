@@ -23,7 +23,6 @@ import IngredientEditor from "@/app/dashboard/fichas-tecnicas/components/Ingredi
 import PdfImportModal from "@/app/dashboard/fichas-tecnicas/components/PdfImportModal";
 import ImportJobReportModal from "@/app/dashboard/fichas-tecnicas/components/ImportJobReportModal";
 import FichaRapidaModal from "@/app/dashboard/fichas-tecnicas/components/FichaRapidaModal";
-import LinkTechnicalSheetProductButton from "@/app/dashboard/fichas-tecnicas/components/LinkTechnicalSheetProductButton";
 import { createTechnicalSheetWithOptionalProductLink } from "./create-linked-actions";
 import { linkTechnicalSheetToProductAction } from "./link-actions";
 import { Badge } from "@/components/ui/badge";
@@ -1160,14 +1159,6 @@ function RecipeViewerInline({
                 ▶️ Vídeo
               </Button>
             ) : null}
-            <LinkTechnicalSheetProductButton
-              technicalSheetId={ficha.id}
-              isLinkedToProduct={ficha.isLinkedToProduct}
-              onLinked={async () => {
-                await Promise.resolve();
-                window.location.reload();
-              }}
-            />
             <Button type="button" variant="outline" onClick={() => onEdit(ficha)}>
               ✏️ Editar
             </Button>
@@ -1724,6 +1715,8 @@ export default function FichasTecnicasPage() {
       sourceFileName: null,
       sourcePageNumber: null,
       videoUrl: videoUrl.trim() || null,
+      linkedProductId: null,
+      isLinkedToProduct: false,
       ingredientes,
       escalas,
     });
@@ -1824,6 +1817,8 @@ export default function FichasTecnicasPage() {
       sourceFileName: fichaEditando.sourceFileName,
       sourcePageNumber: fichaEditando.sourcePageNumber,
       videoUrl: fichaEditando.videoUrl,
+      linkedProductId: null,
+      isLinkedToProduct: false,
       ingredientes: fichaEditando.ingredientes,
       escalas: fichaEditando.escalas,
     });

@@ -92,20 +92,27 @@ function toDecimalInput(value: unknown) {
 }
 
 function normalizeProductList(raw: unknown): ProductOption[] {
-  const list = Array.isArray(raw) ? raw : Array.isArray((raw as any)?.products) ? (raw as any).products : [];
+  const list: any[] = Array.isArray(raw)
+    ? raw
+    : Array.isArray((raw as any)?.products)
+      ? (raw as any).products
+      : [];
 
   return list
     .map((product: any) => ({
       ...product,
       id: String(product?.id ?? ""),
       name: String(product?.name ?? product?.product_name ?? ""),
-      default_unit_label: product?.default_unit_label ?? product?.unit_label ?? product?.unit ?? null,
+      default_unit_label:
+        product?.default_unit_label ?? product?.unit_label ?? product?.unit ?? null,
       category: product?.category ? String(product.category) : null,
-      sector_category: product?.sector_category ? String(product.sector_category) : null,
+      sector_category: product?.sector_category
+        ? String(product.sector_category)
+        : null,
       price: Number(product?.price ?? product?.standard_cost ?? 0),
       standard_cost: Number(product?.standard_cost ?? product?.price ?? 0),
-    }))
-    .filter((product) => product.id && product.name);
+    }) as ProductOption)
+    .filter((product: ProductOption) => Boolean(product.id && product.name));
 }
 
 function blankIngredient(index = 0): PreviewIngredient {

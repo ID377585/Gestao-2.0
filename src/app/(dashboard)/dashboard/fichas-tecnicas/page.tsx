@@ -23,6 +23,9 @@ import IngredientEditor from "@/app/dashboard/fichas-tecnicas/components/Ingredi
 import PdfImportModal from "@/app/dashboard/fichas-tecnicas/components/PdfImportModal";
 import ImportJobReportModal from "@/app/dashboard/fichas-tecnicas/components/ImportJobReportModal";
 import FichaRapidaModal from "@/app/dashboard/fichas-tecnicas/components/FichaRapidaModal";
+import LinkTechnicalSheetProductButton from "@/app/dashboard/fichas-tecnicas/components/LinkTechnicalSheetProductButton";
+import { createTechnicalSheetWithOptionalProductLink } from "./create-linked-actions";
+import { linkTechnicalSheetToProductAction } from "./link-actions";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,7 +46,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  createTechnicalSheet,
   deleteTechnicalSheet,
   deleteTechnicalSheetImageAction,
   duplicateTechnicalSheetAction,
@@ -112,6 +114,8 @@ type FichaTecnica = {
   sourceFileName: string | null;
   sourcePageNumber: number | null;
   videoUrl: string | null;
+  linkedProductId: string | null;
+  isLinkedToProduct: boolean;
   ingredientes: Ingrediente[];
   escalas: EscalaFicha[];
   createdAt: string;
@@ -179,7 +183,7 @@ function calcularLucroUnitario(precoVenda: number, custoPorPorcao: number) {
   return (precoVenda || 0) - (custoPorPorcao || 0);
 }
 
-  function calcularRendimentoPorPesoFinal(
+function calcularRendimentoPorPesoFinal(
   pesoFinal: number | "" | null | undefined,
   pesoPorPorcao: number | "" | null | undefined
 ) {
@@ -278,7 +282,8 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
         ? Number(raw.source_page_number)
         : null,
     videoUrl: raw.video_url ? String(raw.video_url) : null,
-
+    linkedProductId: raw.linked_product_id ? String(raw.linked_product_id) : null,
+    isLinkedToProduct: Boolean(raw.is_linked_to_product),
     ingredientes: Array.isArray(raw.ingredients)
       ? raw.ingredients
           .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -1098,12 +1103,12 @@ function RecipeViewerInline({
     );
   }
 
- const scaled = getScaledFicha(ficha, desiredServings);
-const cmv =
-  Number.isFinite(Number(ficha.margemLucro)) && Number(ficha.margemLucro) > 0
-    ? Number(ficha.margemLucro)
-    : calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
-const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
+  const scaled = getScaledFicha(ficha, desiredServings);
+  const cmv =
+    Number.isFinite(Number(ficha.margemLucro)) && Number(ficha.margemLucro) > 0
+      ? Number(ficha.margemLucro)
+      : calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
+  const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
 
   return (
     <Card className="overflow-hidden border border-slate-200 bg-white text-slate-900 shadow-sm">
@@ -1155,7 +1160,14 @@ const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
                 ▶️ Vídeo
               </Button>
             ) : null}
-
+            <LinkTechnicalSheetProductButton
+              technicalSheetId={ficha.id}
+              isLinkedToProduct={ficha.isLinkedToProduct}
+              onLinked={async () => {
+                await Promise.resolve();
+                window.location.reload();
+              }}
+            />
             <Button type="button" variant="outline" onClick={() => onEdit(ficha)}>
               ✏️ Editar
             </Button>
@@ -1189,43 +1201,43 @@ const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
       </div>
 
       <CardContent className="space-y-6 bg-white p-4 text-slate-900 sm:p-6">
-  <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs text-slate-500">Custo total</p>
-      <p className="mt-1 text-2xl font-bold text-red-600">
-        {formatCurrency(scaled.custoTotal)}
-      </p>
-    </div>
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs text-slate-500">Custo total</p>
+            <p className="mt-1 text-2xl font-bold text-red-600">
+              {formatCurrency(scaled.custoTotal)}
+            </p>
+          </div>
 
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs text-slate-500">Custo por porção</p>
-      <p className="mt-1 text-2xl font-bold text-slate-900">
-        {formatCurrency(ficha.custoPorPorcao)}
-      </p>
-    </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs text-slate-500">Custo por porção</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">
+              {formatCurrency(ficha.custoPorPorcao)}
+            </p>
+          </div>
 
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs text-slate-500">Preço de venda</p>
-      <p className="mt-1 text-2xl font-bold text-green-600">
-        {formatCurrency(ficha.precoVenda)}
-      </p>
-    </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs text-slate-500">Preço de venda</p>
+            <p className="mt-1 text-2xl font-bold text-green-600">
+              {formatCurrency(ficha.precoVenda)}
+            </p>
+          </div>
 
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs text-slate-500">Lucro unitário</p>
-      <p className="mt-1 text-2xl font-bold text-blue-600">
-        {formatCurrency(lucro)}
-      </p>
-    </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs text-slate-500">Lucro unitário</p>
+            <p className="mt-1 text-2xl font-bold text-blue-600">
+              {formatCurrency(lucro)}
+            </p>
+          </div>
 
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs text-slate-500">CMV</p>
-      <p className="mt-1 text-2xl font-bold text-slate-900">
-        {cmv.toFixed(1)}%
-      </p>
-    </div>
-  </div>
-</CardContent>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs text-slate-500">CMV</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">
+              {cmv.toFixed(1)}%
+            </p>
+          </div>
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -1275,6 +1287,8 @@ export default function FichasTecnicasPage() {
   const [setor, setSetor] = useState("");
   const [sourceUpdatedAt, setSourceUpdatedAt] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
+  const [atrelarNovaFichaTecnica, setAtrelarNovaFichaTecnica] = useState(true);
+  const [atrelarEdicaoFichaTecnica, setAtrelarEdicaoFichaTecnica] = useState(false);
   const [escalas, setEscalas] = useState<EscalaFicha[]>([]);
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const autoAllergens = useMemo(() => {
@@ -1355,9 +1369,9 @@ export default function FichasTecnicasPage() {
             sector_category: p.sector_category ?? p.category ?? "",
             category: p.category ?? null,
             package_qty:
-            p.package_qty !== null && p.package_qty !== undefined
-              ? parsePtBrNumber(p.package_qty, 1)
-              : 1,
+              p.package_qty !== null && p.package_qty !== undefined
+                ? parsePtBrNumber(p.package_qty, 1)
+                : 1,
             qty_per_package: p.qty_per_package
               ? String(p.qty_per_package)
               : null,
@@ -1540,6 +1554,7 @@ export default function FichasTecnicasPage() {
     setShelfLifeRoomTemp("");
     setSetor("");
     setVideoUrl("");
+    setAtrelarNovaFichaTecnica(true);
     setEscalas([]);
     setIngredientes([]);
   };
@@ -1643,7 +1658,8 @@ export default function FichasTecnicasPage() {
       event.target.value = "";
     }
   };
-    const salvarNovaFicha = () => {
+
+  const salvarNovaFicha = () => {
     if (!nome.trim()) {
       alert("Informe o nome da receita.");
       return;
@@ -1669,23 +1685,10 @@ export default function FichasTecnicasPage() {
       return;
     }
 
-    function calcularRendimentoPorPesoFinal(
-  pesoFinal: number | "" | null | undefined,
-  pesoPorPorcao: number | "" | null | undefined
-) {
-  const pesoFinalNumber = toNumber(pesoFinal, 0);
-  const pesoPorPorcaoNumber = toNumber(pesoPorPorcao, 0);
-
-  if (pesoFinalNumber <= 0 || pesoPorPorcaoNumber <= 0) {
-    return 0;
-  }
-
-  return Number((pesoFinalNumber / pesoPorPorcaoNumber).toFixed(3));
-}
-
     const custos = calcularCustos(ingredientes, rendimento, cmvAlvo);
     const updatedDate = getTodayIsoDate();
     const detectedAllergens = autoAllergens;
+
     const payload = toActionPayload({
       nome: nome.trim(),
       categoria: categoria.trim(),
@@ -1727,7 +1730,11 @@ export default function FichasTecnicasPage() {
 
     startTransition(async () => {
       try {
-        await createTechnicalSheet(payload);
+        await createTechnicalSheetWithOptionalProductLink({
+          ...payload,
+          attachTechnicalSheetToProduct: atrelarNovaFichaTecnica,
+        });
+
         setShowNovaFicha(false);
         resetForm();
         await loadData();
@@ -1737,8 +1744,7 @@ export default function FichasTecnicasPage() {
       }
     });
   };
-
-  const handleEditarFicha = (ficha: FichaTecnica) => {
+    const handleEditarFicha = (ficha: FichaTecnica) => {
     setFichaEditando({
       ...ficha,
       ingredientes: ficha.ingredientes.map((i) => ({ ...i })),
@@ -1747,6 +1753,8 @@ export default function FichasTecnicasPage() {
         ingredientes: s.ingredientes.map((i) => ({ ...i })),
       })),
     });
+
+    setAtrelarEdicaoFichaTecnica(Boolean(ficha.isLinkedToProduct));
     setShowEditarFicha(true);
   };
 
@@ -1823,6 +1831,13 @@ export default function FichasTecnicasPage() {
     startTransition(async () => {
       try {
         await updateTechnicalSheet(payload);
+
+        if (atrelarEdicaoFichaTecnica && fichaEditando.id) {
+          const formData = new FormData();
+          formData.set("technical_sheet_id", fichaEditando.id);
+          await linkTechnicalSheetToProductAction(formData);
+        }
+
         setFichaEditando(null);
         setShowEditarFicha(false);
         await loadData();
@@ -2265,8 +2280,7 @@ export default function FichasTecnicasPage() {
             )}
           </CardContent>
         </Card>
-
-        <div ref={viewerRef} className="space-y-3">
+                <div ref={viewerRef} className="space-y-3">
           {showFichaDetalhe && fichaSelecionada ? (
             <>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2371,6 +2385,26 @@ export default function FichasTecnicasPage() {
               </div>
             </div>
 
+            <label className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={atrelarNovaFichaTecnica}
+                onChange={(event) =>
+                  setAtrelarNovaFichaTecnica(event.target.checked)
+                }
+              />
+              <span>
+                <span className="block font-semibold">
+                  Atrelar ficha técnica
+                </span>
+                <span className="block text-xs opacity-90">
+                  Ao salvar, também cria ou atualiza o item em Produtos e
+                  garante o item no Estoque.
+                </span>
+              </span>
+            </label>
+
             <IngredientEditor
               products={products}
               ingredientes={ingredientes}
@@ -2383,19 +2417,22 @@ export default function FichasTecnicasPage() {
               <div>
                 <Label>Peso por porção</Label>
                 <Input
-                type="number"
-                step="0.001"
-                value={pesoPorcao}
-                onChange={(e) => {
-                  const nextPesoPorcao =
-                    e.target.value === "" ? "" : toNumber(e.target.value, 0);
+                  type="number"
+                  step="0.001"
+                  value={pesoPorcao}
+                  onChange={(e) => {
+                    const nextPesoPorcao =
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0);
 
-                  setPesoPorcao(nextPesoPorcao);
-                  setRendimento(
-                    calcularRendimentoPorPesoFinal(correctionFactorGrams, nextPesoPorcao)
-                  );
-                }}
-              />
+                    setPesoPorcao(nextPesoPorcao);
+                    setRendimento(
+                      calcularRendimentoPorPesoFinal(
+                        correctionFactorGrams,
+                        nextPesoPorcao
+                      )
+                    );
+                  }}
+                />
               </div>
 
               <div>
@@ -2476,6 +2513,19 @@ export default function FichasTecnicasPage() {
               </div>
 
               <div>
+                <Label>Fator de cocção (g)</Label>
+                <Input
+                  type="number"
+                  value={cookingFactorGrams}
+                  onChange={(e) =>
+                    setCookingFactorGrams(
+                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
+                    )
+                  }
+                />
+              </div>
+
+              <div>
                 <Label>Peso Final (g)</Label>
                 <Input
                   type="number"
@@ -2493,19 +2543,6 @@ export default function FichasTecnicasPage() {
               </div>
 
               <div>
-                <Label>Fator de correção (g)</Label>
-                <Input
-                  type="number"
-                  value={correctionFactorGrams}
-                  onChange={(e) =>
-                    setCorrectionFactorGrams(
-                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
-                    )
-                  }
-                />
-              </div>
-
-              <div>
                 <Label>Tipo de rendimento</Label>
                 <Input
                   value={yieldLabel}
@@ -2516,11 +2553,18 @@ export default function FichasTecnicasPage() {
 
               <div className="xl:col-span-2">
                 <Label>Armazenamento</Label>
-                <Input
+                <select
                   value={storageInstructions}
                   onChange={(e) => setStorageInstructions(e.target.value)}
-                  placeholder="Ex.: Refrigerado"
-                />
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Selecione —</option>
+                  {STORAGE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -2603,7 +2647,8 @@ export default function FichasTecnicasPage() {
                 />
               </div>
             </div>
-                        <div className="space-y-3 rounded-xl border p-4">
+
+            <div className="space-y-3 rounded-xl border p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h4 className="font-semibold">Imagem do prato</h4>
@@ -2683,7 +2728,9 @@ export default function FichasTecnicasPage() {
                 cookingFactorGrams === "" ? null : toNumber(cookingFactorGrams, 0)
               }
               correctionFactorGrams={
-                correctionFactorGrams === "" ? null : toNumber(correctionFactorGrams, 0)
+                correctionFactorGrams === ""
+                  ? null
+                  : toNumber(correctionFactorGrams, 0)
               }
               difficultyLevel={difficultyLevel}
               preparationMethod={modoPreparo}
@@ -2718,8 +2765,7 @@ export default function FichasTecnicasPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      <Dialog open={showEditarFicha} onOpenChange={setShowEditarFicha}>
+            <Dialog open={showEditarFicha} onOpenChange={setShowEditarFicha}>
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl !bg-white !text-slate-900 border border-slate-200 shadow-2xl">
           <DialogHeader>
             <DialogTitle>Editar Ficha Técnica</DialogTitle>
@@ -2777,6 +2823,28 @@ export default function FichasTecnicasPage() {
                 </div>
               </div>
 
+              <label className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={atrelarEdicaoFichaTecnica}
+                  disabled={Boolean(fichaEditando.isLinkedToProduct)}
+                  onChange={(event) =>
+                    setAtrelarEdicaoFichaTecnica(event.target.checked)
+                  }
+                />
+                <span>
+                  <span className="block font-semibold">
+                    Atrelar ficha técnica
+                  </span>
+                  <span className="block text-xs opacity-90">
+                    {fichaEditando.isLinkedToProduct
+                      ? "Esta ficha já está atrelada a um produto."
+                      : "Ao salvar, também cria ou atualiza o item em Produtos e garante o item no Estoque."}
+                  </span>
+                </span>
+              </label>
+
               <IngredientEditor
                 products={products}
                 ingredientes={fichaEditando.ingredientes}
@@ -2819,8 +2887,8 @@ export default function FichasTecnicasPage() {
 
                 <div>
                   <Label>Unidade peso porção</Label>
-                  <Input
-                    value={fichaEditando.portionWeightUnit || "G"}
+                  <select
+                    value={fichaEditando.portionWeightUnit || "KG"}
                     onChange={(e) =>
                       setFichaEditando((prev) =>
                         prev
@@ -2828,13 +2896,20 @@ export default function FichasTecnicasPage() {
                               ...prev,
                               portionWeightUnit: normalizeUnit(
                                 e.target.value,
-                                "G"
+                                "KG"
                               ),
                             }
                           : prev
                       )
                     }
-                  />
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {PORTION_WEIGHT_UNIT_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -2882,7 +2957,9 @@ export default function FichasTecnicasPage() {
                     value={fichaEditando.difficultyLevel ?? ""}
                     onChange={(e) =>
                       setFichaEditando((prev) =>
-                        prev ? { ...prev, difficultyLevel: e.target.value } : prev
+                        prev
+                          ? { ...prev, difficultyLevel: e.target.value || null }
+                          : prev
                       )
                     }
                   >
@@ -2968,7 +3045,9 @@ export default function FichasTecnicasPage() {
                         if (!prev) return prev;
 
                         const nextPesoFinal =
-                          e.target.value === "" ? null : toNumber(e.target.value, 0);
+                          e.target.value === ""
+                            ? null
+                            : toNumber(e.target.value, 0);
 
                         return {
                           ...prev,
@@ -2984,7 +3063,7 @@ export default function FichasTecnicasPage() {
                 </div>
 
                 <div>
-                  <Label>Yield label</Label>
+                  <Label>Tipo de rendimento</Label>
                   <Input
                     value={fichaEditando.yieldLabel || ""}
                     onChange={(e) =>
@@ -3004,8 +3083,17 @@ export default function FichasTecnicasPage() {
                 <div className="xl:col-span-2">
                   <Label>Armazenamento</Label>
                   <select
-                    value={storageInstructions}
-                    onChange={(e) => setStorageInstructions(e.target.value)}
+                    value={fichaEditando.storageInstructions || ""}
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              storageInstructions: e.target.value || null,
+                            }
+                          : prev
+                      )
+                    }
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
                     <option value="">— Selecione —</option>
@@ -3122,9 +3210,21 @@ export default function FichasTecnicasPage() {
                   <Label>Atualizada em</Label>
                   <Input
                     type="date"
-                    value={sourceUpdatedAt || getTodayIsoDate()}
-                    disabled
-                    className="bg-slate-100 font-semibold text-slate-700"
+                    value={
+                      fichaEditando.sourceUpdatedAt
+                        ? fichaEditando.sourceUpdatedAt.slice(0, 10)
+                        : getTodayIsoDate()
+                    }
+                    onChange={(e) =>
+                      setFichaEditando((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              sourceUpdatedAt: e.target.value,
+                            }
+                          : prev
+                      )
+                    }
                   />
                 </div>
 
@@ -3170,6 +3270,26 @@ export default function FichasTecnicasPage() {
                     >
                       {uploadingImage ? "Enviando imagem..." : "Trocar imagem"}
                     </Button>
+
+                    {fichaEditando.imageUrl ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() =>
+                          setFichaEditando((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  imageUrl: null,
+                                  imagePath: null,
+                                }
+                              : prev
+                          )
+                        }
+                      >
+                        Remover imagem
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -3230,6 +3350,7 @@ export default function FichasTecnicasPage() {
                 >
                   Cancelar
                 </Button>
+
                 <Button
                   type="button"
                   onClick={salvarEdicaoFicha}

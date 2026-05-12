@@ -512,7 +512,7 @@ export default function ListaRapidaPage() {
                   variant="outline"
                   disabled={loading || selectedFichas.length === 0}
                   onClick={clearScales}
-                  className="h-12 min-w-[170px] border-amber-300 bg-amber-50 px-5 font-semibold text-amber-800 shadow-sm transition-all hover:border-amber-400 hover:bg-amber-100 hover:text-amber-900 disabled:opacity-50"
+                  className="h-12 min-w-[170px] border-2 border-black bg-red-600 px-5 font-bold text-white shadow-sm transition-all hover:border-black hover:bg-red-700 hover:text-white disabled:opacity-50"
                 >
                   Limpar escalas
                 </Button>
@@ -520,7 +520,7 @@ export default function ListaRapidaPage() {
                   type="button"
                   disabled={!canCalculate || loading}
                   onClick={() => setHasCalculated(true)}
-                  className="h-12 min-w-[230px] bg-blue-600 px-6 text-base font-semibold text-white shadow-lg shadow-blue-600/25 transition-all hover:bg-blue-700 hover:shadow-blue-700/30 disabled:opacity-50"
+                  className="h-12 min-w-[230px] border-2 border-black bg-green-600 px-6 text-base font-bold text-white shadow-lg shadow-green-600/25 transition-all hover:bg-green-700 hover:text-white hover:shadow-green-700/30 disabled:opacity-50"
                 >
                   Calcular Lista de Compra
                 </Button>

@@ -29,6 +29,13 @@ type ParsedTable = {
   ingredientRows: ParsedIngredientRow[];
   netWeights: number[];
   errors: string[];
+  warnings: string[];
+};
+
+type TextItem = {
+  str?: string;
+  width?: number;
+  transform?: number[];
 };
 
 function normalizeText(value: string) {
@@ -36,8 +43,13 @@ function normalizeText(value: string) {
     .replace(/\r/g, "")
     .replace(/\u00A0/g, " ")
     .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function stripAccents(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 function toNumber(value: unknown, fallback = 0) {
@@ -79,19 +91,30 @@ function extractScaleLabels(line: string) {
   return line.toUpperCase().match(/\d+X/g) ?? [];
 }
 
+function isOneToNScale(scaleFactors: number[]) {
+  return scaleFactors.every((factor, index) => factor === index + 1);
+}
+
 function inferUnit(ingredientName: string) {
-  const upper = ingredientName
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase();
+  const upper = stripAccents(ingredientName).toUpperCase();
 
   if (/\bQTD\b|UNIDADES?|CASCA DE LARANJA|GOTAS?/.test(upper)) return "UN";
   if (/AGUA|LEITE|VINHO|LICOR|OLEO|WHISKY|EMULSAO|ESSENCIA/.test(upper)) return "ML";
   return "G";
 }
 
+function normalizeIngredientName(value: string) {
+  return value
+    .replace(/\bACUCAR\b/gi, "AÇÚCAR")
+    .replace(/\bREIFNAO\b/gi, "REFINADO")
+    .replace(/\bREFINAO\b/gi, "REFINADO")
+    .replace(/\bGLUTEM\b/gi, "GLÚTEN")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function shouldIgnoreTableLine(line: string) {
-  const upper = line.toUpperCase().trim();
+  const upper = stripAccents(line).toUpperCase().trim();
   if (!upper) return true;
 
   return [
@@ -99,7 +122,7 @@ function shouldIgnoreTableLine(line: string) {
     "MODO DE PREPARO",
     "ATUALIZADA EM",
     "TEMPO DE PREP",
-    "TEM PO DE PREP",
+    "TE M PO DE PREP",
     "TEMPERATURA",
     "GRAU DE DIFICULDADE",
     "FATOR COC",
@@ -115,10 +138,10 @@ function shouldIgnoreTableLine(line: string) {
 }
 
 function isYieldOnlyLine(line: string) {
-  const upper = line.toUpperCase().trim();
+  const upper = stripAccents(line).toUpperCase().trim();
   if (!upper) return false;
   if (/^\d+(?:[.,]\d+)?$/.test(upper)) return true;
-  return /^(?:\d+(?:[.,]\d+)?\s*)?(PAC(?:OTES?)?|POTES?|BISNAGAS?|BDJ|BANDEJAS?|TAÇAS?|TACAS?|ASSADEIRAS?|PORÇÕES?|PORCOES?|UNIDADES?|BOLOS?|KG|KILOS?)\b/.test(upper);
+  return /^(?:\d+(?:[.,]\d+)?\s*)?(PAC(?:OTES?)?|POTES?|BISNAGAS?|BDJ|BDJS?|BANDEJAS?|TACAS?|ASSADEIRAS?|PORCOES?|UNIDADES?|BOLOS?|KG|KILOS?)\b/.test(upper);
 }
 
 function parseConcatenatedValues(line: string, scaleFactors: number[]) {
@@ -151,7 +174,7 @@ function splitIngredientLine(line: string, scaleFactors: number[]) {
   const match = cleaned.match(/^(.*?)(\d+(?:[.,]\d+)?(?:\s+\d+(?:[.,]\d+)?)+)\s*$/);
   if (!match) return null;
 
-  const ingredientName = String(match[1] ?? "").trim();
+  const ingredientName = normalizeIngredientName(String(match[1] ?? ""));
   const values = parseValuesLine(String(match[2] ?? ""), scaleFactors);
 
   if (!ingredientName || !values) return null;
@@ -172,10 +195,15 @@ function valuesAreCoherent(values: number[], scaleFactors: number[]) {
   });
 }
 
+function describeExpectedScale(values: number[], scaleFactors: number[]) {
+  if (!values.length || !scaleFactors.length || values[0] === 0) return "";
+  return ` esperado: ${scaleFactors.map((factor) => values[0] * factor).join(", ")}`;
+}
+
 function extractYieldDescriptions(text: string, scaleCount: number) {
   const matches = [
-    ...text.matchAll(
-      /\b\d+(?:[.,]\d+)?\s*(?:PAC(?:OTES?)?|POTES?|BISNAGAS?|BDJ|BANDEJAS?|TAÇAS?|TACAS?|ASSADEIRAS?|PORÇÕES?|PORCOES?|UNIDADES?|BOLOS?|KG|KILOS?)\b/gi
+    ...stripAccents(text).matchAll(
+      /\b\d+(?:[.,]\d+)?\s*(?:PAC(?:OTES?)?|POTES?|BISNAGAS?|BDJ|BDJS?|BANDEJAS?|TACAS?|ASSADEIRAS?|PORCOES?|UNIDADES?|BOLOS?|KG|KILOS?)\b/gi
     ),
   ].map((match) => match[0].replace(/\s+/g, " ").trim());
 
@@ -190,6 +218,7 @@ function parseScaleTable(pageText: string): ParsedTable | null {
   const scaleLabels = extractScaleLabels(lines[headerIndex]);
   const scaleFactors = scaleLabels.map((label) => toNumber(label.replace(/X/i, ""), 0));
   const errors: string[] = [];
+  const warnings: string[] = [];
 
   if (!scaleLabels.length || scaleFactors.some((factor) => factor <= 0)) {
     return null;
@@ -202,9 +231,9 @@ function parseScaleTable(pageText: string): ParsedTable | null {
 
   for (let index = headerIndex + 1; index < lines.length; index++) {
     const line = lines[index];
-    const upper = line.toUpperCase();
+    const upper = stripAccents(line).toUpperCase();
 
-    if (/PESO\s+L[ÍI]QUIDO|PESO\s+LIQUIDO/.test(upper)) {
+    if (/PESO\s+L[IÍ]QUIDO|PESO\s+LIQUIDO/.test(upper)) {
       netWeights = parseValuesLine(line, scaleFactors) ?? parseValuesLine(lines[index + 1] ?? "", scaleFactors) ?? [];
       break;
     }
@@ -219,7 +248,7 @@ function parseScaleTable(pageText: string): ParsedTable | null {
 
     const valuesOnly = parseValuesLine(line, scaleFactors);
     if (valuesOnly && nameBuffer.length) {
-      const ingredientName = nameBuffer.join(" ").replace(/\s+/g, " ").trim();
+      const ingredientName = normalizeIngredientName(nameBuffer.join(" "));
       nameBuffer.length = 0;
       ingredientRows.push({ ingredientName, values: valuesOnly, unit: inferUnit(ingredientName) });
       continue;
@@ -227,11 +256,9 @@ function parseScaleTable(pageText: string): ParsedTable | null {
 
     const inlineRow = splitIngredientLine(line, scaleFactors);
     if (inlineRow) {
-      const ingredientName = [nameBuffer.join(" "), inlineRow.ingredientName]
-        .filter(Boolean)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
+      const ingredientName = normalizeIngredientName(
+        [nameBuffer.join(" "), inlineRow.ingredientName].filter(Boolean).join(" ")
+      );
       nameBuffer.length = 0;
       ingredientRows.push({
         ingredientName,
@@ -254,6 +281,10 @@ function parseScaleTable(pageText: string): ParsedTable | null {
     errors.push("Nenhum ingrediente foi lido com segurança na tabela.");
   }
 
+  if (nameBuffer.length > 0) {
+    errors.push(`Ingrediente sem linha de quantidades: ${nameBuffer.join(" ")}.`);
+  }
+
   for (const row of ingredientRows) {
     if (row.values.length !== scaleLabels.length) {
       errors.push(`Ingrediente ${row.ingredientName} tem quantidade de escalas divergente.`);
@@ -261,20 +292,34 @@ function parseScaleTable(pageText: string): ParsedTable | null {
     }
 
     if (!valuesAreCoherent(row.values, scaleFactors)) {
-      errors.push(`Ingrediente ${row.ingredientName} tem valores incoerentes entre as escalas: ${row.values.join(", ")}.`);
+      errors.push(
+        `Ingrediente ${row.ingredientName} tem valores incoerentes entre as escalas: ${row.values.join(", ")}.${
+          isOneToNScale(scaleFactors) ? describeExpectedScale(row.values, scaleFactors) : ""
+        }`
+      );
     }
   }
 
-  if (netWeights.length > 0 && !valuesAreCoherent(netWeights, scaleFactors)) {
+  if (netWeights.length === 0) {
+    errors.push("Peso líquido não foi lido com segurança.");
+  } else if (netWeights.length !== scaleLabels.length) {
+    errors.push("Peso líquido tem quantidade de escalas divergente.");
+  } else if (!valuesAreCoherent(netWeights, scaleFactors)) {
     errors.push(`Peso líquido incoerente entre as escalas: ${netWeights.join(", ")}.`);
+  }
+
+  const yieldDescriptions = extractYieldDescriptions(yieldArea.join(" "), scaleLabels.length);
+  if (yieldDescriptions.length > 0 && yieldDescriptions.length !== scaleLabels.length) {
+    warnings.push("Descrições de rendimento não cobrem todas as escalas.");
   }
 
   return {
     scaleLabels,
-    yieldDescriptions: extractYieldDescriptions(yieldArea.join(" "), scaleLabels.length),
+    yieldDescriptions,
     ingredientRows,
     netWeights,
     errors,
+    warnings,
   };
 }
 
@@ -282,16 +327,23 @@ function extractTitle(pageText: string) {
   const lines = cleanLines(pageText);
   const ingredientIndex = lines.findIndex((line) => /^Ingredientes\s*:?$/i.test(line));
 
-  const blocked = /^(1X|\d+X|PESO|MODO|TEMPO|TE M PO|GRAU|CONFEITEIRO|ATUALIZADA|INGREDIENTES|CONT[ÉE]M|ALERG[ÊE]NICOS|ARMAZENAMENTO)/i;
+  const blocked = /^(1X|\d+X|PESO|MODO|TEMPO|TE M PO|GRAU|CONFEITEIRO|ATUALIZADA|INGREDIENTES|CONT[ÉE]M|ALERG[ÊE]NICOS|ARMAZENAMENTO|ASSISTA|FICOU)/i;
 
   const candidates = [
-    ...lines.slice(0, 12),
-    ...(ingredientIndex > 0 ? lines.slice(Math.max(0, ingredientIndex - 4), ingredientIndex).reverse() : []),
+    ...lines.slice(0, 14),
+    ...(ingredientIndex > 0 ? lines.slice(Math.max(0, ingredientIndex - 5), ingredientIndex).reverse() : []),
   ];
 
   for (const candidate of candidates) {
     const cleaned = candidate.replace(/\s+/g, " ").trim();
-    if (cleaned.length >= 3 && cleaned.length <= 80 && /[A-Za-zÀ-ÿ]/.test(cleaned) && !blocked.test(cleaned)) {
+    const normalized = stripAccents(cleaned).toUpperCase();
+    if (
+      cleaned.length >= 3 &&
+      cleaned.length <= 90 &&
+      /[A-Za-zÀ-ÿ]/.test(cleaned) &&
+      !blocked.test(cleaned) &&
+      !/^(GRAUS?|MINUTOS?|GRAMAS?|KILOS?|PORCOES?|UNIDADES?)$/.test(normalized)
+    ) {
       return cleaned;
     }
   }
@@ -322,8 +374,8 @@ function extractFirstNumberNear(pageText: string, label: RegExp) {
   const labelMatch = normalized.match(label);
   if (!labelMatch || labelMatch.index === undefined) return null;
 
-  const after = normalized.slice(labelMatch.index, labelMatch.index + 90);
-  const match = after.match(/\d+(?:[.,]\d+)?/);
+  const after = normalized.slice(labelMatch.index + labelMatch[0].length, labelMatch.index + labelMatch[0].length + 120);
+  const match = after.match(/-?\d+(?:[.,]\d+)?/);
   return match ? toNumber(match[0], 0) : null;
 }
 
@@ -354,6 +406,10 @@ function extractShelfLife(pageText: string, label: RegExp) {
   return match?.[1]?.trim() || null;
 }
 
+function extractStorage(pageText: string) {
+  return extractShelfLife(pageText, /Armazenamento(?:\([^)]*\))?\s*:?\s*([^\n]+)/i);
+}
+
 function extractAllergens(pageText: string) {
   const normalized = normalizeText(pageText);
   if (/N[ÃA]O\s+CONT[ÉE]M/i.test(normalized)) return "NÃO CONTÉM";
@@ -372,29 +428,50 @@ function extractAllergens(pageText: string) {
   return cleaned || null;
 }
 
+function validateRecipePayload(recipe: TechnicalSheetInput, table: ParsedTable) {
+  const errors: string[] = [];
+
+  if (!recipe.name || recipe.name === "Receita importada") errors.push("Título da ficha não foi identificado com segurança.");
+  if (recipe.ingredients.length < 2) errors.push("Menos de 2 ingredientes foram identificados com segurança.");
+  if (!recipe.scales?.length) errors.push("Nenhuma escala foi montada com segurança.");
+
+  const baseIngredientNames = recipe.ingredients.map((ingredient) => ingredient.ingredient_name.trim()).filter(Boolean);
+  if (baseIngredientNames.length !== new Set(baseIngredientNames.map((name) => stripAccents(name).toUpperCase())).size) {
+    errors.push("Ingredientes duplicados foram detectados na tabela extraída.");
+  }
+
+  if (table.scaleLabels.length > 1) {
+    for (const row of table.ingredientRows) {
+      if (row.values.some((value) => !Number.isFinite(value) || value < 0)) {
+        errors.push(`Ingrediente ${row.ingredientName} tem quantidade inválida.`);
+      }
+    }
+  }
+
+  return errors;
+}
+
 function buildRecipeFromPage(
   pageText: string,
   pageNumber: number,
   fileName: string,
   defaultCategory: string
-): { recipe: TechnicalSheetInput | null; title: string; errors: string[] } {
+): { recipe: TechnicalSheetInput | null; title: string; errors: string[]; warnings: string[] } {
   const title = extractTitle(pageText);
   const table = parseScaleTable(pageText);
   const errors: string[] = [];
+  const warnings: string[] = [];
 
   if (!table) {
-    return { recipe: null, title, errors: ["Tabela de escalas não encontrada ou ilegível."] };
+    return { recipe: null, title, errors: ["Tabela de escalas não encontrada ou ilegível."], warnings };
   }
 
   errors.push(...table.errors);
+  warnings.push(...table.warnings);
 
   const preparationMethod = extractPreparationMethod(pageText);
   if (!preparationMethod || preparationMethod.length < 20) {
     errors.push("Modo de preparo ausente ou curto demais.");
-  }
-
-  if (errors.length > 0) {
-    return { recipe: null, title, errors };
   }
 
   const ingredients: TechnicalSheetIngredientInput[] = table.ingredientRows.map((row, index) => ({
@@ -427,41 +504,45 @@ function buildRecipeFromPage(
 
   const fallbackYield = table.yieldDescriptions[0]?.match(/\d+(?:[.,]\d+)?/)?.[0];
 
-  return {
-    title,
-    errors,
-    recipe: {
-      name: title,
-      category: defaultCategory || "Importado PDF",
-      yield_portions: fallbackYield ? Math.max(1, toNumber(fallbackYield, 1)) : 1,
-      portion_weight: extractPortionWeight(pageText),
-      prep_time_minutes: extractFirstNumberNear(pageText, /TEM\s*PO\s*DE\s*PREP|TEMPO\s*DE\s*PREP/i) ?? 0,
-      profit_margin_percent: 0,
-      sale_price: 0,
-      total_cost: 0,
-      cost_per_portion: 0,
-      preparation_method: preparationMethod,
-      difficulty_level: null,
-      temperature_celsius: extractTemperature(pageText),
-      cooking_time_minutes: extractFirstNumberNear(pageText, /TEM\s*PO\s*COC|TEMPO\s*COC/i),
-      cooking_factor_grams: extractFirstNumberNear(pageText, /FATOR\s*COC/i),
-      correction_factor_grams: extractFirstNumberNear(pageText, /FATOR\s*CORR/i),
-      yield_label: table.yieldDescriptions[0] ?? null,
-      portion_weight_unit: extractPortionWeightUnit(pageText),
-      storage_instructions: extractShelfLife(pageText, /Armazenamento\s*:\s*([^\n]+)/i),
-      shelf_life_frozen: extractShelfLife(pageText, /(?:Congelamento|Congelado)\s*:\s*([^\n]+)/i),
-      shelf_life_refrigerated: extractShelfLife(pageText, /Sob refrigera[çc][ãa]o\s*:\s*([^\n]+)/i),
-      shelf_life_room_temp: extractShelfLife(pageText, /(?:Temp\.\s*Ambiente|Temperatura Ambiente)\s*:\s*([^\n]+)/i),
-      allergens: extractAllergens(pageText),
-      source_updated_at: parseBrazilianDateToIso(extractShelfLife(pageText, /Atualizada em\s*:\s*(\d{2}\/\d{2}\/\d{4})/i)),
-      import_origin: "pdf_import_validated",
-      source_file_name: fileName,
-      source_page_number: pageNumber,
-      video_url: null,
-      ingredients,
-      scales,
-    },
+  const recipe: TechnicalSheetInput = {
+    name: title,
+    category: defaultCategory || "Importado PDF",
+    yield_portions: fallbackYield ? Math.max(1, toNumber(fallbackYield, 1)) : 1,
+    portion_weight: extractPortionWeight(pageText),
+    prep_time_minutes: extractFirstNumberNear(pageText, /TEM\s*PO\s*DE\s*PREP|TEMPO\s*DE\s*PREP/i) ?? 0,
+    profit_margin_percent: 0,
+    sale_price: 0,
+    total_cost: 0,
+    cost_per_portion: 0,
+    preparation_method: preparationMethod,
+    difficulty_level: null,
+    temperature_celsius: extractTemperature(pageText),
+    cooking_time_minutes: extractFirstNumberNear(pageText, /TEM\s*PO\s*COC|TEMPO\s*COC/i),
+    cooking_factor_grams: extractFirstNumberNear(pageText, /FATOR\s*COC/i),
+    correction_factor_grams: extractFirstNumberNear(pageText, /FATOR\s*CORR/i),
+    yield_label: table.yieldDescriptions[0] ?? null,
+    portion_weight_unit: extractPortionWeightUnit(pageText),
+    storage_instructions: extractStorage(pageText),
+    shelf_life_frozen: extractShelfLife(pageText, /(?:Congelamento|Congelado)\s*:\s*([^\n]+)/i),
+    shelf_life_refrigerated: extractShelfLife(pageText, /Sob refrigera[çc][ãa]o\s*:\s*([^\n]+)/i),
+    shelf_life_room_temp: extractShelfLife(pageText, /(?:Temp\.\s*Ambiente|Temperatura Ambiente)\s*:\s*([^\n]+)/i),
+    allergens: extractAllergens(pageText),
+    source_updated_at: parseBrazilianDateToIso(extractShelfLife(pageText, /Atualizada em\s*:\s*(\d{2}\/\d{2}\/\d{4})/i)),
+    import_origin: "pdf_import_validated",
+    source_file_name: fileName,
+    source_page_number: pageNumber,
+    video_url: null,
+    ingredients,
+    scales,
   };
+
+  errors.push(...validateRecipePayload(recipe, table));
+
+  if (errors.length > 0) {
+    return { recipe: null, title, errors, warnings };
+  }
+
+  return { title, errors, warnings, recipe };
 }
 
 async function loadPdfParse() {
@@ -475,29 +556,55 @@ async function loadPdfParse() {
   return pdfParse;
 }
 
+function buildLinesFromTextItems(items: TextItem[]) {
+  const rows = new Map<number, TextItem[]>();
+
+  for (const item of items) {
+    const value = typeof item?.str === "string" ? item.str : "";
+    if (!value.trim()) continue;
+
+    const y = typeof item?.transform?.[5] === "number" ? Math.round(item.transform[5]) : 0;
+    const bucket = Array.from(rows.keys()).find((existing) => Math.abs(existing - y) <= 2) ?? y;
+    const row = rows.get(bucket) ?? [];
+    row.push(item);
+    rows.set(bucket, row);
+  }
+
+  return Array.from(rows.entries())
+    .sort(([a], [b]) => b - a)
+    .map(([, rowItems]) => {
+      const sorted = rowItems.sort((a, b) => (a.transform?.[4] ?? 0) - (b.transform?.[4] ?? 0));
+      let line = "";
+      let previousEnd: number | null = null;
+
+      for (const item of sorted) {
+        const value = String(item.str ?? "");
+        const x = item.transform?.[4] ?? 0;
+        const width = item.width ?? value.length * 4;
+
+        if (previousEnd !== null) {
+          const gap = x - previousEnd;
+          if (gap > 2) line += gap > 10 ? "  " : " ";
+        }
+
+        line += value;
+        previousEnd = x + width;
+      }
+
+      return line.trim();
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 async function renderPdfPageText(pageData: any) {
   const textContent = await pageData.getTextContent({
     normalizeWhitespace: false,
     disableCombineTextItems: false,
   });
 
-  let lastY: number | null = null;
-  let text = "";
-
-  for (const item of textContent.items ?? []) {
-    const value = typeof item?.str === "string" ? item.str : "";
-    const y = typeof item?.transform?.[5] === "number" ? Math.round(item.transform[5]) : null;
-
-    if (lastY === null || y === lastY) {
-      text += value;
-    } else {
-      text += `\n${value}`;
-    }
-
-    lastY = y;
-  }
-
-  return text;
+  const pageText = buildLinesFromTextItems((textContent.items ?? []) as TextItem[]);
+  return pageText || String((textContent.items ?? []).map((item: TextItem) => item.str ?? "").join("\n"));
 }
 
 function splitFallbackPages(rawText: string) {
@@ -566,7 +673,7 @@ export async function importTechnicalSheetsFromPdfAction(
         ignoredPages.push({
           page: pageNumber,
           title: parsed.title,
-          reason: parsed.errors.slice(0, 3).join(" | ") || "Página sem dados suficientes.",
+          reason: parsed.errors.slice(0, 4).join(" | ") || "Página sem dados suficientes.",
         });
         continue;
       }

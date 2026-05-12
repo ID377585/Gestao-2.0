@@ -13,6 +13,7 @@ const labelsMap: Record<string, string> = {
   inventario: "Inventário",
   produtos: "Produtos",
   "fichas-tecnicas": "Fichas Técnicas",
+  "lista-rapida": "Lista Rápida",
   etiquetas: "Etiquetas",
   "historico-pedidos": "Histórico",
   perdas: "Perdas",

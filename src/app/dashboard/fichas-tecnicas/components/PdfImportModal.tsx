@@ -107,28 +107,28 @@ export default function PdfImportModal({
       setUploadProgress(100);
 
       const createdList = result.recipes
-        .slice(0, 12)
+        .slice(0, 20)
         .map((item) => `• ${item.name}${item.page ? ` (página ${item.page})` : ""}`)
         .join("\n");
 
       const ignoredList = result.ignoredPages
-        .slice(0, 12)
+        .slice(0, 30)
         .map((item) => `• Página ${item.page}: ${item.title} (${item.reason})`)
         .join("\n");
 
+      const hasBlockedPages = result.ignoredPages.length > 0;
       const reportMessage =
         `Validação concluída.\n\n` +
         `Fichas criadas: ${result.importedCount}\n` +
         `Páginas bloqueadas para revisão: ${result.ignoredPages.length}\n\n` +
         (createdList ? `Receitas importadas:\n${createdList}\n\n` : "") +
-        (ignoredList ? `Páginas bloqueadas:\n${ignoredList}` : "");
+        (ignoredList ? `Páginas bloqueadas:\n${ignoredList}\n\n` : "") +
+        (hasBlockedPages
+          ? "As páginas bloqueadas NÃO foram criadas. Revise os motivos acima antes de tentar importar novamente."
+          : "Nenhuma página foi bloqueada nesta importação.");
 
       setMessage(reportMessage);
       onSuccess?.();
-
-      window.setTimeout(() => {
-        handleClose();
-      }, 6000);
     } catch (error: any) {
       console.error("Erro na importação do PDF:", error);
       setMessage(error?.message || "Falha ao importar o PDF.");
@@ -140,12 +140,13 @@ export default function PdfImportModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+      <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h2 className="text-lg font-semibold">Importar Ficha Técnica</h2>
             <p className="text-sm text-gray-500">
-              Envie um PDF de até 40 MB para importar várias fichas de uma vez.
+              Envie um PDF de até 40 MB. O sistema só cria fichas quando a
+              tabela passa pelas validações de segurança.
             </p>
           </div>
 
@@ -212,15 +213,16 @@ export default function PdfImportModal({
           )}
 
           {message && (
-            <div className="max-h-64 overflow-auto whitespace-pre-line rounded-lg border px-3 py-2 text-sm">
+            <div className="max-h-96 overflow-auto whitespace-pre-line rounded-lg border px-3 py-2 text-sm">
               {message}
             </div>
           )}
 
           <div className="rounded-md bg-slate-50 p-3 text-sm text-muted-foreground">
-            Nesta etapa, o sistema valida escalas, peso líquido, ingredientes e
-            modo de preparo antes de criar a ficha. Páginas suspeitas são
-            bloqueadas para revisão, evitando fichas técnicas com falhas.
+            O importador bloqueia páginas com escala matemática incoerente,
+            peso líquido divergente, ingredientes sem quantidade ou modo de
+            preparo ausente. Isso evita criar fichas técnicas com campos
+            trocados ou dados incompletos.
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -230,7 +232,7 @@ export default function PdfImportModal({
               disabled={loading}
               className="rounded-lg border px-4 py-2 text-sm"
             >
-              Cancelar
+              Fechar
             </button>
 
             <button

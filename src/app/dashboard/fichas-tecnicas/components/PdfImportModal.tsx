@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ChangeEvent } from "react";
-import { importTechnicalSheetsFromPdfAction } from "@/app/(dashboard)/dashboard/fichas-tecnicas/actions";
+import { importTechnicalSheetsFromPdfAction } from "@/app/(dashboard)/dashboard/fichas-tecnicas/pdf-import-actions";
 
 const MAX_FILE_SIZE = 40 * 1024 * 1024; // 40 MB
 
@@ -83,14 +83,14 @@ export default function PdfImportModal({
     try {
       setLoading(true);
       setUploadProgress(15);
-      setMessage("Lendo PDF e preparando importação...");
+      setMessage("Lendo PDF e preparando validação...");
 
       const formData = new FormData();
       formData.append("file", file);
       formData.append("defaultCategory", category);
 
       setUploadProgress(45);
-      setMessage("Analisando páginas do PDF...");
+      setMessage("Analisando tabelas, escalas e campos obrigatórios...");
 
       const result = await importTechnicalSheetsFromPdfAction(formData);
 
@@ -117,18 +117,18 @@ export default function PdfImportModal({
         .join("\n");
 
       const reportMessage =
-        `Importação concluída com sucesso.\n\n` +
+        `Validação concluída.\n\n` +
         `Fichas criadas: ${result.importedCount}\n` +
-        `Páginas ignoradas: ${result.ignoredPages.length}\n\n` +
+        `Páginas bloqueadas para revisão: ${result.ignoredPages.length}\n\n` +
         (createdList ? `Receitas importadas:\n${createdList}\n\n` : "") +
-        (ignoredList ? `Páginas ignoradas:\n${ignoredList}` : "");
+        (ignoredList ? `Páginas bloqueadas:\n${ignoredList}` : "");
 
       setMessage(reportMessage);
       onSuccess?.();
 
       window.setTimeout(() => {
         handleClose();
-      }, 4000);
+      }, 6000);
     } catch (error: any) {
       console.error("Erro na importação do PDF:", error);
       setMessage(error?.message || "Falha ao importar o PDF.");
@@ -199,7 +199,7 @@ export default function PdfImportModal({
           {loading && (
             <div>
               <div className="mb-1 flex justify-between text-xs">
-                <span>Processo de importação</span>
+                <span>Processo de validação e importação</span>
                 <span>{uploadProgress}%</span>
               </div>
               <div className="h-2 w-full rounded-full bg-gray-200">
@@ -212,14 +212,15 @@ export default function PdfImportModal({
           )}
 
           {message && (
-            <div className="whitespace-pre-line rounded-lg border px-3 py-2 text-sm">
+            <div className="max-h-64 overflow-auto whitespace-pre-line rounded-lg border px-3 py-2 text-sm">
               {message}
             </div>
           )}
 
           <div className="rounded-md bg-slate-50 p-3 text-sm text-muted-foreground">
-            Nesta etapa, o sistema lê o PDF, importa as páginas válidas e ignora
-            automaticamente páginas incompletas ou template.
+            Nesta etapa, o sistema valida escalas, peso líquido, ingredientes e
+            modo de preparo antes de criar a ficha. Páginas suspeitas são
+            bloqueadas para revisão, evitando fichas técnicas com falhas.
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -238,7 +239,7 @@ export default function PdfImportModal({
               disabled={loading || !file}
               className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
             >
-              {loading ? "Importando..." : "Importar PDF"}
+              {loading ? "Validando..." : "Importar PDF"}
             </button>
           </div>
         </div>

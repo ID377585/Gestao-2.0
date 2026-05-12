@@ -192,7 +192,6 @@ function buildPrintHtml(groups: Array<[string, ShoppingListItem[]]>) {
               <td>${escapeHtml(item.nome)}</td>
               <td class="right">${formatQuantity(item.quantidade)}</td>
               <td>${escapeHtml(item.unidade)}</td>
-              <td>${escapeHtml(item.receitas.join(", "))}</td>
             </tr>
           `
         )
@@ -200,7 +199,7 @@ function buildPrintHtml(groups: Array<[string, ShoppingListItem[]]>) {
 
       return `
         <tr class="category-row">
-          <td colspan="4">${escapeHtml(categoria)}</td>
+          <td colspan="3">${escapeHtml(categoria)}</td>
         </tr>
         ${itemsHtml}
       `;
@@ -241,11 +240,10 @@ function buildPrintHtml(groups: Array<[string, ShoppingListItem[]]>) {
         <th>Ingrediente</th>
         <th class="right">Quantidade</th>
         <th>Unidade</th>
-        <th>Receitas</th>
       </tr>
     </thead>
     <tbody>
-      ${rowsHtml || "<tr><td colspan=\"4\">Nenhum item calculado.</td></tr>"}
+      ${rowsHtml || "<tr><td colspan=\"3\">Nenhum item calculado.</td></tr>"}
     </tbody>
   </table>
   <script>
@@ -434,13 +432,12 @@ export default function ListaRapidaPage() {
 
   const exportCsv = () => {
     const rows = [
-      ["Categoria", "Ingrediente", "Quantidade", "Unidade", "Receitas"],
+      ["Categoria", "Ingrediente", "Quantidade", "Unidade"],
       ...shoppingList.map((item) => [
         item.categoria,
         item.nome,
         formatQuantity(item.quantidade),
         item.unidade,
-        item.receitas.join(", "),
       ]),
     ];
 

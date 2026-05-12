@@ -317,9 +317,10 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
   const [message, setMessage] = useState("");
   const [previewPages, setPreviewPages] = useState<PreviewPage[]>([]);
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
-  const [products, setProducts] = useState<ProductOption[]>([]);
-  const [productsLoading, setProductsLoading] = useState(false);
-  const [productsError, setProductsError] = useState("");
+const [products, setProducts] = useState<ProductOption[]>([]);
+const [productsLoading, setProductsLoading] = useState(false);
+const [productsLoaded, setProductsLoaded] = useState(false);
+const [productsError, setProductsError] = useState("");
 
   const productsById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
 
@@ -388,14 +389,15 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
   if (!open) return null;
 
   function resetState() {
-    setCategory("Importado PDF");
-    setFile(null);
-    setUploadProgress(0);
-    setLoading(false);
-    setMessage("");
-    setPreviewPages([]);
-    setStep("upload");
-  }
+  setCategory("Importado PDF");
+  setFile(null);
+  setUploadProgress(0);
+  setLoading(false);
+  setMessage("");
+  setPreviewPages([]);
+  setStep("upload");
+  setProductsLoaded(false);
+}
 
   function handleClose() {
     if (loading) return;
@@ -758,7 +760,13 @@ export default function PdfImportModal({ open, onClose, onSuccess }: Props) {
                                 disabled={loading || productsLoading}
                                 className="rounded-lg border px-3 py-2 outline-none"
                               >
-                                <option value="">{productsLoading ? "Carregando produtos..." : "Selecionar produto"}</option>
+                                <option value="">
+                                  {productsLoading
+                                    ? "Carregando produtos..."
+                                    : products.length === 0
+                                      ? "Nenhum produto encontrado"
+                                      : "Selecionar produto"}
+                                </option>
                                 {products.map((product) => (
                                   <option key={product.id} value={product.id}>{product.name}</option>
                                 ))}

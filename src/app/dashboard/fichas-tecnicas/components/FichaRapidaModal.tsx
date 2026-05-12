@@ -443,6 +443,21 @@ export default function FichaRapidaModal({
             >
               Cancelar
             </Button>
+            
+            <label className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={atrelarFichaTecnica}
+                onChange={(event) => setAtrelarFichaTecnica(event.target.checked)}
+              />
+              <span>
+                <span className="block font-semibold">Atrelar ficha técnica</span>
+                <span className="block text-xs opacity-90">
+                  Ao salvar, também cria ou atualiza o item em Produtos e garante o item no Estoque.
+                </span>
+              </span>
+            </label>
 
             <Button
               type="button"

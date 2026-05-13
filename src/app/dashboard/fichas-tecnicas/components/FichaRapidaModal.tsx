@@ -225,7 +225,10 @@ export default function FichaRapidaModal({
     setIsUploadingImage(true);
 
     try {
-      const result = await uploadTechnicalSheetImageAction(file);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const result = await uploadTechnicalSheetImageAction(formData);
       setImageUrl(result.imageUrl);
       setImagePath(result.imagePath);
       setImageFileName(file.name);

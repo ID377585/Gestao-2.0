@@ -60,6 +60,43 @@ function formatNumber(value: number) {
   }).format(value);
 }
 
+function formatCompactNumber(value: number, maximumFractionDigits = 1) {
+  if (!Number.isFinite(value)) return "0";
+
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  }).format(value);
+}
+
+function formatTemperature(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "—";
+  }
+
+  return `${formatCompactNumber(value)}ºC`;
+}
+
+function formatDuration(minutes?: number | null) {
+  if (minutes === null || minutes === undefined || !Number.isFinite(minutes) || minutes <= 0) {
+    return "—";
+  }
+
+  const roundedMinutes = Math.round(minutes);
+  const hours = Math.floor(roundedMinutes / 60);
+  const remainingMinutes = roundedMinutes % 60;
+
+  if (hours > 0 && remainingMinutes > 0) {
+    return `${hours} h ${remainingMinutes} min`;
+  }
+
+  if (hours > 0) {
+    return `${hours} h`;
+  }
+
+  return `${remainingMinutes} min`;
+}
+
 function formatYieldNumber(value: number) {
   if (!Number.isFinite(value)) return "0";
 
@@ -412,30 +449,21 @@ export default function ScaleEditor({
                 <div>
                   Temperatura
                   <div className="mt-1 text-[16px] font-black normal-case">
-                    {temperatureCelsius !== null &&
-                    temperatureCelsius !== undefined
-                      ? formatNumber(temperatureCelsius)
-                      : "—"}
-                    º
+                    {formatTemperature(temperatureCelsius)}
                   </div>
                 </div>
 
                 <div>
                   Tempo de prep.
                   <div className="mt-1 text-[16px] font-black normal-case">
-                    {prepTimeMinutes ? formatNumber(prepTimeMinutes) : ""}
-                    <span className="ml-1 text-[9px] font-semibold">min</span>
+                    {formatDuration(prepTimeMinutes)}
                   </div>
                 </div>
 
                 <div>
                   Tempo cocção
                   <div className="mt-1 text-[16px] font-black normal-case">
-                    {cookingTimeMinutes !== null &&
-                    cookingTimeMinutes !== undefined
-                      ? formatNumber(cookingTimeMinutes)
-                      : ""}
-                    <span className="ml-1 text-[9px] font-semibold">min</span>
+                    {formatDuration(cookingTimeMinutes)}
                   </div>
                 </div>
 

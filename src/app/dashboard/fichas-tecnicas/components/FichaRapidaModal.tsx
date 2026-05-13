@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import IngredientEditor from "@/app/dashboard/fichas-tecnicas/components/IngredientEditor";
 import { createTechnicalSheetWithOptionalProductLink } from "@/app/(dashboard)/dashboard/fichas-tecnicas/create-linked-actions";
+import { uploadTechnicalSheetImageAction } from "@/app/(dashboard)/dashboard/fichas-tecnicas/actions";
 import {
   type ProductOption as MatcherProductOption,
   type Ingrediente as MatcherIngrediente,
@@ -35,6 +36,8 @@ type Props = {
 const MARGEM_DESEJAVEL_PERCENT = 25;
 const IMPOSTOS_FIXOS_PERCENT = 10.42;
 const IMPOSTOS_DESPESAS_PERCENT = MARGEM_DESEJAVEL_PERCENT + IMPOSTOS_FIXOS_PERCENT;
+const ALLOWED_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "heic"];
+const ALLOWED_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/heic", "image/heif"];
 
 function calcularCustos(
   ingredientes: Ingrediente[],
@@ -117,6 +120,16 @@ function calcularFinanceiroFichaRapida({
   };
 }
 
+function isAllowedImageFile(file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase() || "";
+  const mimeType = file.type.toLowerCase();
+
+  return (
+    ALLOWED_IMAGE_EXTENSIONS.includes(extension) &&
+    (!mimeType || ALLOWED_IMAGE_MIME_TYPES.includes(mimeType))
+  );
+}
+
 export default function FichaRapidaModal({
   open,
   onClose,
@@ -126,12 +139,17 @@ export default function FichaRapidaModal({
   formatCurrency,
 }: Props) {
   const [isPending, startTransition] = useTransition();
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [nome, setNome] = useState("");
   const [rendimento, setRendimento] = useState<number | "">("");
   const [pesoPorcao, setPesoPorcao] = useState<number | "">("");
   const [pesoFinal, setPesoFinal] = useState<number | "">("");
   const [atrelarFichaTecnica, setAtrelarFichaTecnica] = useState(true);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imagePath, setImagePath] = useState<string | null>(null);
+  const [imageFileName, setImageFileName] = useState("");
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // Mantido oculto. Quando vazio, o sistema calcula o preço de venda real pela soma da planilha.
   const [precoVendaReal, setPrecoVendaReal] = useState<number | "">("");
@@ -158,13 +176,17 @@ export default function FichaRapidaModal({
     setPesoPorcao("");
     setPesoFinal("");
     setAtrelarFichaTecnica(true);
+    setImageUrl(null);
+    setImagePath(null);
+    setImageFileName("");
+    setIsUploadingImage(false);
     setPrecoVendaReal("");
     setIngredientes([]);
     setErro("");
   }
 
   function handleClose() {
-    if (isPending) return;
+    if (isPending || isUploadingImage) return;
     resetForm();
     onClose();
   }
@@ -187,8 +209,48 @@ export default function FichaRapidaModal({
     return Number((pesoFinalNumber / pesoPorPorcaoNumber).toFixed(3));
   }
 
+  async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    setErro("");
+
+    if (!isAllowedImageFile(file)) {
+      setErro("Envie uma imagem nos formatos PNG, JPG, JPEG ou HEIC.");
+      return;
+    }
+
+    setIsUploadingImage(true);
+
+    try {
+      const result = await uploadTechnicalSheetImageAction(file);
+      setImageUrl(result.imageUrl);
+      setImagePath(result.imagePath);
+      setImageFileName(file.name);
+    } catch (error: any) {
+      console.error("Erro ao enviar imagem da ficha rápida:", error);
+      setErro(error?.message || "Não foi possível enviar a foto da receita.");
+    } finally {
+      setIsUploadingImage(false);
+    }
+  }
+
+  function removerImagem() {
+    setImageUrl(null);
+    setImagePath(null);
+    setImageFileName("");
+    setErro("");
+  }
+
   function salvarFichaRapida() {
     setErro("");
+
+    if (isUploadingImage) {
+      setErro("Aguarde o envio da foto terminar antes de salvar.");
+      return;
+    }
 
     if (!nome.trim()) {
       setErro("Informe o nome da receita.");
@@ -221,8 +283,8 @@ export default function FichaRapidaModal({
           total_cost: preview.custoTotal,
           cost_per_portion: preview.custoPorPorcao,
           preparation_method: "",
-          image_url: null,
-          image_path: null,
+          image_url: imageUrl,
+          image_path: imagePath,
           difficulty_level: null,
           temperature_celsius: null,
           cooking_time_minutes: null,
@@ -376,6 +438,64 @@ export default function FichaRapidaModal({
             </div>
           </div>
 
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Foto da receita</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Tire uma foto ou envie uma imagem em PNG, JPG, JPEG ou HEIC.
+                </p>
+                {imageFileName ? (
+                  <p className="mt-2 text-xs font-medium text-emerald-700">
+                    Imagem selecionada: {imageFileName}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/heic,.png,.jpg,.jpeg,.heic"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handleImageChange}
+                />
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={isPending || isUploadingImage}
+                >
+                  {isUploadingImage ? "Enviando foto..." : imageUrl ? "Trocar foto" : "Tirar foto"}
+                </Button>
+
+                {imageUrl ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={removerImagem}
+                    disabled={isPending || isUploadingImage}
+                  >
+                    Remover foto
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            {imageUrl ? (
+              <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imageUrl}
+                  alt="Pré-visualização da receita"
+                  className="h-52 w-full object-cover"
+                />
+              </div>
+            ) : null}
+          </div>
+
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="rounded-lg bg-slate-50 p-4">
@@ -440,7 +560,7 @@ export default function FichaRapidaModal({
               type="button"
               variant="outline"
               onClick={handleClose}
-              disabled={isPending}
+              disabled={isPending || isUploadingImage}
             >
               Cancelar
             </Button>
@@ -448,14 +568,16 @@ export default function FichaRapidaModal({
             <Button
               type="button"
               onClick={salvarFichaRapida}
-              disabled={isPending}
+              disabled={isPending || isUploadingImage}
               className="bg-emerald-600 text-white font-semibold shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isPending
                 ? "Salvando..."
-                : atrelarFichaTecnica
-                  ? "Salvar e atrelar ficha"
-                  : "Salvar ficha técnica"}
+                : isUploadingImage
+                  ? "Enviando foto..."
+                  : atrelarFichaTecnica
+                    ? "Salvar e atrelar ficha"
+                    : "Salvar ficha técnica"}
             </Button>
           </div>
         </div>

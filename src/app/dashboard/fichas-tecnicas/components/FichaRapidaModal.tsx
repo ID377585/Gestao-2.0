@@ -32,10 +32,12 @@ type Props = {
   formatCurrency: (value: number) => string;
 };
 
+const MARGEM_DESEJAVEL_PERCENT = 25;
+const IMPOSTOS_DESPESAS_PERCENT = 34.42;
+
 function calcularCustos(
   ingredientes: Ingrediente[],
-  rendimento: number,
-  cmvAlvo = 0
+  rendimento: number
 ) {
   const custoTotal = ingredientes.reduce(
     (acc, item) => acc + Number(item.custoIngrediente || 0),
@@ -45,38 +47,24 @@ function calcularCustos(
   const rendimentoSeguro = Math.max(1, Number(rendimento || 1));
   const custoPorPorcao = custoTotal / rendimentoSeguro;
 
-  let precoVenda = 0;
-
-  if (cmvAlvo > 0 && cmvAlvo < 100) {
-    precoVenda = custoPorPorcao / (cmvAlvo / 100);
-  }
-
   return {
     custoTotal: Number(custoTotal.toFixed(4)),
     custoPorPorcao: Number(custoPorPorcao.toFixed(4)),
-    precoVenda: Number((precoVenda || 0).toFixed(4)),
   };
 }
 
 function calcularFinanceiroFichaRapida({
   custoPorPorcao,
-  cmvAlvoPercent,
-  impostosDespesasPercent,
   precoVendaReal,
 }: {
   custoPorPorcao: number;
-  cmvAlvoPercent: number;
-  impostosDespesasPercent: number;
   precoVendaReal: number;
 }) {
-  const cmvAlvoDecimal = cmvAlvoPercent > 0 ? cmvAlvoPercent / 100 : 0;
-  const impostosDespesasDecimal =
-    impostosDespesasPercent > 0 ? impostosDespesasPercent / 100 : 0;
+  const margemDesejavelDecimal = MARGEM_DESEJAVEL_PERCENT / 100;
+  const impostosDespesasDecimal = IMPOSTOS_DESPESAS_PERCENT / 100;
 
   const precoVendaDesejavel =
-    custoPorPorcao > 0 && cmvAlvoDecimal > 0
-      ? custoPorPorcao / cmvAlvoDecimal
-      : 0;
+    custoPorPorcao > 0 ? custoPorPorcao / margemDesejavelDecimal : 0;
 
   const precoVendaComImpostos =
     precoVendaDesejavel > 0
@@ -101,6 +89,8 @@ function calcularFinanceiroFichaRapida({
     precoVendaBase > 0 ? lucroPorProduto - impostosDespesasValor : 0;
 
   return {
+    margemDesejavelPercent: MARGEM_DESEJAVEL_PERCENT,
+    impostosDespesasPercent: IMPOSTOS_DESPESAS_PERCENT,
     precoVendaDesejavel: Number(precoVendaDesejavel.toFixed(4)),
     precoVendaComImpostos: Number(precoVendaComImpostos.toFixed(4)),
     precoVendaBase: Number(precoVendaBase.toFixed(4)),
@@ -125,12 +115,7 @@ export default function FichaRapidaModal({
   const [rendimento, setRendimento] = useState<number | "">("");
   const [pesoPorcao, setPesoPorcao] = useState<number | "">("");
   const [pesoFinal, setPesoFinal] = useState<number | "">("");
-
-  const [cmvAlvo, setCmvAlvo] = useState<number | "">(25);
   const [atrelarFichaTecnica, setAtrelarFichaTecnica] = useState(true);
-
-  // Mantido oculto para preservar a lógica da planilha sem poluir a tela.
-  const [impostosDespesas, setImpostosDespesas] = useState<number | "">(34.42);
 
   // Mantido oculto. Quando vazio, o sistema usa o preço sugerido com impostos/despesas.
   const [precoVendaReal, setPrecoVendaReal] = useState<number | "">("");
@@ -139,26 +124,22 @@ export default function FichaRapidaModal({
   const [erro, setErro] = useState("");
 
   const preview = useMemo(() => {
-    return calcularCustos(ingredientes, toNumber(rendimento, 1), 0);
+    return calcularCustos(ingredientes, toNumber(rendimento, 1));
   }, [ingredientes, rendimento]);
 
   const financeiro = useMemo(() => {
     return calcularFinanceiroFichaRapida({
       custoPorPorcao: preview.custoPorPorcao,
-      cmvAlvoPercent: toNumber(cmvAlvo, 0),
-      impostosDespesasPercent: toNumber(impostosDespesas, 0),
       precoVendaReal: toNumber(precoVendaReal, 0),
     });
-  }, [preview.custoPorPorcao, cmvAlvo, impostosDespesas, precoVendaReal]);
+  }, [preview.custoPorPorcao, precoVendaReal]);
 
   function resetForm() {
     setNome("");
     setRendimento("");
     setPesoPorcao("");
     setPesoFinal("");
-    setCmvAlvo(25);
     setAtrelarFichaTecnica(true);
-    setImpostosDespesas(34.42);
     setPrecoVendaReal("");
     setIngredientes([]);
     setErro("");
@@ -217,7 +198,7 @@ export default function FichaRapidaModal({
           yield_portions: Math.max(1, toNumber(rendimento, 1)),
           portion_weight: Math.max(0, toNumber(pesoPorcao, 0)),
           prep_time_minutes: 0,
-          profit_margin_percent: toNumber(cmvAlvo, 0),
+          profit_margin_percent: Number((financeiro.cmvReal * 100).toFixed(2)),
           sale_price: financeiro.precoVendaBase,
           total_cost: preview.custoTotal,
           cost_per_portion: preview.custoPorPorcao,
@@ -378,24 +359,26 @@ export default function FichaRapidaModal({
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div>
-                <Label htmlFor="ficha-rapida-cmv-alvo">
-                  CMV desejado (%)
-                </Label>
-                <Input
-                  id="ficha-rapida-cmv-alvo"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={cmvAlvo}
-                  onChange={(e) =>
-                    setCmvAlvo(
-                      e.target.value === "" ? "" : toNumber(e.target.value, 0)
-                    )
-                  }
-                  placeholder="25"
-                />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-lg bg-slate-50 p-4">
+                <p className="text-xs text-slate-500">Margem desejável fixa</p>
+                <p className="text-2xl font-bold text-slate-900">
+                  {financeiro.margemDesejavelPercent}%
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-slate-50 p-4">
+                <p className="text-xs text-slate-500">Impostos + despesas</p>
+                <p className="text-2xl font-bold text-slate-900">
+                  {financeiro.impostosDespesasPercent.toFixed(2)}%
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-slate-50 p-4">
+                <p className="text-xs text-slate-500">CMV calculado</p>
+                <p className="text-2xl font-bold text-slate-900">
+                  {(financeiro.cmvReal * 100).toFixed(1)}%
+                </p>
               </div>
             </div>
 
@@ -426,9 +409,9 @@ export default function FichaRapidaModal({
               </div>
 
               <div className="rounded-lg bg-slate-50 p-4">
-                <p className="text-xs text-slate-500">Lucro por produto</p>
+                <p className="text-xs text-slate-500">Lucro líquido</p>
                 <p className="text-2xl font-bold text-blue-700">
-                  {formatCurrency(financeiro.lucroPorProduto)}
+                  {formatCurrency(financeiro.lucroLiquido)}
                 </p>
               </div>
             </div>

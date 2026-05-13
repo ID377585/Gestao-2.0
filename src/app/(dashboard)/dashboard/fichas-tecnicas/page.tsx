@@ -268,18 +268,11 @@ function calcularPrecificacaoPlanilha({
       ? precoVendaDesejavel + precoVendaDesejavel * impostosDespesasDecimal
       : 0;
 
-  // Na planilha: O43 = SOMA(O36:O42).
-  // Como as linhas relevantes são custo base, preço desejável e preço desejável + impostos:
-  const precoVendaRealCalculado =
-    custoBase + precoVendaDesejavel + precoVendaDesejavelComImpostos;
-
+  // Correção: o CMV deve usar o preço real informado/salvo na ficha.
+  // Quando não houver preço real, usa o preço desejável apenas como fallback.
   const precoVendaReal =
-    precoVendaRealManual > 0
-      ? precoVendaRealManual
-      : precoVendaRealCalculado;
+    precoVendaRealManual > 0 ? precoVendaRealManual : precoVendaDesejavel;
 
-  // Para o card do sistema, conforme solicitado:
-  // Lucro unitário = preço de venda desejável - custo base.
   const lucroUnitario = calcularLucroUnitario(
     precoVendaDesejavel,
     custoBase
@@ -324,6 +317,7 @@ function calcularPrecificacaoDaFicha(ficha: FichaTecnica) {
     ingredientes: ficha.ingredientes,
     rendimento: ficha.rendimento,
     pesoFinal: Number(ficha.correctionFactorGrams || 0),
+    precoVendaRealManual: Number(ficha.precoVenda || 0),
   });
 }
 
@@ -518,6 +512,7 @@ function toActionPayload(
     })),
   };
 }
+
 function escapeCsv(val: unknown) {
   const s = String(val ?? "");
   if (/[",;\n]/.test(s)) {
@@ -562,7 +557,8 @@ function buildPrintHtml(
   const precificacao = calcularPrecificacaoDaFicha(ficha);
 
   const custoPorPorcao = precificacao.custoPorPorcao || ficha.custoPorPorcao || 0;
-  const precoVenda = precificacao.precoVendaDesejavel || ficha.precoVenda || 0;
+  const precoVenda =
+    precificacao.precoVendaReal || precificacao.precoVendaDesejavel || ficha.precoVenda || 0;
   const custoTotalAjustado = scaled.custoTotal || ficha.custoTotal || 0;
   const cmv = precificacao.cmvRealPercent || 0;
 
@@ -1072,7 +1068,7 @@ function buildPrintHtml(
       </div>
 
       <div class="metric-card success">
-        <div class="metric-label">Preço de venda desejável</div>
+        <div class="metric-label">Preço de venda</div>
         <div class="metric-value">${formatCurrency(precoVenda)}</div>
       </div>
 
@@ -1170,7 +1166,6 @@ function EscalasViewer({ escalas }: { escalas: EscalaFicha[] }) {
     </div>
   );
 }
-
 function RecipeViewerInline({
   ficha,
   desiredServings,
@@ -1220,7 +1215,12 @@ function RecipeViewerInline({
   const custoTotal = scaled.custoTotal || ficha.custoTotal || 0;
   const custoPorPorcao =
     precificacao.custoPorPorcao || ficha.custoPorPorcao || 0;
-  const precoVenda = precificacao.precoVendaDesejavel || ficha.precoVenda || 0;
+
+  // Correção: exibe o preço real salvo quando existir.
+  // Se não existir preço real salvo, usa o preço desejável como fallback.
+  const precoVenda =
+    precificacao.precoVendaReal || precificacao.precoVendaDesejavel || ficha.precoVenda || 0;
+
   const lucro = precificacao.lucroUnitario || 0;
   const cmv = precificacao.cmvRealPercent || 0;
 
@@ -1347,6 +1347,7 @@ function RecipeViewerInline({
     </Card>
   );
 }
+
 export default function FichasTecnicasPage() {
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
@@ -1558,8 +1559,7 @@ export default function FichasTecnicasPage() {
       setDesiredServings(Math.max(1, fichaSelecionada.rendimento || 1));
     }
   }, [fichaSelecionada]);
-
-  const categoriasDisponiveis = useMemo(() => {
+    const categoriasDisponiveis = useMemo(() => {
     const unique = Array.from(
       new Set(
         fichasTecnicas
@@ -1792,7 +1792,8 @@ export default function FichasTecnicasPage() {
       return;
     }
 
-    const pesoFinal = correctionFactorGrams === "" ? 0 : toNumber(correctionFactorGrams, 0);
+    const pesoFinal =
+      correctionFactorGrams === "" ? 0 : toNumber(correctionFactorGrams, 0);
 
     const custos = calcularCustos(
       ingredientes,
@@ -1811,8 +1812,16 @@ export default function FichasTecnicasPage() {
       tempoPreparo: tempoPreparo === "" ? 0 : toNumber(tempoPreparo, 0),
       custoTotal: custos.custoTotal,
       custoPorPorcao: custos.custoPorPorcao,
-      margemLucro: custos.cmvRealPercent,
-      precoVenda: custos.precoVendaDesejavel,
+
+      // Correção: este campo representa a margem configurada,
+      // não o CMV calculado.
+      margemLucro: custos.margemDesejavelPercent,
+
+      // Correção: salva um preço de venda consistente.
+      // Se no futuro houver preço real editável, ele deve entrar aqui.
+      // Por enquanto, para ficha nova, usa o preço desejável.
+      precoVenda: custos.precoVendaReal || custos.precoVendaDesejavel,
+
       modoPreparo: modoPreparo.trim(),
       imageUrl,
       imagePath,
@@ -1918,8 +1927,18 @@ export default function FichasTecnicasPage() {
       tempoPreparo: fichaEditando.tempoPreparo,
       custoTotal: custos.custoTotal,
       custoPorPorcao: custos.custoPorPorcao,
-      margemLucro: custos.cmvRealPercent,
-      precoVenda: custos.precoVendaDesejavel,
+
+      // Correção: mantém margem como margem configurada,
+      // não sobrescreve com CMV.
+      margemLucro: custos.margemDesejavelPercent,
+
+      // Correção: preserva o preço real salvo na ficha quando existir.
+      // Isso impede o CMV de voltar para um valor padronizado.
+      precoVenda:
+        Number(fichaEditando.precoVenda || 0) > 0
+          ? Number(fichaEditando.precoVenda)
+          : custos.precoVendaReal || custos.precoVendaDesejavel,
+
       modoPreparo: fichaEditando.modoPreparo,
       imageUrl: fichaEditando.imageUrl,
       imagePath: fichaEditando.imagePath,
@@ -2191,7 +2210,7 @@ export default function FichasTecnicasPage() {
   };
 
   return (
-        <div className="space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Fichas Técnicas</h1>
@@ -2261,8 +2280,7 @@ export default function FichasTecnicasPage() {
                 para expandir os detalhes completos abaixo.
               </CardDescription>
             </div>
-
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="xl:col-span-2">
                 <Label htmlFor="search-fichas">Buscar</Label>
                 <Input
@@ -2315,6 +2333,12 @@ export default function FichasTecnicasPage() {
                 {fichasFiltradas.map((ficha) => {
                   const ativa = fichaSelecionada?.id === ficha.id;
                   const precificacao = calcularPrecificacaoDaFicha(ficha);
+
+                  const precoVendaCard =
+                    precificacao.precoVendaReal ||
+                    precificacao.precoVendaDesejavel ||
+                    ficha.precoVenda ||
+                    0;
 
                   return (
                     <button
@@ -2374,13 +2398,10 @@ export default function FichasTecnicasPage() {
 
                           <div>
                             <p className="text-muted-foreground">
-                              Preço desejável
+                              Preço de venda
                             </p>
                             <p className="font-bold text-green-600">
-                              {formatCurrency(
-                                precificacao.precoVendaDesejavel ||
-                                  ficha.precoVenda
-                              )}
+                              {formatCurrency(precoVendaCard)}
                             </p>
                           </div>
 

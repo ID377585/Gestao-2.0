@@ -123,6 +123,23 @@ type FichaTecnica = {
 
 type ViewerTab = "ingredientes" | "preparo" | "escalas";
 
+type PrecificacaoPlanilha = {
+  custoTotal: number;
+  custoPorPorcao: number;
+  custoBase: number;
+  margemDesejavelPercent: number;
+  impostosFixosPercent: number;
+  impostosDespesasPercent: number;
+  precoVendaDesejavel: number;
+  precoVendaDesejavelComImpostos: number;
+  precoVendaReal: number;
+  lucroUnitario: number;
+  lucroPorProduto: number;
+  impostosDespesasValor: number;
+  cmvRealPercent: number;
+  lucroLiquido: number;
+};
+
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -159,6 +176,11 @@ const SECTOR_OPTIONS = [
   "Cozinha",
 ];
 
+const MARGEM_DESEJAVEL_PERCENT = 25;
+const IMPOSTOS_FIXOS_PERCENT = 10.42;
+const IMPOSTOS_DESPESAS_PERCENT =
+  MARGEM_DESEJAVEL_PERCENT + IMPOSTOS_FIXOS_PERCENT;
+
 function getTodayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -173,13 +195,21 @@ function compareFichaByNome(a: FichaTecnica, b: FichaTecnica) {
   });
 }
 
-function calcularCMV(custoPorPorcao: number, precoVenda: number) {
-  if (!precoVenda || precoVenda <= 0) return 0;
-  return (custoPorPorcao / precoVenda) * 100;
+function arredondarMoeda(value: number) {
+  return Number((value || 0).toFixed(2));
 }
 
-function calcularLucroUnitario(precoVenda: number, custoPorPorcao: number) {
-  return (precoVenda || 0) - (custoPorPorcao || 0);
+function arredondarPercentual(value: number) {
+  return Number((value || 0).toFixed(2));
+}
+
+function calcularCMV(custoBase: number, precoVendaReal: number) {
+  if (!precoVendaReal || precoVendaReal <= 0) return 0;
+  return (custoBase / precoVendaReal) * 100;
+}
+
+function calcularLucroUnitario(precoVendaDesejavel: number, custoBase: number) {
+  return (precoVendaDesejavel || 0) - (custoBase || 0);
 }
 
 function calcularRendimentoPorPesoFinal(
@@ -196,31 +226,117 @@ function calcularRendimentoPorPesoFinal(
   return Number((pesoFinalNumber / pesoPorPorcaoNumber).toFixed(3));
 }
 
+function somarCustoIngredientes(ingredientes: Ingrediente[]) {
+  return ingredientes.reduce(
+    (acc, item) => acc + Number(item.custoIngrediente || 0),
+    0
+  );
+}
+
+function calcularPrecificacaoPlanilha({
+  ingredientes,
+  rendimento,
+  pesoFinal,
+  precoVendaRealManual = 0,
+}: {
+  ingredientes: Ingrediente[];
+  rendimento: number;
+  pesoFinal: number;
+  precoVendaRealManual?: number;
+}): PrecificacaoPlanilha {
+  const custoTotal = somarCustoIngredientes(ingredientes);
+
+  const rendimentoSeguro = Number(rendimento || 0);
+  const custoPorPorcao =
+    rendimentoSeguro > 0 ? custoTotal / rendimentoSeguro : 0;
+
+  const pesoFinalSeguro = Number(pesoFinal || 0) > 0 ? Number(pesoFinal) : 1;
+
+  // Na planilha: O37 = SOMA(O12:O21;O24:O33) / K6
+  const custoBase = custoTotal > 0 ? custoTotal / pesoFinalSeguro : 0;
+
+  const margemDecimal = MARGEM_DESEJAVEL_PERCENT / 100;
+  const impostosDespesasDecimal = IMPOSTOS_DESPESAS_PERCENT / 100;
+
+  // Na planilha: O39 = O37 / M39
+  const precoVendaDesejavel =
+    custoBase > 0 && margemDecimal > 0 ? custoBase / margemDecimal : 0;
+
+  // Na planilha: O42 = (O39 * M41) + O39
+  const precoVendaDesejavelComImpostos =
+    precoVendaDesejavel > 0
+      ? precoVendaDesejavel + precoVendaDesejavel * impostosDespesasDecimal
+      : 0;
+
+  // Na planilha: O43 = SOMA(O36:O42).
+  // Como as linhas relevantes são custo base, preço desejável e preço desejável + impostos:
+  const precoVendaRealCalculado =
+    custoBase + precoVendaDesejavel + precoVendaDesejavelComImpostos;
+
+  const precoVendaReal =
+    precoVendaRealManual > 0
+      ? precoVendaRealManual
+      : precoVendaRealCalculado;
+
+  // Para o card do sistema, conforme solicitado:
+  // Lucro unitário = preço de venda desejável - custo base.
+  const lucroUnitario = calcularLucroUnitario(
+    precoVendaDesejavel,
+    custoBase
+  );
+
+  // Na planilha: O45 = O43 - O37.
+  const lucroPorProduto =
+    precoVendaReal > 0 ? precoVendaReal - custoBase : 0;
+
+  // Na planilha: O46 = O43 * M41.
+  const impostosDespesasValor =
+    precoVendaReal > 0 ? precoVendaReal * impostosDespesasDecimal : 0;
+
+  // Na planilha: O47 = O37 / O43.
+  const cmvRealPercent = calcularCMV(custoBase, precoVendaReal);
+
+  // Na planilha: O48 = O45 - O46.
+  const lucroLiquido = lucroPorProduto - impostosDespesasValor;
+
+  return {
+    custoTotal: arredondarMoeda(custoTotal),
+    custoPorPorcao: arredondarMoeda(custoPorPorcao),
+    custoBase: arredondarMoeda(custoBase),
+    margemDesejavelPercent: MARGEM_DESEJAVEL_PERCENT,
+    impostosFixosPercent: IMPOSTOS_FIXOS_PERCENT,
+    impostosDespesasPercent: IMPOSTOS_DESPESAS_PERCENT,
+    precoVendaDesejavel: arredondarMoeda(precoVendaDesejavel),
+    precoVendaDesejavelComImpostos: arredondarMoeda(
+      precoVendaDesejavelComImpostos
+    ),
+    precoVendaReal: arredondarMoeda(precoVendaReal),
+    lucroUnitario: arredondarMoeda(lucroUnitario),
+    lucroPorProduto: arredondarMoeda(lucroPorProduto),
+    impostosDespesasValor: arredondarMoeda(impostosDespesasValor),
+    cmvRealPercent: arredondarPercentual(cmvRealPercent),
+    lucroLiquido: arredondarMoeda(lucroLiquido),
+  };
+}
+
+function calcularPrecificacaoDaFicha(ficha: FichaTecnica) {
+  return calcularPrecificacaoPlanilha({
+    ingredientes: ficha.ingredientes,
+    rendimento: ficha.rendimento,
+    pesoFinal: Number(ficha.correctionFactorGrams || 0),
+  });
+}
+
 function calcularCustos(
   ingredientes: Ingrediente[],
   rendimento: number,
-  cmvAlvo: number
+  pesoFinal: number
 ) {
-  const custoTotal = ingredientes.reduce(
-    (acc, item) => acc + (item.custoIngrediente || 0),
-    0
-  );
-
-  const custoPorPorcao =
-    rendimento > 0 ? Number((custoTotal / rendimento).toFixed(2)) : 0;
-
-  const precoVenda =
-    cmvAlvo > 0 && cmvAlvo < 100
-      ? Number((custoPorPorcao / (cmvAlvo / 100)).toFixed(2))
-      : cmvAlvo >= 100
-        ? Number((custoPorPorcao * (1 + cmvAlvo / 100)).toFixed(2))
-        : 0;
-
-  return {
-    custoTotal: Number(custoTotal.toFixed(2)),
-    custoPorPorcao,
-    precoVenda,
-  };
+  return calcularPrecificacaoPlanilha({
+    ingredientes,
+    rendimento,
+    pesoFinal,
+  });
 }
 
 function normalizeFichaFromDb(raw: any): FichaTecnica {
@@ -402,7 +518,6 @@ function toActionPayload(
     })),
   };
 }
-
 function escapeCsv(val: unknown) {
   const s = String(val ?? "");
   if (/[",;\n]/.test(s)) {
@@ -444,10 +559,12 @@ function buildPrintHtml(
   currentTab: ViewerTab
 ) {
   const scaled = getScaledFicha(ficha, desiredServings);
+  const precificacao = calcularPrecificacaoDaFicha(ficha);
 
-  const custoPorPorcao = ficha.custoPorPorcao || 0;
-  const precoVenda = ficha.precoVenda || 0;
-  const custoTotalAjustado = scaled.custoTotal || 0;
+  const custoPorPorcao = precificacao.custoPorPorcao || ficha.custoPorPorcao || 0;
+  const precoVenda = precificacao.precoVendaDesejavel || ficha.precoVenda || 0;
+  const custoTotalAjustado = scaled.custoTotal || ficha.custoTotal || 0;
+  const cmv = precificacao.cmvRealPercent || 0;
 
   const quantidadeRendimento = Number(ficha.rendimento || 0);
   const textoPorcao = quantidadeRendimento === 1 ? "porção" : "porções";
@@ -523,11 +640,6 @@ function buildPrintHtml(
   )} ${unidadePesoPorcao} - Peso Receita Total: ${formatPeso(
     pesoReceitaTotalKg
   )} ${unidadePesoPorcao}`;
-
-  const cmv =
-    Number.isFinite(Number(ficha.margemLucro)) && Number(ficha.margemLucro) > 0
-      ? Number(ficha.margemLucro)
-      : calcularCMV(custoPorPorcao, precoVenda);
 
   const imageHtml = ficha.imageUrl
     ? `
@@ -955,12 +1067,12 @@ function buildPrintHtml(
       </div>
 
       <div class="metric-card primary">
-        <div class="metric-label">Rendimento</div>
-        <div class="metric-value">${quantidadeRendimento} ${textoPorcao}</div>
+        <div class="metric-label">Custo por porção</div>
+        <div class="metric-value">${formatCurrency(custoPorPorcao)}</div>
       </div>
 
       <div class="metric-card success">
-        <div class="metric-label">Preço de venda</div>
+        <div class="metric-label">Preço de venda desejável</div>
         <div class="metric-value">${formatCurrency(precoVenda)}</div>
       </div>
 
@@ -1103,11 +1215,14 @@ function RecipeViewerInline({
   }
 
   const scaled = getScaledFicha(ficha, desiredServings);
-  const cmv =
-    Number.isFinite(Number(ficha.margemLucro)) && Number(ficha.margemLucro) > 0
-      ? Number(ficha.margemLucro)
-      : calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
-  const lucro = calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao);
+  const precificacao = calcularPrecificacaoDaFicha(ficha);
+
+  const custoTotal = scaled.custoTotal || ficha.custoTotal || 0;
+  const custoPorPorcao =
+    precificacao.custoPorPorcao || ficha.custoPorPorcao || 0;
+  const precoVenda = precificacao.precoVendaDesejavel || ficha.precoVenda || 0;
+  const lucro = precificacao.lucroUnitario || 0;
+  const cmv = precificacao.cmvRealPercent || 0;
 
   return (
     <Card className="overflow-hidden border border-slate-200 bg-white text-slate-900 shadow-sm">
@@ -1196,21 +1311,21 @@ function RecipeViewerInline({
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-xs text-slate-500">Custo total</p>
             <p className="mt-1 text-2xl font-bold text-red-600">
-              {formatCurrency(scaled.custoTotal)}
+              {formatCurrency(custoTotal)}
             </p>
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-xs text-slate-500">Custo por porção</p>
             <p className="mt-1 text-2xl font-bold text-slate-900">
-              {formatCurrency(ficha.custoPorPorcao)}
+              {formatCurrency(custoPorPorcao)}
             </p>
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-xs text-slate-500">Preço de venda</p>
             <p className="mt-1 text-2xl font-bold text-green-600">
-              {formatCurrency(ficha.precoVenda)}
+              {formatCurrency(precoVenda)}
             </p>
           </div>
 
@@ -1232,7 +1347,6 @@ function RecipeViewerInline({
     </Card>
   );
 }
-
 export default function FichasTecnicasPage() {
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
@@ -1260,7 +1374,6 @@ export default function FichasTecnicasPage() {
   const [rendimento, setRendimento] = useState<number>(1);
   const [pesoPorcao, setPesoPorcao] = useState<number | "">("");
   const [tempoPreparo, setTempoPreparo] = useState<number | "">("");
-  const [cmvAlvo, setCmvAlvo] = useState<number>(30);
   const [modoPreparo, setModoPreparo] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
@@ -1484,26 +1597,30 @@ export default function FichasTecnicasPage() {
   const custoMedio = useMemo(() => {
     if (!fichasTecnicas.length) return 0;
     return (
-      fichasTecnicas.reduce((acc, f) => acc + f.custoPorPorcao, 0) /
-      fichasTecnicas.length
+      fichasTecnicas.reduce((acc, f) => {
+        const precificacao = calcularPrecificacaoDaFicha(f);
+        return acc + (precificacao.custoPorPorcao || f.custoPorPorcao || 0);
+      }, 0) / fichasTecnicas.length
     );
   }, [fichasTecnicas]);
 
   const cmvMedio = useMemo(() => {
     if (!fichasTecnicas.length) return 0;
     return (
-      fichasTecnicas.reduce(
-        (acc, f) => acc + calcularCMV(f.custoPorPorcao, f.precoVenda),
-        0
-      ) / fichasTecnicas.length
+      fichasTecnicas.reduce((acc, f) => {
+        const precificacao = calcularPrecificacaoDaFicha(f);
+        return acc + (precificacao.cmvRealPercent || 0);
+      }, 0) / fichasTecnicas.length
     );
   }, [fichasTecnicas]);
 
   const cmvAlvoMedio = useMemo(() => {
     if (!fichasTecnicas.length) return 0;
     return (
-      fichasTecnicas.reduce((acc, f) => acc + f.margemLucro, 0) /
-      fichasTecnicas.length
+      fichasTecnicas.reduce((acc, f) => {
+        const precificacao = calcularPrecificacaoDaFicha(f);
+        return acc + (precificacao.cmvRealPercent || 0);
+      }, 0) / fichasTecnicas.length
     );
   }, [fichasTecnicas]);
 
@@ -1527,7 +1644,6 @@ export default function FichasTecnicasPage() {
     setRendimento(1);
     setPesoPorcao("");
     setTempoPreparo("");
-    setCmvAlvo(14);
     setModoPreparo("");
     setImageUrl(null);
     setImagePath(null);
@@ -1676,7 +1792,14 @@ export default function FichasTecnicasPage() {
       return;
     }
 
-    const custos = calcularCustos(ingredientes, rendimento, cmvAlvo);
+    const pesoFinal = correctionFactorGrams === "" ? 0 : toNumber(correctionFactorGrams, 0);
+
+    const custos = calcularCustos(
+      ingredientes,
+      rendimento,
+      pesoFinal
+    );
+
     const updatedDate = getTodayIsoDate();
     const detectedAllergens = autoAllergens;
 
@@ -1688,8 +1811,8 @@ export default function FichasTecnicasPage() {
       tempoPreparo: tempoPreparo === "" ? 0 : toNumber(tempoPreparo, 0),
       custoTotal: custos.custoTotal,
       custoPorPorcao: custos.custoPorPorcao,
-      margemLucro: toNumber(cmvAlvo, 0),
-      precoVenda: custos.precoVenda,
+      margemLucro: custos.cmvRealPercent,
+      precoVenda: custos.precoVendaDesejavel,
       modoPreparo: modoPreparo.trim(),
       imageUrl,
       imagePath,
@@ -1737,7 +1860,8 @@ export default function FichasTecnicasPage() {
       }
     });
   };
-    const handleEditarFicha = (ficha: FichaTecnica) => {
+
+  const handleEditarFicha = (ficha: FichaTecnica) => {
     setFichaEditando({
       ...ficha,
       ingredientes: ficha.ingredientes.map((i) => ({ ...i })),
@@ -1782,7 +1906,7 @@ export default function FichasTecnicasPage() {
     const custos = calcularCustos(
       fichaEditando.ingredientes,
       fichaEditando.rendimento,
-      fichaEditando.margemLucro
+      Number(fichaEditando.correctionFactorGrams || 0)
     );
 
     const payload = toActionPayload({
@@ -1794,8 +1918,8 @@ export default function FichasTecnicasPage() {
       tempoPreparo: fichaEditando.tempoPreparo,
       custoTotal: custos.custoTotal,
       custoPorPorcao: custos.custoPorPorcao,
-      margemLucro: fichaEditando.margemLucro,
-      precoVenda: custos.precoVenda,
+      margemLucro: custos.cmvRealPercent,
+      precoVenda: custos.precoVendaDesejavel,
       modoPreparo: fichaEditando.modoPreparo,
       imageUrl: fichaEditando.imageUrl,
       imagePath: fichaEditando.imagePath,
@@ -1938,9 +2062,9 @@ export default function FichasTecnicasPage() {
       "escalas",
       "custo_total",
       "custo_por_porcao",
-      "preco_venda",
-      "cmv",
-      "cmv_alvo",
+      "preco_venda_desejavel",
+      "preco_venda_real_planilha",
+      "cmv_calculado",
       "lucro_unitario",
       "ingredientes",
     ];
@@ -1948,6 +2072,8 @@ export default function FichasTecnicasPage() {
     const lines = [headers.join(";")];
 
     fichasTecnicas.forEach((ficha) => {
+      const precificacao = calcularPrecificacaoDaFicha(ficha);
+
       const row = [
         escapeCsv(ficha.nome),
         escapeCsv(ficha.categoria),
@@ -1974,14 +2100,12 @@ export default function FichasTecnicasPage() {
         escapeCsv(ficha.sourceFileName ?? ""),
         escapeCsv(ficha.sourcePageNumber ?? ""),
         escapeCsv(ficha.escalas.length),
-        escapeCsv(ficha.custoTotal.toFixed(2)),
-        escapeCsv(ficha.custoPorPorcao.toFixed(2)),
-        escapeCsv(ficha.precoVenda.toFixed(2)),
-        escapeCsv(calcularCMV(ficha.custoPorPorcao, ficha.precoVenda).toFixed(1)),
-        escapeCsv(ficha.margemLucro.toFixed(0)),
-        escapeCsv(
-          calcularLucroUnitario(ficha.precoVenda, ficha.custoPorPorcao).toFixed(2)
-        ),
+        escapeCsv(precificacao.custoTotal.toFixed(2)),
+        escapeCsv(precificacao.custoPorPorcao.toFixed(2)),
+        escapeCsv(precificacao.precoVendaDesejavel.toFixed(2)),
+        escapeCsv(precificacao.precoVendaReal.toFixed(2)),
+        escapeCsv(precificacao.cmvRealPercent.toFixed(1)),
+        escapeCsv(precificacao.lucroUnitario.toFixed(2)),
         escapeCsv(ficha.ingredientes.length),
       ];
 
@@ -2067,7 +2191,7 @@ export default function FichasTecnicasPage() {
   };
 
   return (
-    <div className="space-y-6">
+        <div className="space-y-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Fichas Técnicas</h1>
@@ -2190,7 +2314,7 @@ export default function FichasTecnicasPage() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {fichasFiltradas.map((ficha) => {
                   const ativa = fichaSelecionada?.id === ficha.id;
-                  const cmv = calcularCMV(ficha.custoPorPorcao, ficha.precoVenda);
+                  const precificacao = calcularPrecificacaoDaFicha(ficha);
 
                   return (
                     <button
@@ -2241,20 +2365,30 @@ export default function FichasTecnicasPage() {
                               Custo por porção
                             </p>
                             <p className="font-bold text-red-600">
-                              {formatCurrency(ficha.custoPorPorcao)}
+                              {formatCurrency(
+                                precificacao.custoPorPorcao ||
+                                  ficha.custoPorPorcao
+                              )}
                             </p>
                           </div>
 
                           <div>
-                            <p className="text-muted-foreground">Preço sugerido</p>
+                            <p className="text-muted-foreground">
+                              Preço desejável
+                            </p>
                             <p className="font-bold text-green-600">
-                              {formatCurrency(ficha.precoVenda)}
+                              {formatCurrency(
+                                precificacao.precoVendaDesejavel ||
+                                  ficha.precoVenda
+                              )}
                             </p>
                           </div>
 
                           <div>
                             <p className="text-muted-foreground">CMV</p>
-                            <p className="font-bold">{cmv.toFixed(1)}%</p>
+                            <p className="font-bold">
+                              {(precificacao.cmvRealPercent || 0).toFixed(1)}%
+                            </p>
                           </div>
 
                           <div>
@@ -2275,7 +2409,8 @@ export default function FichasTecnicasPage() {
             )}
           </CardContent>
         </Card>
-                <div ref={viewerRef} className="space-y-3">
+
+        <div ref={viewerRef} className="space-y-3">
           {showFichaDetalhe && fichaSelecionada ? (
             <>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2452,16 +2587,6 @@ export default function FichasTecnicasPage() {
                   min={0}
                   value={tempoPreparo}
                   onChange={(e) => setTempoPreparo(toNumber(e.target.value, 0))}
-                />
-              </div>
-
-              <div>
-                <Label>CMV alvo (%)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={cmvAlvo}
-                  onChange={(e) => setCmvAlvo(toNumber(e.target.value, 0))}
                 />
               </div>
 
@@ -2760,7 +2885,8 @@ export default function FichasTecnicasPage() {
           </div>
         </DialogContent>
       </Dialog>
-            <Dialog open={showEditarFicha} onOpenChange={setShowEditarFicha}>
+
+      <Dialog open={showEditarFicha} onOpenChange={setShowEditarFicha}>
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl !bg-white !text-slate-900 border border-slate-200 shadow-2xl">
           <DialogHeader>
             <DialogTitle>Editar Ficha Técnica</DialogTitle>
@@ -2919,25 +3045,6 @@ export default function FichasTecnicasPage() {
                           ? {
                               ...prev,
                               tempoPreparo: toNumber(e.target.value, 0),
-                            }
-                          : prev
-                      )
-                    }
-                  />
-                </div>
-
-                <div>
-                  <Label>CMV alvo (%)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={fichaEditando.margemLucro}
-                    onChange={(e) =>
-                      setFichaEditando((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              margemLucro: toNumber(e.target.value, 0),
                             }
                           : prev
                       )

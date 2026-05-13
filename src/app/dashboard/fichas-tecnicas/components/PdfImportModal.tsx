@@ -349,46 +349,60 @@ const [productsError, setProductsError] = useState("");
   );
 
   useEffect(() => {
-    if (!open) resetState();
-  }, [open]);
+  if (!open || productsLoaded) return;
 
-  useEffect(() => {
-    if (!open || products.length > 0 || productsLoading) return;
+  let mounted = true;
 
-    let mounted = true;
+  async function loadProducts() {
+    setProductsLoading(true);
+    setProductsError("");
 
-    async function loadProducts() {
-      try {
-        setProductsLoading(true);
-        setProductsError("");
+    try {
+      const response = await fetch("/api/products/catalog", {
+        cache: "no-store",
+      });
 
-        const response = await fetch("/api/products/catalog", { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`Erro ao carregar catálogo de produtos (HTTP ${response.status}).`);
-        }
+      if (!response.ok) {
+        throw new Error(`Erro ao carregar catálogo de produtos (HTTP ${response.status}).`);
+      }
 
-        const data = await response.json();
-        if (!mounted) return;
-        setProducts(normalizeProductList(data));
-      } catch (error: any) {
-        if (!mounted) return;
-        setProducts([]);
-        setProductsError(error?.message || "Não foi possível carregar o catálogo de produtos.");
-      } finally {
-        if (mounted) setProductsLoading(false);
+      const data = await response.json();
+
+      if (!mounted) return;
+
+      const normalizedProducts = normalizeProductList(data);
+      setProducts(normalizedProducts);
+
+      if (normalizedProducts.length === 0) {
+        setProductsError(
+          "Nenhum produto ativo foi encontrado no catálogo deste estabelecimento."
+        );
+      }
+    } catch (error: any) {
+      if (!mounted) return;
+
+      setProducts([]);
+      setProductsError(
+        error?.message || "Não foi possível carregar o catálogo de produtos."
+      );
+    } finally {
+      if (mounted) {
+        setProductsLoaded(true);
+        setProductsLoading(false);
       }
     }
+  }
 
-    loadProducts();
+  loadProducts();
 
-    return () => {
-      mounted = false;
-    };
-  }, [open, products.length, productsLoading]);
+  return () => {
+    mounted = false;
+  };
+}, [open, productsLoaded]);
 
-  if (!open) return null;
+if (!open) return null;
 
-  function resetState() {
+function resetState() {
   setCategory("Importado PDF");
   setFile(null);
   setUploadProgress(0);
@@ -396,6 +410,12 @@ const [productsError, setProductsError] = useState("");
   setMessage("");
   setPreviewPages([]);
   setStep("upload");
+}
+
+function retryLoadProducts() {
+  setProducts([]);
+  setProductsError("");
+  setProductsLoading(false);
   setProductsLoaded(false);
 }
 
@@ -751,6 +771,19 @@ const [productsError, setProductsError] = useState("");
                             + Ingrediente
                           </button>
                         </div>
+                        {productsError && (
+                      <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                        <p>{productsError}</p>
+                        <button
+                          type="button"
+                          onClick={retryLoadProducts}
+                          disabled={loading || productsLoading}
+                          className="mt-2 rounded border px-2 py-1 text-xs"
+                        >
+                          Tentar carregar produtos novamente
+                        </button>
+                      </div>
+                    )}
                         <div className="space-y-2">
                           {(page.recipe.ingredients ?? []).map((ingredient, index) => (
                             <div key={`${page.page}-ingredient-${index}`} className="grid gap-2 md:grid-cols-[1fr_120px_90px_auto]">
@@ -763,9 +796,11 @@ const [productsError, setProductsError] = useState("");
                                 <option value="">
                                   {productsLoading
                                     ? "Carregando produtos..."
-                                    : products.length === 0
-                                      ? "Nenhum produto encontrado"
-                                      : "Selecionar produto"}
+                                    : productsError
+                                      ? "Erro ao carregar produtos"
+                                      : products.length === 0
+                                        ? "Nenhum produto ativo encontrado"
+                                        : "Selecionar produto"}
                                 </option>
                                 {products.map((product) => (
                                   <option key={product.id} value={product.id}>{product.name}</option>

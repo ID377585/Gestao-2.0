@@ -237,7 +237,6 @@ function calcularPrecificacaoPlanilha({
   ingredientes,
   rendimento,
   pesoFinal,
-  precoVendaRealManual = 0,
 }: {
   ingredientes: Ingrediente[];
   rendimento: number;
@@ -252,44 +251,40 @@ function calcularPrecificacaoPlanilha({
 
   const pesoFinalSeguro = Number(pesoFinal || 0) > 0 ? Number(pesoFinal) : 1;
 
-  // Na planilha: O37 = SOMA(O12:O21;O24:O33) / K6
+  // Mantido apenas como referência de custo por peso.
+  // Não usar para preço de venda, lucro ou CMV da porção.
   const custoBase = custoTotal > 0 ? custoTotal / pesoFinalSeguro : 0;
 
   const margemDecimal = MARGEM_DESEJAVEL_PERCENT / 100;
   const impostosDespesasDecimal = IMPOSTOS_DESPESAS_PERCENT / 100;
 
-  // Na planilha: O39 = O37 / M39
+  // Correção: preço de venda baseado no custo por porção.
   const precoVendaDesejavel =
-    custoBase > 0 && margemDecimal > 0 ? custoBase / margemDecimal : 0;
+    custoPorPorcao > 0 && margemDecimal > 0
+      ? custoPorPorcao / margemDecimal
+      : 0;
 
-  // Na planilha: O42 = (O39 * M41) + O39
   const precoVendaDesejavelComImpostos =
     precoVendaDesejavel > 0
       ? precoVendaDesejavel + precoVendaDesejavel * impostosDespesasDecimal
       : 0;
 
-  // Correção: o CMV deve usar o preço real informado/salvo na ficha.
-  // Quando não houver preço real, usa o preço desejável apenas como fallback.
-  const precoVendaReal =
-    precoVendaRealManual > 0 ? precoVendaRealManual : precoVendaDesejavel;
+  // Correção: para ficha técnica, o preço real exibido deve acompanhar
+  // o preço calculado por porção, e não o preço antigo salvo no banco.
+  const precoVendaReal = precoVendaDesejavel;
 
-  const lucroUnitario = calcularLucroUnitario(
-    precoVendaDesejavel,
-    custoBase
-  );
+  // Correção: lucro unitário baseado na porção.
+  const lucroUnitario =
+    precoVendaReal > 0 ? precoVendaReal - custoPorPorcao : 0;
 
-  // Na planilha: O45 = O43 - O37.
-  const lucroPorProduto =
-    precoVendaReal > 0 ? precoVendaReal - custoBase : 0;
+  const lucroPorProduto = lucroUnitario;
 
-  // Na planilha: O46 = O43 * M41.
   const impostosDespesasValor =
     precoVendaReal > 0 ? precoVendaReal * impostosDespesasDecimal : 0;
 
-  // Na planilha: O47 = O37 / O43.
-  const cmvRealPercent = calcularCMV(custoBase, precoVendaReal);
+  // Correção: CMV baseado no custo por porção.
+  const cmvRealPercent = calcularCMV(custoPorPorcao, precoVendaReal);
 
-  // Na planilha: O48 = O45 - O46.
   const lucroLiquido = lucroPorProduto - impostosDespesasValor;
 
   return {
@@ -317,7 +312,6 @@ function calcularPrecificacaoDaFicha(ficha: FichaTecnica) {
     ingredientes: ficha.ingredientes,
     rendimento: ficha.rendimento,
     pesoFinal: Number(ficha.correctionFactorGrams || 0),
-    precoVendaRealManual: Number(ficha.precoVenda || 0),
   });
 }
 
@@ -1820,7 +1814,7 @@ export default function FichasTecnicasPage() {
       // Correção: salva um preço de venda consistente.
       // Se no futuro houver preço real editável, ele deve entrar aqui.
       // Por enquanto, para ficha nova, usa o preço desejável.
-      precoVenda: custos.precoVendaReal || custos.precoVendaDesejavel,
+      precoVenda: custos.precoVendaDesejavel, 
 
       modoPreparo: modoPreparo.trim(),
       imageUrl,
@@ -1932,12 +1926,8 @@ export default function FichasTecnicasPage() {
       // não sobrescreve com CMV.
       margemLucro: custos.margemDesejavelPercent,
 
-      // Correção: preserva o preço real salvo na ficha quando existir.
-      // Isso impede o CMV de voltar para um valor padronizado.
-      precoVenda:
-        Number(fichaEditando.precoVenda || 0) > 0
-          ? Number(fichaEditando.precoVenda)
-          : custos.precoVendaReal || custos.precoVendaDesejavel,
+      // Correção: preço de venda calculado sobre o custo por porção.
+      precoVenda: custos.precoVendaDesejavel,
 
       modoPreparo: fichaEditando.modoPreparo,
       imageUrl: fichaEditando.imageUrl,

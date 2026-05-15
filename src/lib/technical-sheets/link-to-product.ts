@@ -110,6 +110,69 @@ async function ensureStockBalanceForLinkedProduct(params: {
   return inserted?.id ? String(inserted.id) : null;
 }
 
+async function findExistingProductId(params: {
+  supabase: SupabaseAdminClient;
+  establishmentId: string;
+  productName: string;
+}) {
+  const { data: existingProducts, error: existingError } = await params.supabase
+    .from("products")
+    .select("id, name")
+    .eq("establishment_id", params.establishmentId)
+    .limit(5000);
+
+  if (existingError) {
+    console.error("[technicalSheetLink] product lookup error", existingError);
+    throw new Error("Não foi possível verificar produtos existentes para atrelamento.");
+  }
+
+  const existingProduct = (existingProducts ?? []).find(
+    (product: any) =>
+      normalizeProductLookupName(product.name) ===
+      normalizeProductLookupName(params.productName)
+  );
+
+  return existingProduct?.id ? String(existingProduct.id) : null;
+}
+
+async function getLinkedProductIdIfValid(params: {
+  supabase: SupabaseAdminClient;
+  establishmentId: string;
+  linkedProductId: unknown;
+}) {
+  const linkedProductId = params.linkedProductId
+    ? String(params.linkedProductId)
+    : null;
+
+  if (!linkedProductId) return null;
+
+  const { data: product, error } = await params.supabase
+    .from("products")
+    .select("id")
+    .eq("id", linkedProductId)
+    .eq("establishment_id", params.establishmentId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[technicalSheetLink] linked product lookup error", error);
+    throw new Error("Não foi possível verificar o produto já atrelado à ficha técnica.");
+  }
+
+  if (product?.id) return String(product.id);
+
+  await params.supabase
+    .from("technical_sheets")
+    .update({
+      linked_product_id: null,
+      is_linked_to_product: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("linked_product_id", linkedProductId)
+    .eq("establishment_id", params.establishmentId);
+
+  return null;
+}
+
 export async function linkTechnicalSheetToProduct({
   supabase: providedSupabase,
   establishmentId,
@@ -167,27 +230,18 @@ export async function linkTechnicalSheetToProduct({
     ...(userId ? { updated_by: userId, updated_at: new Date().toISOString() } : {}),
   };
 
-  let productId = (sheet as any).linked_product_id ? String((sheet as any).linked_product_id) : null;
+  let productId = await getLinkedProductIdIfValid({
+    supabase,
+    establishmentId,
+    linkedProductId: (sheet as any).linked_product_id,
+  });
 
   if (!productId) {
-    const { data: existingProducts, error: existingError } = await supabase
-      .from("products")
-      .select("id, name")
-      .eq("establishment_id", establishmentId)
-      .limit(5000);
-
-    if (existingError) {
-      console.error("[technicalSheetLink] product lookup error", existingError);
-      throw new Error("Não foi possível verificar produtos existentes para atrelamento.");
-    }
-
-    const existingProduct = (existingProducts ?? []).find(
-      (product: any) => normalizeProductLookupName(product.name) === normalizeProductLookupName(productName)
-    );
-
-    if (existingProduct?.id) {
-      productId = String(existingProduct.id);
-    }
+    productId = await findExistingProductId({
+      supabase,
+      establishmentId,
+      productName,
+    });
   }
 
   if (productId) {

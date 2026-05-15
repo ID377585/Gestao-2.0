@@ -28,6 +28,7 @@ import { SettingsModal } from "@/components/modals/SettingsModal";
 import { HelpModal } from "@/components/modals/HelpModal";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TenantSummary } from "@/components/tenant/TenantSummary";
+import type { MenuSectionKey } from "@/components/layout/menu-items";
 import {
   SubscriptionStatusBadge,
   type SubscriptionStatusBadgeData,
@@ -48,6 +49,7 @@ import {
 
 interface TopbarProps {
   className?: string;
+  modulePermissions?: Partial<Record<MenuSectionKey, boolean>>;
 }
 
 type TopbarUser = {
@@ -83,140 +85,142 @@ function formatDate(value?: AppNotification["createdAt"]) {
   }
 }
 
-function getRoleLabel(role?: string | null) {
-  switch (String(role ?? "").trim()) {
-    case "admin":
-      return "Administrador";
-    case "operacao":
-      return "Operação";
-    case "producao":
-      return "Produção";
-    case "estoque":
-      return "Estoque";
-    case "fiscal":
-      return "Fiscal";
-    case "entrega":
-      return "Entrega";
-    case "cliente":
-      return "Cliente";
-    default:
-      return "Usuário";
-  }
-}
-
 function getInitials(name?: string | null) {
-  const safeName = String(name ?? "").trim();
-  if (!safeName) return "U";
+  const parts = String(name ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
 
-  return safeName
-    .split(" ")
-    .filter(Boolean)
+  if (parts.length === 0) return "U";
+
+  return parts
     .slice(0, 2)
-    .map((item) => item[0]?.toUpperCase() ?? "")
+    .map((part) => part[0]?.toUpperCase())
     .join("");
 }
 
-export function Topbar({ className }: TopbarProps) {
+export function Topbar({ className, modulePermissions }: TopbarProps) {
   const [user, setUser] = useState<TopbarUser | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
-
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [notificationsMenuOpen, setNotificationsMenuOpen] = useState(false);
+  const [showNotificacoesModal, setShowNotificacoesModal] = useState(false);
   const [showPerfil, setShowPerfil] = useState(false);
   const [showConfiguracoes, setShowConfiguracoes] = useState(false);
   const [showAjuda, setShowAjuda] = useState(false);
-  const [showNotificacoesModal, setShowNotificacoesModal] = useState(false);
-
-  const [notificationsMenuOpen, setNotificationsMenuOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-
   const [notificacoes, setNotificacoes] = useState<AppNotification[]>([]);
-  const [settings, setSettings] = useState<UserSettings>(getUserSettings());
+  const [userNotificationId, setUserNotificationId] = useState<string | null>(null);
+  const [settings, setSettings] = useState<UserSettings | null>(null);
 
-  const previousIdsRef = useRef<string[]>([]);
+  const mountedRef = useRef(false);
 
-  const fetchCurrentUser = useCallback(async () => {
+  const loadUser = useCallback(async () => {
+    setLoadingUser(true);
+
     try {
-      setLoadingUser(true);
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
 
-      const response = await fetch("/api/user/me", {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
+      if (!authUser) {
         setUser(null);
+        setUserNotificationId(null);
+        setNotificacoes([]);
         return;
       }
 
-      const data = (await response.json()) as TopbarUser;
-      setUser(data);
-    } catch (error) {
-      console.error("Erro ao carregar usuário do Topbar:", error);
-      setUser(null);
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, role, avatar_url, sector, is_active, last_sign_in_at")
+        .eq("id", authUser.id)
+        .maybeSingle();
+
+      const { data: membership } = await supabase
+        .from("establishment_memberships")
+        .select("establishment_id, role, is_active")
+        .eq("user_id", authUser.id)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+
+      const { data: subscription } = membership?.establishment_id
+        ? await supabase
+            .from("billing_subscriptions")
+            .select("status, current_period_end, trial_end")
+            .eq("establishment_id", membership.establishment_id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : { data: null };
+
+      const nextUser: TopbarUser = {
+        id: authUser.id,
+        email: profile?.email ?? authUser.email ?? "",
+        name:
+          profile?.full_name ??
+          authUser.user_metadata?.full_name ??
+          authUser.email ??
+          "Usuário",
+        role: membership?.role ?? profile?.role ?? undefined,
+        avatar: profile?.avatar_url ?? null,
+        sector: profile?.sector ?? null,
+        establishmentId: membership?.establishment_id ?? null,
+        subscription: subscription ?? undefined,
+        isActive: profile?.is_active ?? membership?.is_active ?? undefined,
+        lastSignInAt: profile?.last_sign_in_at ?? authUser.last_sign_in_at ?? null,
+      };
+
+      setUser(nextUser);
+      setUserNotificationId(authUser.id);
     } finally {
       setLoadingUser(false);
     }
   }, []);
 
   useEffect(() => {
-    void fetchCurrentUser();
+    if (mountedRef.current) return;
+    mountedRef.current = true;
 
-    void (async () => {
-      const synced = await syncUserSettingsWithServer();
-      setSettings(synced);
-    })();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async () => {
-      await fetchCurrentUser();
-    });
+    void loadUser();
 
     return () => {
-      subscription.unsubscribe();
+      mountedRef.current = false;
     };
-  }, [fetchCurrentUser]);
-
-  const userNotificationId = useMemo(() => {
-    if (!user) return null;
-    return user.id || user.email || null;
-  }, [user]);
+  }, [loadUser]);
 
   useEffect(() => {
-    if (!userNotificationId) return;
+    let unsubscribe: (() => void) | undefined;
 
-    const unsubscribe = subscribeToNotifications(userNotificationId, (items) => {
-      setNotificacoes(items);
+    if (userNotificationId) {
+      unsubscribe = subscribeToNotifications(userNotificationId, setNotificacoes);
+    }
 
-      const currentIds = items.map((item) => item.id);
-      const previousIds = previousIdsRef.current;
+    return () => {
+      unsubscribe?.();
+    };
+  }, [userNotificationId]);
 
-      const newNotifications = items.filter(
-        (item) => !previousIds.includes(item.id)
-      );
+  useEffect(() => {
+    let cancelled = false;
 
-      if (
-        settings.browserNotifications &&
-        typeof window !== "undefined" &&
-        "Notification" in window &&
-        Notification.permission === "granted"
-      ) {
-        if ("Notification" in window && Notification.permission === "granted") {
-          newNotifications.forEach((item) => {
-            new Notification(item.title ?? "Notificação", {
-              body: item.message ?? "",
-            });
-          });
+    async function loadSettings() {
+      try {
+        const nextSettings = await getUserSettings();
+        if (!cancelled) {
+          setSettings(nextSettings);
+          await syncUserSettingsWithServer(nextSettings);
         }
+      } catch (error) {
+        console.error("Erro ao carregar configurações do usuário:", error);
       }
+    }
 
-      previousIdsRef.current = currentIds;
-    });
+    void loadSettings();
 
-    return () => unsubscribe();
-  }, [userNotificationId, settings.browserNotifications]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const notificacoesNaoLidas = notificacoes.filter((n) => !n.read).length;
 
@@ -283,7 +287,7 @@ export function Topbar({ className }: TopbarProps) {
       >
         <div className="flex h-16 items-center justify-between gap-3 px-4 md:px-6">
           <div className="flex items-center gap-2 md:gap-3 md:hidden">
-            <Sidebar />
+            <Sidebar modulePermissions={modulePermissions} />
           </div>
 
           <div className="hidden min-w-0 flex-1 items-center gap-2 md:flex">
@@ -430,65 +434,27 @@ export function Topbar({ className }: TopbarProps) {
                     <span className="text-xs text-gray-600 dark:text-slate-400">
                       {user?.email ?? ""}
                     </span>
-
-                    <div className="mt-1 flex flex-wrap gap-2">
-                      <Badge variant="secondary" className="w-fit">
-                        {getRoleLabel(user?.role)}
-                      </Badge>
-
-                      {user?.sector ? (
-                        <Badge variant="outline" className="w-fit">
-                          {user.sector}
-                        </Badge>
-                      ) : null}
-                    </div>
                   </div>
                 </DropdownMenuLabel>
 
                 <DropdownMenuSeparator />
 
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    handleOpenPerfil();
-                  }}
-                  className="focus:bg-gray-50 dark:focus:bg-slate-800"
-                >
+                <DropdownMenuItem onSelect={handleOpenPerfil}>
                   <UserIcon className="mr-2 h-4 w-4" />
                   Perfil
                 </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    handleOpenConfiguracoes();
-                  }}
-                  className="focus:bg-gray-50 dark:focus:bg-slate-800"
-                >
+                <DropdownMenuItem onSelect={handleOpenConfiguracoes}>
                   <Settings className="mr-2 h-4 w-4" />
                   Configurações
                 </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    handleOpenAjuda();
-                  }}
-                  className="focus:bg-gray-50 dark:focus:bg-slate-800"
-                >
+                <DropdownMenuItem onSelect={handleOpenAjuda}>
                   <HelpCircle className="mr-2 h-4 w-4" />
                   Ajuda
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
 
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void handleLogout();
-                  }}
-                  className="text-red-600 focus:bg-gray-50 focus:text-red-600 dark:text-red-400 dark:focus:bg-slate-800 dark:focus:text-red-400"
-                >
+                <DropdownMenuItem onSelect={handleLogout} className="text-red-600">
                   <LogOut className="mr-2 h-4 w-4" />
                   Sair
                 </DropdownMenuItem>
@@ -500,32 +466,20 @@ export function Topbar({ className }: TopbarProps) {
 
       <NotificationsModal
         open={showNotificacoesModal}
-        onClose={() => setShowNotificacoesModal(false)}
+        onOpenChange={setShowNotificacoesModal}
         notifications={notificacoes}
         onMarkAsRead={handleMarkAsRead}
         onMarkAllAsRead={handleMarkAllAsRead}
       />
 
-      <ProfileModal
-        open={showPerfil}
-        onClose={() => setShowPerfil(false)}
-        user={{
-          name: user?.name ?? "Usuário",
-          email: user?.email ?? "",
-          role: user?.role,
-          sector: user?.sector ?? null,
-          establishmentId: user?.establishmentId ?? null,
-          lastSignInAt: user?.lastSignInAt ?? null,
-        }}
-      />
-
+      <ProfileModal open={showPerfil} onOpenChange={setShowPerfil} />
       <SettingsModal
         open={showConfiguracoes}
-        onClose={() => setShowConfiguracoes(false)}
-        onSettingsChange={(nextSettings) => setSettings(nextSettings)}
+        onOpenChange={setShowConfiguracoes}
+        settings={settings}
+        onSettingsChange={setSettings}
       />
-
-      <HelpModal open={showAjuda} onClose={() => setShowAjuda(false)} />
+      <HelpModal open={showAjuda} onOpenChange={setShowAjuda} />
     </>
   );
 }

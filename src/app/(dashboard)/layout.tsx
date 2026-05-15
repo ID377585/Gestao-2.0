@@ -66,7 +66,7 @@ export default async function DashboardLayout({
 
         <div className="flex min-w-0 flex-1 flex-col bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100">
           <div className="sticky top-0 z-40 shrink-0 pointer-events-auto">
-            <Topbar />
+            <Topbar modulePermissions={access.permissions} />
           </div>
 
           <main className="relative z-0 flex-1 overflow-y-auto overscroll-y-contain bg-gray-50 dark:bg-slate-950 touch-pan-y focus:outline-none">

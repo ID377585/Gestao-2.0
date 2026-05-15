@@ -23,6 +23,11 @@ import {
   type ProfileRole,
   type UserAccessAuditLog,
 } from "./actions";
+import {
+  ACCESS_MODULES,
+  listCollaboratorModulePermissions,
+  updateCollaboratorModulePermissions,
+} from "./access-actions";
 
 const ROLE_LABEL: Record<ProfileRole, string> = {
   admin: "Admin",
@@ -90,7 +95,14 @@ function AuditLogCard({ log }: { log: UserAccessAuditLog }) {
           {log.target_email ? ` • ${log.target_email}` : ""}
         </p>
 
-        {log.details?.after ? (
+        {log.details?.access_modules ? (
+          <div className="rounded-lg bg-slate-50 p-3 text-xs text-muted-foreground">
+            <p className="font-medium text-gray-700">Acessos por sessão</p>
+            <pre className="mt-2 whitespace-pre-wrap break-words">
+              {JSON.stringify(log.details.access_modules, null, 2)}
+            </pre>
+          </div>
+        ) : log.details?.after ? (
           <div className="rounded-lg bg-slate-50 p-3 text-xs text-muted-foreground">
             <p className="font-medium text-gray-700">Resumo da alteração</p>
             <pre className="mt-2 whitespace-pre-wrap break-words">
@@ -132,6 +144,9 @@ export default async function UsuariosPage({
   const establishmentId = String(membershipContext.establishmentId ?? "");
 
   const collaborators = await listCollaborators();
+  const accessPermissionsByUser = await listCollaboratorModulePermissions(
+    collaborators.map((colab) => colab.id)
+  );
   const auditLogs = await listUserAccessAuditLogs(30);
 
   const subscription = establishmentId
@@ -191,6 +206,11 @@ export default async function UsuariosPage({
     await updateCollaborator(formData);
   }
 
+  async function handleUpdateAccess(formData: FormData) {
+    "use server";
+    await updateCollaboratorModulePermissions(formData);
+  }
+
   async function handleResetPassword(formData: FormData) {
     "use server";
     await resetCollaboratorPassword(formData);
@@ -211,8 +231,8 @@ export default async function UsuariosPage({
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Gestão de Usuários</h1>
         <p className="text-sm text-muted-foreground">
-          Cadastre colaboradores, pesquise, filtre, ajuste papéis, setor, status de
-          acesso, senha, exclusão e acompanhe os logs de auditoria.
+          Cadastre colaboradores, pesquise, filtre, ajuste papéis, setor, status,
+          sessões liberadas, senha, exclusão e acompanhe os logs de auditoria.
         </p>
       </div>
 
@@ -284,45 +304,22 @@ export default async function UsuariosPage({
             <form action={handleCreate} className="space-y-4">
               <div className="space-y-1">
                 <Label htmlFor="full_name">Nome completo</Label>
-                <Input
-                  id="full_name"
-                  name="full_name"
-                  placeholder="Ex.: Ana Produção"
-                  required
-                />
+                <Input id="full_name" name="full_name" placeholder="Ex.: Ana Produção" required />
               </div>
 
               <div className="space-y-1">
                 <Label htmlFor="email">E-mail</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="ana@gestify.app"
-                  required
-                />
+                <Input id="email" name="email" type="email" placeholder="ana@gestify.app" required />
               </div>
 
               <div className="space-y-1">
                 <Label htmlFor="password">Senha inicial</Label>
-                <Input
-                  id="password"
-                  name="password"
-                  type="password"
-                  placeholder="••••••••"
-                  required
-                />
+                <Input id="password" name="password" type="password" placeholder="••••••••" required />
               </div>
 
               <div className="space-y-1">
                 <Label htmlFor="role">Papel de acesso</Label>
-                <select
-                  id="role"
-                  name="role"
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  defaultValue="producao"
-                  required
-                >
+                <select id="role" name="role" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue="producao" required>
                   <option value="admin">Admin</option>
                   <option value="operacao">Operação</option>
                   <option value="producao">Produção</option>
@@ -334,16 +331,10 @@ export default async function UsuariosPage({
 
               <div className="space-y-1">
                 <Label htmlFor="sector">Setor / Área</Label>
-                <Input
-                  id="sector"
-                  name="sector"
-                  placeholder="Ex.: Confeitaria, Estoque, Logística"
-                />
+                <Input id="sector" name="sector" placeholder="Ex.: Confeitaria, Estoque, Logística" />
               </div>
 
-              <Button type="submit" className="w-full">
-                Salvar colaborador
-              </Button>
+              <Button type="submit" className="w-full">Salvar colaborador</Button>
             </form>
           </CardContent>
         </Card>
@@ -355,22 +346,12 @@ export default async function UsuariosPage({
             <form method="get" className="grid gap-3 lg:grid-cols-4">
               <div className="lg:col-span-2">
                 <Label htmlFor="q">Buscar</Label>
-                <Input
-                  id="q"
-                  name="q"
-                  defaultValue={q}
-                  placeholder="Nome, e-mail ou setor..."
-                />
+                <Input id="q" name="q" defaultValue={q} placeholder="Nome, e-mail ou setor..." />
               </div>
 
               <div>
                 <Label htmlFor="role-filter">Papel</Label>
-                <select
-                  id="role-filter"
-                  name="role"
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  defaultValue={roleFilter}
-                >
+                <select id="role-filter" name="role" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue={roleFilter}>
                   <option value="">Todos</option>
                   <option value="admin">Admin</option>
                   <option value="operacao">Operação</option>
@@ -383,12 +364,7 @@ export default async function UsuariosPage({
 
               <div>
                 <Label htmlFor="status-filter">Status</Label>
-                <select
-                  id="status-filter"
-                  name="status"
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  defaultValue={statusFilter || "todos"}
-                >
+                <select id="status-filter" name="status" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue={statusFilter || "todos"}>
                   <option value="todos">Todos</option>
                   <option value="ativos">Ativos</option>
                   <option value="inativos">Inativos</option>
@@ -397,206 +373,175 @@ export default async function UsuariosPage({
 
               <div className="lg:col-span-2">
                 <Label htmlFor="sector-filter">Setor</Label>
-                <select
-                  id="sector-filter"
-                  name="sector"
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  defaultValue={sectorFilter}
-                >
+                <select id="sector-filter" name="sector" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue={sectorFilter}>
                   <option value="">Todos</option>
                   {sectors.map((sector) => (
-                    <option key={sector} value={sector}>
-                      {sector}
-                    </option>
+                    <option key={sector} value={sector}>{sector}</option>
                   ))}
                 </select>
               </div>
 
               <div className="flex items-end gap-2 lg:col-span-2">
-                <Button type="submit" className="flex-1">
-                  Aplicar filtros
-                </Button>
-                <a
-                  href="/dashboard/admin/usuarios"
-                  className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium"
-                >
-                  Limpar
-                </a>
+                <Button type="submit" className="flex-1">Aplicar filtros</Button>
+                <a href="/dashboard/admin/usuarios" className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium">Limpar</a>
               </div>
             </form>
           </CardHeader>
 
           <CardContent className="space-y-4">
             {filteredCollaborators.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Nenhum colaborador encontrado com os filtros informados.
-              </p>
+              <p className="text-sm text-muted-foreground">Nenhum colaborador encontrado com os filtros informados.</p>
             ) : (
-              filteredCollaborators.map((colab) => (
-                <div key={colab.id} className="rounded-xl border p-4">
-                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="font-semibold text-gray-900">{colab.full_name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {colab.email || "Sem e-mail"}
-                      </p>
-                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                        <p>Setor: {colab.sector || "—"}</p>
-                        <p>Criado em: {formatDate(colab.created_at)}</p>
-                        <p>Último acesso: {formatDate(colab.last_sign_in_at)}</p>
+              filteredCollaborators.map((colab) => {
+                const modulePermissions = accessPermissionsByUser.get(colab.id);
+                const enabledModules = ACCESS_MODULES.filter(
+                  (module) => modulePermissions?.[module.key]
+                );
+
+                return (
+                  <div key={colab.id} className="rounded-xl border p-4">
+                    <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-semibold text-gray-900">{colab.full_name}</p>
+                        <p className="text-sm text-muted-foreground">{colab.email || "Sem e-mail"}</p>
+                        <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                          <p>Setor: {colab.sector || "—"}</p>
+                          <p>Criado em: {formatDate(colab.created_at)}</p>
+                          <p>Último acesso: {formatDate(colab.last_sign_in_at)}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline">{ROLE_LABEL[colab.role]}</Badge>
+                        <Badge variant={colab.is_active ? "default" : "secondary"}>{colab.is_active ? "Ativo" : "Inativo"}</Badge>
+                        <Badge variant="outline">{enabledModules.length} sessões</Badge>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline">{ROLE_LABEL[colab.role]}</Badge>
-                      <Badge variant={colab.is_active ? "default" : "secondary"}>
-                        {colab.is_active ? "Ativo" : "Inativo"}
-                      </Badge>
+                    <div className="mb-4 flex flex-wrap gap-2">
+                      {enabledModules.length > 0 ? (
+                        enabledModules.map((module) => (
+                          <Badge key={module.key} variant="secondary">{module.label}</Badge>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Nenhuma sessão liberada além do papel principal.</span>
+                      )}
                     </div>
-                  </div>
 
-                  <div className="grid gap-4 xl:grid-cols-3">
-                    <form action={handleUpdate} className="space-y-3 rounded-lg border p-4">
-                      <input type="hidden" name="user_id" value={colab.id} />
-                      <input
-                        type="hidden"
-                        name="establishment_id"
-                        value={establishmentId}
-                      />
-
-                      <div className="space-y-1">
-                        <Label>Nome completo</Label>
-                        <Input name="full_name" defaultValue={colab.full_name} required />
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label>Papel</Label>
-                        <select
-                          name="role"
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          defaultValue={colab.role}
-                          required
-                        >
-                          <option value="admin">Admin</option>
-                          <option value="operacao">Operação</option>
-                          <option value="producao">Produção</option>
-                          <option value="estoque">Estoque</option>
-                          <option value="fiscal">Fiscal</option>
-                          <option value="entrega">Entrega</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label>Setor</Label>
-                        <Input
-                          name="sector"
-                          defaultValue={colab.sector ?? ""}
-                          placeholder="Ex.: Estoque"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label>Status de acesso</Label>
-                        <select
-                          name="is_active"
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          defaultValue={String(colab.is_active)}
-                        >
-                          <option value="true">Ativo</option>
-                          <option value="false">Inativo</option>
-                        </select>
-                      </div>
-
-                      <Button type="submit" className="w-full">
-                        Salvar alterações
-                      </Button>
-                    </form>
-
-                    <div className="space-y-4 rounded-lg border p-4">
-                      <form action={handleResetPassword} className="space-y-3">
+                    <div className="grid gap-4 2xl:grid-cols-4 xl:grid-cols-2">
+                      <form action={handleUpdate} className="space-y-3 rounded-lg border p-4">
                         <input type="hidden" name="user_id" value={colab.id} />
+                        <input type="hidden" name="establishment_id" value={establishmentId} />
 
-                        <div>
-                          <p className="mb-1 text-sm font-medium">Redefinir senha</p>
-                          <p className="text-xs text-muted-foreground">
-                            Defina uma nova senha para este usuário.
-                          </p>
+                        <div className="space-y-1">
+                          <Label>Nome completo</Label>
+                          <Input name="full_name" defaultValue={colab.full_name} required />
                         </div>
 
                         <div className="space-y-1">
-                          <Label>Nova senha</Label>
-                          <Input
-                            type="password"
-                            name="password"
-                            placeholder="••••••••"
-                            required
-                          />
+                          <Label>Papel</Label>
+                          <select name="role" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue={colab.role} required>
+                            <option value="admin">Admin</option>
+                            <option value="operacao">Operação</option>
+                            <option value="producao">Produção</option>
+                            <option value="estoque">Estoque</option>
+                            <option value="fiscal">Fiscal</option>
+                            <option value="entrega">Entrega</option>
+                          </select>
                         </div>
 
-                        <Button type="submit" variant="outline" className="w-full">
-                          Atualizar senha
-                        </Button>
+                        <div className="space-y-1">
+                          <Label>Setor</Label>
+                          <Input name="sector" defaultValue={colab.sector ?? ""} placeholder="Ex.: Estoque" />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label>Status de acesso</Label>
+                          <select name="is_active" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue={String(colab.is_active)}>
+                            <option value="true">Ativo</option>
+                            <option value="false">Inativo</option>
+                          </select>
+                        </div>
+
+                        <Button type="submit" className="w-full">Salvar alterações</Button>
                       </form>
 
-                      <form action={handleToggleStatus} className="space-y-3">
+                      <form action={handleUpdateAccess} className="space-y-3 rounded-lg border p-4">
                         <input type="hidden" name="user_id" value={colab.id} />
-                        <input
-                          type="hidden"
-                          name="establishment_id"
-                          value={establishmentId}
-                        />
-                        <input
-                          type="hidden"
-                          name="is_active"
-                          value={String(!colab.is_active)}
-                        />
+                        <input type="hidden" name="establishment_id" value={establishmentId} />
 
                         <div>
-                          <p className="mb-1 text-sm font-medium">
-                            {colab.is_active
-                              ? "Desativar temporariamente"
-                              : "Reativar acesso"}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {colab.is_active
-                              ? "Remove o acesso sem apagar o cadastro."
-                              : "Libera novamente o acesso ao sistema."}
-                          </p>
+                          <p className="mb-1 text-sm font-medium">Editar sessões de acesso</p>
+                          <p className="text-xs text-muted-foreground">Libere ou bloqueie as áreas que este usuário pode acessar.</p>
                         </div>
 
-                        <Button type="submit" variant="outline" className="w-full">
-                          {colab.is_active ? "Desativar acesso" : "Reativar acesso"}
-                        </Button>
+                        <div className="space-y-2">
+                          {ACCESS_MODULES.map((module) => (
+                            <label key={module.key} className="flex items-start gap-3 rounded-lg border p-3 text-sm hover:bg-slate-50">
+                              <input
+                                type="checkbox"
+                                name="modules"
+                                value={module.key}
+                                defaultChecked={Boolean(modulePermissions?.[module.key])}
+                                className="mt-1 h-4 w-4"
+                              />
+                              <span>
+                                <span className="block font-medium">{module.label}</span>
+                                <span className="block text-xs text-muted-foreground">{module.description}</span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+
+                        <Button type="submit" variant="outline" className="w-full">Salvar acessos</Button>
                       </form>
-                    </div>
 
-                    <form action={handleDelete} className="space-y-3 rounded-lg border p-4">
-                      <input type="hidden" name="user_id" value={colab.id} />
-                      <input
-                        type="hidden"
-                        name="establishment_id"
-                        value={establishmentId}
-                      />
+                      <div className="space-y-4 rounded-lg border p-4">
+                        <form action={handleResetPassword} className="space-y-3">
+                          <input type="hidden" name="user_id" value={colab.id} />
 
-                      <div>
-                        <p className="mb-1 text-sm font-medium">Excluir usuário</p>
-                        <p className="text-xs text-muted-foreground">
-                          Remove o vínculo deste estabelecimento. Se o usuário não tiver
-                          outros vínculos, ele também será excluído do Auth.
-                        </p>
+                          <div>
+                            <p className="mb-1 text-sm font-medium">Redefinir senha</p>
+                            <p className="text-xs text-muted-foreground">Defina uma nova senha para este usuário.</p>
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label>Nova senha</Label>
+                            <Input type="password" name="password" placeholder="••••••••" required />
+                          </div>
+
+                          <Button type="submit" variant="outline" className="w-full">Atualizar senha</Button>
+                        </form>
+
+                        <form action={handleToggleStatus} className="space-y-3">
+                          <input type="hidden" name="user_id" value={colab.id} />
+                          <input type="hidden" name="establishment_id" value={establishmentId} />
+                          <input type="hidden" name="is_active" value={String(!colab.is_active)} />
+
+                          <div>
+                            <p className="mb-1 text-sm font-medium">{colab.is_active ? "Desativar temporariamente" : "Reativar acesso"}</p>
+                            <p className="text-xs text-muted-foreground">{colab.is_active ? "Remove o acesso sem apagar o cadastro." : "Libera novamente o acesso ao sistema."}</p>
+                          </div>
+
+                          <Button type="submit" variant="outline" className="w-full">{colab.is_active ? "Desativar acesso" : "Reativar acesso"}</Button>
+                        </form>
                       </div>
 
-                      <Button
-                        type="submit"
-                        variant="destructive"
-                        className="w-full bg-red-600 text-white hover:bg-red-700"
-                      >
-                        Excluir usuário
-                      </Button>
-                    </form>
+                      <form action={handleDelete} className="space-y-3 rounded-lg border p-4">
+                        <input type="hidden" name="user_id" value={colab.id} />
+                        <input type="hidden" name="establishment_id" value={establishmentId} />
+
+                        <div>
+                          <p className="mb-1 text-sm font-medium">Excluir usuário</p>
+                          <p className="text-xs text-muted-foreground">Remove o vínculo deste estabelecimento. Se o usuário não tiver outros vínculos, ele também será excluído do Auth.</p>
+                        </div>
+
+                        <Button type="submit" variant="destructive" className="w-full bg-red-600 text-white hover:bg-red-700">Excluir usuário</Button>
+                      </form>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </CardContent>
         </Card>
@@ -609,9 +554,7 @@ export default async function UsuariosPage({
 
         <CardContent className="space-y-4">
           {auditLogs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nenhum log encontrado ainda.
-            </p>
+            <p className="text-sm text-muted-foreground">Nenhum log encontrado ainda.</p>
           ) : (
             auditLogs.map((log) => <AuditLogCard key={log.id} log={log} />)
           )}

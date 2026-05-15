@@ -20,23 +20,16 @@ import {
   resetCollaboratorPassword,
   toggleCollaboratorStatus,
   updateCollaborator,
-  type ProfileRole,
   type UserAccessAuditLog,
 } from "./actions";
 import {
-  ACCESS_MODULES,
+  emptyModulePermissionMap,
+} from "./access-modules";
+import {
   listCollaboratorModulePermissions,
   updateCollaboratorModulePermissions,
 } from "./access-actions";
-
-const ROLE_LABEL: Record<ProfileRole, string> = {
-  admin: "Admin",
-  operacao: "Operação",
-  producao: "Produção",
-  estoque: "Estoque",
-  fiscal: "Fiscal",
-  entrega: "Entrega",
-};
+import { UserAccessCard } from "./UserAccessCard";
 
 const AUDIT_LABEL: Record<string, string> = {
   create_user: "Criação de usuário",
@@ -228,11 +221,11 @@ export default async function UsuariosPage({
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <h1 className="text-3xl font-bold text-gray-900">Gestão de Usuários</h1>
-        <p className="text-sm text-muted-foreground">
-          Cadastre colaboradores, pesquise, filtre, ajuste papéis, setor, status,
-          sessões liberadas, senha, exclusão e acompanhe os logs de auditoria.
+        <p className="mt-1 text-sm text-muted-foreground">
+          Cadastre colaboradores, pesquise, filtre e gerencie acessos por sessão com
+          ações organizadas em janelas de confirmação.
         </p>
       </div>
 
@@ -278,8 +271,8 @@ export default async function UsuariosPage({
         </Card>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <Card>
+      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <Card className="h-fit">
           <CardHeader>
             <CardTitle className="text-lg">Novo colaborador</CardTitle>
           </CardHeader>
@@ -341,7 +334,12 @@ export default async function UsuariosPage({
 
         <Card>
           <CardHeader className="space-y-4">
-            <CardTitle className="text-lg">Usuários com acesso</CardTitle>
+            <div>
+              <CardTitle className="text-lg">Usuários com acesso</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Use os botões de ação para editar perfil, liberar sessões, redefinir senha ou excluir usuários.
+              </p>
+            </div>
 
             <form method="get" className="grid gap-3 lg:grid-cols-4">
               <div className="lg:col-span-2">
@@ -388,160 +386,26 @@ export default async function UsuariosPage({
             </form>
           </CardHeader>
 
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             {filteredCollaborators.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nenhum colaborador encontrado com os filtros informados.</p>
             ) : (
-              filteredCollaborators.map((colab) => {
-                const modulePermissions = accessPermissionsByUser.get(colab.id);
-                const enabledModules = ACCESS_MODULES.filter(
-                  (module) => modulePermissions?.[module.key]
-                );
-
-                return (
-                  <div key={colab.id} className="rounded-xl border p-4">
-                    <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="font-semibold text-gray-900">{colab.full_name}</p>
-                        <p className="text-sm text-muted-foreground">{colab.email || "Sem e-mail"}</p>
-                        <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                          <p>Setor: {colab.sector || "—"}</p>
-                          <p>Criado em: {formatDate(colab.created_at)}</p>
-                          <p>Último acesso: {formatDate(colab.last_sign_in_at)}</p>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline">{ROLE_LABEL[colab.role]}</Badge>
-                        <Badge variant={colab.is_active ? "default" : "secondary"}>{colab.is_active ? "Ativo" : "Inativo"}</Badge>
-                        <Badge variant="outline">{enabledModules.length} sessões</Badge>
-                      </div>
-                    </div>
-
-                    <div className="mb-4 flex flex-wrap gap-2">
-                      {enabledModules.length > 0 ? (
-                        enabledModules.map((module) => (
-                          <Badge key={module.key} variant="secondary">{module.label}</Badge>
-                        ))
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Nenhuma sessão liberada além do papel principal.</span>
-                      )}
-                    </div>
-
-                    <div className="grid gap-4 2xl:grid-cols-4 xl:grid-cols-2">
-                      <form action={handleUpdate} className="space-y-3 rounded-lg border p-4">
-                        <input type="hidden" name="user_id" value={colab.id} />
-                        <input type="hidden" name="establishment_id" value={establishmentId} />
-
-                        <div className="space-y-1">
-                          <Label>Nome completo</Label>
-                          <Input name="full_name" defaultValue={colab.full_name} required />
-                        </div>
-
-                        <div className="space-y-1">
-                          <Label>Papel</Label>
-                          <select name="role" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue={colab.role} required>
-                            <option value="admin">Admin</option>
-                            <option value="operacao">Operação</option>
-                            <option value="producao">Produção</option>
-                            <option value="estoque">Estoque</option>
-                            <option value="fiscal">Fiscal</option>
-                            <option value="entrega">Entrega</option>
-                          </select>
-                        </div>
-
-                        <div className="space-y-1">
-                          <Label>Setor</Label>
-                          <Input name="sector" defaultValue={colab.sector ?? ""} placeholder="Ex.: Estoque" />
-                        </div>
-
-                        <div className="space-y-1">
-                          <Label>Status de acesso</Label>
-                          <select name="is_active" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue={String(colab.is_active)}>
-                            <option value="true">Ativo</option>
-                            <option value="false">Inativo</option>
-                          </select>
-                        </div>
-
-                        <Button type="submit" className="w-full">Salvar alterações</Button>
-                      </form>
-
-                      <form action={handleUpdateAccess} className="space-y-3 rounded-lg border p-4">
-                        <input type="hidden" name="user_id" value={colab.id} />
-                        <input type="hidden" name="establishment_id" value={establishmentId} />
-
-                        <div>
-                          <p className="mb-1 text-sm font-medium">Editar sessões de acesso</p>
-                          <p className="text-xs text-muted-foreground">Libere ou bloqueie as áreas que este usuário pode acessar.</p>
-                        </div>
-
-                        <div className="space-y-2">
-                          {ACCESS_MODULES.map((module) => (
-                            <label key={module.key} className="flex items-start gap-3 rounded-lg border p-3 text-sm hover:bg-slate-50">
-                              <input
-                                type="checkbox"
-                                name="modules"
-                                value={module.key}
-                                defaultChecked={Boolean(modulePermissions?.[module.key])}
-                                className="mt-1 h-4 w-4"
-                              />
-                              <span>
-                                <span className="block font-medium">{module.label}</span>
-                                <span className="block text-xs text-muted-foreground">{module.description}</span>
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-
-                        <Button type="submit" variant="outline" className="w-full">Salvar acessos</Button>
-                      </form>
-
-                      <div className="space-y-4 rounded-lg border p-4">
-                        <form action={handleResetPassword} className="space-y-3">
-                          <input type="hidden" name="user_id" value={colab.id} />
-
-                          <div>
-                            <p className="mb-1 text-sm font-medium">Redefinir senha</p>
-                            <p className="text-xs text-muted-foreground">Defina uma nova senha para este usuário.</p>
-                          </div>
-
-                          <div className="space-y-1">
-                            <Label>Nova senha</Label>
-                            <Input type="password" name="password" placeholder="••••••••" required />
-                          </div>
-
-                          <Button type="submit" variant="outline" className="w-full">Atualizar senha</Button>
-                        </form>
-
-                        <form action={handleToggleStatus} className="space-y-3">
-                          <input type="hidden" name="user_id" value={colab.id} />
-                          <input type="hidden" name="establishment_id" value={establishmentId} />
-                          <input type="hidden" name="is_active" value={String(!colab.is_active)} />
-
-                          <div>
-                            <p className="mb-1 text-sm font-medium">{colab.is_active ? "Desativar temporariamente" : "Reativar acesso"}</p>
-                            <p className="text-xs text-muted-foreground">{colab.is_active ? "Remove o acesso sem apagar o cadastro." : "Libera novamente o acesso ao sistema."}</p>
-                          </div>
-
-                          <Button type="submit" variant="outline" className="w-full">{colab.is_active ? "Desativar acesso" : "Reativar acesso"}</Button>
-                        </form>
-                      </div>
-
-                      <form action={handleDelete} className="space-y-3 rounded-lg border p-4">
-                        <input type="hidden" name="user_id" value={colab.id} />
-                        <input type="hidden" name="establishment_id" value={establishmentId} />
-
-                        <div>
-                          <p className="mb-1 text-sm font-medium">Excluir usuário</p>
-                          <p className="text-xs text-muted-foreground">Remove o vínculo deste estabelecimento. Se o usuário não tiver outros vínculos, ele também será excluído do Auth.</p>
-                        </div>
-
-                        <Button type="submit" variant="destructive" className="w-full bg-red-600 text-white hover:bg-red-700">Excluir usuário</Button>
-                      </form>
-                    </div>
-                  </div>
-                );
-              })
+              filteredCollaborators.map((colab) => (
+                <UserAccessCard
+                  key={colab.id}
+                  collaborator={colab}
+                  establishmentId={establishmentId}
+                  modulePermissions={
+                    accessPermissionsByUser.get(colab.id) ?? emptyModulePermissionMap()
+                  }
+                  formatDate={formatDate}
+                  updateAction={handleUpdate}
+                  updateAccessAction={handleUpdateAccess}
+                  resetPasswordAction={handleResetPassword}
+                  toggleStatusAction={handleToggleStatus}
+                  deleteAction={handleDelete}
+                />
+              ))
             )}
           </CardContent>
         </Card>

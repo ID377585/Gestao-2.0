@@ -22,9 +22,7 @@ import {
   updateCollaborator,
   type UserAccessAuditLog,
 } from "./actions";
-import {
-  emptyModulePermissionMap,
-} from "./access-modules";
+import { emptyModulePermissionMap } from "./access-modules";
 import {
   listCollaboratorModulePermissions,
   updateCollaboratorModulePermissions,
@@ -398,7 +396,6 @@ export default async function UsuariosPage({
                   modulePermissions={
                     accessPermissionsByUser.get(colab.id) ?? emptyModulePermissionMap()
                   }
-                  formatDate={formatDate}
                   updateAction={handleUpdate}
                   updateAccessAction={handleUpdateAccess}
                   resetPasswordAction={handleResetPassword}

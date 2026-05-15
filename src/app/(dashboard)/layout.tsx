@@ -4,16 +4,9 @@ import {
   ensureCurrentTermsAcceptedOrRedirect,
   touchUserAuthenticatedAccess,
 } from "@/lib/auth/terms-compliance.server";
+import { requireModuleAccess } from "@/lib/auth/module-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-
-type AllowedRole =
-  | "admin"
-  | "operacao"
-  | "producao"
-  | "estoque"
-  | "fiscal"
-  | "entrega";
 
 export default async function DashboardLayout({
   children,
@@ -40,37 +33,7 @@ export default async function DashboardLayout({
     path: "/dashboard",
   });
 
-  const { data: membership, error: membershipError } = await supabase
-    .from("memberships")
-    .select("role, is_active")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (membershipError || !membership?.role) {
-    console.error("Membership check failed (memberships):", {
-      message: membershipError?.message,
-      code: (membershipError as any)?.code,
-      user_id: user.id,
-      email: user.email,
-    });
-    redirect("/sem-acesso");
-  }
-
-  const role = membership.role as AllowedRole;
-
-  const allowedRoles: AllowedRole[] = [
-    "admin",
-    "operacao",
-    "producao",
-    "estoque",
-    "fiscal",
-    "entrega",
-  ];
-
-  if (!allowedRoles.includes(role)) {
-    redirect("/sem-acesso");
-  }
+  const access = await requireModuleAccess(user.id);
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100 md:min-h-screen md:overflow-visible">
@@ -89,7 +52,7 @@ export default async function DashboardLayout({
           }}
         >
           <div className="flex min-h-0 flex-1 flex-col">
-            <Sidebar />
+            <Sidebar modulePermissions={access.permissions} />
           </div>
         </aside>
 

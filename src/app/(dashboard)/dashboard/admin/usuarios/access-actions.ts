@@ -4,66 +4,21 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { ProfileRole } from "./actions";
+import {
+  ACCESS_MODULES,
+  emptyModulePermissionMap,
+  type AccessModuleKey,
+  type UserModulePermission,
+  type UserModulePermissionMap,
+} from "./access-modules";
 
-export type AccessModuleKey =
-  | "operacao"
-  | "estoque"
-  | "engenharia"
-  | "compras"
-  | "fiscal"
-  | "financeiro"
-  | "administracao";
-
-export type AccessModule = {
-  key: AccessModuleKey;
-  label: string;
-  description: string;
-};
-
-export const ACCESS_MODULES: AccessModule[] = [
-  {
-    key: "operacao",
-    label: "Operação",
-    description: "Pedidos, produção, separação e histórico operacional.",
-  },
-  {
-    key: "estoque",
-    label: "Estoque",
-    description: "Estoque, produtos, entradas, inventário, perdas e transferências.",
-  },
-  {
-    key: "engenharia",
-    label: "Engenharia",
-    description: "Fichas técnicas, lista rápida e etiquetas.",
-  },
-  {
-    key: "compras",
-    label: "Compras",
-    description: "Fornecedores, solicitações, pedidos, recebimentos e auditoria de compras.",
-  },
-  {
-    key: "fiscal",
-    label: "Fiscal",
-    description: "Notas, certificado, divergências, vínculos e dados fiscais.",
-  },
-  {
-    key: "financeiro",
-    label: "Financeiro",
-    description: "DRE, contas, fluxo de caixa, bancos, conciliação e relatórios.",
-  },
-  {
-    key: "administracao",
-    label: "Administração",
-    description: "Usuários, assinatura e configurações administrativas.",
-  },
-];
-
-export type UserModulePermission = {
-  module_key: AccessModuleKey;
-  can_access: boolean;
-};
-
-export type UserModulePermissionMap = Record<AccessModuleKey, boolean>;
+export { ACCESS_MODULES } from "./access-modules";
+export type {
+  AccessModule,
+  AccessModuleKey,
+  UserModulePermission,
+  UserModulePermissionMap,
+} from "./access-modules";
 
 const ALL_MODULE_KEYS = ACCESS_MODULES.map((module) => module.key);
 
@@ -126,15 +81,8 @@ async function getContextOrThrow() {
   };
 }
 
-function emptyPermissionMap(): UserModulePermissionMap {
-  return ACCESS_MODULES.reduce((acc, module) => {
-    acc[module.key] = false;
-    return acc;
-  }, {} as UserModulePermissionMap);
-}
-
 export function getDefaultModulesForRole(role: ProfileRole): UserModulePermissionMap {
-  const permissions = emptyPermissionMap();
+  const permissions = emptyModulePermissionMap();
 
   if (role === "admin") {
     for (const key of ALL_MODULE_KEYS) permissions[key] = true;
@@ -169,7 +117,7 @@ export async function listCollaboratorModulePermissions(userIds: string[]) {
   const result = new Map<string, UserModulePermissionMap>();
 
   for (const userId of uniqueUserIds) {
-    result.set(userId, emptyPermissionMap());
+    result.set(userId, emptyModulePermissionMap());
   }
 
   if (uniqueUserIds.length === 0) {
@@ -199,8 +147,8 @@ export async function listCollaboratorModulePermissions(userIds: string[]) {
 
     if (!ALL_MODULE_KEYS.includes(moduleKey)) continue;
 
-    const current = result.get(userId) ?? emptyPermissionMap();
-    current[moduleKey] = Boolean((row as any).can_access);
+    const current = result.get(userId) ?? emptyModulePermissionMap();
+    current[moduleKey] = Boolean((row as UserModulePermission).can_access);
     result.set(userId, current);
   }
 

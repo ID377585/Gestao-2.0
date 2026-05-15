@@ -50,6 +50,10 @@ type UserAccessCardProps = {
   deleteAction: (formData: FormData) => void | Promise<void>;
 };
 
+const dialogInputClass = "border-slate-300 bg-white text-slate-950 placeholder:text-slate-400";
+const dialogSelectClass = "h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950";
+const dialogCardClass = "rounded-xl border border-slate-200 bg-white p-3 text-sm transition hover:bg-slate-50";
+
 export function UserAccessCard({
   collaborator,
   establishmentId,
@@ -123,7 +127,7 @@ export function UserAccessCard({
               Editar perfil
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-xl">
+          <DialogContent className="max-w-xl bg-white text-slate-950">
             <DialogHeader>
               <DialogTitle>Editar perfil</DialogTitle>
               <DialogDescription>
@@ -136,16 +140,16 @@ export function UserAccessCard({
               <input type="hidden" name="establishment_id" value={establishmentId} />
 
               <div className="space-y-1">
-                <Label>Nome completo</Label>
-                <Input name="full_name" defaultValue={collaborator.full_name} required />
+                <Label className="text-slate-800">Nome completo</Label>
+                <Input name="full_name" defaultValue={collaborator.full_name} className={dialogInputClass} required />
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <Label>Papel</Label>
+                  <Label className="text-slate-800">Papel</Label>
                   <select
                     name="role"
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    className={dialogSelectClass}
                     defaultValue={collaborator.role}
                     required
                   >
@@ -159,10 +163,10 @@ export function UserAccessCard({
                 </div>
 
                 <div className="space-y-1">
-                  <Label>Status de acesso</Label>
+                  <Label className="text-slate-800">Status de acesso</Label>
                   <select
                     name="is_active"
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    className={dialogSelectClass}
                     defaultValue={String(collaborator.is_active)}
                   >
                     <option value="true">Ativo</option>
@@ -172,16 +176,17 @@ export function UserAccessCard({
               </div>
 
               <div className="space-y-1">
-                <Label>Setor</Label>
+                <Label className="text-slate-800">Setor</Label>
                 <Input
                   name="sector"
                   defaultValue={collaborator.sector ?? ""}
                   placeholder="Ex.: Estoque"
+                  className={dialogInputClass}
                 />
               </div>
 
               <DialogFooter>
-                <Button type="submit">Salvar alterações</Button>
+                <Button type="submit" className="bg-slate-900 text-white hover:bg-slate-800">Salvar alterações</Button>
               </DialogFooter>
             </form>
           </DialogContent>
@@ -193,7 +198,7 @@ export function UserAccessCard({
               Liberar acesso
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl bg-white text-slate-950">
             <DialogHeader>
               <DialogTitle>Liberar sessões de acesso</DialogTitle>
               <DialogDescription>
@@ -209,18 +214,18 @@ export function UserAccessCard({
                 {ACCESS_MODULES.map((module) => (
                   <label
                     key={module.key}
-                    className="flex items-start gap-3 rounded-xl border p-3 text-sm transition hover:bg-slate-50"
+                    className={dialogCardClass}
                   >
                     <input
                       type="checkbox"
                       name="modules"
                       value={module.key}
                       defaultChecked={Boolean(modulePermissions?.[module.key])}
-                      className="mt-1 h-4 w-4"
+                      className="mt-1 h-4 w-4 accent-blue-600"
                     />
                     <span>
-                      <span className="block font-medium">{module.label}</span>
-                      <span className="block text-xs text-muted-foreground">
+                      <span className="block font-medium text-slate-900">{module.label}</span>
+                      <span className="block text-xs text-slate-600">
                         {module.description}
                       </span>
                     </span>
@@ -229,7 +234,7 @@ export function UserAccessCard({
               </div>
 
               <DialogFooter>
-                <Button type="submit">Salvar acessos</Button>
+                <Button type="submit" className="bg-slate-900 text-white hover:bg-slate-800">Salvar acessos</Button>
               </DialogFooter>
             </form>
           </DialogContent>
@@ -241,7 +246,7 @@ export function UserAccessCard({
               Redefinir senha
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-md bg-white text-slate-950">
             <DialogHeader>
               <DialogTitle>Redefinir senha</DialogTitle>
               <DialogDescription>
@@ -252,11 +257,11 @@ export function UserAccessCard({
             <form action={resetPasswordAction} className="space-y-4">
               <input type="hidden" name="user_id" value={collaborator.id} />
               <div className="space-y-1">
-                <Label>Nova senha</Label>
-                <Input type="password" name="password" placeholder="••••••••" required />
+                <Label className="text-slate-800">Nova senha</Label>
+                <Input type="password" name="password" placeholder="••••••••" className={dialogInputClass} required />
               </div>
               <DialogFooter>
-                <Button type="submit">Atualizar senha</Button>
+                <Button type="submit" className="bg-slate-900 text-white hover:bg-slate-800">Atualizar senha</Button>
               </DialogFooter>
             </form>
           </DialogContent>
@@ -273,11 +278,11 @@ export function UserAccessCard({
 
         <Dialog>
           <DialogTrigger asChild>
-            <Button type="button" variant="destructive" size="sm">
+            <Button type="button" size="sm" className="bg-red-600 text-white hover:bg-red-700">
               Excluir usuário
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-md bg-white text-slate-950">
             <DialogHeader>
               <DialogTitle>Excluir usuário</DialogTitle>
               <DialogDescription>
@@ -293,7 +298,7 @@ export function UserAccessCard({
                 Confirme apenas se deseja remover o acesso de {collaborator.full_name || collaborator.email}.
               </div>
               <DialogFooter>
-                <Button type="submit" variant="destructive">
+                <Button type="submit" className="bg-red-600 text-white hover:bg-red-700">
                   Confirmar exclusão
                 </Button>
               </DialogFooter>

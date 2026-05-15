@@ -28,11 +28,21 @@ const ROLE_LABEL: Record<ProfileRole, string> = {
   entrega: "Entrega",
 };
 
+function formatCardDate(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
 type UserAccessCardProps = {
   collaborator: Collaborator;
   establishmentId: string;
   modulePermissions: UserModulePermissionMap;
-  formatDate: (value?: string | null) => string;
   updateAction: (formData: FormData) => void | Promise<void>;
   updateAccessAction: (formData: FormData) => void | Promise<void>;
   resetPasswordAction: (formData: FormData) => void | Promise<void>;
@@ -44,7 +54,6 @@ export function UserAccessCard({
   collaborator,
   establishmentId,
   modulePermissions,
-  formatDate,
   updateAction,
   updateAccessAction,
   resetPasswordAction,
@@ -75,11 +84,11 @@ export function UserAccessCard({
             </p>
             <p>
               <span className="font-medium text-gray-700">Criado em:</span>{" "}
-              {formatDate(collaborator.created_at)}
+              {formatCardDate(collaborator.created_at)}
             </p>
             <p>
               <span className="font-medium text-gray-700">Último acesso:</span>{" "}
-              {formatDate(collaborator.last_sign_in_at)}
+              {formatCardDate(collaborator.last_sign_in_at)}
             </p>
           </div>
 

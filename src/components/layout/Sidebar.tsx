@@ -19,13 +19,19 @@ import {
 
 interface SidebarProps {
   className?: string;
+  modulePermissions?: Partial<Record<MenuSectionKey, boolean>>;
 }
 
 const SUBMENU_VIEWPORT_MARGIN = 16;
 const SUBMENU_BRIDGE_HEIGHT = 56;
 
-export function Sidebar({ className }: SidebarProps) {
+export function Sidebar({ className, modulePermissions }: SidebarProps) {
   const pathname = usePathname();
+
+  const allowedMenuSections = useMemo(() => {
+    if (!modulePermissions) return menuSections;
+    return menuSections.filter((section) => modulePermissions[section.key]);
+  }, [modulePermissions]);
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopHovered, setDesktopHovered] = useState(false);
@@ -48,18 +54,18 @@ export function Sidebar({ className }: SidebarProps) {
 
   const currentSectionKey = useMemo(() => {
     return (
-      menuSections.find((section) =>
+      allowedMenuSections.find((section) =>
         section.items.some((item) => isActive(item.href))
-      )?.key ?? menuSections[0]?.key ?? null
+      )?.key ?? allowedMenuSections[0]?.key ?? null
     );
-  }, [pathname]);
+  }, [pathname, allowedMenuSections]);
 
   const displayedSectionKey = previewSectionKey ?? currentSectionKey;
   const displayedSection = useMemo(
     () =>
-      menuSections.find((section) => section.key === displayedSectionKey) ??
+      allowedMenuSections.find((section) => section.key === displayedSectionKey) ??
       null,
-    [displayedSectionKey]
+    [displayedSectionKey, allowedMenuSections]
   );
 
   const clearCloseTimer = () => {
@@ -116,10 +122,12 @@ export function Sidebar({ className }: SidebarProps) {
   };
 
   const openDesktopMenu = () => {
+    if (allowedMenuSections.length === 0) return;
+
     clearCloseTimer();
     setDesktopHovered(true);
 
-    const nextSectionKey = currentSectionKey ?? menuSections[0]?.key ?? null;
+    const nextSectionKey = currentSectionKey ?? allowedMenuSections[0]?.key ?? null;
     setPreviewSectionKey(nextSectionKey);
 
     if (nextSectionKey) {
@@ -361,7 +369,7 @@ export function Sidebar({ className }: SidebarProps) {
 
         <nav className="flex-1 overflow-y-auto overscroll-contain px-3 py-4 [webkit-overflow-scrolling:touch]">
           <div className="space-y-3">
-            {menuSections.map((section, index) => {
+            {allowedMenuSections.map((section, index) => {
               const isMobileExpanded = mobileExpandedSection === section.key;
 
               return (
@@ -388,7 +396,7 @@ export function Sidebar({ className }: SidebarProps) {
                     </div>
                   )}
 
-                  {index < menuSections.length - 1 && (
+                  {index < allowedMenuSections.length - 1 && (
                     <div className="pt-2">
                       <Separator className="bg-gray-200 dark:bg-slate-800" />
                     </div>

@@ -5,7 +5,9 @@ import {
   touchUserAuthenticatedAccess,
 } from "@/lib/auth/terms-compliance.server";
 import { requireModuleAccess } from "@/lib/auth/module-access.server";
+import { getModuleKeyForPath } from "@/lib/auth/module-access-config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 export default async function DashboardLayout({
@@ -33,7 +35,11 @@ export default async function DashboardLayout({
     path: "/dashboard",
   });
 
-  const access = await requireModuleAccess(user.id);
+  const pathname = headers().get("x-pathname") ?? "/dashboard";
+  const access = await requireModuleAccess(
+    user.id,
+    getModuleKeyForPath(pathname)
+  );
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100 md:min-h-screen md:overflow-visible">

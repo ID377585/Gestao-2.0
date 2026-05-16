@@ -1,9 +1,9 @@
 "use client";
 
-// src/app/(dashboard)/dashboard/perdas/page.tsx
-
 import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Download, RefreshCcw, ShieldCheck } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,11 +12,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-
 import {
   Table,
   TableBody,
@@ -26,61 +24,28 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// Select (shadcn)
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-
-// ✅ Combobox pesquisável (shadcn)
-import { Check, ChevronsUpDown, RefreshCcw, Download } from "lucide-react";
-import { cn } from "@/lib/utils";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-
-/* =========================
-   TIPOS
-========================= */
 type ProductOption = {
   id: string;
   name: string;
   sku: string;
   unit_label: string;
+  standard_cost: number | null;
 };
 
 type LossRow = {
   id: string;
   created_at: string;
-
   product_id: string;
   product_name: string;
   sku: string;
   unit_label: string;
-
   qty: number;
   lot: string | null;
-
   reason: string;
   reason_detail: string | null;
-
   qrcode: string | null;
   user_id: string;
   establishment_id: string;
-
   stock_before: number | null;
   stock_after: number | null;
 };
@@ -99,8 +64,6 @@ type InventoryLabelPreview = {
 
 type RpcLossResult = {
   loss_id: string;
-  establishment_id: string;
-  user_id: string;
   stock_before: number | null;
   stock_after: number | null;
   label_id: string | null;
@@ -121,239 +84,128 @@ const LOSS_REASONS = [
   "Outro",
 ] as const;
 
-function formatDateTimeBR(iso: string) {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString("pt-BR", {
-      timeZone: "America/Sao_Paulo",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
+const CURRENCY = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+});
+
+function formatQty(value: unknown) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: 3,
+  }).format(number);
 }
 
-function formatDateBR(iso: string) {
-  try {
-    return new Date(iso).toLocaleDateString("pt-BR", {
-      timeZone: "America/Sao_Paulo",
-    });
-  } catch {
-    return iso;
-  }
+function formatDateTimeBR(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function formatMaybeNumber(n: any) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return "-";
-  return String(x);
+function formatDateBR(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
+
+function toDecimal(value: string) {
+  const number = Number(String(value).replace(",", "."));
+  return Number.isFinite(number) ? number : NaN;
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function monthStartISO() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
 }
 
 export default function PerdasPage() {
-  /* =========================
-     STATE: PRODUTOS + HISTÓRICO
-  ========================= */
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [losses, setLosses] = useState<LossRow[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [loadingLosses, setLoadingLosses] = useState(false);
+  const [productsError, setProductsError] = useState("");
 
-  // ✅ NOVO: erro real do carregamento de produtos (não misturar com submitError)
-  const [productsError, setProductsError] = useState<string>("");
+  const [productSearch, setProductSearch] = useState("");
+  const [selectedProductId, setSelectedProductId] = useState("");
+  const [qty, setQty] = useState("1");
+  const [lot, setLot] = useState("");
+  const [reason, setReason] = useState("");
+  const [reasonDetail, setReasonDetail] = useState("");
+  const [qrcode, setQrcode] = useState("");
 
-  /* =========================
-     STATE: FORM
-  ========================= */
-  const [productOpen, setProductOpen] = useState(false);
-  const [selectedProductId, setSelectedProductId] = useState<string>("");
-  const selectedProduct = useMemo(
-    () => products.find((p) => p.id === selectedProductId) ?? null,
-    [products, selectedProductId]
-  );
+  const [filterProductId, setFilterProductId] = useState("");
+  const [filterReason, setFilterReason] = useState("");
+  const [dateFrom, setDateFrom] = useState(monthStartISO());
+  const [dateTo, setDateTo] = useState(todayISO());
 
-  const [sku, setSku] = useState("");
-  const [unitLabel, setUnitLabel] = useState("");
-
-  const [qty, setQty] = useState<string>("1");
-  const [lot, setLot] = useState<string>("");
-  const [reason, setReason] = useState<string>("");
-  const [reasonDetail, setReasonDetail] = useState<string>("");
-  const [qrcode, setQrcode] = useState<string>("");
-
-  const [submitting, setSubmitting] = useState(false);
-
-  /* =========================
-     STATE: PREVIEW ETIQUETA
-  ========================= */
-  const [labelPreview, setLabelPreview] = useState<InventoryLabelPreview | null>(
-    null
-  );
+  const [labelPreview, setLabelPreview] = useState<InventoryLabelPreview | null>(null);
   const [labelError, setLabelError] = useState<string | null>(null);
   const [checkingLabel, setCheckingLabel] = useState(false);
 
-  /* =========================
-     STATE: FEEDBACK (SEM ALERT)
-  ========================= */
+  const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<RpcLossResult | null>(null);
 
-  /* =========================
-     LOAD: PRODUTOS
-  ========================= */
-  async function loadProducts() {
-    setLoadingProducts(true);
-    setProductsError("");
-    try {
-      const res = await fetch("/api/products", { cache: "no-store" });
+  const selectedProduct = useMemo(
+    () => products.find((product) => product.id === selectedProductId) ?? null,
+    [products, selectedProductId]
+  );
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error ?? "Falha ao carregar produtos.");
-      }
+  const qtyNumber = useMemo(() => toDecimal(qty), [qty]);
 
-      const data = await res.json();
+  const filteredProductOptions = useMemo(() => {
+    const search = productSearch.trim().toLowerCase();
+    if (!search) return products.slice(0, 80);
 
-      const list: ProductOption[] = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.products)
-        ? data.products
-        : [];
+    return products
+      .filter((product) =>
+        `${product.name} ${product.sku}`.toLowerCase().includes(search)
+      )
+      .slice(0, 80);
+  }, [products, productSearch]);
 
-      const normalized = list
-        .map((p: any) => ({
-          id: String(p.id),
-          name: String(p.name ?? p.product_name ?? ""),
-          sku: String(p.sku ?? ""),
-          // ✅ AJUSTE: no seu print a coluna é default_unit_label
-          unit_label: String(
-            p.unit_label ?? p.default_unit_label ?? p.unit ?? ""
-          ),
-        }))
-        .filter((p) => p.id && p.name);
+  const summary = useMemo(() => {
+    const totalQty = losses.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+    const estimatedCost = losses.reduce((sum, item) => {
+      const product = products.find((p) => p.id === item.product_id);
+      return sum + Number(item.qty || 0) * Number(product?.standard_cost || 0);
+    }, 0);
 
-      setProducts(normalized);
-    } catch (err: any) {
-      console.error(err);
-      setProducts([]);
-      setProductsError(err?.message ?? "Erro ao carregar produtos.");
-    } finally {
-      setLoadingProducts(false);
-    }
-  }
+    const reasonMap = new Map<string, number>();
+    const productMap = new Map<string, number>();
 
-  /* =========================
-     LOAD: HISTÓRICO
-  ========================= */
-  async function loadLosses() {
-    setLoadingLosses(true);
-    try {
-      const res = await fetch("/api/losses", { cache: "no-store" });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        // mantém comportamento anterior (não quebrar UI)
-        console.warn("Falha ao carregar perdas:", data?.error ?? res.statusText);
-        setLosses([]);
-        return;
-      }
-
-      // ✅ AJUSTE: sua API retorna { losses: [...] } — manter consistente
-      const list: LossRow[] = Array.isArray(data?.losses) ? data.losses : [];
-      setLosses(list);
-    } catch (err) {
-      console.warn("Histórico não disponível.");
-      setLosses([]);
-    } finally {
-      setLoadingLosses(false);
-    }
-  }
-
-  useEffect(() => {
-    loadProducts();
-    loadLosses();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /* =========================
-     AUTO: SKU + UNIDADE ao selecionar produto
-  ========================= */
-  useEffect(() => {
-    if (!selectedProduct) {
-      setSku("");
-      setUnitLabel("");
-      return;
-    }
-    setSku(selectedProduct.sku ?? "");
-    setUnitLabel(selectedProduct.unit_label ?? "");
-  }, [selectedProduct]);
-
-  /* =========================
-     PREVIEW QR
-  ========================= */
-  useEffect(() => {
-    const code = qrcode.trim();
-
-    if (!code || code.length < 3) {
-      setLabelPreview(null);
-      setLabelError(null);
-      setCheckingLabel(false);
-      return;
+    for (const item of losses) {
+      reasonMap.set(item.reason, (reasonMap.get(item.reason) ?? 0) + 1);
+      productMap.set(
+        item.product_name,
+        (productMap.get(item.product_name) ?? 0) + Number(item.qty || 0)
+      );
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        setCheckingLabel(true);
-        setLabelError(null);
+    const topReason = [...reasonMap.entries()].sort((a, b) => b[1] - a[1])[0];
+    const topProduct = [...productMap.entries()].sort((a, b) => b[1] - a[1])[0];
 
-        const res = await fetch(
-          `/api/inventory-labels/preview?code=${encodeURIComponent(code)}`,
-          { signal: controller.signal, cache: "no-store" }
-        );
-
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok) throw new Error(data?.error ?? "Etiqueta inválida.");
-
-        const label: InventoryLabelPreview | undefined = data?.label;
-        if (!label) throw new Error("Resposta inválida do preview da etiqueta.");
-
-        if (
-          selectedProductId &&
-          String(label.product_id) !== String(selectedProductId)
-        ) {
-          throw new Error("Este QR pertence a outro produto.");
-        }
-
-        setLabelPreview(label);
-      } catch (err: any) {
-        if (err?.name !== "AbortError") {
-          setLabelPreview(null);
-          setLabelError(err?.message ?? "Erro ao validar etiqueta.");
-        }
-      } finally {
-        setCheckingLabel(false);
-      }
-    }, 600);
-
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
+    return {
+      totalRecords: losses.length,
+      totalQty,
+      estimatedCost,
+      topReason: topReason?.[0] ?? "-",
+      topProduct: topProduct?.[0] ?? "-",
     };
-  }, [qrcode, selectedProductId]);
-
-  /* =========================
-     VALIDATION
-  ========================= */
-  const qtyNumber = useMemo(() => {
-    const n = Number(String(qty).replace(",", "."));
-    return Number.isFinite(n) ? n : NaN;
-  }, [qty]);
+  }, [losses, products]);
 
   const canSubmit = useMemo(() => {
     if (!selectedProductId) return false;
@@ -362,9 +214,8 @@ export default function PerdasPage() {
     if (reason === "Outro" && reasonDetail.trim().length < 3) return false;
 
     if (qrcode.trim()) {
-      if (checkingLabel) return false;
-      if (labelError) return false;
-      if (!labelPreview) return false;
+      if (checkingLabel || labelError || !labelPreview) return false;
+      if (String(labelPreview.product_id) !== String(selectedProductId)) return false;
       if (Number(labelPreview.qty_balance ?? 0) < qtyNumber) return false;
     }
 
@@ -380,630 +231,503 @@ export default function PerdasPage() {
     labelPreview,
   ]);
 
-  /* =========================
-     SUBMIT (SEM ALERT + RESUMO)
-  ========================= */
+  async function loadProducts() {
+    setLoadingProducts(true);
+    setProductsError("");
+
+    try {
+      const response = await fetch("/api/products/catalog", { cache: "no-store" });
+      const data = await response.json().catch(() => []);
+
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Falha ao carregar produtos.");
+      }
+
+      const rows = Array.isArray(data) ? data : Array.isArray(data?.products) ? data.products : [];
+
+      setProducts(
+        rows
+          .map((product: any) => ({
+            id: String(product.id ?? ""),
+            name: String(product.name ?? product.product_name ?? ""),
+            sku: String(product.sku ?? ""),
+            unit_label: String(product.default_unit_label ?? product.unit_label ?? product.unit ?? "UN"),
+            standard_cost:
+              product.standard_cost == null || Number.isNaN(Number(product.standard_cost))
+                ? null
+                : Number(product.standard_cost),
+          }))
+          .filter((product: ProductOption) => product.id && product.name)
+      );
+    } catch (error: any) {
+      console.error(error);
+      setProducts([]);
+      setProductsError(error?.message ?? "Erro ao carregar produtos.");
+    } finally {
+      setLoadingProducts(false);
+    }
+  }
+
+  async function loadLosses() {
+    setLoadingLosses(true);
+
+    try {
+      const params = new URLSearchParams();
+      if (filterProductId) params.set("product_id", filterProductId);
+      if (filterReason) params.set("reason", filterReason);
+      if (dateFrom) params.set("date_from", dateFrom);
+      if (dateTo) params.set("date_to", dateTo);
+      params.set("limit", "250");
+
+      const response = await fetch(`/api/losses?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Falha ao carregar histórico de perdas.");
+      }
+
+      setLosses(Array.isArray(data?.losses) ? data.losses : []);
+    } catch (error) {
+      console.warn("Histórico de perdas não disponível:", error);
+      setLosses([]);
+    } finally {
+      setLoadingLosses(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadProducts();
+  }, []);
+
+  useEffect(() => {
+    void loadLosses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterProductId, filterReason, dateFrom, dateTo]);
+
+  useEffect(() => {
+    const code = qrcode.trim();
+
+    if (!code || code.length < 3) {
+      setLabelPreview(null);
+      setLabelError(null);
+      setCheckingLabel(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        setCheckingLabel(true);
+        setLabelError(null);
+
+        const response = await fetch(
+          `/api/inventory-labels/preview?code=${encodeURIComponent(code)}`,
+          { signal: controller.signal, cache: "no-store" }
+        );
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) throw new Error(data?.error ?? "Etiqueta inválida.");
+
+        const label = data?.label as InventoryLabelPreview | undefined;
+        if (!label) throw new Error("Resposta inválida da etiqueta.");
+
+        if (selectedProductId && String(label.product_id) !== String(selectedProductId)) {
+          throw new Error("Este QR pertence a outro produto.");
+        }
+
+        if (Number(label.qty_balance ?? 0) <= 0) {
+          throw new Error("Esta etiqueta não possui saldo disponível.");
+        }
+
+        setLabelPreview(label);
+      } catch (error: any) {
+        if (error?.name !== "AbortError") {
+          setLabelPreview(null);
+          setLabelError(error?.message ?? "Erro ao validar etiqueta.");
+        }
+      } finally {
+        setCheckingLabel(false);
+      }
+    }, 500);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [qrcode, selectedProductId]);
+
+  function resetForm() {
+    setSelectedProductId("");
+    setProductSearch("");
+    setQty("1");
+    setLot("");
+    setReason("");
+    setReasonDetail("");
+    setQrcode("");
+    setLabelPreview(null);
+    setLabelError(null);
+    setSubmitError(null);
+  }
+
   async function handleSubmit() {
     setSubmitError(null);
     setLastResult(null);
 
-    if (!canSubmit) {
+    if (!canSubmit || !selectedProduct) {
       setSubmitError("Preencha os campos obrigatórios corretamente.");
       return;
     }
 
-    setSubmitting(true);
-    try {
-      const payload = {
-  product_id: selectedProductId,
-  qty: qtyNumber,
-  unit_label: unitLabel || selectedProduct?.unit_label || "UN",
-  lot: lot.trim() ? lot.trim() : null,
-  reason,
-  reason_detail:
-    reason === "Outro"
-      ? reasonDetail.trim()
-      : reasonDetail.trim()
-      ? reasonDetail.trim()
-      : null,
-  qrcode: qrcode.trim() ? qrcode.trim() : null,
-};
+    const confirmed = window.confirm(
+      `Confirmar baixa de ${formatQty(qtyNumber)} ${selectedProduct.unit_label} do produto ${selectedProduct.name}?`
+    );
 
-      const res = await fetch("/api/losses", {
+    if (!confirmed) return;
+
+    setSubmitting(true);
+
+    try {
+      const response = await fetch("/api/losses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          product_id: selectedProduct.id,
+          qty: qtyNumber,
+          unit_label: selectedProduct.unit_label || "UN",
+          lot: lot.trim() || null,
+          reason,
+          reason_detail: reasonDetail.trim() || null,
+          qrcode: qrcode.trim() || null,
+        }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error ?? "Erro ao registrar perda.");
 
-      if (!res.ok) {
-        throw new Error(data?.error ?? "Erro ao registrar perda.");
-      }
-
-      const result: RpcLossResult | null = data?.result ?? null;
-      setLastResult(result);
-
-      // Reset form
-      setSelectedProductId("");
-      setReason("");
-      setReasonDetail("");
-      setLot("");
-      setQty("1");
-      setQrcode("");
-
-      // limpa preview também
-      setLabelPreview(null);
-      setLabelError(null);
-      setCheckingLabel(false);
-
-      // Atualiza histórico
+      setLastResult(data?.result ?? null);
+      resetForm();
       await loadLosses();
-    } catch (err: any) {
-      console.error(err);
-      setSubmitError(err?.message ?? "Erro ao registrar perda.");
+    } catch (error: any) {
+      console.error(error);
+      setSubmitError(error?.message ?? "Erro ao registrar perda.");
     } finally {
       setSubmitting(false);
     }
   }
 
-  /* =========================
-     EXPORT CSV (NOVO - SEGURO)
-  ========================= */
-  function handleExportCSV() {
-    window.open("/api/export/losses", "_blank");
+  function exportCsv() {
+    const params = new URLSearchParams();
+    if (filterProductId) params.set("product_id", filterProductId);
+    if (filterReason) params.set("reason", filterReason);
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    window.open(`/api/export/losses?${params.toString()}`, "_blank");
   }
 
   return (
     <div className="space-y-6">
-      {/* HEADER */}
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">Perdas</h1>
-        <p className="text-sm text-muted-foreground">
-          Registre perdas com rastreabilidade. Ao confirmar, o sistema salva no
-          histórico e dá baixa automática no estoque atual.
-        </p>
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Perdas</h1>
+          <p className="text-sm text-muted-foreground">
+            Registre baixas por perda com validação de produto, motivo, etiqueta e saldo.
+          </p>
+        </div>
+        <Button type="button" variant="outline" onClick={exportCsv}>
+          <Download className="mr-2 h-4 w-4" />
+          Exportar CSV
+        </Button>
       </div>
 
-      {/* RESUMO PÓS-REGISTRO */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Registros no filtro</CardDescription>
+            <CardTitle>{summary.totalRecords}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Quantidade total</CardDescription>
+            <CardTitle>{formatQty(summary.totalQty)}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Custo estimado</CardDescription>
+            <CardTitle>{CURRENCY.format(summary.estimatedCost)}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Motivo mais frequente</CardDescription>
+            <CardTitle className="text-base">{summary.topReason}</CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+
       {lastResult ? (
-        <Card className="border-green-200">
+        <Card className="border-green-200 bg-green-50/50 dark:bg-green-950/20">
           <CardHeader>
-            <CardTitle className="text-base">Perda registrada ✅</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="h-5 w-5" />
+              Perda registrada com sucesso
+            </CardTitle>
             <CardDescription>
-              Resumo da operação (retorno transacional).
+              Estoque: {formatQty(lastResult.stock_before)} para {formatQty(lastResult.stock_after)}
+              {lastResult.label_id
+                ? ` | Etiqueta: ${formatQty(lastResult.label_before)} para ${formatQty(lastResult.label_after)}`
+                : ""}
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="space-y-1">
-              <div className="text-xs text-muted-foreground">Estoque</div>
-              <div className="text-sm font-medium">
-                {formatMaybeNumber(lastResult.stock_before)} →{" "}
-                {formatMaybeNumber(lastResult.stock_after)}
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-xs text-muted-foreground">Etiqueta</div>
-              <div className="text-sm font-medium">
-                {lastResult.label_id
-                  ? `${formatMaybeNumber(
-                      lastResult.label_before
-                    )} → ${formatMaybeNumber(lastResult.label_after)}`
-                  : "—"}
-              </div>
-              {!lastResult.label_id ? (
-                <div className="text-xs text-muted-foreground">
-                  (Sem QR informado)
-                </div>
-              ) : null}
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-xs text-muted-foreground">Registro</div>
-              <div className="text-sm font-medium break-all">
-                {lastResult.loss_id}
-              </div>
-            </div>
-          </CardContent>
         </Card>
       ) : null}
 
-      {/* ERRO INLINE */}
       {submitError ? (
-        <Card className="border-red-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-red-600">
-              Não foi possível registrar
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-red-600">{submitError}</p>
+        <Card className="border-red-200 bg-red-50/50 dark:bg-red-950/20">
+          <CardContent className="flex gap-2 pt-6 text-sm text-red-700 dark:text-red-300">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {submitError}
           </CardContent>
         </Card>
       ) : null}
 
-      {/* REGISTRAR PERDA */}
       <Card>
         <CardHeader>
           <CardTitle>Registrar perda</CardTitle>
           <CardDescription>
-            Se o produto tiver etiqueta/QR Code, informe o código para validar e
-            rastrear a baixa no lote/etiqueta.
+            A baixa é confirmada antes do envio e o backend valida produto, empresa, motivo e saldo.
           </CardDescription>
         </CardHeader>
-
-        <CardContent className="space-y-6">
-          {/* Linha 1 */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <CardContent className="space-y-5">
+          <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr_1fr]">
             <div className="space-y-2">
-              <Label>Produto *</Label>
-
-              {/* ✅ AJUSTADO: Trigger consistente (asChild + button) + debug dentro */}
-              <Popover
-                modal={false}
-                open={productOpen}
-                onOpenChange={(open) => {
-                  setProductOpen(open);
-                  if (open) {
-                    requestAnimationFrame(() => {
-                      window.dispatchEvent(new Event("resize"));
-                    });
-                  }
-                }}
+              <Label>Buscar produto *</Label>
+              <Input
+                value={productSearch}
+                onChange={(event) => setProductSearch(event.target.value)}
+                placeholder="Digite nome ou SKU"
+              />
+              <select
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={selectedProductId}
+                onChange={(event) => setSelectedProductId(event.target.value)}
+                disabled={loadingProducts}
               >
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    role="combobox"
-                    aria-expanded={productOpen}
-                    aria-controls="loss-product-combobox"
-                    aria-haspopup="listbox"
-                    className={cn(
-                      "w-full inline-flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
-                      !selectedProductId && "text-muted-foreground",
-                      loadingProducts && "opacity-60 pointer-events-none"
-                    )}
-                  >
-                    {selectedProduct ? selectedProduct.name : "Selecione..."}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </button>
-                </PopoverTrigger>
-
-                <PopoverContent
-                  align="start"
-                  side="bottom"
-                  sideOffset={6}
-                  avoidCollisions
-                  collisionPadding={12}
-                  updatePositionStrategy="always"
-                  sticky="always"
-                  className={cn(
-                    "p-0 z-[99999] border shadow-md",
-                    "bg-white text-gray-900",
-                    "min-w-[520px] w-auto max-w-[90vw]"
-                  )}
-                >
-                  <Command className="bg-white text-gray-900">
-                    <CommandInput
-                      placeholder="Buscar produto..."
-                      className="bg-white text-gray-900"
-                    />
-
-                    {/* ✅ DEBUG VISUAL (igual Etiquetas) */}
-                    <div className="px-3 py-2 text-xs text-muted-foreground border-b bg-white">
-                      {loadingProducts ? (
-                        <>Carregando produtos...</>
-                      ) : productsError ? (
-                        <span className="text-red-600">{productsError}</span>
-                      ) : (
-                        <>
-                          Produtos carregados: <strong>{products.length}</strong>
-                        </>
-                      )}
-                    </div>
-
-                    <CommandList
-                      id="loss-product-combobox"
-                      className="max-h-[360px] overflow-auto bg-white"
-                    >
-                      <CommandEmpty className="text-gray-600">
-                        {loadingProducts
-                          ? "Carregando..."
-                          : "Nenhum produto encontrado."}
-                      </CommandEmpty>
-
-                      <CommandGroup className="bg-white">
-                        {products.map((p) => (
-                          <CommandItem
-                            key={p.id}
-                            value={`${p.name} ${p.sku}`.trim()}
-                            onSelect={() => {
-                              setSelectedProductId(p.id);
-                              setProductOpen(false);
-                            }}
-                            className={cn(
-                              "bg-white text-gray-900",
-                              "data-[selected=true]:bg-gray-100 data-[selected=true]:text-gray-900"
-                            )}
-                          >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                selectedProductId === p.id
-                                  ? "opacity-100"
-                                  : "opacity-0"
-                              )}
-                            />
-                            <div className="flex flex-col">
-                              <span className="text-sm whitespace-normal break-words leading-snug">
-                                {p.name}
-                              </span>
-                              <span className="text-xs text-muted-foreground whitespace-normal break-words">
-                                SKU: {p.sku || "-"} • Unidade:{" "}
-                                {p.unit_label || "-"}
-                              </span>
-                            </div>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={loadProducts}
-                  disabled={loadingProducts}
-                >
+                <option value="">Selecione um produto</option>
+                {filteredProductOptions.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name} {product.sku ? `- ${product.sku}` : ""}
+                  </option>
+                ))}
+              </select>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                {productsError ? <span className="text-red-600">{productsError}</span> : null}
+                <Badge variant="outline">{products.length} produtos ativos</Badge>
+                <Button type="button" variant="ghost" size="sm" onClick={loadProducts} disabled={loadingProducts}>
                   <RefreshCcw className="mr-2 h-4 w-4" />
-                  Atualizar lista
+                  Atualizar
                 </Button>
-
-                {loadingProducts ? (
-                  <Badge variant="secondary">Carregando...</Badge>
-                ) : (
-                  <Badge variant="outline">{products.length} itens</Badge>
-                )}
               </div>
             </div>
 
             <div className="space-y-2">
               <Label>SKU</Label>
-              <Input value={sku} readOnly placeholder="Automático" />
+              <Input value={selectedProduct?.sku ?? ""} readOnly placeholder="Automático" />
             </div>
-
             <div className="space-y-2">
               <Label>Unidade</Label>
-              <Input value={unitLabel} readOnly placeholder="Automático" />
+              <Input value={selectedProduct?.unit_label ?? ""} readOnly placeholder="Automático" />
             </div>
           </div>
 
-          {/* Linha 2 */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
-              <Label>Qtd *</Label>
-              <Input
-                inputMode="decimal"
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                placeholder="Ex.: 1"
-              />
-              <p className="text-xs text-muted-foreground">
-                Use ponto ou vírgula para decimais (ex.: 0,5).
-              </p>
+              <Label>Quantidade *</Label>
+              <Input inputMode="decimal" value={qty} onChange={(event) => setQty(event.target.value)} />
+              <p className="text-xs text-muted-foreground">Aceita ponto ou vírgula para decimais.</p>
             </div>
-
             <div className="space-y-2">
               <Label>Lote</Label>
-              <Input
-                value={lot}
-                onChange={(e) => setLot(e.target.value)}
-                placeholder="Ex.: L2401"
-              />
+              <Input value={lot} onChange={(event) => setLot(event.target.value)} placeholder="Opcional" />
             </div>
-
             <div className="space-y-2">
               <Label>Motivo *</Label>
-              <Select value={reason} onValueChange={setReason}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {LOSS_REASONS.map((r) => (
-                    <SelectItem key={r} value={r}>
-                      {r}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {reason ? (
-                <div className="flex flex-wrap gap-2">
-                  <Badge>{reason}</Badge>
-                  {reason === "Vencido" && (
-                    <Badge variant="secondary">Sugestão: informe o lote</Badge>
-                  )}
-                </div>
-              ) : null}
+              <select
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              >
+                <option value="">Selecione</option>
+                {LOSS_REASONS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* Linha 3 */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-2">
-              <Label>
-                Detalhe do motivo{" "}
-                {reason === "Outro" ? (
-                  <span className="text-red-500">*</span>
-                ) : null}
-              </Label>
+              <Label>Detalhe do motivo {reason === "Outro" ? "*" : ""}</Label>
               <Textarea
                 value={reasonDetail}
-                onChange={(e) => setReasonDetail(e.target.value)}
-                placeholder={
-                  reason === "Outro"
-                    ? "Descreva o motivo..."
-                    : "Opcional (ex.: observações)"
-                }
-                rows={4}
+                onChange={(event) => setReasonDetail(event.target.value)}
+                rows={5}
+                placeholder={reason === "Outro" ? "Descreva o motivo" : "Observação opcional"}
               />
             </div>
-
             <div className="space-y-2">
-              <Label>QR Code (Etiqueta)</Label>
+              <Label>QR Code / etiqueta</Label>
               <Input
                 value={qrcode}
-                onChange={(e) => setQrcode(e.target.value)}
-                placeholder="Cole ou digite o QR Code (label_code)"
+                onChange={(event) => setQrcode(event.target.value)}
+                placeholder="Opcional: cole o código da etiqueta"
               />
-
-              {checkingLabel ? (
-                <p className="text-xs text-muted-foreground">
-                  Validando etiqueta...
-                </p>
-              ) : null}
-
-              {labelError ? (
-                <p className="text-xs text-red-500">{labelError}</p>
-              ) : null}
-
+              {checkingLabel ? <p className="text-xs text-muted-foreground">Validando etiqueta...</p> : null}
+              {labelError ? <p className="text-xs text-red-600">{labelError}</p> : null}
               {labelPreview ? (
-                <Card className="mt-2 border-dashed">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">
-                      Etiqueta encontrada
-                    </CardTitle>
-                    <CardDescription>
-                      Confirme saldo e lote antes de registrar.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">
-                        Saldo disponível
-                      </span>
-                      <div className="font-medium">
-                        {labelPreview.qty_balance} {labelPreview.unit_label}
-                      </div>
-
-                      {Number.isFinite(qtyNumber) &&
-                      qtyNumber > 0 &&
-                      labelPreview.qty_balance < qtyNumber ? (
-                        <p className="mt-1 text-xs text-red-500">
-                          Saldo insuficiente para a quantidade informada.
-                        </p>
-                      ) : null}
-                    </div>
-
-                    <div>
-                      <span className="text-muted-foreground">Status</span>
-                      <div className="font-medium">{labelPreview.status}</div>
-                    </div>
-
-                    <div className="col-span-2">
-                      <span className="text-muted-foreground">Código</span>
-                      <div className="font-medium">{labelPreview.label_code}</div>
-                    </div>
-
-                    {labelPreview.batch_number ? (
-                      <div className="col-span-2">
-                        <span className="text-muted-foreground">Lote</span>
-                        <div className="font-medium">
-                          {labelPreview.batch_number}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {labelPreview.expiration_date ? (
-                      <div className="col-span-2">
-                        <span className="text-muted-foreground">Validade</span>
-                        <div className="font-medium">
-                          {formatDateBR(labelPreview.expiration_date)}
-                        </div>
-                      </div>
-                    ) : null}
-                  </CardContent>
-                </Card>
+                <div className="rounded-md border border-dashed p-3 text-sm">
+                  <div className="font-medium">Etiqueta validada</div>
+                  <div className="text-muted-foreground">
+                    Saldo: {formatQty(labelPreview.qty_balance)} {labelPreview.unit_label} | Status: {labelPreview.status}
+                  </div>
+                  {labelPreview.batch_number ? (
+                    <div className="text-muted-foreground">Lote: {labelPreview.batch_number}</div>
+                  ) : null}
+                  {labelPreview.expiration_date ? (
+                    <div className="text-muted-foreground">Validade: {formatDateBR(labelPreview.expiration_date)}</div>
+                  ) : null}
+                </div>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Se informar QR, o sistema valida e dá baixa também no saldo da
-                  etiqueta.
+                  Quando informado, o QR valida produto e saldo antes da baixa.
                 </p>
               )}
             </div>
           </div>
 
-          {/* Ações */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                setSelectedProductId("");
-                setReason("");
-                setReasonDetail("");
-                setLot("");
-                setQty("1");
-                setQrcode("");
-
-                setLabelPreview(null);
-                setLabelError(null);
-                setCheckingLabel(false);
-
-                setSubmitError(null);
-                setLastResult(null);
-
-                setProductOpen(false);
-              }}
-              disabled={submitting}
-            >
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="secondary" onClick={resetForm} disabled={submitting}>
               Limpar
             </Button>
-
-            <Button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!canSubmit || submitting}
-            >
+            <Button type="button" onClick={handleSubmit} disabled={!canSubmit || submitting}>
               {submitting ? "Registrando..." : "Registrar perda"}
             </Button>
           </div>
-
-          {!canSubmit ? (
-            <p className="text-xs text-muted-foreground">
-              Obrigatórios: Produto, Qtd &gt; 0 e Motivo. Se motivo = “Outro”,
-              detalhe com pelo menos 3 caracteres. Se informar QR, precisa ser
-              válido e ter saldo.
-            </p>
-          ) : null}
         </CardContent>
       </Card>
 
-      {/* HISTÓRICO */}
       <Card>
-        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle>Histórico de perdas</CardTitle>
-            <CardDescription>Consulte registros anteriores.</CardDescription>
-          </div>
-
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={loadLosses}
-              disabled={loadingLosses}
-            >
+        <CardHeader>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <CardTitle>Histórico e auditoria</CardTitle>
+              <CardDescription>
+                Filtre por período, produto ou motivo para conferência operacional.
+              </CardDescription>
+            </div>
+            <Button type="button" variant="secondary" onClick={loadLosses} disabled={loadingLosses}>
               <RefreshCcw className="mr-2 h-4 w-4" />
-              Atualizar histórico
-            </Button>
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleExportCSV}
-              disabled={loadingLosses}
-              title="Baixar CSV do histórico de perdas"
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Exportar CSV
+              Atualizar
             </Button>
           </div>
         </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="space-y-1">
+              <Label>De</Label>
+              <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Até</Label>
+              <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Produto</Label>
+              <select
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={filterProductId}
+                onChange={(event) => setFilterProductId(event.target.value)}
+              >
+                <option value="">Todos</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label>Motivo</Label>
+              <select
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={filterReason}
+                onChange={(event) => setFilterReason(event.target.value)}
+              >
+                <option value="">Todos</option>
+                {LOSS_REASONS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
-        <CardContent>
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[150px]">Data</TableHead>
+                  <TableHead>Data</TableHead>
                   <TableHead>Produto</TableHead>
-                  <TableHead className="w-[120px]">SKU</TableHead>
-                  <TableHead className="w-[110px] text-right">Qtd</TableHead>
-                  <TableHead className="w-[110px]">Unid</TableHead>
-                  <TableHead className="w-[160px]">Motivo</TableHead>
-                  <TableHead className="w-[140px]">Lote</TableHead>
-                  <TableHead className="w-[220px]">QR (label_code)</TableHead>
+                  <TableHead>Qtd</TableHead>
+                  <TableHead>Motivo</TableHead>
+                  <TableHead>Lote / QR</TableHead>
+                  <TableHead>Estoque</TableHead>
                 </TableRow>
               </TableHeader>
-
               <TableBody>
                 {loadingLosses ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={8}
-                      className="text-sm text-muted-foreground"
-                    >
+                    <TableCell colSpan={6} className="text-sm text-muted-foreground">
                       Carregando histórico...
                     </TableCell>
                   </TableRow>
                 ) : losses.length === 0 ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={8}
-                      className="text-sm text-muted-foreground"
-                    >
-                      Nenhum registro.
+                    <TableCell colSpan={6} className="text-sm text-muted-foreground">
+                      Nenhuma perda encontrada para os filtros selecionados.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  losses.map((row) => (
-                    <TableRow key={row.id}>
+                  losses.map((loss) => (
+                    <TableRow key={loss.id}>
+                      <TableCell className="align-top text-sm">{formatDateTimeBR(loss.created_at)}</TableCell>
                       <TableCell className="align-top">
-                        {formatDateTimeBR(row.created_at)}
+                        <div className="font-medium">{loss.product_name}</div>
+                        <div className="text-xs text-muted-foreground">SKU: {loss.sku || "-"}</div>
                       </TableCell>
-
+                      <TableCell className="align-top text-sm">
+                        {formatQty(loss.qty)} {loss.unit_label || ""}
+                      </TableCell>
                       <TableCell className="align-top">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium">
-                            {row.product_name}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {row.stock_before != null && row.stock_after != null
-                              ? `Estoque: ${row.stock_before} → ${row.stock_after}`
-                              : ""}
-                          </span>
-                        </div>
+                        <Badge>{loss.reason}</Badge>
+                        {loss.reason_detail ? (
+                          <div className="mt-1 max-w-xs text-xs text-muted-foreground">{loss.reason_detail}</div>
+                        ) : null}
                       </TableCell>
-
-                      <TableCell className="align-top">
-                        <span className="text-sm">{row.sku || "-"}</span>
+                      <TableCell className="align-top text-sm">
+                        <div>Lote: {loss.lot || "-"}</div>
+                        <div className="max-w-[220px] truncate text-xs text-muted-foreground">QR: {loss.qrcode || "-"}</div>
                       </TableCell>
-
-                      <TableCell className="align-top text-right">
-                        <span className="text-sm">{row.qty}</span>
-                      </TableCell>
-
-                      <TableCell className="align-top">
-                        <Badge variant="secondary">
-                          {row.unit_label || "-"}
-                        </Badge>
-                      </TableCell>
-
-                      <TableCell className="align-top">
-                        <div className="flex flex-col gap-1">
-                          <Badge>{row.reason}</Badge>
-                          {row.reason_detail ? (
-                            <span className="text-xs text-muted-foreground line-clamp-2">
-                              {row.reason_detail}
-                            </span>
-                          ) : null}
-                        </div>
-                      </TableCell>
-
-                      <TableCell className="align-top">
-                        <span className="text-sm">{row.lot ?? "-"}</span>
-                      </TableCell>
-
-                      <TableCell className="align-top">
-                        <span className="text-xs text-muted-foreground">
-                          {row.qrcode ?? "-"}
-                        </span>
+                      <TableCell className="align-top text-sm">
+                        {loss.stock_before != null && loss.stock_after != null
+                          ? `${formatQty(loss.stock_before)} → ${formatQty(loss.stock_after)}`
+                          : "-"}
                       </TableCell>
                     </TableRow>
                   ))

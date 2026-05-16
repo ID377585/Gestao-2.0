@@ -1058,7 +1058,7 @@ export default function EngenhariaDashboardPage() {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={chartData}
-                margin={{ top: 20, right: 24, left: 24, bottom: 90 }}
+                margin={{ top: 32, right: 24, left: 24, bottom: 90 }}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis
@@ -1085,11 +1085,22 @@ export default function EngenhariaDashboardPage() {
                   labelFormatter={(label) => `Ficha: ${label}`}
                 />
                 <Bar
+                dataKey="custoPorPorcao"
+                name="Custo por porção"
+                radius={[8, 8, 0, 0]}
+                fill="#16a34a"
+              >
+                <LabelList
                   dataKey="custoPorPorcao"
-                  name="Custo por porção"
-                  radius={[8, 8, 0, 0]}
-                  fill="#16a34a"
+                  position="top"
+                  formatter={(value: unknown) => formatMoney(Number(value))}
+                  style={{
+                    fill: "#0f172a",
+                    fontSize: 11,
+                    fontWeight: 800,
+                  }}
                 />
+              </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>

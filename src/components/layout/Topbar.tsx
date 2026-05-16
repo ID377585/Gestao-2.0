@@ -467,7 +467,7 @@ export function Topbar({ className, modulePermissions }: TopbarProps) {
 
       <NotificationsModal
         open={showNotificacoesModal}
-        onOpenChange={setShowNotificacoesModal}
+        onClose={() => setShowNotificacoesModal(false)}
         notifications={notificacoes}
         onMarkAsRead={handleMarkAsRead}
         onMarkAllAsRead={handleMarkAllAsRead}

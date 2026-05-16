@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bell,
   HelpCircle,
@@ -205,10 +205,11 @@ export function Topbar({ className, modulePermissions }: TopbarProps) {
 
     async function loadSettings() {
       try {
-        const nextSettings = await getUserSettings();
+        const nextSettings = getUserSettings();
         if (!cancelled) {
           setSettings(nextSettings);
-          await syncUserSettingsWithServer(nextSettings);
+          const syncedSettings = await syncUserSettingsWithServer();
+          if (!cancelled) setSettings(syncedSettings);
         }
       } catch (error) {
         console.error("Erro ao carregar configurações do usuário:", error);

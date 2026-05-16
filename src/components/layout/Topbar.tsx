@@ -473,14 +473,24 @@ export function Topbar({ className, modulePermissions }: TopbarProps) {
         onMarkAllAsRead={handleMarkAllAsRead}
       />
 
-      <ProfileModal open={showPerfil} onOpenChange={setShowPerfil} />
+      <ProfileModal
+        open={showPerfil}
+        onClose={() => setShowPerfil(false)}
+        user={{
+          name: user?.name ?? "Usuário",
+          email: user?.email ?? "",
+          role: user?.role ?? null,
+          sector: user?.sector ?? null,
+          establishmentId: user?.establishmentId ?? null,
+          lastSignInAt: user?.lastSignInAt ?? null,
+        }}
+      />
       <SettingsModal
         open={showConfiguracoes}
-        onOpenChange={setShowConfiguracoes}
-        settings={settings}
+        onClose={() => setShowConfiguracoes(false)}
         onSettingsChange={setSettings}
       />
-      <HelpModal open={showAjuda} onOpenChange={setShowAjuda} />
+      <HelpModal open={showAjuda} onClose={() => setShowAjuda(false)} />
     </>
   );
 }

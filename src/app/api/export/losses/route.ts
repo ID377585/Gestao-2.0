@@ -1,50 +1,45 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getActiveMembership } from "@/lib/auth/get-membership";
 
 function csvEscape(value: any) {
   if (value == null) return "";
-  const s = String(value);
-  if (s.includes('"') || s.includes(",") || s.includes("\n")) {
-    return `"${s.replace(/"/g, '""')}"`;
+  const text = String(value);
+  if (text.includes('"') || text.includes(",") || text.includes("\n")) {
+    return `"${text.replace(/"/g, '""')}"`;
   }
-  return s;
+  return text;
+}
+
+function normalizeDateTo(value: string | null) {
+  if (!value) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T23:59:59.999Z` : value;
 }
 
 export async function GET(req: Request) {
   const supabase = createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, membership } = await getActiveMembership();
 
   if (!user) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  // Estabelecimento do usuário
-  const { data: membership, error: memErr } = await supabase
-    .from("memberships")
-    .select("establishment_id")
-    .eq("user_id", user.id)
-    .single();
+  const establishmentId = membership?.establishment_id ?? null;
 
-  if (memErr || !membership?.establishment_id) {
+  if (!establishmentId) {
     return NextResponse.json(
       { error: "Estabelecimento não encontrado." },
       { status: 400 }
     );
   }
 
-  const establishment_id = membership.establishment_id;
-
-  // Filtros opcionais
   const url = new URL(req.url);
-  const product_id = url.searchParams.get("product_id");
-  const reason = url.searchParams.get("reason");
-  const date_from = url.searchParams.get("date_from");
-  const date_to = url.searchParams.get("date_to");
+  const productId = url.searchParams.get("product_id")?.trim();
+  const reason = url.searchParams.get("reason")?.trim();
+  const dateFrom = url.searchParams.get("date_from")?.trim();
+  const dateTo = normalizeDateTo(url.searchParams.get("date_to"));
 
-  let q = supabase
+  let query = supabase
     .from("losses")
     .select(`
       created_at,
@@ -60,24 +55,24 @@ export async function GET(req: Request) {
       stock_after,
       user_id
     `)
-    .eq("establishment_id", establishment_id)
+    .eq("establishment_id", establishmentId)
     .order("created_at", { ascending: false });
 
-  if (product_id) q = q.eq("product_id", product_id);
-  if (reason) q = q.eq("reason", reason);
-  if (date_from) q = q.gte("created_at", date_from);
-  if (date_to) q = q.lte("created_at", date_to);
+  if (productId) query = query.eq("product_id", productId);
+  if (reason) query = query.eq("reason", reason);
+  if (dateFrom) query = query.gte("created_at", dateFrom);
+  if (dateTo) query = query.lte("created_at", dateTo);
 
-  const { data, error } = await q;
+  const { data, error } = await query;
 
   if (error) {
+    console.error("GET /api/export/losses error:", error);
     return NextResponse.json(
       { error: "Erro ao exportar perdas." },
       { status: 500 }
     );
   }
 
-  // Cabeçalho CSV
   const header = [
     "Data",
     "Produto",
@@ -88,28 +83,27 @@ export async function GET(req: Request) {
     "Detalhe do Motivo",
     "Lote",
     "QR Code",
-    "Usuário",
+    "Usuario",
     "Estoque Antes",
     "Estoque Depois",
   ];
 
-  const rows = (data ?? []).map((r) => [
-    csvEscape(new Date(r.created_at).toLocaleString("pt-BR")),
-    csvEscape(r.product_name),
-    csvEscape(r.sku),
-    csvEscape(r.unit_label),
-    csvEscape(r.qty),
-    csvEscape(r.reason),
-    csvEscape(r.reason_detail),
-    csvEscape(r.lot),
-    csvEscape(r.qrcode),
-    csvEscape(r.user_id),
-    csvEscape(r.stock_before),
-    csvEscape(r.stock_after),
+  const rows = (data ?? []).map((row) => [
+    csvEscape(new Date(row.created_at).toLocaleString("pt-BR")),
+    csvEscape(row.product_name),
+    csvEscape(row.sku),
+    csvEscape(row.unit_label),
+    csvEscape(row.qty),
+    csvEscape(row.reason),
+    csvEscape(row.reason_detail),
+    csvEscape(row.lot),
+    csvEscape(row.qrcode),
+    csvEscape(row.user_id),
+    csvEscape(row.stock_before),
+    csvEscape(row.stock_after),
   ]);
 
-  const csv =
-    [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
+  const csv = [header.join(","), ...rows.map((row) => row.join(","))].join("\n");
 
   return new NextResponse(csv, {
     status: 200,

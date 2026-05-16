@@ -278,6 +278,19 @@ function isPrePreparo(value: string) {
   return normalized === "pre-preparo" || normalized === "pre preparo";
 }
 
+function isSetor(value: string, setor: string) {
+  return normalizeText(value) === normalizeText(setor);
+}
+
+function buildCustoPorPorcaoChart(items: FichaTecnica[]) {
+  return items
+    .map((item) => ({
+      nome: item.nome || "Sem nome",
+      custoPorPorcao: Number(item.custoPorPorcao || 0),
+    }))
+    .sort((a, b) => b.custoPorPorcao - a.custoPorPorcao);
+}
+
 function isResfriado(value: string) {
   const normalized = normalizeText(value);
   return normalized.includes("resfri") || normalized.includes("refrig");
@@ -980,13 +993,22 @@ export default function EngenhariaDashboardPage() {
     [metrics.cmvMedio, metrics.cmvAlvoMedio]
   );
 
-  const fichasEmpratamentoChart = useMemo(() => {
-    return fichasEmpratamento
-      .map((item) => ({
-        nome: item.nome || "Sem nome",
-        custoPorPorcao: Number(item.custoPorPorcao || 0),
-      }))
-      .sort((a, b) => b.custoPorPorcao - a.custoPorPorcao);
+  const pratosQuentesChart = useMemo(() => {
+    return buildCustoPorPorcaoChart(
+      fichasEmpratamento.filter((item) => isSetor(item.setor, "Cozinha"))
+    );
+  }, [fichasEmpratamento]);
+
+  const sobremesasChart = useMemo(() => {
+    return buildCustoPorPorcaoChart(
+      fichasEmpratamento.filter((item) => isSetor(item.setor, "Confeitaria"))
+    );
+  }, [fichasEmpratamento]);
+
+  const drinksBebidasChart = useMemo(() => {
+    return buildCustoPorPorcaoChart(
+      fichasEmpratamento.filter((item) => isSetor(item.setor, "Bar"))
+    );
   }, [fichasEmpratamento]);
 
   const armazenamentoChart = useMemo(() => {
@@ -1010,6 +1032,71 @@ export default function EngenhariaDashboardPage() {
       }))
       .filter((item) => item.quantidade > 0);
   }, [fichasAtivas]);
+
+  const renderCustoPorPorcaoChart = (
+    chartData: typeof pratosQuentesChart,
+    title: string,
+    description: string,
+    emptyMessage: string
+  ) => (
+    <div className={glassCard}>
+      <div className="mb-4 flex flex-col gap-1">
+        <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
+        <p className="text-sm text-slate-600">{description}</p>
+      </div>
+
+      {chartData.length === 0 ? (
+        <p className="text-sm text-slate-600">{emptyMessage}</p>
+      ) : (
+        <div className="print-chart-large h-[420px] w-full overflow-x-auto">
+          <div
+            style={{
+              width: Math.max(chartData.length * 90, 900),
+              height: 420,
+            }}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={chartData}
+                margin={{ top: 20, right: 24, left: 24, bottom: 90 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="nome"
+                  angle={-45}
+                  textAnchor="end"
+                  interval={0}
+                  height={100}
+                  tick={{
+                    fontSize: 11,
+                    fontWeight: 800,
+                    fill: "#0f172a",
+                  }}
+                />
+                <YAxis
+                  tickFormatter={(value) => formatMoney(Number(value))}
+                  tick={{ fontSize: 12, fill: "#0f172a" }}
+                />
+                <Tooltip
+                  formatter={(value) => [
+                    formatMoney(Number(value)),
+                    "Custo por porção",
+                  ]}
+                  labelFormatter={(label) => `Ficha: ${label}`}
+                />
+                <Bar
+                  dataKey="custoPorPorcao"
+                  name="Custo por porção"
+                  radius={[8, 8, 0, 0]}
+                  fill="#16a34a"
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div
@@ -1266,70 +1353,26 @@ export default function EngenhariaDashboardPage() {
             </section>
 
             <section className="print-page print-break-before space-y-6">
-              <div className={glassCard}>
-                <div className="mb-4 flex flex-col gap-1">
-                  <h2 className="text-lg font-semibold text-slate-950">
-                    Custos por porção — Empratamento Geral
-                  </h2>
-                  <p className="text-sm text-slate-600">
-                    Comparativo em reais do custo por porção de cada ficha técnica
-                    da categoria Empratamento.
-                  </p>
-                </div>
+              {renderCustoPorPorcaoChart(
+                pratosQuentesChart,
+                "Custos por porção — Pratos Quentes",
+                "Comparativo em reais do custo por porção das fichas de Empratamento do setor Cozinha.",
+                "Nenhuma ficha de Empratamento do setor Cozinha encontrada."
+              )}
 
-                {fichasEmpratamentoChart.length === 0 ? (
-                  <p className="text-sm text-slate-600">
-                    Nenhuma ficha técnica da categoria Empratamento encontrada.
-                  </p>
-                ) : (
-                  <div className="print-chart-large h-[420px] w-full overflow-x-auto">
-                    <div
-                      style={{
-                        width: Math.max(fichasEmpratamentoChart.length * 90, 900),
-                        height: 420,
-                      }}
-                    >
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={fichasEmpratamentoChart}
-                          margin={{ top: 20, right: 24, left: 24, bottom: 90 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                          <XAxis
-                            dataKey="nome"
-                            angle={-45}
-                            textAnchor="end"
-                            interval={0}
-                            height={100}
-                            tick={{
-                              fontSize: 11,
-                              fontWeight: 800,
-                              fill: "#0f172a",
-                            }}
-                          />
-                          <YAxis
-                            tickFormatter={(value) => formatMoney(Number(value))}
-                            tick={{ fontSize: 12, fill: "#0f172a" }}
-                          />
-                          <Tooltip
-                            formatter={(value) => [
-                              formatMoney(Number(value)),
-                              "Custo por porção",
-                            ]}
-                            labelFormatter={(label) => `Ficha: ${label}`}
-                          />
-                          <Bar
-                            dataKey="custoPorPorcao"
-                            name="Custo por porção"
-                            radius={[8, 8, 0, 0]}
-                            fill="#16a34a"
-                          />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                )}
-              </div>
+              {renderCustoPorPorcaoChart(
+                sobremesasChart,
+                "Custos por porção — Sobremesas",
+                "Comparativo em reais do custo por porção das fichas de Empratamento do setor Confeitaria.",
+                "Nenhuma ficha de Empratamento do setor Confeitaria encontrada."
+              )}
+
+              {renderCustoPorPorcaoChart(
+                drinksBebidasChart,
+                "Custos por porção — Drinks e Bebidas",
+                "Comparativo em reais do custo por porção das fichas de Empratamento do setor Bar.",
+                "Nenhuma ficha de Empratamento do setor Bar encontrada."
+              )}
 
               <div className="print-grid-2 grid grid-cols-1 gap-6 xl:grid-cols-2">
                 <div className={glassCard}>

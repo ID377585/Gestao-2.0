@@ -1,18 +1,37 @@
-// src/app/api/losses/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getActiveMembership } from "@/lib/auth/get-membership";
+
+const LOSS_REASONS = new Set([
+  "Fora do padrão",
+  "Vencido",
+  "Estragado",
+  "Avaria / Quebra",
+  "Testes",
+  "Enviado para análise",
+  "Foto Marketing",
+  "Teste Empratamento",
+  "Comida de Funcionário",
+  "Outro",
+]);
 
 function numOrNull(v: any) {
   const n = Number(String(v).replace(",", "."));
   return Number.isFinite(n) ? n : null;
 }
 
+function normalizeUnit(v: any) {
+  return String(v ?? "UN").trim().replace(/\s+/g, "").toUpperCase();
+}
+
+function normalizeDateTo(v: string | null) {
+  if (!v) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T23:59:59.999Z` : v;
+}
+
 async function getAuthAndEstablishment() {
   const supabase = createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, membership } = await getActiveMembership();
 
   if (!user) {
     return {
@@ -23,13 +42,7 @@ async function getAuthAndEstablishment() {
     };
   }
 
-  const { data: membership, error: memErr } = await supabase
-    .from("memberships")
-    .select("establishment_id")
-    .eq("user_id", user.id)
-    .single();
-
-  if (memErr || !membership?.establishment_id) {
+  if (!membership?.establishment_id) {
     return {
       supabase,
       user,
@@ -50,19 +63,16 @@ async function getAuthAndEstablishment() {
 }
 
 export async function GET(req: Request) {
-  const { supabase, user, error, establishment_id } =
-    await getAuthAndEstablishment();
+  const { supabase, user, error, establishment_id } = await getAuthAndEstablishment();
   if (error || !establishment_id) return error!;
-  if (!user) {
-    return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
-  }
+  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
   const url = new URL(req.url);
-  const product_id = url.searchParams.get("product_id");
-  const reason = url.searchParams.get("reason");
-  const date_from = url.searchParams.get("date_from");
-  const date_to = url.searchParams.get("date_to");
-  const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 500);
+  const product_id = url.searchParams.get("product_id")?.trim();
+  const reason = url.searchParams.get("reason")?.trim();
+  const date_from = url.searchParams.get("date_from")?.trim();
+  const date_to = normalizeDateTo(url.searchParams.get("date_to"));
+  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 100), 1), 500);
 
   let q = supabase
     .from("losses")
@@ -90,51 +100,61 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { supabase, user, error, establishment_id } =
-    await getAuthAndEstablishment();
+  const { supabase, user, error, establishment_id } = await getAuthAndEstablishment();
   if (error || !establishment_id) return error!;
-  if (!user) {
-    return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
-  }
+  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
   const body = await req.json();
+  const product_id = String(body.product_id ?? "").trim();
+  const qtyNumber = numOrNull(body.qty);
+  const reasonTrim = String(body.reason ?? "").trim();
+  const reasonDetailTrim = String(body.reason_detail ?? "").trim();
+  const lotTrim = String(body.lot ?? "").trim();
+  const labelCodeTrim = String(body.qrcode ?? "").trim();
 
-  const { product_id, qty, lot, reason, reason_detail, qrcode } = body;
-  const unit_label = String(body.unit_label ?? body.unitLabel ?? "UN")
-  .trim()
-  .replace(/\s+/g, "")
-  .toUpperCase();
-
-  if (!product_id || qty == null || !reason) {
+  if (!product_id || qtyNumber == null || !reasonTrim) {
     return NextResponse.json(
-      { error: "Dados obrigatórios não informados." },
+      { error: "Informe produto, quantidade e motivo." },
       { status: 400 }
     );
   }
 
-  const qtyNumber = numOrNull(qty);
-  if (!qtyNumber || qtyNumber <= 0) {
-    return NextResponse.json({ error: "Quantidade inválida." }, { status: 400 });
+  if (qtyNumber <= 0) {
+    return NextResponse.json({ error: "Quantidade deve ser maior que zero." }, { status: 400 });
   }
 
-  if (!unit_label) {
-    return NextResponse.json({ error: "Unidade inválida." }, { status: 400 });
+  if (!LOSS_REASONS.has(reasonTrim)) {
+    return NextResponse.json({ error: "Motivo de perda inválido." }, { status: 400 });
   }
-
-  const reasonTrim = String(reason).trim();
-  const reasonDetailTrim = String(reason_detail ?? "").trim();
-  const lotTrim = String(lot ?? "").trim();
-  const labelCodeTrim = String(qrcode ?? "").trim();
 
   if (reasonTrim === "Outro" && reasonDetailTrim.length < 3) {
     return NextResponse.json(
-      { error: "Descreva o motivo (Outro)." },
+      { error: "Descreva o motivo quando selecionar Outro." },
       { status: 400 }
     );
   }
 
-  // ✅ IMPORTANTE: PostgREST exige os nomes EXATOS dos parâmetros da função.
-  // E como existem 2 overloads no banco, passamos p_user_id para escolher a assinatura correta.
+  const { data: product, error: productErr } = await supabase
+    .from("products")
+    .select("id, default_unit_label, is_active")
+    .eq("id", product_id)
+    .eq("establishment_id", establishment_id)
+    .maybeSingle();
+
+  if (productErr) {
+    console.error("POST /api/losses product error:", productErr);
+    return NextResponse.json({ error: "Erro ao validar produto." }, { status: 500 });
+  }
+
+  if (!product || product.is_active === false) {
+    return NextResponse.json(
+      { error: "Produto não encontrado ou inativo para este estabelecimento." },
+      { status: 404 }
+    );
+  }
+
+  const unit_label = normalizeUnit(product.default_unit_label ?? body.unit_label ?? body.unitLabel ?? "UN");
+
   const { data, error: rpcErr } = await supabase.rpc("register_loss", {
     p_establishment_id: establishment_id,
     p_product_id: product_id,
@@ -145,7 +165,7 @@ export async function POST(req: Request) {
     p_lot: lotTrim || null,
     p_label_code: labelCodeTrim || null,
     p_user_id: user.id,
-    p_allow_negative: false
+    p_allow_negative: false,
   });
 
   if (rpcErr) {
@@ -160,10 +180,7 @@ export async function POST(req: Request) {
 
   if (result == null) {
     return NextResponse.json(
-      {
-        error:
-          "RPC executou sem retorno. Verifique assinatura/retorno da função register_loss.",
-      },
+      { error: "A perda foi processada, mas a função register_loss não retornou dados." },
       { status: 400 }
     );
   }

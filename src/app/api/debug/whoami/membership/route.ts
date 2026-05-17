@@ -4,7 +4,15 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
+function isDebugRouteEnabled() {
+  return process.env.DEBUG_ROUTES_ENABLED === "true";
+}
+
 export async function GET() {
+  if (process.env.NODE_ENV === "production" && !isDebugRouteEnabled()) {
+    return NextResponse.json({ ok: false, message: "Not found" }, { status: 404 });
+  }
+
   try {
     const supabase = await createSupabaseServerClient();
 
@@ -15,12 +23,16 @@ export async function GET() {
 
     if (userErr || !user) {
       return NextResponse.json(
-        { ok: false, step: "auth.getUser", user: null, error: userErr?.message ?? "not_logged_in" },
+        {
+          ok: false,
+          step: "auth.getUser",
+          user: null,
+          error: userErr?.message ?? "not_logged_in",
+        },
         { status: 401 }
       );
     }
 
-    // tenta buscar membership ativo (fonte atual)
     const { data, error } = await supabase
       .from("establishment_memberships")
       .select("id, establishment_id, user_id, role, is_active, created_at")

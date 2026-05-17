@@ -11,6 +11,7 @@ import {
   getUserTermsComplianceState,
   recordTermsAcceptanceForCurrentUser,
 } from "@/lib/auth/terms-compliance.server";
+import { getRequiredSupabasePublicEnv } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -29,9 +30,10 @@ async function resolveAuthenticatedUser(request: Request) {
   const bearerToken = getBearerToken(request);
 
   if (bearerToken) {
+    const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
     const tokenClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      supabaseUrl,
+      supabaseKey,
       {
         auth: {
           persistSession: false,

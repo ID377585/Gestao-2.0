@@ -49,6 +49,7 @@ type FichaTecnica = {
   id: string;
   nome: string;
   categoria: string;
+  setor: string;
   rendimento: number;
   ingredientes: IngredienteFicha[];
 };
@@ -122,6 +123,7 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
     id: String(raw.id),
     nome: String(raw.name ?? ""),
     categoria: String(raw.category ?? "").trim(),
+    setor: String(raw.sector ?? raw.setor ?? "").trim(),
     rendimento: Number(raw.yield_portions ?? 0),
     ingredientes: Array.isArray(raw.ingredients)
       ? raw.ingredients
@@ -262,6 +264,7 @@ export default function ListaRapidaPage() {
   const [products, setProducts] = useState<ProductCatalogItem[]>([]);
   const [scalesByFichaId, setScalesByFichaId] = useState<Record<string, string>>({});
   const [removedFichaIds, setRemovedFichaIds] = useState<string[]>([]);
+  const [sectorFilter, setSectorFilter] = useState("TODOS");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [hasCalculated, setHasCalculated] = useState(false);
@@ -314,11 +317,34 @@ export default function ListaRapidaPage() {
     );
   }, [products]);
 
-  const visibleFichas = useMemo(() => {
-    const removed = new Set(removedFichaIds);
+const sectorOptions = useMemo(() => {
+  const sectors = Array.from(
+    new Set(
+      fichas
+        .map((ficha) => ficha.setor?.trim())
+        .filter((value): value is string => Boolean(value))
+    )
+  ).sort((a, b) =>
+    a.localeCompare(b, "pt-BR", {
+      sensitivity: "base",
+      numeric: true,
+    })
+  );
 
-    return fichas.filter((ficha) => !removed.has(ficha.id));
-  }, [fichas, removedFichaIds]);
+  return ["TODOS", ...sectors];
+}, [fichas]);
+
+ const visibleFichas = useMemo(() => {
+  const removed = new Set(removedFichaIds);
+
+  return fichas.filter((ficha) => {
+    const isRemoved = removed.has(ficha.id);
+    const matchesSector =
+      sectorFilter === "TODOS" || ficha.setor === sectorFilter;
+
+    return !isRemoved && matchesSector;
+  });
+}, [fichas, removedFichaIds, sectorFilter]);
 
   const selectedFichas = useMemo<SelectedFicha[]>(() => {
     return visibleFichas
@@ -421,9 +447,9 @@ export default function ListaRapidaPage() {
   };
 
   const clearScales = () => {
-    setScalesByFichaId({});
-    setHasCalculated(false);
-  };
+  setScalesByFichaId({});
+  setHasCalculated(false);
+};
 
   const restoreRemovedFichas = () => {
     setRemovedFichaIds([]);
@@ -496,6 +522,29 @@ export default function ListaRapidaPage() {
                   Exemplo: digite 1 para 1X, 2 para 2X, 10 para 10X ou 33,5 para 33,5X.
                 </p>
               </div>
+
+<div className="min-w-[220px]">
+  <Label htmlFor="lista-rapida-setor" className="sr-only">
+    Filtrar por setor
+  </Label>
+  <select
+    id="lista-rapida-setor"
+    value={sectorFilter}
+    onChange={(event) => {
+      setSectorFilter(event.target.value);
+      setHasCalculated(false);
+    }}
+    disabled={loading}
+    className="h-12 w-full rounded-md border-2 border-black bg-white px-3 text-sm font-semibold text-slate-900 shadow-sm disabled:opacity-50"
+  >
+    {sectorOptions.map((setor) => (
+      <option key={setor} value={setor}>
+        {setor === "TODOS" ? "Todos os setores" : setor}
+      </option>
+    ))}
+  </select>
+</div>
+
               <div className="flex flex-wrap gap-3 sm:justify-end">
                 {removedFichaIds.length > 0 ? (
                   <Button
@@ -567,11 +616,9 @@ export default function ListaRapidaPage() {
                         >
                           <TableCell>
                             <div className="font-medium">{ficha.nome}</div>
-                            {ficha.categoria ? (
-                              <div className="text-xs text-muted-foreground">
-                                {ficha.categoria}
-                              </div>
-                            ) : null}
+                            <div className="text-xs text-muted-foreground">
+                            {[ficha.categoria, ficha.setor].filter(Boolean).join(" • ")}
+                          </div>
                           </TableCell>
                           <TableCell className="text-right">
                             {formatQuantity(ficha.rendimento)}

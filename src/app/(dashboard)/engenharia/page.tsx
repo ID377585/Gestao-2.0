@@ -1058,7 +1058,7 @@ export default function EngenhariaDashboardPage() {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={chartData}
-                margin={{ top: 32, right: 24, left: 24, bottom: 90 }}
+                margin={{ top: 32, right: 24, left: 24, bottom: 90 }} 
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis

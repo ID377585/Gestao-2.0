@@ -1,11 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 
 import {
   TERMS_REQUIRED_QUERY_VALUE,
   hasAcceptedCurrentTerms,
   readTermsComplianceFromMetadata,
 } from "@/lib/auth/terms-config";
+import { createClient as createSupabaseMiddlewareClient } from "@/utils/supabase/middleware";
 
 function isAuthRoute(pathname: string) {
   return (
@@ -38,46 +38,51 @@ function getSessionTermsCompliance(
   return readTermsComplianceFromMetadata(metadata ?? {});
 }
 
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
-  const pathname = req.nextUrl.pathname;
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error(
-      "Middleware sem NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY."
-    );
-    return res;
-  }
-
-  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      get(name: string) {
-        return req.cookies.get(name)?.value;
-      },
-      set(name: string, value: string, options: any) {
-        res.cookies.set({ name, value, ...options });
-      },
-      remove(name: string, options: any) {
-        res.cookies.set({ name, value: "", ...options });
-      },
-    },
+function copyResponseCookies(source: NextResponse, target: NextResponse) {
+  source.cookies.getAll().forEach((cookie) => {
+    target.cookies.set(cookie);
   });
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  return target;
+}
 
-  if (!session && isProtectedRoute(pathname)) {
-    const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(loginUrl);
+export async function middleware(req: NextRequest) {
+  const pathname = req.nextUrl.pathname;
+
+  let supabaseResponse = NextResponse.next({
+    request: {
+      headers: req.headers,
+    },
+  });
+  let middlewareClient: ReturnType<typeof createSupabaseMiddlewareClient>;
+
+  try {
+    middlewareClient = createSupabaseMiddlewareClient(req);
+    supabaseResponse = middlewareClient.getResponse();
+  } catch {
+    console.error(
+      "Middleware sem NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY."
+    );
+    return supabaseResponse;
   }
 
-  if (session) {
+  const {
+    data: { user },
+  } = await middlewareClient.supabase.auth.getUser();
+  supabaseResponse = middlewareClient.getResponse();
+
+  if (!user && isProtectedRoute(pathname)) {
+    const loginUrl = new URL("/login", req.url);
+    loginUrl.searchParams.set("redirect", pathname);
+    return copyResponseCookies(
+      supabaseResponse,
+      NextResponse.redirect(loginUrl)
+    );
+  }
+
+  if (user) {
     const complianceState = getSessionTermsCompliance(
-      session.user.app_metadata as Record<string, unknown> | undefined
+      user.app_metadata as Record<string, unknown> | undefined
     );
     const acceptedCurrentTerms = hasAcceptedCurrentTerms(complianceState);
 
@@ -85,16 +90,22 @@ export async function middleware(req: NextRequest) {
       const loginUrl = new URL("/login", req.url);
       loginUrl.searchParams.set("redirect", pathname);
       loginUrl.searchParams.set("terms", TERMS_REQUIRED_QUERY_VALUE);
-      return NextResponse.redirect(loginUrl);
+      return copyResponseCookies(
+        supabaseResponse,
+        NextResponse.redirect(loginUrl)
+      );
     }
 
     if (isAuthRoute(pathname) && acceptedCurrentTerms) {
       const requestedRedirect = safeRedirect(req.nextUrl.searchParams.get("redirect"));
-      return NextResponse.redirect(new URL(requestedRedirect, req.url));
+      return copyResponseCookies(
+        supabaseResponse,
+        NextResponse.redirect(new URL(requestedRedirect, req.url))
+      );
     }
   }
 
-  return res;
+  return supabaseResponse;
 }
 
 export const config = {

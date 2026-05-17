@@ -3,8 +3,7 @@
 import { createBrowserClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+import { getSupabasePublicEnv } from "@/lib/supabase/config";
 
 let _client: SupabaseClient | null = null;
 
@@ -14,13 +13,15 @@ let _client: SupabaseClient | null = null;
 export function createSupabaseBrowserClient(): SupabaseClient {
   if (_client) return _client;
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  const { supabaseUrl, supabaseKey } = getSupabasePublicEnv();
+
+  if (!supabaseUrl || !supabaseKey) {
     console.warn(
-      "[supabase-browser] Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY"
+      "[supabase-browser] Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
     );
   }
 
-  _client = createBrowserClient(supabaseUrl, supabaseAnonKey);
+  _client = createBrowserClient(supabaseUrl!, supabaseKey!);
   return _client;
 }
 

@@ -10,7 +10,7 @@ on:
 
 jobs:
   validate:
-    name: Lint and build
+    name: Typecheck, lint, test, build and audit
     runs-on: ubuntu-latest
 
     steps:
@@ -26,8 +26,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run typecheck
+        run: npm run typecheck
+
       - name: Run lint
         run: npm run lint
 
+      - name: Run tests
+        run: npm test
+
       - name: Build application
         run: npm run build
+
+      - name: Audit high and critical vulnerabilities
+        run: npm run audit:high

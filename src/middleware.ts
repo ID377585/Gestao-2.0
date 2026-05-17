@@ -39,9 +39,10 @@ function getSupabaseAdmin() {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !serviceRoleKey) {
-    throw new Error(
-      "Variáveis NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY ausentes."
+    console.warn(
+      "Middleware sem NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY; usando fallback seguro para checagem de termos."
     );
+    return null;
   }
 
   return createClient(url, serviceRoleKey, {
@@ -52,22 +53,51 @@ function getSupabaseAdmin() {
   });
 }
 
-async function getTermsComplianceState(userId: string) {
-  const supabaseAdmin = getSupabaseAdmin();
-  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+function readFallbackTermsCompliance(
+  metadata: Record<string, unknown> | null | undefined
+) {
+  return readTermsComplianceFromMetadata(metadata ?? {});
+}
 
-  if (error) {
-    throw error;
+async function getTermsComplianceState(
+  userId: string,
+  fallbackMetadata?: Record<string, unknown> | null
+) {
+  const supabaseAdmin = getSupabaseAdmin();
+
+  if (!supabaseAdmin) {
+    return readFallbackTermsCompliance(fallbackMetadata);
   }
 
-  return readTermsComplianceFromMetadata(
-    (data.user?.app_metadata as Record<string, unknown> | undefined) ?? {}
-  );
+  try {
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+
+    if (error) {
+      throw error;
+    }
+
+    return readTermsComplianceFromMetadata(
+      (data.user?.app_metadata as Record<string, unknown> | undefined) ??
+        fallbackMetadata ??
+        {}
+    );
+  } catch (error) {
+    console.error(
+      "Falha ao consultar aceite de termos no middleware; usando metadata da sessão como fallback:",
+      error
+    );
+    return readFallbackTermsCompliance(fallbackMetadata);
+  }
 }
 
 async function logTermsBlockedAttempt(req: NextRequest, userId: string) {
   try {
     const supabaseAdmin = getSupabaseAdmin();
+
+    if (!supabaseAdmin) {
+      return;
+    }
+
     const forwardedFor = req.headers.get("x-forwarded-for");
     const ipAddress = forwardedFor?.split(",")[0]?.trim() || null;
     const { data: membership } = await supabaseAdmin
@@ -105,24 +135,29 @@ async function logTermsBlockedAttempt(req: NextRequest, userId: string) {
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
   const pathname = req.nextUrl.pathname;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return req.cookies.get(name)?.value;
-        },
-        set(name: string, value: string, options: any) {
-          res.cookies.set({ name, value, ...options });
-        },
-        remove(name: string, options: any) {
-          res.cookies.set({ name, value: "", ...options });
-        },
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error(
+      "Middleware sem NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY."
+    );
+    return res;
+  }
+
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      get(name: string) {
+        return req.cookies.get(name)?.value;
       },
-    }
-  );
+      set(name: string, value: string, options: any) {
+        res.cookies.set({ name, value, ...options });
+      },
+      remove(name: string, options: any) {
+        res.cookies.set({ name, value: "", ...options });
+      },
+    },
+  });
 
   const {
     data: { session },
@@ -135,7 +170,10 @@ export async function middleware(req: NextRequest) {
   }
 
   if (session) {
-    const complianceState = await getTermsComplianceState(session.user.id);
+    const complianceState = await getTermsComplianceState(
+      session.user.id,
+      session.user.app_metadata as Record<string, unknown> | undefined
+    );
     const acceptedCurrentTerms = hasAcceptedCurrentTerms(complianceState);
 
     if (isProtectedRoute(pathname) && !acceptedCurrentTerms) {

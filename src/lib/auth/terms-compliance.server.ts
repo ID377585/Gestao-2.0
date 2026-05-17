@@ -119,22 +119,41 @@ async function getTelemetry(params?: {
   };
 }
 
-async function getAuthAdminUser(userId: string): Promise<AuthAdminUser | null> {
-  const supabaseAdmin = getSupabaseAdminClient();
-  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+async function getAuthAdminUser(
+  userId: string,
+  fallbackAppMetadata?: Record<string, unknown> | null
+): Promise<AuthAdminUser | null> {
+  try {
+    const supabaseAdmin = getSupabaseAdminClient();
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
 
-  if (error) {
-    throw new Error(error.message || "Falha ao buscar usuário no Auth.");
+    if (error) {
+      throw new Error(error.message || "Falha ao buscar usuário no Auth.");
+    }
+
+    if (!data?.user) {
+      return null;
+    }
+
+    return {
+      id: data.user.id,
+      app_metadata:
+        (data.user.app_metadata as Record<string, unknown> | undefined) ?? {},
+    };
+  } catch (error) {
+    if (fallbackAppMetadata !== undefined) {
+      console.error(
+        "Falha ao buscar usuário via Supabase Admin; usando app_metadata da sessão como fallback:",
+        error
+      );
+      return {
+        id: userId,
+        app_metadata: fallbackAppMetadata ?? {},
+      };
+    }
+
+    throw error;
   }
-
-  if (!data?.user) {
-    return null;
-  }
-
-  return {
-    id: data.user.id,
-    app_metadata: (data.user.app_metadata as Record<string, unknown> | undefined) ?? {},
-  };
 }
 
 async function getPrimaryEstablishmentId(userId: string) {
@@ -220,8 +239,11 @@ async function writeAuditLog(params: {
   }
 }
 
-export async function getUserTermsComplianceState(userId: string) {
-  const authUser = await getAuthAdminUser(userId);
+export async function getUserTermsComplianceState(
+  userId: string,
+  fallbackAppMetadata?: Record<string, unknown> | null
+) {
+  const authUser = await getAuthAdminUser(userId, fallbackAppMetadata);
 
   if (!authUser) {
     return null;
@@ -234,8 +256,12 @@ export async function ensureCurrentTermsAcceptedOrRedirect(params: {
   userId: string;
   redirectPath: string;
   loginPath?: string;
+  appMetadata?: Record<string, unknown> | null;
 }) {
-  const state = await getUserTermsComplianceState(params.userId);
+  const state = await getUserTermsComplianceState(
+    params.userId,
+    params.appMetadata
+  );
 
   if (hasAcceptedCurrentTerms(state)) {
     return state;
@@ -332,10 +358,21 @@ export async function recordTermsAcceptanceForCurrentUser(
 export async function touchUserAuthenticatedAccess(
   params: TouchUserAccessParams
 ) {
-  const authUser = await getAuthAdminUser(params.userId);
+  let authUser: AuthAdminUser | null = null;
+
+  try {
+    authUser = await getAuthAdminUser(params.userId);
+  } catch (error) {
+    console.error(
+      "Falha ao registrar acesso autenticado; seguindo sem bloquear o usuário:",
+      error
+    );
+    return;
+  }
 
   if (!authUser) {
-    throw new Error("Usuário não encontrado no Auth.");
+    console.error("Usuário não encontrado no Auth ao registrar acesso autenticado.");
+    return;
   }
 
   const existingState = readTermsComplianceFromMetadata(authUser.app_metadata);

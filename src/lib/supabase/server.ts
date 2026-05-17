@@ -3,16 +3,29 @@ import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 
-export function createSupabaseServerClient() {
-  const cookieStore = cookies();
+import { getRequiredSupabasePublicEnv } from "./config";
+
+type CookieStore = ReturnType<typeof cookies>;
+
+export function createSupabaseServerClient(cookieStore: CookieStore = cookies()) {
+  const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseKey,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch {
+            // Server Components cannot set cookies. Middleware refreshes sessions.
+          }
         },
       },
     }
@@ -21,6 +34,7 @@ export function createSupabaseServerClient() {
 
 export function createSupabaseRouteClient() {
   const cookieStore = cookies();
+  const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
 
   const cookieHeader = cookieStore
     .getAll()
@@ -28,8 +42,8 @@ export function createSupabaseRouteClient() {
     .join("; ");
 
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseKey,
     {
       global: {
         headers: cookieHeader ? { cookie: cookieHeader } : {},
@@ -40,6 +54,7 @@ export function createSupabaseRouteClient() {
 
 export function createSupabaseClientWithCookieHeader() {
   const cookieStore = cookies();
+  const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
 
   const cookieHeader = cookieStore
     .getAll()
@@ -47,8 +62,8 @@ export function createSupabaseClientWithCookieHeader() {
     .join("; ");
 
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseKey,
     {
       global: {
         headers: cookieHeader ? { cookie: cookieHeader } : {},

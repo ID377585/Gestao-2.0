@@ -38,7 +38,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@supabase/auth-helpers-nextjs": "^0.15.0",
     "@supabase/ssr": "^0.8.0",
-    "@supabase/supabase-js": "^2.103.0",
+    "@supabase/supabase-js": "^2.105.4",
     "@xmldom/xmldom": "^0.9.8",
     "@yudiel/react-qr-scanner": "^2.5.0",
     "axios": "^1.13.2",

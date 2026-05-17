@@ -1,8 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 
+import { getRequiredSupabasePublicEnv } from "@/lib/supabase/config";
+
+const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
+
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  supabaseUrl,
+  supabaseKey
 );
 
 export type NotificationType = "info" | "success" | "warning" | "error";

@@ -34,6 +34,7 @@ export default async function DashboardLayout({
   await ensureCurrentTermsAcceptedOrRedirect({
     userId: user.id,
     redirectPath: "/dashboard/pedidos",
+    appMetadata: user.app_metadata as Record<string, unknown> | undefined,
   });
   await touchUserAuthenticatedAccess({
     userId: user.id,
@@ -88,33 +89,22 @@ export default async function DashboardLayout({
             zIndex: 50,
           }}
         >
-          <div className="flex min-h-0 flex-1 flex-col">
-            <Sidebar />
-          </div>
+          <Sidebar />
         </aside>
 
-        <div
-          className="hidden shrink-0 md:block"
+        <main
+          className="flex min-w-0 flex-1 flex-col md:min-h-screen"
           style={{
-            width: "var(--sidebar-w)",
-            transition: "width 300ms ease",
+            marginLeft: "var(--sidebar-w)",
+            transition: "margin-left 300ms ease",
           }}
-        />
-
-        <div className="flex min-w-0 flex-1 flex-col bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100">
-          <div className="sticky top-0 z-40 shrink-0 pointer-events-auto">
-            <Topbar />
-          </div>
-
-          <main className="relative z-0 flex-1 overflow-y-auto overscroll-y-contain bg-gray-50 dark:bg-slate-950 touch-pan-y focus:outline-none">
-            <div className="py-6">
-              <div className="w-full px-4 sm:px-6 md:px-8">{children}</div>
-            </div>
-          </main>
-        </div>
+        >
+          <Topbar />
+          <section className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6">
+            {children}
+          </section>
+        </main>
       </div>
-
-      <div className="md:hidden">{/* TODO: Implementar sidebar mobile */}</div>
     </div>
   );
 }

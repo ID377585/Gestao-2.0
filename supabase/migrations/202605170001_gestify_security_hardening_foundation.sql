@@ -92,8 +92,10 @@ as $$
   );
 $$;
 
-revoke all on function public.gestify_is_establishment_member(uuid) from public, anon, authenticated;
-revoke all on function public.gestify_has_establishment_role(uuid, text[]) from public, anon, authenticated;
+revoke all on function public.gestify_is_establishment_member(uuid) from public, anon;
+revoke all on function public.gestify_has_establishment_role(uuid, text[]) from public, anon;
+grant execute on function public.gestify_is_establishment_member(uuid) to authenticated;
+grant execute on function public.gestify_has_establishment_role(uuid, text[]) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 3. Tenant-scoped policies for tables that have establishment_id.
@@ -106,7 +108,6 @@ begin
   foreach table_name in array array[
     'stock_balances',
     'inventory_sessions',
-    'stock_transfers',
     'stock_balance_audit',
     'carriers',
     'user_module_permissions'
@@ -135,6 +136,46 @@ begin
       );
     end if;
   end loop;
+end $$;
+
+-- stock_transfers does not have establishment_id. It is scoped by origin and destination.
+do $$
+begin
+  if to_regclass('public.stock_transfers') is not null then
+    drop policy if exists gestify_stock_transfers_select on public.stock_transfers;
+    drop policy if exists gestify_stock_transfers_insert_staff on public.stock_transfers;
+    drop policy if exists gestify_stock_transfers_update_staff on public.stock_transfers;
+    drop policy if exists gestify_stock_transfers_delete_admin on public.stock_transfers;
+
+    create policy gestify_stock_transfers_select on public.stock_transfers
+      for select to authenticated
+      using (
+        public.gestify_is_establishment_member(from_establishment_id)
+        or public.gestify_is_establishment_member(to_establishment_id)
+      );
+
+    create policy gestify_stock_transfers_insert_staff on public.stock_transfers
+      for insert to authenticated
+      with check (
+        public.gestify_has_establishment_role(from_establishment_id, array['admin', 'estoque', 'operacao'])
+        and public.gestify_is_establishment_member(to_establishment_id)
+      );
+
+    create policy gestify_stock_transfers_update_staff on public.stock_transfers
+      for update to authenticated
+      using (
+        public.gestify_has_establishment_role(from_establishment_id, array['admin', 'estoque', 'operacao'])
+        or public.gestify_has_establishment_role(to_establishment_id, array['admin', 'estoque', 'operacao'])
+      )
+      with check (
+        public.gestify_has_establishment_role(from_establishment_id, array['admin', 'estoque', 'operacao'])
+        or public.gestify_has_establishment_role(to_establishment_id, array['admin', 'estoque', 'operacao'])
+      );
+
+    create policy gestify_stock_transfers_delete_admin on public.stock_transfers
+      for delete to authenticated
+      using (public.gestify_has_establishment_role(from_establishment_id, array['admin']));
+  end if;
 end $$;
 
 -- Child tables without direct establishment_id; scope through their parents.
@@ -256,8 +297,16 @@ begin
 end $$;
 
 -- Tables without tenant columns remain fail-closed until schema is corrected.
-comment on table public.suppliers is 'RLS enabled fail-closed by Gestify hardening migration. Add establishment_id/org_id and tenant-scoped policies before direct client access.';
-comment on table public.production_productivity is 'RLS enabled fail-closed by Gestify hardening migration. Add establishment_id or parent-based policy before direct client access.';
+do $$
+begin
+  if to_regclass('public.suppliers') is not null then
+    comment on table public.suppliers is 'RLS enabled fail-closed by Gestify hardening migration. Add establishment_id/org_id and tenant-scoped policies before direct client access.';
+  end if;
+
+  if to_regclass('public.production_productivity') is not null then
+    comment on table public.production_productivity is 'RLS enabled fail-closed by Gestify hardening migration. Add establishment_id or parent-based policy before direct client access.';
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- 4. Remove overly permissive policies detected by Supabase Advisors.
@@ -269,6 +318,8 @@ begin
     drop policy if exists "Authenticated users can delete fiscal company profiles" on public.fiscal_company_profiles;
     drop policy if exists "Authenticated users can insert fiscal company profiles" on public.fiscal_company_profiles;
     drop policy if exists "Authenticated users can update fiscal company profiles" on public.fiscal_company_profiles;
+    drop policy if exists fiscal_company_profiles_tenant_select on public.fiscal_company_profiles;
+    drop policy if exists fiscal_company_profiles_fiscal_write on public.fiscal_company_profiles;
 
     create policy fiscal_company_profiles_tenant_select on public.fiscal_company_profiles
       for select to authenticated
@@ -283,6 +334,8 @@ begin
     drop policy if exists "Authenticated users can delete fiscal product mappings" on public.fiscal_product_mappings;
     drop policy if exists "Authenticated users can insert fiscal product mappings" on public.fiscal_product_mappings;
     drop policy if exists "Authenticated users can update fiscal product mappings" on public.fiscal_product_mappings;
+    drop policy if exists fiscal_product_mappings_tenant_select on public.fiscal_product_mappings;
+    drop policy if exists fiscal_product_mappings_fiscal_write on public.fiscal_product_mappings;
 
     create policy fiscal_product_mappings_tenant_select on public.fiscal_product_mappings
       for select to authenticated
@@ -343,6 +396,7 @@ begin
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
       and p.prosecdef = true
+      and p.proname not in ('gestify_is_establishment_member', 'gestify_has_establishment_role')
   loop
     execute format(
       'revoke execute on function %I.%I(%s) from anon',
@@ -405,7 +459,7 @@ alter table public.gestify_security_migration_audit force row level security;
 insert into public.gestify_security_migration_audit (migration_name, notes)
 values (
   '202605170001_gestify_security_hardening_foundation',
-  'Enabled RLS on advisor-flagged tables, revoked public SECURITY DEFINER RPC execution, switched flagged views to security_invoker, removed broad storage listing policies, and removed permissive fiscal policies.'
+  'Enabled RLS on advisor-flagged tables, scoped stock transfers by origin/destination, revoked public SECURITY DEFINER RPC execution, switched flagged views to security_invoker, removed broad storage listing policies, and removed permissive fiscal policies.'
 )
 on conflict (migration_name) do nothing;
 

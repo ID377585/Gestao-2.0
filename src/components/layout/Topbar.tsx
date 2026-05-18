@@ -58,6 +58,7 @@ type TopbarUser = {
   avatar?: string | null;
   sector?: string | null;
   establishmentId?: string | null;
+  establishmentName?: string | null;
   orgId?: string | null;
   unitId?: string | null;
   subscription?: SubscriptionStatusBadgeData;
@@ -515,6 +516,7 @@ export function Topbar({ className }: TopbarProps) {
           role: user?.role,
           sector: user?.sector ?? null,
           establishmentId: user?.establishmentId ?? null,
+          establishmentName: user?.establishmentName ?? null,
           lastSignInAt: user?.lastSignInAt ?? null,
         }}
       />

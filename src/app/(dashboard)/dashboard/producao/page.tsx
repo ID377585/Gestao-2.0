@@ -243,10 +243,11 @@ async function advanceProductionStatusServer(orderItemId: string) {
 async function moveOrderToNextStageFromProductionServer(orderId: string) {
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase
-    .from("orders")
-    .update({ status: "em_separacao" })
-    .eq("id", orderId);
+  const { error } = await supabase.rpc("advance_order_status", {
+    p_order_id: orderId,
+    p_to_status: "em_separacao",
+    p_note: "Produção finalizada",
+  });
 
   if (error) {
     console.error("Erro ao avançar pedido para em_separacao:", error);

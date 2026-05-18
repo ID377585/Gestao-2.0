@@ -34,6 +34,12 @@ dist-ssr/
 *.local
 
 # =========================
+# Supabase local/cache files
+# =========================
+supabase/.temp/
+supabase/.branches/
+
+# =========================
 # Editor directories & files
 # =========================
 .vscode/*
@@ -65,6 +71,5 @@ next.config.ts.bak
 Gestao-2.0/
 tsconfig.tsbuildinfo
 
-Gestao-2.0/
 .next/
 tsconfig.tsbuildinfo

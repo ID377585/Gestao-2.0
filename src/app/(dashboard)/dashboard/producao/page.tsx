@@ -76,6 +76,63 @@ type KdsCollaborator = {
   sector: string | null;
 };
 
+type Membership = Awaited<ReturnType<typeof getMyMembership>>;
+
+function getMembershipScopeId(membership: Membership) {
+  const scope = membership.establishmentId ?? membership.unitId;
+
+  if (!scope) {
+    throw new Error("Estabelecimento não encontrado no membership.");
+  }
+
+  return scope;
+}
+
+function assertProductionLeader(role: Role | null) {
+  if (!["admin", "operacao"].includes(String(role))) {
+    throw new Error("Somente líderes podem alterar a produção.");
+  }
+}
+
+async function getProductionItemForWrite(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  orderItemId: string,
+  establishmentId: string
+) {
+  const { data: item, error: itemError } = await supabase
+    .from("kds_production_view")
+    .select("order_item_id, order_id, production_status")
+    .eq("order_item_id", orderItemId)
+    .maybeSingle();
+
+  if (itemError) {
+    console.error("Erro ao buscar item de produção:", itemError);
+    throw new Error("Erro ao buscar item de produção.");
+  }
+
+  if (!item) {
+    throw new Error("Item de produção não encontrado.");
+  }
+
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("id")
+    .eq("id", item.order_id)
+    .eq("establishment_id", establishmentId)
+    .maybeSingle();
+
+  if (orderError) {
+    console.error("Erro ao validar estabelecimento do pedido:", orderError);
+    throw new Error("Erro ao validar pedido.");
+  }
+
+  if (!order) {
+    throw new Error("Pedido não encontrado ou fora do seu estabelecimento.");
+  }
+
+  return item as Pick<KdsItem, "order_item_id" | "order_id" | "production_status">;
+}
+
 /**
  * Renderiza as informações principais do item dentro do card,
  * reutilizado nas 3 colunas (Pendentes / Em preparo / Pós-preparo)
@@ -190,11 +247,22 @@ async function assignProductionCollaboratorServer(
   userId: string
 ) {
   const supabase = await createSupabaseServerClient();
+  const membership = await getMyMembership();
+  const establishmentId = getMembershipScopeId(membership);
+
+  assertProductionLeader(membership.role as Role);
+
+  const item = await getProductionItemForWrite(
+    supabase,
+    orderItemId,
+    establishmentId
+  );
 
   const { error } = await supabase
     .from("order_items")
     .update({ production_assigned_to: userId })
-    .eq("id", orderItemId);
+    .eq("id", orderItemId)
+    .eq("order_id", item.order_id);
 
   if (error) {
     console.error("Erro ao definir colaborador da produção:", error);
@@ -206,19 +274,20 @@ async function assignProductionCollaboratorServer(
 
 async function advanceProductionStatusServer(orderItemId: string) {
   const supabase = await createSupabaseServerClient();
+  const membership = await getMyMembership();
+  const establishmentId = getMembershipScopeId(membership);
 
-  const { data, error } = await supabase
-    .from("order_items")
-    .select("production_status")
-    .eq("id", orderItemId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Erro ao buscar item de produção:", error);
-    throw new Error("Erro ao buscar item de produção.");
+  if (!["admin", "operacao", "producao"].includes(String(membership.role))) {
+    throw new Error("Sem permissão para alterar status de produção.");
   }
 
-  const current = (data?.production_status ??
+  const item = await getProductionItemForWrite(
+    supabase,
+    orderItemId,
+    establishmentId
+  );
+
+  const current = (item.production_status ??
     "pending") as KdsItem["production_status"];
 
   let next: KdsItem["production_status"] = current;
@@ -230,7 +299,8 @@ async function advanceProductionStatusServer(orderItemId: string) {
   const { error: updateError } = await supabase
     .from("order_items")
     .update({ production_status: next })
-    .eq("id", orderItemId);
+    .eq("id", orderItemId)
+    .eq("order_id", item.order_id);
 
   if (updateError) {
     console.error("Erro ao avançar status de produção:", updateError);
@@ -242,6 +312,26 @@ async function advanceProductionStatusServer(orderItemId: string) {
 
 async function moveOrderToNextStageFromProductionServer(orderId: string) {
   const supabase = await createSupabaseServerClient();
+  const membership = await getMyMembership();
+  const establishmentId = getMembershipScopeId(membership);
+
+  assertProductionLeader(membership.role as Role);
+
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("id")
+    .eq("id", orderId)
+    .eq("establishment_id", establishmentId)
+    .maybeSingle();
+
+  if (orderError) {
+    console.error("Erro ao validar pedido para avanço:", orderError);
+    throw new Error("Erro ao validar pedido.");
+  }
+
+  if (!order) {
+    throw new Error("Pedido não encontrado ou fora do seu estabelecimento.");
+  }
 
   const { error } = await supabase.rpc("advance_order_status", {
     p_order_id: orderId,

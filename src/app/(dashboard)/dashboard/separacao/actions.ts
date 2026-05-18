@@ -43,9 +43,7 @@ export type CreateInventoryLabelParams = {
 
 /**
  * Salva UMA etiqueta na tabela inventory_labels
- * - Garante establishment_id e created_by a partir do membership
- * - Tenta localizar o produto por NOME na tabela products (se não achar, grava product_id = null)
- * - Guarda o JSON completo da etiqueta em notes
+ * A RPC cria etiqueta, movimento e saldo de forma transacional.
  */
 export async function createInventoryLabel(params: CreateInventoryLabelParams) {
   const { productName, qty, unitLabel, labelCode, extraPayload } = params;
@@ -59,7 +57,6 @@ export async function createInventoryLabel(params: CreateInventoryLabelParams) {
   const { membership } = await getActiveMembershipOrRedirect();
 
   const establishmentId = (membership as any).establishment_id;
-  const userId = (membership as any).user_id ?? null;
 
   if (!establishmentId) {
     throw new Error("Estabelecimento não encontrado no membership.");
@@ -71,6 +68,7 @@ export async function createInventoryLabel(params: CreateInventoryLabelParams) {
   const { data: product, error: prodErr } = await supabase
     .from("products")
     .select("id")
+    .eq("establishment_id", establishmentId)
     .ilike("name", productName)
     .maybeSingle();
 
@@ -80,31 +78,32 @@ export async function createInventoryLabel(params: CreateInventoryLabelParams) {
     productId = product.id;
   }
 
-  const notesJson =
-    extraPayload != null ? JSON.stringify(extraPayload) : null;
+  if (!productId) {
+    throw new Error("Produto não encontrado neste estabelecimento.");
+  }
 
-  // 2) Tenta inserir a etiqueta
+  const notesJson =
+    extraPayload != null
+      ? JSON.stringify({
+          ...extraPayload,
+          productName,
+        })
+      : null;
+
   const { data, error } = await supabase
-    .from("inventory_labels")
-    .insert({
-      establishment_id: establishmentId,
-      product_id: productId, // pode ser null
-      label_code: labelCode,
-      qty,
-      unit_label: unitLabel,
-      status: "available",
-      order_id: null,
-      separated_at: null,
-      separated_by: null,
-      created_by: userId,
-      notes: notesJson,
+    .rpc("create_inventory_label", {
+      p_establishment_id: establishmentId,
+      p_product_id: productId,
+      p_label_code: labelCode,
+      p_qty: qty,
+      p_unit_label: String(unitLabel).trim().toUpperCase(),
+      p_notes: notesJson,
+      p_label_type: null,
     })
-    .select("*")
     .single();
 
   if (error) {
-    // LOG COMPLETO NO TERMINAL
-    console.error("Erro ao criar etiqueta em inventory_labels:", {
+    console.error("Erro ao chamar create_inventory_label:", {
       message: error.message,
       code: (error as any).code,
       details: (error as any).details,
@@ -122,6 +121,7 @@ export async function createInventoryLabel(params: CreateInventoryLabelParams) {
 
   // Revalidar a página de etiquetas (para SSR/Server Components)
   revalidatePath("/dashboard/etiquetas");
+  revalidatePath("/dashboard/estoque");
 
   return data as InventoryLabelRow;
 }

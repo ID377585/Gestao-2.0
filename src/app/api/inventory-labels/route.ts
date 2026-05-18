@@ -46,27 +46,6 @@ function normalizeLabelType(value: any): "MANIPULACAO" | "FABRICANTE" | null {
   return null;
 }
 
-function isMissingTypeColumnError(err: any): boolean {
-  const code = String(err?.code ?? "").toUpperCase();
-  const msg = String(err?.message ?? "").toLowerCase();
-  const details = String(err?.details ?? "").toLowerCase();
-  const hint = String(err?.hint ?? "").toLowerCase();
-
-  if (code === "PGRST204" || code === "42703") return true;
-
-  const blob = `${msg} ${details} ${hint}`;
-  if (blob.includes("schema cache") && blob.includes("'type'")) return true;
-  if (blob.includes("could not find the 'type' column")) return true;
-  if (
-    blob.includes("column") &&
-    blob.includes("type") &&
-    blob.includes("does not exist")
-  )
-    return true;
-
-  return false;
-}
-
 /**
  * ✅ CRÍTICO: normaliza unidade em MAIÚSCULO para não violar
  * check constraint: stock_balances_unit_uppercase
@@ -193,7 +172,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const supabase = await createSupabaseServerClient();
-  const { establishmentId, userId, debug } = await resolveEstablishmentId(
+  const { establishmentId, debug } = await resolveEstablishmentId(
     supabase
   );
 
@@ -249,64 +228,20 @@ export async function POST(req: Request) {
   if (!qty || qty <= 0)
     return NextResponse.json({ error: "qty inválido." }, { status: 400 });
 
-  // tentativa 1: com coluna `type` (se existir no schema)
-  const insertBase: any = {
-    establishment_id: establishmentId,
-    product_id: productId, // ✅ ESSENCIAL para atualizar Estoque Atual via triggers/saldos
-    label_code: labelCode,
-    qty,
-    unit_label: unitLabel,
-    status: "available",
-    ...(userId ? { created_by: userId } : {}),
-    notes,
-  };
-
-  const insertWithType: any = labelType
-    ? { ...insertBase, type: labelType }
-    : insertBase;
-
-  const { data: created1, error: err1 } = await supabase
-    .from("inventory_labels")
-    .insert(insertWithType)
-    .select(
-      "id, label_code, qty, unit_label, notes, created_at, status, product_id"
-    )
+  const { data, error } = await supabase
+    .rpc("create_inventory_label", {
+      p_establishment_id: establishmentId,
+      p_product_id: productId,
+      p_label_code: labelCode,
+      p_qty: qty,
+      p_unit_label: unitLabel,
+      p_notes: notes,
+      p_label_type: labelType,
+    })
     .single();
 
-  if (!err1 && created1) {
-    return NextResponse.json(created1 as InventoryLabelRow, { status: 201 });
-  }
-
-  // fallback: se não existir coluna `type`, tenta sem ela
-  if (isMissingTypeColumnError(err1)) {
-    const { data: created2, error: err2 } = await supabase
-      .from("inventory_labels")
-      .insert(insertBase)
-      .select(
-        "id, label_code, qty, unit_label, notes, created_at, status, product_id"
-      )
-      .single();
-
-    if (err2 || !created2) {
-      const msg =
-        (err2 as any)?.message ??
-        "Falha ao salvar etiqueta no banco (insert).";
-      return NextResponse.json(
-        {
-          error: msg,
-          code: (err2 as any)?.code ?? null,
-          details: (err2 as any)?.details ?? null,
-          hint: (err2 as any)?.hint ?? null,
-        },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json(created2 as InventoryLabelRow, { status: 201 });
-  }
-
   // erros comuns
-  if ((err1 as any)?.code === "23505") {
+  if ((error as any)?.code === "23505") {
     return NextResponse.json(
       {
         error:
@@ -316,17 +251,19 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json(
-    {
-      error:
-        (err1 as any)?.message ??
-        "Falha ao salvar etiqueta no banco (insert).",
-      code: (err1 as any)?.code ?? null,
-      details: (err1 as any)?.details ?? null,
-      hint: (err1 as any)?.hint ?? null,
-    },
-    { status: 500 }
-  );
+  if (error || !data) {
+    return NextResponse.json(
+      {
+        error: (error as any)?.message ?? "Falha ao salvar etiqueta no banco.",
+        code: (error as any)?.code ?? null,
+        details: (error as any)?.details ?? null,
+        hint: (error as any)?.hint ?? null,
+      },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json(data as InventoryLabelRow, { status: 201 });
 }
 
 /**

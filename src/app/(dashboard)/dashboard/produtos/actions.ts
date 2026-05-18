@@ -3,8 +3,10 @@
 import { parsePtBrNumber } from "@/lib/number-format";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  getSupabaseAdminClient,
+} from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { normalizeAllergenList } from "@/lib/allergens";
 import {
@@ -469,25 +471,6 @@ async function deactivateProduct(params: {
     );
     throw new Error("Não foi possível inativar o produto que possui histórico.");
   }
-}
-
-function getSupabaseAdminClient() {
-  const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-
-  if (!url || !serviceRoleKey) {
-    throw new Error(
-      "Configuração ausente para exclusão forçada: defina NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.",
-    );
-  }
-
-  return createClient(url, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
 }
 
 async function deleteKnownProductDependenciesAdmin(params: {

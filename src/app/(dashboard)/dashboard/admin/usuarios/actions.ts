@@ -2,8 +2,10 @@
 
 import { dispatchCollaboratorCreatedOrUpdatedAlert } from "@/lib/alerts/domain-triggers";
 import { revalidatePath } from "next/cache";
-import { createClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  getSupabaseAdminClient,
+} from "@/lib/supabase/server";
 
 export type ProfileRole =
   | "admin"
@@ -46,21 +48,7 @@ export type UserAccessAuditLog = {
 };
 
 function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceKey) {
-    throw new Error(
-      "ENV ausente: NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY."
-    );
-  }
-
-  return createClient(url, serviceKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
+  return getSupabaseAdminClient();
 }
 
 async function getContextOrThrow() {

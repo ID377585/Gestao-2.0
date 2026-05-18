@@ -1,10 +1,21 @@
 // src/app/api/losses/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
 function numOrNull(v: any) {
   const n = Number(String(v).replace(",", "."));
   return Number.isFinite(n) ? n : null;
+}
+
+function getScopeId(ctx: Awaited<ReturnType<typeof getActiveMembershipOrRedirect>>) {
+  const scope = ctx.establishmentId ?? ctx.unitId;
+
+  if (!scope) {
+    throw new Error("Estabelecimento não encontrado.");
+  }
+
+  return scope;
 }
 
 async function getAuthAndEstablishment() {
@@ -23,13 +34,16 @@ async function getAuthAndEstablishment() {
     };
   }
 
-  const { data: membership, error: memErr } = await supabase
-    .from("memberships")
-    .select("establishment_id")
-    .eq("user_id", user.id)
-    .single();
+  try {
+    const ctx = await getActiveMembershipOrRedirect();
 
-  if (memErr || !membership?.establishment_id) {
+    return {
+      supabase,
+      user,
+      establishment_id: getScopeId(ctx),
+      error: null,
+    };
+  } catch {
     return {
       supabase,
       user,
@@ -40,13 +54,6 @@ async function getAuthAndEstablishment() {
       ),
     };
   }
-
-  return {
-    supabase,
-    user,
-    establishment_id: membership.establishment_id,
-    error: null,
-  };
 }
 
 export async function GET(req: Request) {

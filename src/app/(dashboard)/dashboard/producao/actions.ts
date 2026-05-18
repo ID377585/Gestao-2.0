@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  getSupabaseAdminClient,
+} from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
-import { createClient } from "@supabase/supabase-js";
 
 export type Role =
   | "cliente"
@@ -50,13 +52,13 @@ export type InventoryLabel = {
   notes: string | null;
 };
 
-// ----------------------------------------------------
-// CLIENTE ADMIN (service_role) – para operações de escrita (WRITE)
-// ----------------------------------------------------
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getMembershipScopeId(membership: Record<string, unknown>) {
+  const scope = membership.establishment_id ?? membership.unit_id;
+  if (!scope) {
+    throw new Error("Estabelecimento não encontrado no membership.");
+  }
+  return String(scope);
+}
 
 // ----------------------------------------------------
 // Helper — localizar item na tabela correta (order_line_items ou order_items)
@@ -182,7 +184,7 @@ export async function assignProductionCollaborator(
     throw new Error("Somente líderes podem definir colaborador.");
   }
 
-  const supabase = supabaseAdmin;
+  const supabase = getSupabaseAdminClient();
   const { table } = await findOrderItem(supabase, orderItemId);
 
   if (!table) {
@@ -211,7 +213,7 @@ export async function assignProductionCollaborator(
 // ---------------------------------------------------------------------
 export async function advanceProductionStatus(orderItemId: string) {
   const { membership } = await getActiveMembershipOrRedirect();
-  const supabase = supabaseAdmin;
+  const supabase = getSupabaseAdminClient();
 
   const { table, item } = await findOrderItem(supabase, orderItemId);
   if (!table || !item) {
@@ -286,7 +288,7 @@ export async function advanceProductionStatus(orderItemId: string) {
             )
           : null;
 
-      const { error: prodErr } = await supabaseAdmin
+      const { error: prodErr } = await supabase
         .from("production_productivity")
         .insert({
           order_item_id: orderItemId,
@@ -322,6 +324,8 @@ export async function advanceProductionStatus(orderItemId: string) {
 // ---------------------------------------------------------------------
 export async function moveOrderToNextStageFromProduction(orderId: string) {
   const { membership } = await getActiveMembershipOrRedirect();
+  const establishmentId = getMembershipScopeId(membership);
+  const supabase = await createSupabaseServerClient();
 
   if (!["admin", "operacao"].includes(membership.role)) {
     throw new Error(
@@ -329,7 +333,7 @@ export async function moveOrderToNextStageFromProduction(orderId: string) {
     );
   }
 
-  const { data: kdsItems, error: kdsErr } = await supabaseAdmin
+  const { data: kdsItems, error: kdsErr } = await supabase
     .from("kds_production_view")
     .select("production_status")
     .eq("order_id", orderId);
@@ -353,10 +357,11 @@ export async function moveOrderToNextStageFromProduction(orderId: string) {
     );
   }
 
-  const { data: order, error: orderErr } = await supabaseAdmin
+  const { data: order, error: orderErr } = await supabase
     .from("orders")
     .select("id, status")
     .eq("id", orderId)
+    .eq("establishment_id", establishmentId)
     .maybeSingle();
 
   if (orderErr) {
@@ -378,10 +383,11 @@ export async function moveOrderToNextStageFromProduction(orderId: string) {
 
   const nextStatus = "em_separacao";
 
-  const { error: updOrderErr } = await supabaseAdmin
-    .from("orders")
-    .update({ status: nextStatus })
-    .eq("id", orderId);
+  const { error: updOrderErr } = await supabase.rpc("advance_order_status", {
+    p_order_id: orderId,
+    p_to_status: nextStatus,
+    p_note: "Produção finalizada",
+  });
 
   if (updOrderErr) {
     console.error("Erro ao atualizar status do pedido:", updOrderErr);
@@ -408,7 +414,6 @@ export async function separateLabelForOrder(params: {
   }
 
   const code = rawQrText.trim();
-  console.log("DEBUG QR LIDO NA SEPARAÇÃO:", code);
 
   if (!code) {
     throw new Error("Nenhum código de etiqueta (QR) informado.");
@@ -465,6 +470,7 @@ export async function finalizeOrderSeparation(orderId: string) {
   }
 
   const { membership } = await getActiveMembershipOrRedirect();
+  const establishmentId = getMembershipScopeId(membership);
 
   if (!["admin", "estoque", "operacao"].includes(membership.role)) {
     throw new Error("Você não tem permissão para finalizar a separação.");
@@ -477,6 +483,7 @@ export async function finalizeOrderSeparation(orderId: string) {
     .from("orders")
     .select("id, status")
     .eq("id", orderId)
+    .eq("establishment_id", establishmentId)
     .maybeSingle();
 
   if (orderErr) {
@@ -488,10 +495,10 @@ export async function finalizeOrderSeparation(orderId: string) {
     throw new Error("Pedido não encontrado.");
   }
 
-  // Só permite finalizar se estiver aceitou_pedido ou em_separacao
-  if (!["aceitou_pedido", "em_separacao"].includes(order.status)) {
+  // Só permite finalizar se estiver na etapa formal de separação.
+  if (order.status !== "em_separacao") {
     throw new Error(
-      "Só é possível finalizar separação de pedidos aceitos ou em separação."
+      "Só é possível finalizar separação de pedidos em separação."
     );
   }
 
@@ -500,6 +507,7 @@ export async function finalizeOrderSeparation(orderId: string) {
     .from("inventory_labels")
     .select("id")
     .eq("order_id", orderId)
+    .eq("establishment_id", establishmentId)
     .in("status", ["separated", "consumed"]);
 
   if (labelsErr) {
@@ -516,11 +524,12 @@ export async function finalizeOrderSeparation(orderId: string) {
     );
   }
 
-  // 3) Atualiza o status do pedido para em_faturamento
-  const { error: updErr } = await supabase
-    .from("orders")
-    .update({ status: "em_faturamento" })
-    .eq("id", orderId);
+  // 3) Avança o pedido usando a regra central de status no banco.
+  const { error: updErr } = await supabase.rpc("advance_order_status", {
+    p_order_id: orderId,
+    p_to_status: "em_faturamento",
+    p_note: "Separação finalizada",
+  });
 
   if (updErr) {
     console.error("Erro ao atualizar pedido para em_faturamento:", updErr);

@@ -152,11 +152,15 @@ export type OrderBillingDraft = {
   id: string;
   order_id: string;
   establishment_id: string;
+  base_cost: number;
+  items: any;
   subtotal: number;
   markup_percent: number;
+  total_value: number;
   total_with_markup: number;
   freight_value: number | null;
   carrier_id: string | null;
+  created_by: string;
   created_at: string;
   updated_at: string;
 };
@@ -275,28 +279,9 @@ export async function createOrderWithItems(
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = getScopeId(ctx);
 
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData?.user) throw new Error("Not authenticated");
-
   const safeNotes =
     (params.notes ?? "").trim() ||
     "Pedido criado via sistema (itens adicionados na criação)";
-
-  const { data: order, error: orderErr } = await supabase
-    .from("orders")
-    .insert({
-      establishment_id: establishmentId,
-      created_by: userData.user.id,
-      customer_user_id: userData.user.id,
-      status: "pedido_criado",
-      notes: safeNotes,
-    })
-    .select("id, order_number, status, created_at")
-    .single();
-
-  if (orderErr || !order) {
-    throw new Error(orderErr?.message ?? "Erro ao criar pedido");
-  }
 
   const rawValidItems =
     params.items?.filter(
@@ -333,25 +318,23 @@ export async function createOrderWithItems(
 
   const validItems = Array.from(consolidated.values());
 
-  if (validItems.length > 0) {
-    const payload = validItems.map((it) => ({
-      order_id: order.id,
-      establishment_id: establishmentId,
-      product_name: it.product_name,
-      quantity: it.quantity,
-      unit_label: it.unit_label,
-    }));
-
-    const { error: itemsErr } = await supabase
-      .from("order_line_items")
-      .insert(payload);
-
-    if (itemsErr) {
-      console.error("Erro ao criar itens do pedido:", itemsErr);
-      throw new Error(
-        "Pedido criado, mas houve erro ao salvar os itens: " + itemsErr.message
-      );
+  const { data: createdOrders, error: createErr } = await supabase.rpc(
+    "create_order_with_items",
+    {
+      p_establishment_id: establishmentId,
+      p_notes: safeNotes,
+      p_items: validItems,
     }
+  );
+
+  if (createErr) {
+    throw normalizePgError(createErr);
+  }
+
+  const order = Array.isArray(createdOrders) ? createdOrders[0] : createdOrders;
+
+  if (!order) {
+    throw new Error("Erro ao criar pedido.");
   }
 
   revalidatePath("/dashboard/pedidos");
@@ -543,12 +526,8 @@ export async function addOrderItem(data: {
  * ✅ Aceitar pedido
  *
  * Agora:
- *  - Copia itens de order_line_items -> order_items
- *  - Consulta Estoque Atual (current_stock) para decidir:
- *      * se quantity > estoque -> production_status = 'pending' (vai para Pendentes)
- *      * se quantity <= estoque -> production_status = 'done'   (vai para Pós-preparo)
- *  - Avança status do pedido para "aceitou_pedido" via RPC
- *  - Atualiza accepted_by / accepted_at
+ *  - Chama a RPC transacional accept_order(_order_id)
+ *  - O banco centraliza cópia de itens, estoque, unidade, status e metadados
  */
 export async function acceptOrder(orderId: string): Promise<void> {
   const supabase = await createSupabaseServerClient();
@@ -559,9 +538,6 @@ export async function acceptOrder(orderId: string): Promise<void> {
     throw new Error("Sem permissão para aceitar pedido.");
   }
 
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData?.user) throw new Error("Not authenticated");
-
   const order = await getOrderById(orderId);
   if (!order) {
     throw new Error("Pedido não encontrado ou sem acesso.");
@@ -571,142 +547,11 @@ export async function acceptOrder(orderId: string): Promise<void> {
     throw new Error("Só é possível aceitar pedidos com status 'pedido_criado'.");
   }
 
-  const { data: lineItems, error: itemsErr } = await supabase
-    .from("order_line_items")
-    .select("id, product_name, quantity")
-    .eq("order_id", orderId);
-
-  if (itemsErr) throw new Error(itemsErr.message);
-
-  const consolidatedLineItemsMap = new Map<
-    string,
-    { product_name: string; quantity: number }
-  >();
-
-  for (const it of lineItems ?? []) {
-    const pname = String((it as any).product_name ?? "").trim();
-    const qty = Number((it as any).quantity ?? 0);
-
-    if (!pname || !Number.isFinite(qty) || qty <= 0) continue;
-
-    const key = pname.toLowerCase().trim();
-    const existing = consolidatedLineItemsMap.get(key);
-
-    if (!existing) {
-      consolidatedLineItemsMap.set(key, { product_name: pname, quantity: qty });
-    } else {
-      consolidatedLineItemsMap.set(key, {
-        product_name: existing.product_name,
-        quantity: Number(existing.quantity ?? 0) + qty,
-      });
-    }
-  }
-
-  const safeLineItems = Array.from(consolidatedLineItemsMap.values());
-
-  const { data: products, error: prodErr } = await supabase
-    .from("products")
-    .select("id, name")
-    .eq("establishment_id", establishmentId)
-    .eq("is_active", true);
-
-  if (prodErr) {
-    throw new Error(prodErr.message);
-  }
-
-  const productIdToName = new Map<string, string>(
-    (products ?? []).map((p: any) => [String(p.id), String(p.name ?? "")])
-  );
-
-  const { data: stockRows, error: stockErr } = await supabase
-    .from("current_stock")
-    .select("product_id, qty_balance")
-    .eq("establishment_id", establishmentId);
-
-  if (stockErr) {
-    throw new Error(stockErr.message);
-  }
-
-  const stockMap = new Map<string, number>();
-
-  for (const row of stockRows ?? []) {
-    const pid = String((row as any)?.product_id ?? "");
-    const pname = String(productIdToName.get(pid) ?? "")
-      .trim()
-      .toLowerCase();
-
-    if (!pname) continue;
-
-    const qty = Number((row as any)?.qty_balance ?? 0);
-    const safeQty = Number.isFinite(qty) ? qty : 0;
-
-    stockMap.set(pname, (stockMap.get(pname) ?? 0) + safeQty);
-  }
-
-  const { error: delErr } = await supabase
-    .from("order_items")
-    .delete()
-    .eq("order_id", orderId);
-
-  if (delErr && (delErr as any).code !== "PGRST116") {
-    console.warn("Erro ao limpar order_items antigos:", (delErr as any).message);
-  }
-
-  const orderItemsPayload =
-    safeLineItems.length === 0
-      ? []
-      : safeLineItems.map((item) => {
-          const orderQty = Number(item.quantity);
-
-          const currentStock =
-            stockMap.get(String(item.product_name ?? "").trim().toLowerCase()) ??
-            0;
-
-          let production_status: string;
-          let missing = 0;
-
-          if (orderQty > currentStock) {
-            missing = orderQty - currentStock;
-            production_status = "pending";
-          } else {
-            production_status = "done";
-          }
-
-          return {
-            order_id: orderId,
-            product_name: item.product_name,
-            qty: orderQty,
-            production_status,
-            production_missing_qty: missing,
-          };
-        });
-
-  if (orderItemsPayload.length > 0) {
-    const { error: insertErr } = await supabase
-      .from("order_items")
-      .insert(orderItemsPayload);
-
-    if (insertErr) throw new Error(insertErr.message);
-  }
-
-  const { error: rpcErr } = await supabase.rpc("advance_order_status", {
-    p_order_id: orderId,
-    p_to_status: "aceitou_pedido",
-    p_note: "Pedido aceito",
+  const { error: rpcErr } = await supabase.rpc("accept_order", {
+    _order_id: orderId,
   });
 
   if (rpcErr) throw normalizePgError(rpcErr);
-
-  const { error: metaErr } = await supabase
-    .from("orders")
-    .update({
-      accepted_by: userData.user.id,
-      accepted_at: new Date().toISOString(),
-    })
-    .eq("id", orderId)
-    .eq("establishment_id", establishmentId);
-
-  if (metaErr) throw new Error(metaErr.message);
 
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${orderId}`);
@@ -1079,12 +924,8 @@ function extractLabelCodeFromQr(raw: string): string {
 
 /* ===========================================================
    ✅ VINCULAR ETIQUETA AO PEDIDO (SEPARAÇÃO / ESTOQUE)
-   - Lê a etiqueta (inventory_labels) pelo label_code
-   - Garante estabelecimento
-   - Verifica saldo (qty - used_qty)
-   - Cria movimento de estoque (inventory_movements, OUT_ORDER)
-   - Cria vínculo em order_items_labels
-   - Atualiza used_qty/status da etiqueta
+   - Extrai o label_code
+   - Delega vínculo, movimento e saldo para separate_label_for_order
 =========================================================== */
 
 export async function linkLabelToOrder(
@@ -1114,6 +955,12 @@ export async function linkLabelToOrder(
     throw new Error("Not authenticated");
   }
 
+  if (qtyToUse !== undefined && qtyToUse !== null) {
+    throw new Error(
+      "Separação parcial de etiqueta deve ser implementada na RPC antes de ser usada pelo app."
+    );
+  }
+
   const { data: order, error: orderErr } = await supabase
     .from("orders")
     .select("id, establishment_id, order_number")
@@ -1130,118 +977,23 @@ export async function linkLabelToOrder(
     throw new Error("Código de etiqueta inválido (QR vazio).");
   }
 
-  const { data: label, error: labelError } = await supabase
-    .from("inventory_labels")
-    .select(
-      `
-      *,
-      products (
-        name
-      )
-    `
-    )
-    .eq("label_code", finalLabelCode)
-    .eq("establishment_id", establishmentId)
-    .single();
+  const { data: labels, error: rpcError } = await supabase.rpc(
+    "separate_label_for_order",
+    {
+      p_label_code: finalLabelCode,
+      p_order_id: orderId,
+      p_user_id: userData.user.id,
+    }
+  );
 
-  if (labelError || !label) {
-    throw new Error("Etiqueta não encontrada ou fora do seu estabelecimento.");
+  if (rpcError) {
+    throw normalizePgError(rpcError);
   }
 
-  const status = (label as any).status as string;
-  if (!["available", "ACTIVE"].includes(status)) {
-    throw new Error("Etiqueta já utilizada ou cancelada.");
-  }
+  const label = Array.isArray(labels) ? labels[0] : labels;
 
-  const totalQty = Number((label as any).qty);
-  const usedQty = Number((label as any).used_qty ?? 0);
-  const availableQty = totalQty - usedQty;
-
-  if (availableQty <= 0) {
-    throw new Error("Etiqueta sem saldo disponível.");
-  }
-
-  const qty = qtyToUse ? Number(qtyToUse) : availableQty;
-
-  if (qty <= 0) {
-    throw new Error("Quantidade informada para uso é inválida.");
-  }
-
-  if (qty > availableQty) {
-    throw new Error(
-      `Quantidade (${qty}) maior que o saldo disponível da etiqueta (${availableQty}).`
-    );
-  }
-
-  const productNameFromLabel =
-    ((label as any).products?.name as string | undefined) ?? null;
-
-  const { data: orderItems } = await supabase
-    .from("order_items")
-    .select("id, product_name, qty")
-    .eq("order_id", orderId);
-
-  const matchingItem =
-    orderItems && productNameFromLabel
-      ? orderItems.find(
-          (it) =>
-            it.product_name?.toLowerCase().trim() ===
-            productNameFromLabel.toLowerCase().trim()
-        ) ?? null
-      : null;
-
-  const { data: movement, error: movError } = await supabase
-    .from("inventory_movements")
-    .insert({
-      establishment_id: establishmentId,
-      product_id: (label as any).product_id ?? null,
-      label_id: (label as any).id,
-      order_id: orderId,
-      movement_type: "OUT_ORDER",
-      direction: "OUT",
-      qty,
-      unit_label: String((label as any).unit_label ?? "").trim().toUpperCase(),
-      details: {
-        label_code: (label as any).label_code,
-        from: "ORDER_SEPARATION",
-        order_number: order.order_number,
-      },
-      created_by: userData.user.id,
-    })
-    .select("id")
-    .single();
-
-  if (movError || !movement) {
-    throw new Error("Erro ao registrar movimento de estoque.");
-  }
-
-  const { error: linkError } = await supabase
-    .from("order_items_labels")
-    .insert({
-      order_id: orderId,
-      order_item_id: matchingItem?.id ?? null,
-      label_id: (label as any).id,
-      qty_used: qty,
-      unit_label: String((label as any).unit_label ?? "").trim().toUpperCase(),
-    });
-
-  if (linkError) {
-    throw new Error("Erro ao vincular etiqueta ao pedido.");
-  }
-
-  const newUsed = usedQty + qty;
-  const newStatus = newUsed >= totalQty ? "used" : "available";
-
-  const { error: updError } = await supabase
-    .from("inventory_labels")
-    .update({
-      used_qty: newUsed,
-      status: newStatus,
-    })
-    .eq("id", (label as any).id);
-
-  if (updError) {
-    throw new Error("Erro ao atualizar status da etiqueta.");
+  if (!label) {
+    throw new Error("Nenhuma etiqueta foi atualizada pela operação.");
   }
 
   revalidatePath("/dashboard/pedidos");
@@ -1260,15 +1012,11 @@ export async function linkLabelToOrder(
   return {
     ok: true,
     message: "Produto coletado!",
-    movementId: movement.id as string,
-    label: {
-      ...label,
-      used_qty: newUsed,
-      status: newStatus,
-    },
-    orderItemId: matchingItem?.id ?? null,
-    availableQtyBefore: availableQty,
-    availableQtyAfter: availableQty - qty,
+    movementId: String((label as any).movement_id ?? ""),
+    label,
+    orderItemId: null,
+    availableQtyBefore: Number((label as any).qty ?? 0),
+    availableQtyAfter: Number((label as any).qty_balance ?? 0),
     collectedSummary,
   };
 }
@@ -1308,11 +1056,15 @@ export async function getOrderBillingDraft(
       id,
       order_id,
       establishment_id,
+      base_cost,
+      items,
       subtotal,
       markup_percent,
+      total_value,
       total_with_markup,
       freight_value,
       carrier_id,
+      created_by,
       created_at,
       updated_at
     `
@@ -1346,6 +1098,11 @@ export async function saveOrderBillingDraft(input: {
   const supabase = await createSupabaseServerClient();
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = getScopeId(ctx);
+  const { data: userData, error: userErr } = await supabase.auth.getUser();
+
+  if (userErr || !userData?.user) {
+    throw new Error("Not authenticated");
+  }
 
   const { data: order, error: orderErr } = await supabase
     .from("orders")
@@ -1364,20 +1121,28 @@ export async function saveOrderBillingDraft(input: {
     );
   }
 
+  const collectedSummary = await getOrderCollectedSummary(input.orderId);
+  const freightValue =
+    input.freightValue !== undefined && input.freightValue !== null
+      ? input.freightValue
+      : 0;
+  const totalWithMarkup = input.totalWithMarkup ?? 0;
+
   const payload = {
     order_id: input.orderId,
     establishment_id: establishmentId,
     subtotal: input.subtotal ?? 0,
+    base_cost: collectedSummary.total_cost ?? input.subtotal ?? 0,
+    items: collectedSummary.items,
     markup_percent: input.markupPercent ?? 0,
-    total_with_markup: input.totalWithMarkup ?? 0,
-    freight_value:
-      input.freightValue !== undefined && input.freightValue !== null
-        ? input.freightValue
-        : null,
+    total_with_markup: totalWithMarkup,
+    total_value: totalWithMarkup + freightValue,
+    freight_value: freightValue,
     carrier_id:
       input.carrierId !== undefined && input.carrierId !== null
         ? input.carrierId
         : null,
+    created_by: userData.user.id,
   };
 
   const { error } = await supabase
@@ -1395,7 +1160,7 @@ export async function saveOrderBillingDraft(input: {
 }
 
 /* ===========================================================
-   🚚 LISTAR TRANSPORTADORAS (CARRIERS)
+   🚚 LISTAR TRANSPORTADORAS (SHIPPING_CARRIERS)
    - Usado para preencher o select de transportadora no faturamento
 =========================================================== */
 
@@ -1405,10 +1170,9 @@ export async function listCarriers(): Promise<Carrier[]> {
   const establishmentId = getScopeId(ctx);
 
   const { data, error } = await supabase
-    .from("carriers")
-    .select("id, name, is_active")
+    .from("shipping_carriers")
+    .select("id, name")
     .eq("establishment_id", establishmentId)
-    .eq("is_active", true)
     .order("name", { ascending: true });
 
   if (error) {
@@ -1416,7 +1180,7 @@ export async function listCarriers(): Promise<Carrier[]> {
 
     if (code === "PGRST205") {
       console.warn(
-        "listCarriers: tabela public.carriers não existe ainda; retornando lista vazia."
+        "listCarriers: tabela public.shipping_carriers não existe ainda; retornando lista vazia."
       );
       return [];
     }
@@ -1425,5 +1189,9 @@ export async function listCarriers(): Promise<Carrier[]> {
     throw new Error("Erro ao carregar transportadoras.");
   }
 
-  return (data ?? []) as Carrier[];
+  return (data ?? []).map((carrier) => ({
+    id: carrier.id,
+    name: carrier.name,
+    is_active: true,
+  }));
 }

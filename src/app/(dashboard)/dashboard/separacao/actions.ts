@@ -4,6 +4,14 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
+function getMembershipScopeId(membership: Record<string, unknown>) {
+  const scope = membership.establishment_id ?? membership.unit_id;
+  if (!scope) {
+    throw new Error("Estabelecimento não encontrado no membership.");
+  }
+  return String(scope);
+}
+
 /**
  * Linha bruta da tabela inventory_labels
  */
@@ -221,7 +229,7 @@ export type SeparateLabelForOrderParams = {
 
 /**
  * Lê o QR, extrai o label_code e:
- *  - chama a função RPC use_label_on_order no Supabase (rastreabilidade completa)
+ *  - chama a função RPC separate_label_for_order no Supabase
  *  - depois busca a etiqueta já atualizada em inventory_labels
  */
 export async function separateLabelForOrder(
@@ -233,12 +241,7 @@ export async function separateLabelForOrder(
     throw new Error("Pedido não informado.");
   }
 
-  // LOG de debug para ver exatamente o que está chegando do QR
-  console.log("📦 [separacao] QR lido (bruto):", qrText);
-
   const labelCode = extractLabelCodeFromQr(qrText);
-
-  console.log("📦 [separacao] label_code extraído:", labelCode);
 
   if (!labelCode) {
     throw new Error("Etiqueta não encontrada (QR inválido)");
@@ -247,12 +250,8 @@ export async function separateLabelForOrder(
   const supabase = await createSupabaseServerClient();
   const { membership } = await getActiveMembershipOrRedirect();
 
-  const establishmentId = (membership as any).establishment_id;
+  const establishmentId = getMembershipScopeId(membership);
   const userId = (membership as any).user_id ?? null;
-
-  if (!establishmentId) {
-    throw new Error("Estabelecimento não encontrado no membership.");
-  }
 
   if (!userId) {
     throw new Error("Usuário não encontrado no membership.");
@@ -263,19 +262,17 @@ export async function separateLabelForOrder(
   //    - cria vínculo em order_items_labels
   //    - cria movimento de estoque em inventory_movements
   //    - atualiza qty/status da etiqueta
-  const { data: rpcResult, error: rpcError } = await supabase.rpc(
-    "use_label_on_order",
+  const { error: rpcError } = await supabase.rpc(
+    "separate_label_for_order",
     {
       p_label_code: labelCode,
       p_order_id: orderId,
-      p_order_item_id: null, // por enquanto não ligamos a um item específico
       p_user_id: userId,
-      p_qty_used: null, // usa 100% da quantidade da etiqueta
     }
   );
 
   if (rpcError) {
-    console.error("Erro ao chamar use_label_on_order:", rpcError);
+    console.error("Erro ao chamar separate_label_for_order:", rpcError);
     throw new Error(
       rpcError.message || "Falha ao vincular etiqueta ao pedido."
     );
@@ -291,7 +288,7 @@ export async function separateLabelForOrder(
 
   if (labelErr) {
     console.error(
-      "Erro ao buscar etiqueta após use_label_on_order:",
+      "Erro ao buscar etiqueta após separate_label_for_order:",
       labelErr
     );
     throw new Error("Etiqueta vinculada, mas falha ao recarregar dados.");
@@ -322,15 +319,45 @@ export async function finalizeOrderSeparation(orderId: string) {
   const supabase = await createSupabaseServerClient();
   const { membership } = await getActiveMembershipOrRedirect();
 
-  const establishmentId = (membership as any).establishment_id;
+  const establishmentId = getMembershipScopeId(membership);
 
-  if (!establishmentId) {
-    throw new Error("Estabelecimento não encontrado no membership.");
+  const { data: order, error: orderErr } = await supabase
+    .from("orders")
+    .select("id, status")
+    .eq("id", orderId)
+    .eq("establishment_id", establishmentId)
+    .maybeSingle();
+
+  if (orderErr || !order) {
+    throw new Error("Pedido não encontrado ou fora do seu estabelecimento.");
   }
 
-  // Se você tiver uma função RPC finalize_order_separation, use-a:
-  const { error } = await supabase.rpc("finalize_order_separation", {
+  if (order.status !== "em_separacao") {
+    throw new Error("Só é possível finalizar pedidos que estão em separação.");
+  }
+
+  const { data: labels, error: labelsErr } = await supabase
+    .from("inventory_labels")
+    .select("id")
+    .eq("order_id", orderId)
+    .eq("establishment_id", establishmentId)
+    .in("status", ["separated", "consumed"]);
+
+  if (labelsErr) {
+    console.error("Erro ao verificar etiquetas separadas:", labelsErr);
+    throw new Error("Erro ao verificar etiquetas do pedido.");
+  }
+
+  if (!labels || labels.length === 0) {
+    throw new Error(
+      "Não há nenhuma etiqueta separada para este pedido. Leia ao menos uma etiqueta antes de finalizar."
+    );
+  }
+
+  const { error } = await supabase.rpc("advance_order_status", {
     p_order_id: orderId,
+    p_to_status: "em_faturamento",
+    p_note: "Separação finalizada",
   });
 
   if (error) {

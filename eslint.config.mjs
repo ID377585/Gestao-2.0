@@ -4,6 +4,9 @@ import reactHooksPlugin from "eslint-plugin-react-hooks";
 
 const eslintConfig = [
   {
+    linterOptions: {
+      reportUnusedDisableDirectives: "off",
+    },
     ignores: [
       ".next/**",
       "node_modules/**",

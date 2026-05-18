@@ -5,6 +5,7 @@ export type CurrentUserInfo = {
   role?: string;
   sector?: string | null;
   establishmentId?: string | null;
+  establishmentName?: string | null;
 };
 
 export async function getCurrentUserInfo(): Promise<CurrentUserInfo | null> {
@@ -34,6 +35,7 @@ export async function getCurrentUserInfo(): Promise<CurrentUserInfo | null> {
       role: data.role ? String(data.role) : undefined,
       sector: data.sector ?? null,
       establishmentId: data.establishmentId ?? null,
+      establishmentName: data.establishmentName ?? null,
     };
   } catch (error) {
     console.error("Erro ao carregar usuário atual:", error);

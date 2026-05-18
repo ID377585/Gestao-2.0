@@ -20,7 +20,7 @@ export default async function FinanceiroLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
 
   const {
     data: { user },
@@ -88,27 +88,18 @@ export default async function FinanceiroLayout({
         </aside>
 
         <div
-          className="hidden shrink-0 md:block"
+          className="flex min-w-0 flex-1 flex-col"
           style={{
-            width: "var(--sidebar-w)",
-            transition: "width 300ms ease",
+            paddingLeft: "var(--sidebar-w)",
+            transition: "padding-left 300ms ease",
           }}
-        />
-
-        <div className="flex min-w-0 flex-1 flex-col bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100">
-          <div className="sticky top-0 z-40 shrink-0 pointer-events-auto">
-            <Topbar />
-          </div>
-
-          <main className="relative z-0 flex-1 overflow-y-auto overscroll-y-contain bg-gray-50 dark:bg-slate-950 touch-pan-y focus:outline-none">
-            <div className="py-6">
-              <div className="w-full px-4 sm:px-6 md:px-8">{children}</div>
-            </div>
+        >
+          <Topbar />
+          <main className="min-h-0 flex-1 overflow-y-auto p-4 pt-20 md:p-8 md:pt-24">
+            {children}
           </main>
         </div>
       </div>
-
-      <div className="md:hidden">{/* mobile shell */}</div>
     </div>
   );
 }

@@ -8,9 +8,12 @@ import {
   getRequiredSupabaseServiceRoleKey,
 } from "./config";
 
-type CookieStore = ReturnType<typeof cookies>;
+type CookieStore = Awaited<ReturnType<typeof cookies>>;
 
-export function createSupabaseServerClient(cookieStore: CookieStore = cookies()) {
+export async function createSupabaseServerClient(
+  cookieStorePromise: ReturnType<typeof cookies> = cookies()
+) {
+  const cookieStore = await cookieStorePromise;
   const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
 
   return createServerClient(supabaseUrl, supabaseKey, {
@@ -31,8 +34,8 @@ export function createSupabaseServerClient(cookieStore: CookieStore = cookies())
   });
 }
 
-export function createSupabaseRouteClient() {
-  const cookieStore = cookies();
+export async function createSupabaseRouteClient() {
+  const cookieStore: CookieStore = await cookies();
   const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
 
   const cookieHeader = cookieStore
@@ -47,7 +50,7 @@ export function createSupabaseRouteClient() {
   });
 }
 
-export function createSupabaseClientWithCookieHeader() {
+export async function createSupabaseClientWithCookieHeader() {
   return createSupabaseRouteClient();
 }
 

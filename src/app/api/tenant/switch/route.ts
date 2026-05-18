@@ -53,7 +53,8 @@ export async function POST(request: Request) {
       );
     }
 
-    cookies().set(TENANT_COOKIE_NAME, establishmentId, {
+    const cookieStore = await cookies();
+    cookieStore.set(TENANT_COOKIE_NAME, establishmentId, {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",

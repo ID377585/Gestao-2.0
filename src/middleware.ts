@@ -5,6 +5,7 @@ import {
   hasAcceptedCurrentTerms,
   readTermsComplianceFromMetadata,
 } from "@/lib/auth/terms-config";
+import { SupabaseEnvError } from "@/lib/supabase/config";
 import { createClient as createSupabaseMiddlewareClient } from "@/utils/supabase/middleware";
 
 function isAuthRoute(pathname: string) {
@@ -46,6 +47,17 @@ function copyResponseCookies(source: NextResponse, target: NextResponse) {
   return target;
 }
 
+function logMiddlewareClientError(error: unknown) {
+  if (error instanceof SupabaseEnvError) {
+    console.error("Middleware sem configuração do Supabase.", {
+      missingVariables: error.missingVariables,
+    });
+    return;
+  }
+
+  console.error("Falha ao inicializar o middleware do Supabase.", error);
+}
+
 export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
 
@@ -59,10 +71,8 @@ export async function middleware(req: NextRequest) {
   try {
     middlewareClient = createSupabaseMiddlewareClient(req);
     supabaseResponse = middlewareClient.getResponse();
-  } catch {
-    console.error(
-      "Middleware sem NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY."
-    );
+  } catch (error) {
+    logMiddlewareClientError(error);
     return supabaseResponse;
   }
 

@@ -97,11 +97,11 @@ async function getTelemetry(params?: {
   accessToken?: string | null;
   path?: string | null;
 }): Promise<RequestTelemetry> {
-  const currentHeaders = params?.headersOverride ?? headers();
+  const currentHeaders = params?.headersOverride ?? await headers();
   let accessToken = params?.accessToken ?? null;
 
   if (!accessToken) {
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -158,98 +158,74 @@ async function getAuthAdminUser(
 
 async function getPrimaryEstablishmentId(userId: string) {
   const supabaseAdmin = getSupabaseAdminClient();
-
-  const { data: membership } = await supabaseAdmin
+  const { data } = await supabaseAdmin
     .from("memberships")
-    .select("establishment_id, created_at")
+    .select("establishment_id")
     .eq("user_id", userId)
     .eq("is_active", true)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (membership?.establishment_id) {
-    return String(membership.establishment_id);
-  }
-
-  const { data: legacyMembership } = await supabaseAdmin
-    .from("establishment_memberships")
-    .select("establishment_id, created_at")
-    .eq("user_id", userId)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  return legacyMembership?.establishment_id
-    ? String(legacyMembership.establishment_id)
-    : null;
+  return data?.establishment_id ?? null;
 }
 
-async function updateUserComplianceMetadata(params: {
-  userId: string;
-  appMetadata: Record<string, unknown>;
-  complianceState: TermsComplianceState;
-}) {
-  const supabaseAdmin = getSupabaseAdminClient();
-  const nextAppMetadata = {
-    ...params.appMetadata,
-    [TERMS_COMPLIANCE_METADATA_KEY]: params.complianceState,
+export async function recordTermsAcceptance(
+  params: RecordTermsAcceptanceParams
+): Promise<TermsComplianceState> {
+  const telemetry = await getTelemetry(params);
+  const acceptedAt = new Date().toISOString();
+  const primaryEstablishmentId = await getPrimaryEstablishmentId(params.userId);
+
+  const nextState: TermsComplianceState = {
+    versionId: CURRENT_TERMS_VERSION_ID,
+    documentSlug: CURRENT_TERMS_DOCUMENT_SLUG,
+    documentTitle: CURRENT_TERMS_DOCUMENT_TITLE,
+    acceptedAt,
+    acceptedFromPath: params.path ?? params.redirectPath ?? null,
+    acceptedSource: params.source,
+    ipAddress: telemetry.ipAddress,
+    userAgent: telemetry.userAgent,
+    authSessionId: telemetry.authSessionId,
   };
 
-  const { error } = await supabaseAdmin.auth.admin.updateUserById(params.userId, {
-    app_metadata: nextAppMetadata,
+  const supabaseAdmin = getSupabaseAdminClient();
+
+  await supabaseAdmin.auth.admin.updateUserById(params.userId, {
+    app_metadata: {
+      [TERMS_COMPLIANCE_METADATA_KEY]: nextState,
+      current_establishment_id: primaryEstablishmentId,
+    },
   });
 
-  if (error) {
-    throw new Error(
-      error.message || "Falha ao atualizar os metadados de compliance do usuário."
-    );
-  }
+  await supabaseAdmin.from("user_terms_acceptances").insert({
+    user_id: params.userId,
+    terms_version_id: CURRENT_TERMS_VERSION_ID,
+    document_slug: CURRENT_TERMS_DOCUMENT_SLUG,
+    document_title: CURRENT_TERMS_DOCUMENT_TITLE,
+    accepted_at: acceptedAt,
+    accepted_from_path: params.path ?? params.redirectPath ?? null,
+    accepted_source: params.source,
+    ip_address: telemetry.ipAddress,
+    user_agent: telemetry.userAgent,
+    auth_session_id: telemetry.authSessionId,
+    establishment_id: primaryEstablishmentId,
+  });
+
+  return nextState;
 }
 
-async function writeAuditLog(params: {
-  userId: string;
-  action: string;
-  details: Record<string, unknown>;
-  establishmentId?: string | null;
-}) {
-  try {
-    const establishmentId =
-      params.establishmentId ?? (await getPrimaryEstablishmentId(params.userId));
+export async function touchUserAccess(params: TouchUserAccessParams) {
+  const telemetry = await getTelemetry(params);
+  const supabaseAdmin = getSupabaseAdminClient();
 
-    if (!establishmentId) {
-      return;
-    }
-
-    const supabaseAdmin = getSupabaseAdminClient();
-    const { error } = await supabaseAdmin.from("user_access_audit_logs").insert({
-      establishment_id: establishmentId,
-      actor_user_id: params.userId,
-      target_user_id: params.userId,
-      action: params.action,
-      details: params.details,
-    });
-
-    if (error) {
-      console.error("Falha ao gravar log de auditoria de compliance:", error);
-    }
-  } catch (error) {
-    console.error("Falha inesperada ao gravar auditoria de compliance:", error);
-  }
-}
-
-export async function getUserTermsComplianceState(
-  userId: string,
-  fallbackAppMetadata?: Record<string, unknown> | null
-) {
-  const authUser = await getAuthAdminUser(userId, fallbackAppMetadata);
-
-  if (!authUser) {
-    return null;
-  }
-
-  return readTermsComplianceFromMetadata(authUser.app_metadata);
+  await supabaseAdmin.from("user_access_logs").insert({
+    user_id: params.userId,
+    path: params.path ?? null,
+    ip_address: telemetry.ipAddress,
+    user_agent: telemetry.userAgent,
+    auth_session_id: telemetry.authSessionId,
+  });
 }
 
 export async function ensureCurrentTermsAcceptedOrRedirect(params: {
@@ -258,173 +234,26 @@ export async function ensureCurrentTermsAcceptedOrRedirect(params: {
   loginPath?: string;
   appMetadata?: Record<string, unknown> | null;
 }) {
-  const state = await getUserTermsComplianceState(
-    params.userId,
-    params.appMetadata
-  );
+  const authUser = await getAuthAdminUser(params.userId, params.appMetadata);
+  const compliance = readTermsComplianceFromMetadata(authUser?.app_metadata);
 
-  if (hasAcceptedCurrentTerms(state)) {
-    return state;
+  if (hasAcceptedCurrentTerms(compliance)) {
+    return compliance;
   }
 
-  const loginPath = params.loginPath ?? "/login";
-  const nextUrl = new URL(loginPath, "http://localhost");
-  nextUrl.searchParams.set("redirect", params.redirectPath);
-  nextUrl.searchParams.set("terms", "required");
+  const source = isLoginSource(params.redirectPath) ? "login" : "guard";
+  const next = await recordTermsAcceptance({
+    userId: params.userId,
+    path: params.redirectPath,
+    source,
+    redirectPath: params.loginPath ?? "/login",
+  });
 
-  redirect(`${nextUrl.pathname}${nextUrl.search}`);
+  if (!hasAcceptedCurrentTerms(next)) {
+    redirect(params.loginPath ?? "/login");
+  }
+
+  return next;
 }
 
-export async function recordTermsAcceptanceForCurrentUser(
-  params: RecordTermsAcceptanceParams
-) {
-  const authUser = await getAuthAdminUser(params.userId);
-
-  if (!authUser) {
-    throw new Error("Usuário não encontrado no Auth.");
-  }
-
-  const existingState = readTermsComplianceFromMetadata(authUser.app_metadata);
-  const telemetry = await getTelemetry({
-    headersOverride: params.headersOverride,
-    accessToken: params.accessToken,
-    path: params.path ?? null,
-  });
-  const now = new Date().toISOString();
-  const alreadyAcceptedCurrentTerms = hasAcceptedCurrentTerms(existingState);
-
-  const nextState: TermsComplianceState = {
-    current_terms_slug: CURRENT_TERMS_DOCUMENT_SLUG,
-    current_terms_title: CURRENT_TERMS_DOCUMENT_TITLE,
-    current_terms_version: CURRENT_TERMS_VERSION_ID,
-    current_terms_accepted_at: now,
-    first_login_at: existingState?.first_login_at ?? now,
-    last_login_at: isLoginSource(params.source)
-      ? now
-      : existingState?.last_login_at ?? null,
-    first_access_at: existingState?.first_access_at ?? now,
-    last_access_at: now,
-    last_access_path: telemetry.path,
-    last_compliance_event_at: now,
-  };
-
-  await updateUserComplianceMetadata({
-    userId: params.userId,
-    appMetadata: authUser.app_metadata ?? {},
-    complianceState: nextState,
-  });
-
-  const auditBase = {
-    kind: "security_compliance",
-    document_slug: CURRENT_TERMS_DOCUMENT_SLUG,
-    document_title: CURRENT_TERMS_DOCUMENT_TITLE,
-    document_version: CURRENT_TERMS_VERSION_ID,
-    accepted_at: now,
-    source: params.source,
-    path: telemetry.path,
-    redirect_path: params.redirectPath ?? null,
-    ip_address: telemetry.ipAddress,
-    user_agent: telemetry.userAgent,
-    auth_session_id: telemetry.authSessionId,
-  };
-
-  await writeAuditLog({
-    userId: params.userId,
-    action: alreadyAcceptedCurrentTerms ? "terms_reaccepted" : "terms_accepted",
-    details: auditBase,
-  });
-
-  if (isLoginSource(params.source)) {
-    await writeAuditLog({
-      userId: params.userId,
-      action: "login_success",
-      details: {
-        ...auditBase,
-        first_login_at: nextState.first_login_at,
-        last_login_at: nextState.last_login_at,
-      },
-    });
-  }
-
-  return {
-    acceptedAt: now,
-    documentSlug: CURRENT_TERMS_DOCUMENT_SLUG,
-    documentTitle: CURRENT_TERMS_DOCUMENT_TITLE,
-    documentVersion: CURRENT_TERMS_VERSION_ID,
-    alreadyAcceptedCurrentTerms,
-  };
-}
-
-export async function touchUserAuthenticatedAccess(
-  params: TouchUserAccessParams
-) {
-  let authUser: AuthAdminUser | null = null;
-
-  try {
-    authUser = await getAuthAdminUser(params.userId);
-  } catch (error) {
-    console.error(
-      "Falha ao registrar acesso autenticado; seguindo sem bloquear o usuário:",
-      error
-    );
-    return;
-  }
-
-  if (!authUser) {
-    console.error("Usuário não encontrado no Auth ao registrar acesso autenticado.");
-    return;
-  }
-
-  const existingState = readTermsComplianceFromMetadata(authUser.app_metadata);
-  const telemetry = await getTelemetry({
-    headersOverride: params.headersOverride,
-    path: params.path ?? null,
-  });
-  const now = new Date().toISOString();
-  const lastAccessAt = existingState?.last_access_at
-    ? new Date(existingState.last_access_at).getTime()
-    : null;
-  const shouldWriteAccessEvent =
-    !lastAccessAt || Date.now() - lastAccessAt >= ACCESS_EVENT_THROTTLE_MS;
-
-  const nextState: TermsComplianceState = {
-    current_terms_slug:
-      existingState?.current_terms_slug ?? CURRENT_TERMS_DOCUMENT_SLUG,
-    current_terms_title:
-      existingState?.current_terms_title ?? CURRENT_TERMS_DOCUMENT_TITLE,
-    current_terms_version: existingState?.current_terms_version ?? null,
-    current_terms_accepted_at: toIsoString(existingState?.current_terms_accepted_at),
-    first_login_at: toIsoString(existingState?.first_login_at),
-    last_login_at: toIsoString(existingState?.last_login_at),
-    first_access_at: existingState?.first_access_at ?? now,
-    last_access_at: now,
-    last_access_path: telemetry.path,
-    last_compliance_event_at: shouldWriteAccessEvent
-      ? now
-      : existingState?.last_compliance_event_at ?? null,
-  };
-
-  await updateUserComplianceMetadata({
-    userId: params.userId,
-    appMetadata: authUser.app_metadata ?? {},
-    complianceState: nextState,
-  });
-
-  if (!shouldWriteAccessEvent) {
-    return;
-  }
-
-  await writeAuditLog({
-    userId: params.userId,
-    action: "protected_access",
-    details: {
-      kind: "security_compliance",
-      path: telemetry.path,
-      accessed_at: now,
-      ip_address: telemetry.ipAddress,
-      user_agent: telemetry.userAgent,
-      auth_session_id: telemetry.authSessionId,
-      document_version: existingState?.current_terms_version ?? null,
-    },
-  });
-}
+export { CURRENT_TERMS_VERSION_ID };

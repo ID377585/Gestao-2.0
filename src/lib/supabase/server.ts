@@ -10,11 +10,10 @@ import {
 
 type CookieStore = Awaited<ReturnType<typeof cookies>>;
 
-function getCookieStore() {
-  return cookies() as unknown as CookieStore;
-}
-
-export function createSupabaseServerClient(cookieStore: CookieStore = getCookieStore()) {
+export async function createSupabaseServerClient(
+  cookieStorePromise: ReturnType<typeof cookies> = cookies()
+) {
+  const cookieStore: CookieStore = await cookieStorePromise;
   const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
 
   return createServerClient(supabaseUrl, supabaseKey, {
@@ -35,8 +34,8 @@ export function createSupabaseServerClient(cookieStore: CookieStore = getCookieS
   });
 }
 
-export function createSupabaseRouteClient() {
-  const cookieStore = getCookieStore();
+export async function createSupabaseRouteClient() {
+  const cookieStore: CookieStore = await cookies();
   const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
 
   const cookieHeader = cookieStore
@@ -51,7 +50,7 @@ export function createSupabaseRouteClient() {
   });
 }
 
-export function createSupabaseClientWithCookieHeader() {
+export async function createSupabaseClientWithCookieHeader() {
   return createSupabaseRouteClient();
 }
 

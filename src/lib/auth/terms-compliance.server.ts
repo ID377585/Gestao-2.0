@@ -44,8 +44,6 @@ type AuthAdminUser = {
   app_metadata?: Record<string, unknown>;
 };
 
-const ACCESS_EVENT_THROTTLE_MS = 15 * 60 * 1000;
-
 function getHeader(headersList: Headers, key: string) {
   return headersList.get(key)?.trim() || null;
 }
@@ -84,10 +82,6 @@ function extractSessionId(accessToken: string | null | undefined) {
     : null;
 }
 
-function toIsoString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
 function isLoginSource(source: string) {
   return source.includes("login");
 }
@@ -97,11 +91,11 @@ async function getTelemetry(params?: {
   accessToken?: string | null;
   path?: string | null;
 }): Promise<RequestTelemetry> {
-  const currentHeaders = params?.headersOverride ?? await headers();
+  const currentHeaders = params?.headersOverride ?? (await headers());
   let accessToken = params?.accessToken ?? null;
 
   if (!accessToken) {
-    const supabase = await createSupabaseServerClient();
+    const supabase = createSupabaseServerClient();
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -128,7 +122,7 @@ async function getAuthAdminUser(
     const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
 
     if (error) {
-      throw new Error(error.message || "Falha ao buscar usuário no Auth.");
+      throw new Error(error.message || "Falha ao buscar usuario no Auth.");
     }
 
     if (!data?.user) {
@@ -143,7 +137,7 @@ async function getAuthAdminUser(
   } catch (error) {
     if (fallbackAppMetadata !== undefined) {
       console.error(
-        "Falha ao buscar usuário via Supabase Admin; usando app_metadata da sessão como fallback:",
+        "Falha ao buscar usuario via Supabase Admin; usando app_metadata da sessao como fallback:",
         error
       );
       return {
@@ -170,23 +164,31 @@ async function getPrimaryEstablishmentId(userId: string) {
   return data?.establishment_id ?? null;
 }
 
+export async function getUserTermsComplianceState(userId: string) {
+  const authUser = await getAuthAdminUser(userId);
+  return readTermsComplianceFromMetadata(authUser?.app_metadata);
+}
+
 export async function recordTermsAcceptance(
   params: RecordTermsAcceptanceParams
 ): Promise<TermsComplianceState> {
   const telemetry = await getTelemetry(params);
   const acceptedAt = new Date().toISOString();
   const primaryEstablishmentId = await getPrimaryEstablishmentId(params.userId);
+  const previousState = await getUserTermsComplianceState(params.userId);
 
   const nextState: TermsComplianceState = {
-    versionId: CURRENT_TERMS_VERSION_ID,
-    documentSlug: CURRENT_TERMS_DOCUMENT_SLUG,
-    documentTitle: CURRENT_TERMS_DOCUMENT_TITLE,
-    acceptedAt,
-    acceptedFromPath: params.path ?? params.redirectPath ?? null,
-    acceptedSource: params.source,
-    ipAddress: telemetry.ipAddress,
-    userAgent: telemetry.userAgent,
-    authSessionId: telemetry.authSessionId,
+    ...previousState,
+    current_terms_slug: CURRENT_TERMS_DOCUMENT_SLUG,
+    current_terms_title: CURRENT_TERMS_DOCUMENT_TITLE,
+    current_terms_version: CURRENT_TERMS_VERSION_ID,
+    current_terms_accepted_at: acceptedAt,
+    first_access_at: previousState?.first_access_at ?? acceptedAt,
+    last_access_at: acceptedAt,
+    first_login_at: previousState?.first_login_at ?? (isLoginSource(params.source) ? acceptedAt : null),
+    last_login_at: isLoginSource(params.source) ? acceptedAt : previousState?.last_login_at ?? null,
+    last_access_path: params.path ?? params.redirectPath ?? previousState?.last_access_path ?? null,
+    last_compliance_event_at: acceptedAt,
   };
 
   const supabaseAdmin = getSupabaseAdminClient();
@@ -215,9 +217,17 @@ export async function recordTermsAcceptance(
   return nextState;
 }
 
+export async function recordTermsAcceptanceForCurrentUser(
+  params: RecordTermsAcceptanceParams
+) {
+  return recordTermsAcceptance(params);
+}
+
 export async function touchUserAccess(params: TouchUserAccessParams) {
   const telemetry = await getTelemetry(params);
+  const now = new Date().toISOString();
   const supabaseAdmin = getSupabaseAdminClient();
+  const previousState = await getUserTermsComplianceState(params.userId);
 
   await supabaseAdmin.from("user_access_logs").insert({
     user_id: params.userId,
@@ -226,6 +236,22 @@ export async function touchUserAccess(params: TouchUserAccessParams) {
     user_agent: telemetry.userAgent,
     auth_session_id: telemetry.authSessionId,
   });
+
+  await supabaseAdmin.auth.admin.updateUserById(params.userId, {
+    app_metadata: {
+      [TERMS_COMPLIANCE_METADATA_KEY]: {
+        ...previousState,
+        first_access_at: previousState?.first_access_at ?? now,
+        last_access_at: now,
+        last_access_path: params.path ?? previousState?.last_access_path ?? null,
+        last_compliance_event_at: now,
+      },
+    },
+  });
+}
+
+export async function touchUserAuthenticatedAccess(params: TouchUserAccessParams) {
+  return touchUserAccess(params);
 }
 
 export async function ensureCurrentTermsAcceptedOrRedirect(params: {

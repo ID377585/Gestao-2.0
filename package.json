@@ -10,7 +10,7 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "eslint src --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "audit": "npm audit --omit=dev --audit-level=high",
     "audit:all": "npm audit --audit-level=high",

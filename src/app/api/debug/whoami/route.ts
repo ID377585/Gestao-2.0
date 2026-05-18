@@ -7,13 +7,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const allCookies = cookieStore.getAll().map((c) => ({
       name: c.name,
       value: c.value,
     }));
 
-    const supabase = createSupabaseRouteClient();
+    const supabase = await createSupabaseRouteClient();
 
     const { data: { user }, error } = await supabase.auth.getUser();
 

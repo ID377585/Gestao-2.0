@@ -53,9 +53,28 @@ export async function GET() {
 
     const membership = activeMembershipResult.membership;
     const establishmentId = membership?.establishment_id ?? null;
-    const subscription = establishmentId
-      ? await getCompanySubscriptionStatus(establishmentId)
-      : null;
+
+    const [subscription, establishmentResult] = await Promise.all([
+      establishmentId ? getCompanySubscriptionStatus(establishmentId) : null,
+      establishmentId
+        ? supabase
+            .from("establishments")
+            .select("name")
+            .eq("id", establishmentId)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+
+    if (establishmentResult.error) {
+      console.error(
+        "Erro ao buscar nome do estabelecimento do usuário atual:",
+        establishmentResult.error
+      );
+    }
+
+    const establishmentName = String(
+      (establishmentResult.data as any)?.name ?? ""
+    ).trim() || null;
 
     const payload = {
       id: user.id,
@@ -72,6 +91,7 @@ export async function GET() {
         ((user.user_metadata as any)?.picture as string | null) ??
         null,
       establishmentId,
+      establishmentName,
       orgId: (membership as any)?.org_id ?? null,
       unitId: (membership as any)?.unit_id ?? null,
       isActive: Boolean((membership as any)?.is_active ?? true),

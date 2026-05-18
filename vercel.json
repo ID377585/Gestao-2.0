@@ -15,7 +15,7 @@
   },
   "crons": [
     {
-      "path": "/api/fiscal/sync?secret=gestify_fiscal_sync_2025",
+      "path": "/api/fiscal/sync",
       "schedule": "0 5 * * *"
     }
   ]

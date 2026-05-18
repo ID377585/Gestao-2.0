@@ -93,9 +93,10 @@ function extractNfeSummaryFromDistributedXml(xml: string) {
 }
 
 function isAuthorized(request: NextRequest) {
-  const configuredSecret = process.env.FISCAL_SYNC_SECRET;
+  const configuredSecret = process.env.FISCAL_SYNC_SECRET ?? process.env.CRON_SECRET;
 
   if (!configuredSecret) {
+    console.error("FISCAL_SYNC_SECRET ou CRON_SECRET não configurado para /api/fiscal/sync.");
     return false;
   }
 

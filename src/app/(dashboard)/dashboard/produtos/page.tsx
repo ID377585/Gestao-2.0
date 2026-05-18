@@ -69,10 +69,10 @@ type ProfileRow = {
 };
 
 type PageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     success?: string;
     error?: string;
-  };
+  }>;
 };
 
 function getProductTypeLabel(type: ProductRow["product_type"]) {
@@ -105,6 +105,7 @@ function formatQty(value: number | null | undefined) {
 }
 
 export default async function ProductsPage({ searchParams }: PageProps) {
+  const resolvedSearchParams = await searchParams;
   const { membership } = await getActiveMembershipOrRedirect();
   const establishmentId = String((membership as any)?.establishment_id ?? "").trim();
 
@@ -194,8 +195,8 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   const lastUploadUserName =
     lastUploadProfile?.full_name || lastUploadProduct?.created_by || null;
 
-  const success = searchParams?.success;
-  const errorMsg = searchParams?.error;
+  const success = (await searchParams)?.success;
+  const errorMsg = (await searchParams)?.error;
 
   return (
     <div className="space-y-6">

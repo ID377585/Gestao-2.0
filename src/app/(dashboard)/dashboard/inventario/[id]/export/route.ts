@@ -46,10 +46,10 @@ function csvEscape(value: unknown) {
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const inventoryId = params.id;
+    const inventoryId = (await params).id;
 
     const { membership } = await getActiveMembershipOrRedirect();
     const establishmentId = membership.establishment_id;

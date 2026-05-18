@@ -124,13 +124,14 @@ function AuditLogCard({ log }: { log: UserAccessAuditLog }) {
 export default async function UsuariosPage({
   searchParams,
 }: {
-  searchParams?: {
+  searchParams?: Promise<{
     q?: string | string[];
     role?: string | string[];
     status?: string | string[];
     sector?: string | string[];
-  };
+  }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   const membershipContext = await getActiveMembershipOrRedirect();
   const establishmentId = String(membershipContext.establishmentId ?? "");
 
@@ -150,10 +151,10 @@ export default async function UsuariosPage({
   const usersMetric = usage?.metrics.find((metric) => metric.key === "users") ?? null;
   const usersWarning = usersMetric ? getLimitWarning(usersMetric) : null;
 
-  const q = getQueryValue(searchParams?.q).trim().toLowerCase();
-  const roleFilter = getQueryValue(searchParams?.role).trim();
-  const statusFilter = getQueryValue(searchParams?.status).trim();
-  const sectorFilter = getQueryValue(searchParams?.sector).trim();
+  const q = getQueryValue(resolvedSearchParams?.q).trim().toLowerCase();
+  const roleFilter = getQueryValue(resolvedSearchParams?.role).trim();
+  const statusFilter = getQueryValue(resolvedSearchParams?.status).trim();
+  const sectorFilter = getQueryValue(resolvedSearchParams?.sector).trim();
 
   const sectors = Array.from(
     new Set(

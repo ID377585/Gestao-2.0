@@ -259,7 +259,7 @@ export default function DashboardFornecedoresPage() {
       }
 
       for (const entry of supplierEntries) {
-        const diff = diffDays(entry.issue_date, entry.entry_date);
+        const diff = diffDays(entry.issue_date, entry.entry_date ?? undefined);
 
         if (diff !== null) {
           leadTimes.push(diff);

@@ -31,16 +31,12 @@ async function resolveAuthenticatedUser(request: Request) {
 
   if (bearerToken) {
     const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
-    const tokenClient = createClient(
-      supabaseUrl,
-      supabaseKey,
-      {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
-      }
-    );
+    const tokenClient = createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
 
     const {
       data: { user },
@@ -55,7 +51,7 @@ async function resolveAuthenticatedUser(request: Request) {
     }
   }
 
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
     error,
@@ -158,7 +154,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         ok: true,
-        acceptedAt: result.acceptedAt,
+        acceptedAt: result.current_terms_accepted_at ?? null,
         currentTermsTitle: CURRENT_TERMS_DOCUMENT_TITLE,
         currentTermsVersion: CURRENT_TERMS_DOCUMENT_VERSION,
         currentTermsUpdatedAt: CURRENT_TERMS_UPDATED_AT,

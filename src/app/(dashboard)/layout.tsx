@@ -20,7 +20,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
 
   const {
     data: { user },
@@ -89,21 +89,23 @@ export default async function DashboardLayout({
             zIndex: 50,
           }}
         >
-          <Sidebar />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <Sidebar />
+          </div>
         </aside>
 
-        <main
-          className="flex min-w-0 flex-1 flex-col md:min-h-screen"
+        <div
+          className="flex min-w-0 flex-1 flex-col"
           style={{
-            marginLeft: "var(--sidebar-w)",
-            transition: "margin-left 300ms ease",
+            paddingLeft: "var(--sidebar-w)",
+            transition: "padding-left 300ms ease",
           }}
         >
           <Topbar />
-          <section className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6">
+          <main className="min-h-0 flex-1 overflow-y-auto p-4 pt-20 md:p-8 md:pt-24">
             {children}
-          </section>
-        </main>
+          </main>
+        </div>
       </div>
     </div>
   );

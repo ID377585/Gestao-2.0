@@ -137,3 +137,7 @@ export async function getActiveMembershipOrRedirect(
     establishmentId: membership.establishment_id,
   };
 }
+
+export async function getActiveMembership(options?: Options) {
+  return getActiveMembershipOrRedirect(options);
+}

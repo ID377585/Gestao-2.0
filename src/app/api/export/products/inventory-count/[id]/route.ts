@@ -19,14 +19,14 @@ function normalizeOne<T>(v: T | T[] | null | undefined): T | null {
 
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Mantém seu gate já validado (não mexi)
     await getActiveMembershipOrRedirect();
 
     const supabase = await createSupabaseServerClient();
-    const countId = params.id;
+    const countId = (await params).id;
 
     // ✅ FIX: colunas corretas no nested select
     // - current_stock_before -> alias stock_before

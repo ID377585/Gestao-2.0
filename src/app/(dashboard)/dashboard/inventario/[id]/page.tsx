@@ -68,9 +68,9 @@ function cn(...classes: (string | false | null | undefined)[]) {
 export default async function InventoryDetailsPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const inventoryId = params.id;
+  const { id: inventoryId } = await params;
 
   const { membership } = await getActiveMembershipOrRedirect();
   const establishmentId = membership.establishment_id;

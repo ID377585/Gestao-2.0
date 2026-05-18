@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -129,8 +129,10 @@ function pickFirstNumber(obj: any, keys: string[]): number | null {
 export default function InventarioDetalhePage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const resolvedParams = use(params);
+  const inventoryId = resolvedParams.id;
   const router = useRouter();
 
   const [count, setCount] = useState<InventoryCountRow | null>(null);
@@ -167,7 +169,7 @@ export default function InventarioDetalhePage({
               establishment:establishments(id,name)
             `
           )
-          .eq("id", params.id)
+          .eq("id", inventoryId)
           .maybeSingle();
 
         if (countError) {
@@ -178,7 +180,7 @@ export default function InventarioDetalhePage({
         if (!countData) {
           console.warn(
             "[Inventário Detalhe] Nenhum registro em inventory_counts com id =",
-            params.id
+            inventoryId
           );
           setHeaderErrorMsg("Inventário não encontrado.");
           setCount(null);
@@ -266,7 +268,7 @@ export default function InventarioDetalhePage({
               product:products(*)
             `
           )
-          .eq("inventory_count_id", params.id)
+          .eq("inventory_count_id", inventoryId)
           .order("created_at", { ascending: true });
 
         if (itemsError) {
@@ -347,9 +349,9 @@ export default function InventarioDetalhePage({
       }
     };
 
-    if (params.id) load();
+    if (inventoryId) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.id]);
+  }, [inventoryId]);
 
   const handleRecarregar = () => {
     router.refresh();
@@ -391,10 +393,10 @@ export default function InventarioDetalhePage({
             asChild
             variant="outline"
             size="sm"
-            disabled={!params.id}
+            disabled={!inventoryId}
             className="w-full sm:w-auto"
           >
-            <a href={`/api/export/products/inventory-count/${params.id}`}>
+            <a href={`/api/export/products/inventory-count/${inventoryId}`}>
               Exportar (CSV)
             </a>
           </Button>
@@ -416,7 +418,7 @@ export default function InventarioDetalhePage({
           <CardTitle>Resumo da contagem</CardTitle>
           <CardDescription>
             Informações gerais do inventário{" "}
-            <span className="break-all font-mono text-xs">{params.id}</span>
+            <span className="break-all font-mono text-xs">{inventoryId}</span>
           </CardDescription>
         </CardHeader>
 

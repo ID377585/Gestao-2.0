@@ -8,7 +8,7 @@ function numOrNull(v: any) {
 }
 
 async function getAuthAndEstablishment() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
 
   const {
     data: { user },
@@ -101,9 +101,9 @@ export async function POST(req: Request) {
 
   const { product_id, qty, lot, reason, reason_detail, qrcode } = body;
   const unit_label = String(body.unit_label ?? body.unitLabel ?? "UN")
-  .trim()
-  .replace(/\s+/g, "")
-  .toUpperCase();
+    .trim()
+    .replace(/\s+/g, "")
+    .toUpperCase();
 
   if (!product_id || qty == null || !reason) {
     return NextResponse.json(
@@ -133,8 +133,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // ✅ IMPORTANTE: PostgREST exige os nomes EXATOS dos parâmetros da função.
-  // E como existem 2 overloads no banco, passamos p_user_id para escolher a assinatura correta.
   const { data, error: rpcErr } = await supabase.rpc("register_loss", {
     p_establishment_id: establishment_id,
     p_product_id: product_id,
@@ -145,7 +143,7 @@ export async function POST(req: Request) {
     p_lot: lotTrim || null,
     p_label_code: labelCodeTrim || null,
     p_user_id: user.id,
-    p_allow_negative: false
+    p_allow_negative: false,
   });
 
   if (rpcErr) {

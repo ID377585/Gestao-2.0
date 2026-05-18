@@ -11,6 +11,7 @@ interface ProfileModalProps {
     role?: string | null;
     sector?: string | null;
     establishmentId?: string | null;
+    establishmentName?: string | null;
     lastSignInAt?: string | null;
   };
 }
@@ -107,8 +108,8 @@ export function ProfileModal({ open, onClose, user }: ProfileModalProps) {
             <div className="text-xs text-gray-500 dark:text-slate-400">
               Estabelecimento
             </div>
-            <div className="text-sm font-medium text-gray-900 dark:text-slate-100 break-all">
-              {user.establishmentId || "—"}
+            <div className="text-sm font-medium text-gray-900 dark:text-slate-100 break-words">
+              {user.establishmentName || user.establishmentId || "—"}
             </div>
           </div>
         </div>

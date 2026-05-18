@@ -140,7 +140,8 @@ export async function getCurrentTenant(): Promise<TenantContext | null> {
     return null;
   }
 
-  const selectedEstablishmentId = cookies().get(TENANT_COOKIE_NAME)?.value ?? null;
+  const cookieStore = await cookies();
+  const selectedEstablishmentId = cookieStore.get(TENANT_COOKIE_NAME)?.value ?? null;
 
   let query = supabase
     .from("memberships")

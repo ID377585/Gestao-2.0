@@ -34,7 +34,7 @@ function endOfDay(value: string) {
 export async function listLosses(
   filters: LossFilters = {}
 ): Promise<LossEntry[]> {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
 
   const {
     data: { user },
@@ -89,17 +89,13 @@ export async function listLosses(
   const { data, error } = await query;
 
   if (error) {
-    throw new Error(error.message || "Erro ao carregar perdas.");
+    console.error(error);
+    return [];
   }
-
-  if (error) {
-  console.error(error);
-  return [];
-}
 
   const rows = data as any[];
 
-return rows.map((item) => ({
+  return rows.map((item) => ({
     id: String(item.id),
     created_at: String(item.created_at),
     product_id: String(item.product_id ?? ""),

@@ -56,8 +56,9 @@ function mapMembership(membershipData: any): ActiveMembership {
   };
 }
 
-function getSelectedEstablishmentId() {
-  return cookies().get(TENANT_COOKIE_NAME)?.value ?? null;
+async function getSelectedEstablishmentId() {
+  const cookieStore = await cookies();
+  return cookieStore.get(TENANT_COOKIE_NAME)?.value ?? null;
 }
 
 function getUserAppMetadata(user: any) {
@@ -98,11 +99,13 @@ export async function getActiveMembershipOrRedirect(
     appMetadata: getUserAppMetadata(user),
   });
 
-  const selectedEstablishmentId = getSelectedEstablishmentId();
+  const selectedEstablishmentId = await getSelectedEstablishmentId();
 
   let query = supabase
     .from("memberships")
-    .select("id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at")
+    .select(
+      "id, user_id, role, org_id, unit_id, establishment_id, is_active, created_at"
+    )
     .eq("user_id", user.id)
     .eq("is_active", true);
 
@@ -115,24 +118,10 @@ export async function getActiveMembershipOrRedirect(
     .limit(1)
     .maybeSingle();
 
-  if (membershipErr) {
-    console.error("[getActiveMembershipOrRedirect] memberships error:", {
-      message: membershipErr.message,
-      details: membershipErr.details,
-      hint: membershipErr.hint,
-      code: membershipErr.code,
-      user_id: user.id,
-      email: user.email,
-      selected_establishment_id: selectedEstablishmentId,
-    });
-    redirect(redirectToNoMembership);
-  }
-
-  if (!membershipData) {
-    console.error("[getActiveMembershipOrRedirect] no active membership found:", {
-      user_id: user.id,
-      email: user.email,
-      selected_establishment_id: selectedEstablishmentId,
+  if (membershipErr || !membershipData) {
+    console.error("[getActiveMembershipOrRedirect] no active membership:", {
+      message: membershipErr?.message,
+      selectedEstablishmentId,
     });
     redirect(redirectToNoMembership);
   }
@@ -143,66 +132,8 @@ export async function getActiveMembershipOrRedirect(
     user,
     membership,
     role: membership.role,
-    orgId: membership.org_id ?? null,
-    unitId: membership.unit_id ?? null,
-    establishmentId: membership.establishment_id ?? null,
+    orgId: membership.org_id,
+    unitId: membership.unit_id,
+    establishmentId: membership.establishment_id,
   };
-}
-
-/**
- * Soft check (sem redirect)
- */
-export async function getActiveMembership() {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-    error: userErr,
-  } = await supabase.auth.getUser();
-
-  if (userErr || !user) return { user: null, membership: null };
-
-  try {
-    await ensureCurrentTermsAcceptedOrRedirect({
-      userId: user.id,
-      redirectPath: "/dashboard/pedidos",
-      appMetadata: getUserAppMetadata(user),
-    });
-  } catch {
-    return { user, membership: null };
-  }
-
-  const selectedEstablishmentId = getSelectedEstablishmentId();
-
-  let query = supabase
-    .from("memberships")
-    .select("id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at")
-    .eq("user_id", user.id)
-    .eq("is_active", true);
-
-  if (selectedEstablishmentId) {
-    query = query.eq("establishment_id", selectedEstablishmentId);
-  }
-
-  const { data: membershipData, error: membershipErr } = await query
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (membershipErr) {
-    console.error("[getActiveMembership] memberships error:", {
-      message: membershipErr.message,
-      code: membershipErr.code,
-      user_id: user.id,
-      email: user.email,
-      selected_establishment_id: selectedEstablishmentId,
-    });
-    return { user, membership: null };
-  }
-
-  if (!membershipData) return { user, membership: null };
-
-  const membership = mapMembership(membershipData);
-
-  return { user, membership };
 }

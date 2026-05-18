@@ -1,22 +1,23 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-function getSupabaseKey() {
-  return (
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
-}
+import {
+  SupabaseEnvError,
+  getMissingSupabasePublicEnv,
+  getRequiredSupabasePublicEnv,
+} from "@/lib/supabase/config";
 
 export function createClient(request: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = getSupabaseKey();
+  const missingVariables = getMissingSupabasePublicEnv();
 
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error(
-      "NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ou NEXT_PUBLIC_SUPABASE_ANON_KEY são obrigatórias."
+  if (missingVariables.length > 0) {
+    throw new SupabaseEnvError(
+      `Middleware sem configuração do Supabase: ${missingVariables.join(", ")}.`,
+      missingVariables
     );
   }
+
+  const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
 
   let response = NextResponse.next({
     request: {

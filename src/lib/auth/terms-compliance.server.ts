@@ -95,7 +95,7 @@ async function getTelemetry(params?: {
   let accessToken = params?.accessToken ?? null;
 
   if (!accessToken) {
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const {
       data: { session },
     } = await supabase.auth.getSession();

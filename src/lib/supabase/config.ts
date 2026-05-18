@@ -1,3 +1,10 @@
+export class SupabaseEnvError extends Error {
+  constructor(message: string, public readonly missingVariables: string[]) {
+    super(message);
+    this.name = "SupabaseEnvError";
+  }
+}
+
 export function getSupabasePublicEnv() {
   return {
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -7,14 +14,33 @@ export function getSupabasePublicEnv() {
   };
 }
 
-export function getRequiredSupabasePublicEnv() {
+export function getMissingSupabasePublicEnv() {
   const { supabaseUrl, supabaseKey } = getSupabasePublicEnv();
+  const missingVariables: string[] = [];
 
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error(
-      "NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY precisam estar configuradas."
+  if (!supabaseUrl) {
+    missingVariables.push("NEXT_PUBLIC_SUPABASE_URL");
+  }
+
+  if (!supabaseKey) {
+    missingVariables.push(
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ou NEXT_PUBLIC_SUPABASE_ANON_KEY"
     );
   }
 
-  return { supabaseUrl, supabaseKey };
+  return missingVariables;
+}
+
+export function getRequiredSupabasePublicEnv() {
+  const { supabaseUrl, supabaseKey } = getSupabasePublicEnv();
+  const missingVariables = getMissingSupabasePublicEnv();
+
+  if (missingVariables.length > 0) {
+    throw new SupabaseEnvError(
+      `Configuração do Supabase incompleta: ${missingVariables.join(", ")}.`,
+      missingVariables
+    );
+  }
+
+  return { supabaseUrl: supabaseUrl!, supabaseKey: supabaseKey! };
 }

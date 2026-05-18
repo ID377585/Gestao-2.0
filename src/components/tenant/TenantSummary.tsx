@@ -8,6 +8,7 @@ type TenantItem = {
   id: string;
   role: string;
   establishment_id: string | null;
+  establishment_name?: string | null;
   display_name?: string | null;
   org_id: string | null;
   unit_id: string | null;
@@ -17,6 +18,7 @@ type TenantItem = {
 type TenantSummaryPayload = {
   tenant?: {
     establishmentId: string;
+    establishmentName?: string | null;
     role: string;
     displayName?: string | null;
   } | null;
@@ -39,7 +41,11 @@ function companyDisplayName(value?: string | null) {
 }
 
 function tenantLabel(tenant: TenantItem) {
-  return companyDisplayName(tenant.display_name) ?? shortId(tenant.establishment_id);
+  return (
+    companyDisplayName(tenant.display_name) ??
+    companyDisplayName(tenant.establishment_name) ??
+    shortId(tenant.establishment_id)
+  );
 }
 
 export function TenantSummary({ compact = false, className }: TenantSummaryProps) {
@@ -130,13 +136,20 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
       window.location.reload();
     } catch (error) {
       console.error("Erro ao trocar empresa ativa:", error);
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível trocar a empresa ativa."
+      );
       setSwitching(false);
     }
   }
 
   const hasTenant = Boolean(tenant?.establishmentId);
   const isBusy = loadingTenant || switching;
-  const activeCompanyName = companyDisplayName(tenant?.displayName);
+  const activeCompanyName =
+    companyDisplayName(tenant?.displayName) ??
+    companyDisplayName(tenant?.establishmentName);
   const fallbackCompanyId = shortId(tenant?.establishmentId);
   const companyLabel = activeCompanyName ?? fallbackCompanyId;
   const title = hasTenant
@@ -185,6 +198,12 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
         ) : (
           <div className="truncate text-sm font-medium">Empresa não carregada</div>
         )}
+
+        {loadError && !loadingTenant ? (
+          <div className="mt-0.5 truncate text-[11px] text-amber-700 dark:text-amber-300">
+            {loadError}
+          </div>
+        ) : null}
       </div>
     </div>
   );

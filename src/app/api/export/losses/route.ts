@@ -11,7 +11,7 @@ function csvEscape(value: any) {
 }
 
 export async function GET(req: Request) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
 
   const {
     data: { user },
@@ -21,7 +21,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  // Estabelecimento do usuário
   const { data: membership, error: memErr } = await supabase
     .from("memberships")
     .select("establishment_id")
@@ -37,7 +36,6 @@ export async function GET(req: Request) {
 
   const establishment_id = membership.establishment_id;
 
-  // Filtros opcionais
   const url = new URL(req.url);
   const product_id = url.searchParams.get("product_id");
   const reason = url.searchParams.get("reason");
@@ -77,7 +75,6 @@ export async function GET(req: Request) {
     );
   }
 
-  // Cabeçalho CSV
   const header = [
     "Data",
     "Produto",
@@ -93,7 +90,7 @@ export async function GET(req: Request) {
     "Estoque Depois",
   ];
 
-  const rows = (data ?? []).map((r) => [
+  const rows = ((data ?? []) as any[]).map((r: any) => [
     csvEscape(new Date(r.created_at).toLocaleString("pt-BR")),
     csvEscape(r.product_name),
     csvEscape(r.sku),
@@ -108,8 +105,7 @@ export async function GET(req: Request) {
     csvEscape(r.stock_after),
   ]);
 
-  const csv =
-    [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
+  const csv = [header.join(","), ...rows.map((r: string[]) => r.join(","))].join("\n");
 
   return new NextResponse(csv, {
     status: 200,

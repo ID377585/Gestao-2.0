@@ -1,34 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { isFiscalCronAuthorized } from "@/lib/fiscal/cron-auth";
+import { getSupabaseAdminClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function getAdminSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !key) {
-    throw new Error("Configure NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.");
-  }
-
-  return createClient(url, key, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
+  return getSupabaseAdminClient();
 }
 
 function isAuthorized(request: NextRequest) {
-  const configuredSecret = process.env.FISCAL_SYNC_SECRET;
-
-  if (!configuredSecret) return false;
-
-  const headerSecret = request.headers.get("x-fiscal-sync-secret");
-  const querySecret = request.nextUrl.searchParams.get("secret");
-
-  return [headerSecret, querySecret].some((value) => value === configuredSecret);
+  return isFiscalCronAuthorized(request, "/api/fiscal/auto-manifest");
 }
 
 export async function GET(request: NextRequest) {

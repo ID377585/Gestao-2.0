@@ -2,7 +2,7 @@
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
-import { moveStock } from "@/lib/stock/moveStock";
+import { revalidatePath } from "next/cache";
 
 /**
  * Linha bruta da tabela inventory_labels
@@ -40,75 +40,8 @@ export type CreateInventoryLabelParams = {
 };
 
 /**
- * ✅ NOVO: garante que existe um movimento de entrada (LABEL_IN) para a etiqueta
- * - Idempotente: se já existir, não duplica
- * - Fonte de verdade: inventory_movements (p/ view current_stock)
- */
-async function ensureLabelInMovement(params: {
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
-  establishmentId: string;
-  userId: string | null;
-  label: {
-    id: string;
-    product_id: string | null;
-    unit_label: string | null;
-    qty: any;
-    label_code?: string | null;
-  };
-}) {
-  const { supabase, establishmentId, userId, label } = params;
-
-  const qty = Number(label.qty ?? 0);
-  const unit_label = String(label.unit_label ?? "").trim().toUpperCase();
-
-  if (!label?.id) throw new Error("Etiqueta sem ID.");
-  if (!label?.product_id) throw new Error("Etiqueta sem product_id.");
-  if (!unit_label) throw new Error("Etiqueta sem unit_label.");
-  if (!Number.isFinite(qty) || qty <= 0) return;
-
-  // ✅ Idempotência: se já existe LABEL_IN para essa etiqueta, não duplica
-  const { data: existing, error: exErr } = await supabase
-    .from("inventory_movements")
-    .select("id")
-    .eq("establishment_id", establishmentId)
-    .eq("label_id", label.id)
-    .eq("movement_type", "LABEL_IN")
-    .maybeSingle();
-
-  if (exErr) {
-    console.error("Erro ao checar LABEL_IN existente:", exErr);
-    throw new Error("Falha ao validar movimento de entrada da etiqueta.");
-  }
-
-  if (existing?.id) return;
-
-  const { error: insErr } = await supabase.from("inventory_movements").insert({
-    establishment_id: establishmentId,
-    product_id: label.product_id,
-    label_id: label.id,
-    qty,
-    unit_label,
-    direction: "IN",
-    movement_type: "LABEL_IN",
-    reason: "LABEL_CREATED",
-    created_by: userId,
-    details: {
-      label_code: label.label_code ?? null,
-      from: "LABEL_CREATION",
-    },
-  });
-
-  if (insErr) {
-    console.error("Erro ao inserir LABEL_IN:", insErr);
-    throw new Error("Falha ao registrar entrada da etiqueta no estoque.");
-  }
-}
-
-/**
  * Salva UMA etiqueta na tabela inventory_labels
- * ✅ mantém histórico
- * ✅ mantém separação por QR
- * ✅ cria movimento de estoque automaticamente
+ * A RPC cria etiqueta, movimento e saldo de forma transacional.
  */
 export async function createInventoryLabel(
   params: CreateInventoryLabelParams
@@ -127,34 +60,9 @@ export async function createInventoryLabel(
 
   const establishmentId = (membership as any).establishment_id;
 
-  // ✅ Preferir usuário autenticado (mais confiável que membership.user_id)
-  const { data: authData, error: authErr } = await supabase.auth.getUser();
-  const userId =
-    (!authErr && authData?.user?.id ? authData.user.id : null) ??
-    ((membership as any).user_id ?? null);
-
   if (!establishmentId) {
     throw new Error("Estabelecimento não encontrado no membership.");
   }
-
-  // =========================================================
-  // 🔒 AJUSTE ESTRUTURAL (CRÍTICO)
-  // Garante que o produto pertence ao mesmo establishment
-  // =========================================================
-  const { data: product, error: productErr } = await supabase
-    .from("products")
-    .select("id, establishment_id")
-    .eq("id", productId)
-    .maybeSingle();
-
-  if (productErr || !product) {
-    throw new Error("Produto não encontrado.");
-  }
-
-  if ((product as any).establishment_id !== establishmentId) {
-    throw new Error("Produto não pertence ao estabelecimento atual.");
-  }
-  // =========================================================
 
   const notesJson =
     extraPayload != null
@@ -167,79 +75,34 @@ export async function createInventoryLabel(
   // ✅ NORMALIZA unidade (mantém padrão do resto do sistema)
   const normalizedUnit = String(unitLabel).trim().toUpperCase();
 
-  /**
-   * 1️⃣ CRIA A ETIQUETA
-   */
-  const { data: label, error: insertErr } = await supabase
-    .from("inventory_labels")
-    .insert({
-      establishment_id: establishmentId,
-      product_id: productId, // 🔥 AGORA VINCULADO
-      label_code: labelCode,
-      qty,
-      unit_label: normalizedUnit, // ✅ NORMALIZA
-      status: "available",
-      order_id: null,
-      separated_at: null,
-      separated_by: null,
-      created_by: userId,
-      notes: notesJson,
+  const { data, error } = await supabase
+    .rpc("create_inventory_label", {
+      p_establishment_id: establishmentId,
+      p_product_id: productId,
+      p_label_code: labelCode,
+      p_qty: qty,
+      p_unit_label: normalizedUnit,
+      p_notes: notesJson,
+      p_label_type: null,
     })
-    .select("*")
     .single();
 
-  if (insertErr || !label) {
-    if ((insertErr as any)?.code === "23505") {
+  if (error || !data) {
+    if ((error as any)?.code === "23505") {
       throw new Error(
         "Já existe uma etiqueta com este código/lote. Verifique o lote."
       );
     }
 
     const msg =
-      (insertErr as any)?.message ??
-      "Falha ao salvar etiqueta no banco (insert).";
+      (error as any)?.message ?? "Falha ao salvar etiqueta no banco.";
     throw new Error(msg);
   }
 
-  /**
-   * 2️⃣ MOVIMENTO DE ENTRADA DA ETIQUETA (LABEL_IN)
-   * ✅ Garante que current_stock consiga refletir a entrada conforme convenção final
-   * ✅ Idempotente
-   */
-  await ensureLabelInMovement({
-    supabase,
-    establishmentId,
-    userId,
-    label: {
-      id: (label as any).id,
-      product_id: (label as any).product_id ?? productId,
-      unit_label: (label as any).unit_label ?? normalizedUnit,
-      qty: (label as any).qty ?? qty,
-      label_code: (label as any).label_code ?? labelCode,
-    },
-  });
+  revalidatePath("/dashboard/etiquetas");
+  revalidatePath("/dashboard/estoque");
 
-  /**
-   * 3️⃣ (MANTIDO) moveStock
-   * ⚠️ IMPORTANTE:
-   * - Se o seu moveStock também insere em inventory_movements, ele pode duplicar a entrada.
-   * - Se você CONFIRMAR que moveStock não duplica (ex.: escreve em outra tabela),
-   *   mantenha como está. Caso contrário, comente/remova este bloco.
-   *
-   * Como você reportou que não existia LABEL_IN, este bloco provavelmente não está
-   * gerando movement_type='LABEL_IN'. Por isso deixamos o ensureLabelInMovement como
-   * fonte de verdade.
-   */
-  await moveStock(supabase, {
-    establishment_id: establishmentId,
-    product_id: productId,
-    unit_label: normalizedUnit,
-    qty_delta: qty, // ➕ ENTRADA
-    reason: "etiqueta_manipulacao",
-    source: "inventory_labels",
-  });
-
-  return label as InventoryLabelRow;
+  return data as InventoryLabelRow;
 }
 
 /**
@@ -374,8 +237,6 @@ function parseLabelFromQr(raw: string): ParsedLabelFromQr {
       labelCode = rawCode.trim();
     }
 
-    if (!labelCode && cleaned.length > 0) labelCode = cleaned;
-
     return { labelId, labelCode };
   } catch {
     return { labelId: null, labelCode: cleaned };
@@ -406,39 +267,72 @@ export async function separateLabelForOrder(params: {
   const { membership } = await getActiveMembershipOrRedirect();
 
   const establishmentId = (membership as any).establishment_id;
-  const userId = (membership as any).user_id ?? null;
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  const userId =
+    (!authError && authData?.user?.id ? authData.user.id : null) ??
+    ((membership as any).user_id ?? null);
 
-  let query = supabase
-    .from("inventory_labels")
-    .select("*")
-    .eq("establishment_id", establishmentId);
-
-  if (labelId) query = query.eq("id", labelId);
-  else query = query.eq("label_code", labelCode);
-
-  const { data: label } = await query.maybeSingle();
-
-  if (!label) throw new Error("Etiqueta não encontrada.");
-
-  if ((label as any).status !== "available") {
-    throw new Error("Etiqueta já utilizada.");
+  if (!establishmentId) {
+    throw new Error("Estabelecimento não encontrado no membership.");
   }
 
-  const nowIso = new Date().toISOString();
+  if (!userId) {
+    throw new Error("Usuário não encontrado para separar etiqueta.");
+  }
 
-  const { data: updated, error } = await supabase
+  let effectiveLabelCode = labelCode;
+
+  if (!effectiveLabelCode && labelId) {
+    const { data: labelById, error: labelByIdError } = await supabase
+      .from("inventory_labels")
+      .select("label_code")
+      .eq("id", labelId)
+      .eq("establishment_id", establishmentId)
+      .maybeSingle();
+
+    if (labelByIdError) {
+      console.error("Erro ao buscar etiqueta por ID:", labelByIdError);
+      throw new Error("Erro ao localizar etiqueta.");
+    }
+
+    effectiveLabelCode = (labelById as any)?.label_code ?? null;
+  }
+
+  if (!effectiveLabelCode) {
+    throw new Error("Etiqueta não encontrada (QR sem código válido).");
+  }
+
+  const { error: rpcError } = await supabase.rpc("separate_label_for_order", {
+    p_label_code: effectiveLabelCode,
+    p_order_id: orderId,
+    p_user_id: userId,
+  });
+
+  if (rpcError) {
+    console.error("Erro ao chamar separate_label_for_order:", rpcError);
+    throw new Error(
+      rpcError.message || "Falha ao vincular etiqueta ao pedido."
+    );
+  }
+
+  const { data: updated, error: reloadError } = await supabase
     .from("inventory_labels")
-    .update({
-      status: "separated",
-      order_id: orderId,
-      separated_at: nowIso,
-      separated_by: userId,
-    })
-    .eq("id", (label as any).id)
-    .select("*")
+    .select(
+      "id, label_code, qty, unit_label, status, created_at, notes, order_id, separated_at, separated_by"
+    )
+    .eq("establishment_id", establishmentId)
+    .eq("label_code", effectiveLabelCode)
     .maybeSingle();
 
-  if (error) throw error;
+  if (reloadError) throw reloadError;
+
+  if (!updated) {
+    throw new Error("Etiqueta vinculada, mas não foi recarregada.");
+  }
+
+  revalidatePath("/dashboard/etiquetas");
+  revalidatePath("/dashboard/separacao");
+  revalidatePath(`/dashboard/pedidos/${orderId}`);
 
   return updated as InventoryLabelRow;
 }

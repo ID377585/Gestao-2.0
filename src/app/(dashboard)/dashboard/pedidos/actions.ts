@@ -242,19 +242,12 @@ export async function createOrder(): Promise<CreateOrderResult> {
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = getScopeId(ctx);
 
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData?.user) throw new Error("Not authenticated");
-
   const { data, error } = await supabase
-    .from("orders")
-    .insert({
-      establishment_id: establishmentId,
-      created_by: userData.user.id,
-      customer_user_id: userData.user.id,
-      status: "pedido_criado",
-      notes: "Pedido criado via sistema",
+    .rpc("create_order_with_items", {
+      p_establishment_id: establishmentId,
+      p_notes: "Pedido criado via sistema",
+      p_items: [],
     })
-    .select("id, order_number, status, created_at")
     .single();
 
   if (error) throw new Error(error.message);

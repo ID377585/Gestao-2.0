@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { type SupabaseClient } from "@supabase/supabase-js";
 import { consultarDistribuicaoDfe, parseDistributedDocument, type SefazAmbiente } from "@/lib/fiscal/sefaz-distribuicao-dfe";
+import { isFiscalCronAuthorized } from "@/lib/fiscal/cron-auth";
 import { parseNfeXml } from "@/lib/fiscal/nfe-parser";
+import { getSupabaseAdminClient } from "@/lib/supabase/server";
 import forge from "node-forge";
 
 export const dynamic = "force-dynamic";
@@ -18,19 +20,7 @@ type FiscalNsuControlRow = {
 };
 
 function getAdminSupabase(): UntypedSupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !key) {
-    throw new Error("Configure NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY para usar o scheduler fiscal.");
-  }
-
-  return createClient<any, "public", any>(url, key, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
+  return getSupabaseAdminClient() as UntypedSupabaseClient;
 }
 
 function decryptPassword(encryptedPassword: string) {
@@ -93,18 +83,7 @@ function extractNfeSummaryFromDistributedXml(xml: string) {
 }
 
 function isAuthorized(request: NextRequest) {
-  const configuredSecret = process.env.FISCAL_SYNC_SECRET ?? process.env.CRON_SECRET;
-
-  if (!configuredSecret) {
-    console.error("FISCAL_SYNC_SECRET ou CRON_SECRET não configurado para /api/fiscal/sync.");
-    return false;
-  }
-
-  const headerSecret = request.headers.get("x-fiscal-sync-secret");
-  const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  const querySecret = request.nextUrl.searchParams.get("secret");
-
-  return [headerSecret, bearer, querySecret].some((value) => value === configuredSecret);
+  return isFiscalCronAuthorized(request, "/api/fiscal/sync");
 }
 
 async function syncEstablishment(params: {

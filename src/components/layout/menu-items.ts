@@ -362,6 +362,11 @@ export const menuSections: MenuSectionConfig[] = [
         icon: Users,
       },
       {
+        label: "Empresas",
+        href: "/dashboard/admin/empresas",
+        icon: Building2,
+      },
+      {
         label: "Assinatura",
         href: "/dashboard/admin/assinatura",
         icon: BadgeDollarSign,

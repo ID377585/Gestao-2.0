@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembership } from "@/lib/auth/get-membership";
-import { listCurrentUserTenants } from "@/lib/tenant/get-current-tenant";
+import {
+  getCurrentTenant,
+  listCurrentUserTenants,
+} from "@/lib/tenant/get-current-tenant";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
 
 export const dynamic = "force-dynamic";
@@ -41,40 +44,27 @@ export async function GET() {
       );
     }
 
-    const [{ data: profile }, activeMembershipResult, tenants] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("id, full_name, role, sector")
-        .eq("id", user.id)
-        .maybeSingle(),
-      getActiveMembership(),
-      listCurrentUserTenants(),
-    ]);
+    const [{ data: profile }, activeMembershipResult, tenant, tenants] =
+      await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id, full_name, role, sector")
+          .eq("id", user.id)
+          .maybeSingle(),
+        getActiveMembership(),
+        getCurrentTenant(),
+        listCurrentUserTenants(),
+      ]);
 
     const membership = activeMembershipResult.membership;
-    const establishmentId = membership?.establishment_id ?? null;
+    const establishmentId =
+      tenant?.establishmentId ?? membership?.establishment_id ?? null;
+    const establishmentName =
+      tenant?.displayName ?? tenant?.establishmentName ?? null;
 
-    const [subscription, establishmentResult] = await Promise.all([
-      establishmentId ? getCompanySubscriptionStatus(establishmentId) : null,
-      establishmentId
-        ? supabase
-            .from("establishments")
-            .select("name")
-            .eq("id", establishmentId)
-            .maybeSingle()
-        : Promise.resolve({ data: null, error: null }),
-    ]);
-
-    if (establishmentResult.error) {
-      console.error(
-        "Erro ao buscar nome do estabelecimento do usuário atual:",
-        establishmentResult.error
-      );
-    }
-
-    const establishmentName = String(
-      (establishmentResult.data as any)?.name ?? ""
-    ).trim() || null;
+    const subscription = establishmentId
+      ? await getCompanySubscriptionStatus(establishmentId)
+      : null;
 
     const payload = {
       id: user.id,

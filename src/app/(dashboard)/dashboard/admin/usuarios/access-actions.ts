@@ -1,8 +1,10 @@
 import "server-only";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  getSupabaseAdminClient,
+} from "@/lib/supabase/server";
 import type { ProfileRole } from "./actions";
 import {
   ACCESS_MODULES,
@@ -21,24 +23,6 @@ export type {
 } from "./access-modules";
 
 const ALL_MODULE_KEYS = ACCESS_MODULES.map((module) => module.key);
-
-function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceKey) {
-    throw new Error(
-      "ENV ausente: NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY."
-    );
-  }
-
-  return createClient(url, serviceKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
 
 async function getContextOrThrow() {
   const supabase = await createSupabaseServerClient();
@@ -111,7 +95,7 @@ export function getDefaultModulesForRole(role: ProfileRole): UserModulePermissio
 
 export async function listCollaboratorModulePermissions(userIds: string[]) {
   const ctx = await getContextOrThrow();
-  const supabaseAdmin = getSupabaseAdmin();
+  const supabaseAdmin = getSupabaseAdminClient();
   const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
 
   const result = new Map<string, UserModulePermissionMap>();
@@ -157,7 +141,7 @@ export async function listCollaboratorModulePermissions(userIds: string[]) {
 
 export async function updateCollaboratorModulePermissions(formData: FormData) {
   const ctx = await getContextOrThrow();
-  const supabaseAdmin = getSupabaseAdmin();
+  const supabaseAdmin = getSupabaseAdminClient();
 
   const userId = String(formData.get("user_id") ?? "").trim();
   const establishmentId = String(formData.get("establishment_id") ?? "").trim();
@@ -199,7 +183,7 @@ export async function updateCollaboratorModulePermissions(formData: FormData) {
     throw new Error("Não foi possível atualizar as permissões do usuário.");
   }
 
-  await supabaseAdmin.from("user_access_audit_logs").insert({
+  const { error: auditError } = await supabaseAdmin.from("user_access_audit_logs").insert({
     establishment_id: establishmentId,
     actor_user_id: ctx.userId,
     target_user_id: userId,
@@ -211,6 +195,10 @@ export async function updateCollaboratorModulePermissions(formData: FormData) {
       }, {} as Record<string, boolean>),
     },
   });
+
+  if (auditError) {
+    console.error("Permissões atualizadas, mas falhou ao gravar auditoria:", auditError);
+  }
 
   revalidatePath("/dashboard/admin/usuarios");
 }

@@ -1,3 +1,5 @@
+import tsParser from "@typescript-eslint/parser";
+
 const eslintConfig = [
   {
     ignores: [
@@ -13,8 +15,14 @@ const eslintConfig = [
   {
     files: ["**/*.{js,jsx,ts,tsx,mjs,cjs}"],
     languageOptions: {
+      parser: tsParser,
       ecmaVersion: "latest",
       sourceType: "module",
+      parserOptions: {
+        ecmaFeatures: {
+          jsx: true,
+        },
+      },
     },
     rules: {},
   },

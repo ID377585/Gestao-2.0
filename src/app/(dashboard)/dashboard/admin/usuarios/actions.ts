@@ -92,6 +92,15 @@ async function getContextOrThrow() {
   };
 }
 
+function assertSameEstablishment(
+  establishmentId: string,
+  ctx: { establishment_id: string }
+) {
+  if (establishmentId !== ctx.establishment_id) {
+    throw new Error("Estabelecimento inválido para alteração de usuário.");
+  }
+}
+
 function normalizeRole(value: string): ProfileRole {
   const allowed: ProfileRole[] = [
     "admin",
@@ -569,6 +578,8 @@ export async function updateCollaborator(formData: FormData) {
     throw new Error("Dados obrigatórios do usuário não informados.");
   }
 
+  assertSameEstablishment(establishmentId, ctx);
+
   const { data: beforeProfile } = await supabaseAdmin
     .from("profiles")
     .select("full_name, role, sector")
@@ -586,14 +597,15 @@ export async function updateCollaborator(formData: FormData) {
     throw new Error("Você não pode desativar seu próprio acesso.");
   }
 
-  const { error: profileErr } = await supabaseAdmin
-    .from("profiles")
-    .update({
+  const { error: profileErr } = await supabaseAdmin.from("profiles").upsert(
+    {
+      id: userId,
       full_name,
       role,
       sector,
-    })
-    .eq("id", userId);
+    },
+    { onConflict: "id" }
+  );
 
   if (profileErr) {
     console.error("Erro ao atualizar profile:", profileErr);
@@ -709,6 +721,8 @@ export async function toggleCollaboratorStatus(formData: FormData) {
     throw new Error("Dados obrigatórios do usuário não informados.");
   }
 
+  assertSameEstablishment(establishmentId, ctx);
+
   if (ctx.userId === userId && !isActive) {
     throw new Error("Você não pode desativar seu próprio acesso.");
   }
@@ -779,6 +793,8 @@ export async function deleteCollaborator(formData: FormData) {
   if (!userId || !establishmentId) {
     throw new Error("Dados obrigatórios do usuário não informados.");
   }
+
+  assertSameEstablishment(establishmentId, ctx);
 
   if (ctx.userId === userId) {
     throw new Error("Você não pode excluir seu próprio usuário.");

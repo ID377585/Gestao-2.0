@@ -1,4 +1,6 @@
+import nextPlugin from "@next/eslint-plugin-next";
 import tsParser from "@typescript-eslint/parser";
+import reactHooksPlugin from "eslint-plugin-react-hooks";
 
 const eslintConfig = [
   {
@@ -14,6 +16,10 @@ const eslintConfig = [
   },
   {
     files: ["**/*.{js,jsx,ts,tsx,mjs,cjs}"],
+    plugins: {
+      "@next/next": nextPlugin,
+      "react-hooks": reactHooksPlugin,
+    },
     languageOptions: {
       parser: tsParser,
       ecmaVersion: "latest",
@@ -24,7 +30,10 @@ const eslintConfig = [
         },
       },
     },
-    rules: {},
+    rules: {
+      "@next/next/no-img-element": "off",
+      "react-hooks/exhaustive-deps": "off",
+    },
   },
 ];
 

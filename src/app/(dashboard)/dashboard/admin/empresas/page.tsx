@@ -4,6 +4,7 @@ import { getCurrentTenant, listCurrentUserTenants } from "@/lib/tenant/get-curre
 import { getBillingPlan } from "@/lib/billing/plans";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
 import type { TenantMembershipRole } from "@/lib/tenant/types";
+import { createCompanyFromAdminPageAction } from "./actions";
 
 function getRoleLabel(role?: TenantMembershipRole | string | null) {
   switch (String(role ?? "").trim()) {
@@ -61,6 +62,7 @@ export default async function EmpresasPage() {
   const activeTenants = tenants.filter(
     (tenant) => tenant.is_active && tenant.establishment_id
   );
+  const canCreateCompany = currentTenant?.role === "admin";
 
   const subscriptionByEstablishmentId = new Map<
     string,
@@ -87,7 +89,7 @@ export default async function EmpresasPage() {
               Minhas empresas
             </h1>
             <p className="text-sm text-gray-600 dark:text-slate-400">
-              Consulte as empresas vinculadas ao seu usuário. Esta tela é somente leitura nesta fase.
+              Consulte as empresas vinculadas ao seu usuário e cadastre novas empresas de forma controlada.
             </p>
           </div>
         </div>
@@ -123,16 +125,75 @@ export default async function EmpresasPage() {
             <div>
               <p className="text-sm text-gray-500 dark:text-slate-400">Modo</p>
               <h2 className="mt-1 text-lg font-semibold text-gray-900 dark:text-slate-100">
-                Consulta segura
+                Multiempresa controlado
               </h2>
             </div>
             <ShieldCheck className="h-5 w-5 text-blue-500" />
           </div>
           <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
-            Criação e edição de empresas serão liberadas em fase controlada.
+            Apenas administradores podem criar novas empresas nesta fase.
           </p>
         </div>
       </section>
+
+      {canCreateCompany ? (
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+              Cadastrar nova empresa
+            </h2>
+            <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+              A nova empresa será vinculada ao seu usuário como administrador, com permissões padrão e assinatura inicial.
+            </p>
+          </div>
+
+          <form action={createCompanyFromAdminPageAction} className="grid gap-4 md:grid-cols-[1fr_220px_auto] md:items-end">
+            <div>
+              <label className="text-sm font-medium text-gray-700 dark:text-slate-300" htmlFor="company-name">
+                Nome da empresa
+              </label>
+              <input
+                id="company-name"
+                name="name"
+                type="text"
+                required
+                maxLength={120}
+                className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-blue-950"
+                placeholder="Ex.: Santino"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 dark:text-slate-300" htmlFor="plan-slug">
+                Plano inicial
+              </label>
+              <select
+                id="plan-slug"
+                name="plan_slug"
+                defaultValue="starter"
+                className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-blue-950"
+              >
+                <option value="starter">Starter</option>
+                <option value="growth">Growth</option>
+                <option value="enterprise">Enterprise</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-3 md:items-end">
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
+                <input name="select_as_active" type="checkbox" className="h-4 w-4 rounded border-gray-300" />
+                Ativar após criar
+              </label>
+              <button
+                type="submit"
+                className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              >
+                Criar empresa
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : null}
 
       <section className="rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="border-b border-gray-200 p-5 dark:border-slate-800">

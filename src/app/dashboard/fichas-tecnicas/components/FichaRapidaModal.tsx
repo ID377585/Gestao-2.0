@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,6 +38,21 @@ const IMPOSTOS_FIXOS_PERCENT = 10.42;
 const IMPOSTOS_DESPESAS_PERCENT = MARGEM_DESEJAVEL_PERCENT + IMPOSTOS_FIXOS_PERCENT;
 const ALLOWED_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "heic"];
 const ALLOWED_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/heic", "image/heif"];
+const CATEGORY_OPTIONS = ["Pré-Preparo", "Empratamento"];
+
+function calcularPesoUsoIngredientes(ingredientes: Ingrediente[]) {
+  const total = ingredientes.reduce((acc, item) => {
+    const quantidade = toNumber(item.quantidadeUso, 0);
+    const unidade = String(item.unidadeUso || "").trim().toUpperCase();
+
+    if (unidade === "KG" || unidade === "L") return acc + quantidade;
+    if (unidade === "G" || unidade === "ML") return acc + quantidade / 1000;
+
+    return acc + quantidade;
+  }, 0);
+
+  return Number(total.toFixed(3));
+}
 
 function calcularCustos(
   ingredientes: Ingrediente[],
@@ -142,6 +157,8 @@ export default function FichaRapidaModal({
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [nome, setNome] = useState("");
+  const [categoria, setCategoria] = useState("");
+  const [categoria, setCategoria] = useState("");
   const [rendimento, setRendimento] = useState<number | "">("");
   const [pesoPorcao, setPesoPorcao] = useState<number | "">("");
   const [pesoFinal, setPesoFinal] = useState<number | "">("");
@@ -170,8 +187,27 @@ export default function FichaRapidaModal({
     });
   }, [preview.custoTotal, preview.custoPorPorcao, pesoFinal, precoVendaReal]);
 
+  const pesoUsoIngredientesFichaRapida = useMemo(() => {
+    return calcularPesoUsoIngredientes(ingredientes);
+  }, [ingredientes]);
+
+  useEffect(() => {
+    if (categoria !== "Empratamento") return;
+
+    const pesoCalculado =
+      pesoUsoIngredientesFichaRapida > 0
+        ? pesoUsoIngredientesFichaRapida
+        : "";
+
+    setPesoPorcao(pesoCalculado);
+    setPesoFinal(pesoCalculado);
+    setRendimento(pesoCalculado === "" ? "" : 1);
+  }, [categoria, pesoUsoIngredientesFichaRapida]);
+
   function resetForm() {
     setNome("");
+    setCategoria("");
+    setCategoria("");
     setRendimento("");
     setPesoPorcao("");
     setPesoFinal("");
@@ -260,6 +296,16 @@ export default function FichaRapidaModal({
       return;
     }
 
+    if (!categoria.trim()) {
+      setErro("Informe a categoria.");
+      return;
+    }
+
+    if (!categoria.trim()) {
+      setErro("Informe a categoria.");
+      return;
+    }
+
     if (toNumber(rendimento, 0) <= 0) {
       setErro("Informe um rendimento válido.");
       return;
@@ -277,7 +323,7 @@ export default function FichaRapidaModal({
       try {
         const payload = {
           name: nome.trim().toUpperCase(),
-          category: "Ficha Rápida",
+          category: categoria.trim(),
           yield_portions: Math.max(1, toNumber(rendimento, 1)),
           portion_weight: Math.max(0, toNumber(pesoPorcao, 0)),
           prep_time_minutes: 0,
@@ -350,8 +396,9 @@ export default function FichaRapidaModal({
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
+              <Label htmlFor="ficha-rapida-nome">Nome da receita</Label>
               <Input
                 id="ficha-rapida-nome"
                 value={nome}
@@ -359,6 +406,23 @@ export default function FichaRapidaModal({
                 placeholder="Ex.: BOLO DE FUBÁ"
                 className="uppercase"
               />
+            </div>
+
+            <div>
+              <Label htmlFor="ficha-rapida-categoria">Categoria</Label>
+              <select
+                id="ficha-rapida-categoria"
+                className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={categoria}
+                onChange={(e) => setCategoria(e.target.value)}
+              >
+                <option value="">— Selecione —</option>
+                {CATEGORY_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -395,7 +459,15 @@ export default function FichaRapidaModal({
                 min="0"
                 step="0.001"
                 value={pesoFinal}
+                readOnly={categoria === "Empratamento"}
+                className={
+                  categoria === "Empratamento"
+                    ? "bg-slate-100 font-semibold text-slate-700"
+                    : undefined
+                }
                 onChange={(e) => {
+                  if (categoria === "Empratamento") return;
+
                   const nextPesoFinal =
                     e.target.value === "" ? "" : toNumber(e.target.value, 0);
 
@@ -415,7 +487,15 @@ export default function FichaRapidaModal({
                 min="0"
                 step="0.001"
                 value={pesoPorcao}
+                readOnly={categoria === "Empratamento"}
+                className={
+                  categoria === "Empratamento"
+                    ? "bg-slate-100 font-semibold text-slate-700"
+                    : undefined
+                }
                 onChange={(e) => {
+                  if (categoria === "Empratamento") return;
+
                   const nextPesoPorcao =
                     e.target.value === "" ? "" : toNumber(e.target.value, 0);
 

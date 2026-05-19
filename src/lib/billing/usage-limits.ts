@@ -1,6 +1,7 @@
 import "server-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { BillingPlan } from "@/lib/billing/plans";
+import { listCurrentUserTenants } from "@/lib/tenant/get-current-tenant";
 
 export type PlanUsageMetric = {
   key: "users" | "establishments" | "products";
@@ -89,23 +90,22 @@ export async function getCompanyPlanUsage(params: {
   establishmentId: string;
   plan: BillingPlan | null;
 }): Promise<CompanyPlanUsage> {
-  const [usersCount, establishmentsCount, productsCount] = await Promise.all([
+  const [usersCount, tenants, productsCount] = await Promise.all([
     safeCount({
       table: "memberships",
       establishmentId: params.establishmentId,
       applyEstablishmentFilter: true,
     }),
-    safeCount({
-      table: "memberships",
-      establishmentId: params.establishmentId,
-      applyEstablishmentFilter: true,
-    }).then((count) => (count > 0 ? 1 : 0)),
+    listCurrentUserTenants(),
     safeCount({
       table: "products",
       establishmentId: params.establishmentId,
       applyEstablishmentFilter: true,
     }),
   ]);
+  const establishmentsCount = tenants.filter(
+    (tenant) => tenant.is_active && tenant.establishment_id
+  ).length;
 
   return {
     establishmentId: params.establishmentId,

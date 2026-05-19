@@ -5,6 +5,7 @@ import {
   touchUserAuthenticatedAccess,
 } from "@/lib/auth/terms-compliance.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
 import { redirect } from "next/navigation";
 
 type AllowedRole =
@@ -20,45 +21,31 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createSupabaseServerClient();
+  const tenant = await getCurrentTenant();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  if (!tenant) {
+    const supabase = await createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  if (userError || !user) {
-    redirect("/login");
-  }
+    if (!user) {
+      redirect("/login");
+    }
 
-  await ensureCurrentTermsAcceptedOrRedirect({
-    userId: user.id,
-    redirectPath: "/dashboard/pedidos",
-    appMetadata: user.app_metadata as Record<string, unknown> | undefined,
-  });
-  await touchUserAuthenticatedAccess({
-    userId: user.id,
-    path: "/dashboard",
-  });
-
-  const { data: membership, error: membershipError } = await supabase
-    .from("memberships")
-    .select("role, is_active")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (membershipError || !membership?.role) {
-    console.error("Membership check failed (memberships):", {
-      message: membershipError?.message,
-      code: (membershipError as any)?.code,
-      user_id: user.id,
-      email: user.email,
-    });
     redirect("/sem-acesso");
   }
 
-  const role = membership.role as AllowedRole;
+  await ensureCurrentTermsAcceptedOrRedirect({
+    userId: tenant.userId,
+    redirectPath: "/dashboard/pedidos",
+  });
+  await touchUserAuthenticatedAccess({
+    userId: tenant.userId,
+    path: "/dashboard",
+  });
+
+  const role = tenant.role as AllowedRole;
 
   const allowedRoles: AllowedRole[] = [
     "admin",

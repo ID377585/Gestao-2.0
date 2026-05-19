@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getActiveEstablishmentIdOrThrow } from "@/lib/tenant/guards";
 
 export type LossFilters = {
   dateFrom?: string;
@@ -35,24 +36,7 @@ export async function listLosses(
   filters: LossFilters = {}
 ): Promise<LossEntry[]> {
   const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw new Error("Não autenticado.");
-  }
-
-  const { data: membership, error: membershipError } = await supabase
-    .from("memberships")
-    .select("establishment_id")
-    .eq("user_id", user.id)
-    .single();
-
-  if (membershipError || !membership?.establishment_id) {
-    throw new Error("Estabelecimento não encontrado.");
-  }
+  const establishmentId = await getActiveEstablishmentIdOrThrow();
 
   let query = supabase
     .from("losses")
@@ -75,7 +59,7 @@ export async function listLosses(
         "stock_after",
       ].join(",")
     )
-    .eq("establishment_id", membership.establishment_id)
+    .eq("establishment_id", establishmentId)
     .order("created_at", { ascending: false });
 
   if (filters.dateFrom) {

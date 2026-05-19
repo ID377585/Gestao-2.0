@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { assertSameActiveEstablishment } from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,8 @@ export async function GET(request: Request) {
     if (!user_id || !establishment_id) {
       return NextResponse.json({ label: "-" }, { status: 200 });
     }
+
+    await assertSameActiveEstablishment(establishment_id);
 
     const { data, error } = await supabase
       .from("memberships")

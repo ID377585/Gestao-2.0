@@ -1,31 +1,20 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export async function GET(req: Request) {
   const supabase = await createSupabaseServerClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
-  }
-
-  const { data: membership } = await supabase
-    .from("memberships")
-    .select("establishment_id")
-    .eq("user_id", user.id)
-    .single();
-
-  if (!membership?.establishment_id) {
+  let establishment_id: string;
+  try {
+    const { tenant } = await getAuthenticatedTenantUserOrThrow();
+    establishment_id = tenant.establishmentId;
+  } catch (error: any) {
     return NextResponse.json(
-      { error: "Estabelecimento não encontrado." },
-      { status: 400 }
+      { error: error?.message ?? "Estabelecimento não encontrado." },
+      { status: error?.message === "Não autenticado." ? 401 : 403 }
     );
   }
-
-  const establishment_id = membership.establishment_id;
 
   const url = new URL(req.url);
   const code = url.searchParams.get("code");

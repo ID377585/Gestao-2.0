@@ -1,7 +1,7 @@
 "use client";
 
-import { formatPtBrDecimal, parsePtBrNumber } from "@/lib/number-format";
 import Image from "next/image";
+import { formatPtBrDecimal, parsePtBrNumber } from "@/lib/number-format";
 import {
   useCallback,
   useEffect,
@@ -1230,12 +1230,14 @@ function RecipeViewerInline({
     <Card className="overflow-hidden border border-slate-200 bg-white text-slate-900 shadow-sm">
       {ficha.imageUrl ? (
         <div className="relative h-[260px] w-full border-b border-slate-200 bg-slate-100 sm:h-[320px]">
-          <Image
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
             src={ficha.imageUrl}
             alt={ficha.nome}
-            fill
-            className="object-cover"
-            unoptimized
+            className="h-full w-full object-cover"
+            onError={(event) => {
+              event.currentTarget.style.display = "none";
+            }}
           />
         </div>
       ) : (
@@ -2392,12 +2394,14 @@ export default function FichasTecnicasPage() {
                     >
                       {ficha.imageUrl ? (
                         <div className="relative h-40 w-full bg-slate-100">
-                          <Image
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
                             src={ficha.imageUrl}
                             alt={ficha.nome}
-                            fill
-                            className="object-cover"
-                            unoptimized
+                            className="h-full w-full object-cover"
+                            onError={(event) => {
+                              event.currentTarget.style.display = "none";
+                            }}
                           />
                         </div>
                       ) : (
@@ -2881,12 +2885,14 @@ export default function FichasTecnicasPage() {
 
               {imageUrl ? (
                 <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
-                  <Image
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
                     src={imageUrl}
                     alt="Pré-visualização da receita"
-                    fill
-                    className="object-cover"
-                    unoptimized
+                    className="h-full w-full object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
                   />
                 </div>
               ) : (

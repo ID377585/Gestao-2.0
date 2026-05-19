@@ -144,6 +144,43 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+
+type TechnicalSheetImageLike = {
+  imagePath?: string | null;
+  imageUrl?: string | null;
+};
+
+function getTechnicalSheetImageSrcFromPath(
+  imagePath?: string | null,
+  imageUrl?: string | null,
+  absolute = false
+) {
+  const cleanPath = String(imagePath || "").trim();
+
+  if (cleanPath) {
+    const route = `/api/technical-sheet-image?path=${encodeURIComponent(cleanPath)}`;
+
+    if (absolute && typeof window !== "undefined") {
+      return `${window.location.origin}${route}`;
+    }
+
+    return route;
+  }
+
+  return imageUrl || "";
+}
+
+function getTechnicalSheetImageSrc(
+  ficha: TechnicalSheetImageLike,
+  absolute = false
+) {
+  return getTechnicalSheetImageSrcFromPath(
+    ficha.imagePath,
+    ficha.imageUrl,
+    absolute
+  );
+}
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -658,10 +695,12 @@ function buildPrintHtml(
     pesoReceitaTotalKg
   )} ${unidadePesoPorcao}`;
 
-  const imageHtml = ficha.imageUrl
+  const imageSrc = getTechnicalSheetImageSrc(ficha, true);
+
+  const imageHtml = imageSrc
     ? `
       <div class="photo-box has-photo">
-        <img src="${escapeAttr(ficha.imageUrl)}" alt="${escapeAttr(
+        <img src="${escapeAttr(imageSrc)}" alt="${escapeAttr(
         ficha.nome
       )}" />
       </div>
@@ -1242,11 +1281,11 @@ function RecipeViewerInline({
 
   return (
     <Card className="overflow-hidden border border-slate-200 bg-white text-slate-900 shadow-sm">
-      {ficha.imageUrl ? (
+      {(ficha.imagePath || ficha.imageUrl) ? (
         <div className="relative h-[260px] w-full border-b border-slate-200 bg-slate-100 sm:h-[320px]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={ficha.imageUrl}
+            src={getTechnicalSheetImageSrc(ficha)}
             alt={ficha.nome}
             className="h-full w-full object-cover"
             onError={(event) => {
@@ -2406,11 +2445,11 @@ export default function FichasTecnicasPage() {
                           : "border-border bg-white hover:bg-slate-50"
                       }`}
                     >
-                      {ficha.imageUrl ? (
+                      {(ficha.imagePath || ficha.imageUrl) ? (
                         <div className="relative h-40 w-full bg-slate-100">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={ficha.imageUrl}
+                            src={getTechnicalSheetImageSrc(ficha)}
                             alt={ficha.nome}
                             className="h-full w-full object-cover"
                             onError={(event) => {
@@ -2890,7 +2929,7 @@ export default function FichasTecnicasPage() {
                     {uploadingImage ? "Enviando imagem..." : "Enviar imagem"}
                   </Button>
 
-                  {imageUrl ? (
+                  {(imagePath || imageUrl) ? (
                     <Button
                       type="button"
                       variant="ghost"
@@ -2905,11 +2944,11 @@ export default function FichasTecnicasPage() {
                 </div>
               </div>
 
-              {imageUrl ? (
+              {(imagePath || imageUrl) ? (
                 <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={imageUrl}
+                    src={getTechnicalSheetImageSrcFromPath(imagePath, imageUrl)}
                     alt="Pré-visualização da receita"
                     className="h-full w-full object-cover"
                     onError={(event) => {
@@ -3507,7 +3546,7 @@ export default function FichasTecnicasPage() {
                       {uploadingImage ? "Enviando imagem..." : "Trocar imagem"}
                     </Button>
 
-                    {fichaEditando.imageUrl ? (
+                    {(fichaEditando.imagePath || fichaEditando.imageUrl) ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -3529,10 +3568,10 @@ export default function FichasTecnicasPage() {
                   </div>
                 </div>
 
-                {fichaEditando.imageUrl ? (
+                {(fichaEditando.imagePath || fichaEditando.imageUrl) ? (
                   <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
                     <Image
-                      src={fichaEditando.imageUrl}
+                      src={getTechnicalSheetImageSrcFromPath(fichaEditando.imagePath, fichaEditando.imageUrl)}
                       alt={fichaEditando.nome}
                       fill
                       className="object-cover"

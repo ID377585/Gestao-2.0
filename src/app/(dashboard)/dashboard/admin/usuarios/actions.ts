@@ -6,6 +6,7 @@ import {
   createSupabaseServerClient,
   getSupabaseAdminClient,
 } from "@/lib/supabase/server";
+import { assertBillingLimitAvailable } from "@/lib/billing/limits";
 
 export type ProfileRole =
   | "admin"
@@ -467,6 +468,12 @@ export async function createCollaborator(formData: FormData) {
   if (password.length < 6) {
     throw new Error("A senha inicial deve ter pelo menos 6 caracteres.");
   }
+
+  await assertBillingLimitAvailable({
+    supabaseAdmin,
+    establishmentId: ctx.establishment_id,
+    kind: "users",
+  });
 
   const existingAuthUser = await findAuthUserByEmail(supabaseAdmin, email);
 

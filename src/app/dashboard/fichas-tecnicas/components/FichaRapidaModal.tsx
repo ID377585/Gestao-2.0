@@ -158,7 +158,6 @@ export default function FichaRapidaModal({
 
   const [nome, setNome] = useState("");
   const [categoria, setCategoria] = useState("");
-  const [categoria, setCategoria] = useState("");
   const [rendimento, setRendimento] = useState<number | "">("");
   const [pesoPorcao, setPesoPorcao] = useState<number | "">("");
   const [pesoFinal, setPesoFinal] = useState<number | "">("");

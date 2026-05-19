@@ -54,6 +54,20 @@ function calcularPesoUsoIngredientes(ingredientes: Ingrediente[]) {
   return Number(total.toFixed(3));
 }
 
+
+function formatPesoAutomaticoEmpratamento(
+  value: number | "" | null | undefined
+) {
+  const numero = toNumber(value, 0);
+
+  if (numero <= 0) return "";
+
+  return numero.toLocaleString("pt-BR", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  });
+}
+
 function calcularCustos(
   ingredientes: Ingrediente[],
   rendimento: number
@@ -454,10 +468,14 @@ export default function FichaRapidaModal({
               <Label htmlFor="ficha-rapida-peso-final">Peso Final</Label>
               <Input
                 id="ficha-rapida-peso-final"
-                type="number"
+                type={categoria === "Empratamento" ? "text" : "number"}
                 min="0"
                 step="0.001"
-                value={pesoFinal}
+                value={
+                  categoria === "Empratamento"
+                    ? formatPesoAutomaticoEmpratamento(pesoFinal)
+                    : pesoFinal
+                }
                 readOnly={categoria === "Empratamento"}
                 className={
                   categoria === "Empratamento"
@@ -482,10 +500,14 @@ export default function FichaRapidaModal({
               <Label htmlFor="ficha-rapida-peso">Peso da Porção</Label>
               <Input
                 id="ficha-rapida-peso"
-                type="number"
+                type={categoria === "Empratamento" ? "text" : "number"}
                 min="0"
                 step="0.001"
-                value={pesoPorcao}
+                value={
+                  categoria === "Empratamento"
+                    ? formatPesoAutomaticoEmpratamento(pesoPorcao)
+                    : pesoPorcao
+                }
                 readOnly={categoria === "Empratamento"}
                 className={
                   categoria === "Empratamento"

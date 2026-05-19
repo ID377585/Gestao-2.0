@@ -2,9 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  getSupabaseAdminClient,
+} from "@/lib/supabase/server";
 import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
 import { createCompanyInternalAction } from "@/lib/tenant/company-onboarding.server";
+import { assertEstablishmentCreationLimitAvailable } from "@/lib/billing/limits";
 
 function text(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -44,6 +48,13 @@ export async function createCompanyFromAdminPageAction(formData: FormData) {
   if (!name) {
     throw new Error("Informe o nome da empresa.");
   }
+
+  const supabaseAdmin = getSupabaseAdminClient();
+  await assertEstablishmentCreationLimitAvailable({
+    supabaseAdmin,
+    referenceEstablishmentId: currentTenant.establishmentId,
+    userId: user.id,
+  });
 
   await createCompanyInternalAction({
     name,

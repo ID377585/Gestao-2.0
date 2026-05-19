@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Building2, CheckCircle2, ShieldCheck, Users } from "lucide-react";
 import { getCurrentTenant, listCurrentUserTenants } from "@/lib/tenant/get-current-tenant";
+import { getBillingPlan } from "@/lib/billing/plans";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
 import type { TenantMembershipRole } from "@/lib/tenant/types";
 
@@ -157,6 +158,7 @@ export default async function EmpresasPage() {
               const subscription = tenant.establishment_id
                 ? subscriptionByEstablishmentId.get(tenant.establishment_id)
                 : null;
+              const plan = getBillingPlan(subscription?.planSlug ?? null);
 
               return (
                 <div
@@ -196,7 +198,7 @@ export default async function EmpresasPage() {
                   <div className="flex flex-col gap-2 md:items-end">
                     <span className="inline-flex w-fit items-center gap-1 rounded-full border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 dark:border-slate-700 dark:text-slate-300">
                       <Users className="h-3 w-3" />
-                      {subscription?.planName ?? "Plano não configurado"}
+                      {plan?.name ?? "Plano não configurado"}
                     </span>
                     {tenant.establishment_id ? (
                       <Link

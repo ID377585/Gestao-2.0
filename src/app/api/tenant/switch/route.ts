@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  getSupabaseAdminClient,
+} from "@/lib/supabase/server";
 import {
   TENANT_COOKIE_MAX_AGE_SECONDS,
   TENANT_COOKIE_NAME,
 } from "@/lib/tenant/constants";
+import { writeTenantAuditLog } from "@/lib/tenant/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -54,12 +58,29 @@ export async function POST(request: Request) {
     }
 
     const cookieStore = await cookies();
+    const previousEstablishmentId = cookieStore.get(TENANT_COOKIE_NAME)?.value ?? null;
+
     cookieStore.set(TENANT_COOKIE_NAME, establishmentId, {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       path: "/",
       maxAge: TENANT_COOKIE_MAX_AGE_SECONDS,
+    });
+
+    const supabaseAdmin = getSupabaseAdminClient();
+    await writeTenantAuditLog({
+      supabaseAdmin,
+      establishmentId,
+      actorUserId: user.id,
+      targetUserId: user.id,
+      action: "switch_active_tenant",
+      entityType: "establishment",
+      entityId: establishmentId,
+      details: {
+        previous_establishment_id: previousEstablishmentId,
+        next_establishment_id: establishmentId,
+      },
     });
 
     return NextResponse.json({ ok: true, establishmentId }, { status: 200 });

@@ -240,6 +240,20 @@ function calcularPesoUsoIngredientes(ingredientes: Ingrediente[]) {
   return Number(total.toFixed(3));
 }
 
+
+function formatPesoAutomaticoEmpratamento(
+  value: number | "" | null | undefined
+) {
+  const numero = toNumber(value, 0);
+
+  if (numero <= 0) return "";
+
+  return numero.toLocaleString("pt-BR", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  });
+}
+
 function somarCustoIngredientes(ingredientes: Ingrediente[]) {
   return ingredientes.reduce(
     (acc, item) => acc + Number(item.custoIngrediente || 0),
@@ -2605,9 +2619,13 @@ export default function FichasTecnicasPage() {
               <div>
                 <Label>Peso por porção</Label>
                 <Input
-                  type="number"
+                  type={categoria === "Empratamento" ? "text" : "number"}
                   step="0.001"
-                  value={pesoPorcao}
+                  value={
+                    categoria === "Empratamento"
+                      ? formatPesoAutomaticoEmpratamento(pesoPorcao)
+                      : pesoPorcao
+                  }
                   readOnly={categoria === "Empratamento"}
                   className={
                     categoria === "Empratamento"
@@ -2714,8 +2732,12 @@ export default function FichasTecnicasPage() {
               <div>
                 <Label>Peso Final (g)</Label>
                 <Input
-                  type="number"
-                  value={correctionFactorGrams}
+                  type={categoria === "Empratamento" ? "text" : "number"}
+                  value={
+                    categoria === "Empratamento"
+                      ? formatPesoAutomaticoEmpratamento(correctionFactorGrams)
+                      : correctionFactorGrams
+                  }
                   readOnly={categoria === "Empratamento"}
                   className={
                     categoria === "Empratamento"
@@ -3060,9 +3082,19 @@ export default function FichasTecnicasPage() {
                 <div>
                   <Label>Peso por porção</Label>
                   <Input
-                    type="number"
+                    type={
+                      fichaEditando.categoria === "Empratamento"
+                        ? "text"
+                        : "number"
+                    }
                     step="0.001"
-                    value={fichaEditando.pesoPorcao}
+                    value={
+                      fichaEditando.categoria === "Empratamento"
+                        ? formatPesoAutomaticoEmpratamento(
+                            fichaEditando.pesoPorcao
+                          )
+                        : fichaEditando.pesoPorcao
+                    }
                     readOnly={fichaEditando.categoria === "Empratamento"}
                     className={
                       fichaEditando.categoria === "Empratamento"
@@ -3224,8 +3256,18 @@ export default function FichasTecnicasPage() {
                 <div>
                   <Label>Peso Final (g)</Label>
                   <Input
-                    type="number"
-                    value={fichaEditando.correctionFactorGrams ?? ""}
+                    type={
+                      fichaEditando.categoria === "Empratamento"
+                        ? "text"
+                        : "number"
+                    }
+                    value={
+                      fichaEditando.categoria === "Empratamento"
+                        ? formatPesoAutomaticoEmpratamento(
+                            fichaEditando.correctionFactorGrams
+                          )
+                        : fichaEditando.correctionFactorGrams ?? ""
+                    }
                     readOnly={fichaEditando.categoria === "Empratamento"}
                     className={
                       fichaEditando.categoria === "Empratamento"

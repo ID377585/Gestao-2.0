@@ -17,6 +17,7 @@ import {
   isProductAbcConstraintError,
   normalizeProductAbcCurve,
 } from "@/lib/product-curves";
+import { assertBillingLimitAvailable } from "@/lib/billing/limits";
 
 export type ProductType = "INSU" | "PREP" | "PROD";
 
@@ -547,6 +548,16 @@ export async function createProduct(formData: FormData) {
 
   if (!name) {
     redirectWithError("Nome do produto é obrigatório.");
+  }
+
+  try {
+    await assertBillingLimitAvailable({
+      supabaseAdmin: getSupabaseAdminClient(),
+      establishmentId,
+      kind: "products",
+    });
+  } catch (limitError: any) {
+    redirectWithError(limitError?.message ?? "Limite de produtos do plano atingido.");
   }
 
   const package_qty = parseNumber(packageQtyRaw, 3);

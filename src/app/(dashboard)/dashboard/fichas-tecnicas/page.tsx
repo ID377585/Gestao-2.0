@@ -568,7 +568,6 @@ function buildPrintHtml(
   const precoVenda =
     precificacao.precoVendaReal || precificacao.precoVendaDesejavel || ficha.precoVenda || 0;
   const custoTotalAjustado = scaled.custoTotal || ficha.custoTotal || 0;
-  const cmv = precificacao.cmvRealPercent || 0;
 
   const quantidadeRendimento = Number(ficha.rendimento || 0);
   const textoPorcao = quantidadeRendimento === 1 ? "porção" : "porções";
@@ -1226,7 +1225,6 @@ function RecipeViewerInline({
     precificacao.precoVendaReal || precificacao.precoVendaDesejavel || ficha.precoVenda || 0;
 
   const lucro = precificacao.lucroUnitario || 0;
-  const cmv = precificacao.cmvRealPercent || 0;
 
   return (
     <Card className="overflow-hidden border border-slate-200 bg-white text-slate-900 shadow-sm">
@@ -1340,12 +1338,6 @@ function RecipeViewerInline({
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs text-slate-500">CMV</p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">
-              {cmv.toFixed(1)}%
-            </p>
-          </div>
         </div>
       </CardContent>
     </Card>

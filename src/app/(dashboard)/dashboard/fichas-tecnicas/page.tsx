@@ -226,6 +226,20 @@ function calcularRendimentoPorPesoFinal(
   return Number((pesoFinalNumber / pesoPorPorcaoNumber).toFixed(3));
 }
 
+function calcularPesoUsoIngredientes(ingredientes: Ingrediente[]) {
+  const total = ingredientes.reduce((acc, item) => {
+    const quantidade = toNumber(item.quantidadeUso, 0);
+    const unidade = String(item.unidadeUso || "").trim().toUpperCase();
+
+    if (unidade === "KG" || unidade === "L") return acc + quantidade;
+    if (unidade === "G" || unidade === "ML") return acc + quantidade / 1000;
+
+    return acc + quantidade;
+  }, 0);
+
+  return Number(total.toFixed(3));
+}
+
 function somarCustoIngredientes(ingredientes: Ingrediente[]) {
   return ingredientes.reduce(
     (acc, item) => acc + Number(item.custoIngrediente || 0),
@@ -1392,6 +1406,53 @@ export default function FichasTecnicasPage() {
   const autoEditAllergens = useMemo(() => {
     return detectAllergens(fichaEditando?.ingredientes ?? [], products);
   }, [fichaEditando?.ingredientes, products]);
+  const pesoUsoIngredientesNovaFicha = useMemo(() => {
+    return calcularPesoUsoIngredientes(ingredientes);
+  }, [ingredientes]);
+
+  const pesoUsoIngredientesFichaEditando = useMemo(() => {
+    return calcularPesoUsoIngredientes(fichaEditando?.ingredientes ?? []);
+  }, [fichaEditando?.ingredientes]);
+
+  useEffect(() => {
+    if (categoria !== "Empratamento") return;
+
+    const pesoCalculado =
+      pesoUsoIngredientesNovaFicha > 0 ? pesoUsoIngredientesNovaFicha : "";
+
+    setPesoPorcao(pesoCalculado);
+    setCorrectionFactorGrams(pesoCalculado);
+    setRendimento(pesoCalculado === "" ? 1 : 1);
+  }, [categoria, pesoUsoIngredientesNovaFicha]);
+
+  useEffect(() => {
+    if (!fichaEditando || fichaEditando.categoria !== "Empratamento") return;
+
+    const pesoCalculado =
+      pesoUsoIngredientesFichaEditando > 0
+        ? pesoUsoIngredientesFichaEditando
+        : 0;
+
+    setFichaEditando((prev) => {
+      if (!prev || prev.categoria !== "Empratamento") return prev;
+
+      if (
+        prev.pesoPorcao === pesoCalculado &&
+        prev.correctionFactorGrams === pesoCalculado &&
+        prev.rendimento === 1
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        pesoPorcao: pesoCalculado,
+        correctionFactorGrams: pesoCalculado,
+        rendimento: 1,
+      };
+    });
+  }, [fichaEditando?.categoria, pesoUsoIngredientesFichaEditando]);
+
   const [establishmentId, setEstablishmentId] = useState("");
   const [uploadedBy, setUploadedBy] = useState("");
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -2557,7 +2618,15 @@ export default function FichasTecnicasPage() {
                   type="number"
                   step="0.001"
                   value={pesoPorcao}
+                  readOnly={categoria === "Empratamento"}
+                  className={
+                    categoria === "Empratamento"
+                      ? "bg-slate-100 font-semibold text-slate-700"
+                      : undefined
+                  }
                   onChange={(e) => {
+                    if (categoria === "Empratamento") return;
+
                     const nextPesoPorcao =
                       e.target.value === "" ? "" : toNumber(e.target.value, 0);
 
@@ -2657,7 +2726,15 @@ export default function FichasTecnicasPage() {
                 <Input
                   type="number"
                   value={correctionFactorGrams}
+                  readOnly={categoria === "Empratamento"}
+                  className={
+                    categoria === "Empratamento"
+                      ? "bg-slate-100 font-semibold text-slate-700"
+                      : undefined
+                  }
                   onChange={(e) => {
+                    if (categoria === "Empratamento") return;
+
                     const nextPesoFinal =
                       e.target.value === "" ? "" : toNumber(e.target.value, 0);
 
@@ -2994,9 +3071,17 @@ export default function FichasTecnicasPage() {
                     type="number"
                     step="0.001"
                     value={fichaEditando.pesoPorcao}
+                    readOnly={fichaEditando.categoria === "Empratamento"}
+                    className={
+                      fichaEditando.categoria === "Empratamento"
+                        ? "bg-slate-100 font-semibold text-slate-700"
+                        : undefined
+                    }
                     onChange={(e) =>
                       setFichaEditando((prev) => {
-                        if (!prev) return prev;
+                        if (!prev || prev.categoria === "Empratamento") {
+                          return prev;
+                        }
 
                         const nextPesoPorcao = toNumber(e.target.value, 0);
 
@@ -3149,9 +3234,17 @@ export default function FichasTecnicasPage() {
                   <Input
                     type="number"
                     value={fichaEditando.correctionFactorGrams ?? ""}
+                    readOnly={fichaEditando.categoria === "Empratamento"}
+                    className={
+                      fichaEditando.categoria === "Empratamento"
+                        ? "bg-slate-100 font-semibold text-slate-700"
+                        : undefined
+                    }
                     onChange={(e) =>
                       setFichaEditando((prev) => {
-                        if (!prev) return prev;
+                        if (!prev || prev.categoria === "Empratamento") {
+                          return prev;
+                        }
 
                         const nextPesoFinal =
                           e.target.value === ""

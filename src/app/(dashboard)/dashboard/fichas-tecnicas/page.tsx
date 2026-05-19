@@ -832,7 +832,7 @@ function buildPrintHtml(
 
   .metrics-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 10px;
     margin-bottom: 14px;
   }
@@ -1066,10 +1066,6 @@ function buildPrintHtml(
         <div class="metric-value">${formatCurrency(precoVenda)}</div>
       </div>
 
-      <div class="metric-card">
-        <div class="metric-label">CMV</div>
-        <div class="metric-value">${cmv.toFixed(1)}%</div>
-      </div>
     </section>
 
     <section class="section">
@@ -1301,7 +1297,7 @@ function RecipeViewerInline({
       </div>
 
       <CardContent className="space-y-6 bg-white p-4 text-slate-900 sm:p-6">
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-xs text-slate-500">Custo total</p>
             <p className="mt-1 text-2xl font-bold text-red-600">

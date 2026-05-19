@@ -2444,12 +2444,6 @@ export default function FichasTecnicasPage() {
                             </p>
                           </div>
 
-                          <div>
-                            <p className="text-muted-foreground">CMV</p>
-                            <p className="font-bold">
-                              {(precificacao.cmvRealPercent || 0).toFixed(1)}%
-                            </p>
-                          </div>
 
                           <div>
                             <p className="text-muted-foreground">Escalas</p>

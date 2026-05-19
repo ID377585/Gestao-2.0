@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 type RouteContext = {
   params: Promise<{
@@ -9,6 +10,17 @@ type RouteContext = {
 
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
+    let tenantContext: Awaited<ReturnType<typeof getAuthenticatedTenantUserOrThrow>>;
+    try {
+      tenantContext = await getAuthenticatedTenantUserOrThrow();
+    } catch (error: any) {
+      return NextResponse.json(
+        { error: error?.message ?? "Não autenticado." },
+        { status: error?.message === "Não autenticado." ? 401 : 403 }
+      );
+    }
+
+    const { tenant } = tenantContext;
     const { jobId } = await context.params;
 
     if (!jobId) {
@@ -22,6 +34,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       .from("import_jobs")
       .select("*")
       .eq("id", jobId)
+      .eq("establishment_id", tenant.establishmentId)
       .single();
 
     if (jobError || !job) {

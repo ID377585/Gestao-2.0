@@ -1,6 +1,7 @@
 // src/app/api/products/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getActiveEstablishmentIdOrThrow } from "@/lib/tenant/guards";
 
 export const dynamic = "force-dynamic";
 
@@ -149,7 +150,11 @@ function normalizeFromAny(p: any): ProductRow | null {
   };
 }
 
-async function fetchProductsWithUnitFallbacks(supabase: any, debug: boolean) {
+async function fetchProductsWithUnitFallbacks(
+  supabase: any,
+  debug: boolean,
+  establishmentId: string
+) {
   /**
    * ✅ Ajuste importante:
    * - inclui "default_unit_label" como primeira candidata de unidade (seu schema real).
@@ -174,6 +179,7 @@ async function fetchProductsWithUnitFallbacks(supabase: any, debug: boolean) {
     const { data, error } = await supabase
       .from("products")
       .select(`id, name, category, sku, shelf_life_days, ${col}`)
+      .eq("establishment_id", establishmentId)
       .order("name", { ascending: true })
       .limit(2000);
 
@@ -196,6 +202,7 @@ async function fetchProductsWithUnitFallbacks(supabase: any, debug: boolean) {
   const { data: allData, error: allErr } = await supabase
     .from("products")
     .select("*")
+    .eq("establishment_id", establishmentId)
     .order("name", { ascending: true })
     .limit(2000);
 
@@ -211,6 +218,7 @@ async function fetchProductsWithUnitFallbacks(supabase: any, debug: boolean) {
   const { data, error } = await supabase
     .from("products")
     .select("id, name, category, sku, shelf_life_days")
+    .eq("establishment_id", establishmentId)
     .order("name", { ascending: true })
     .limit(2000);
 
@@ -255,7 +263,25 @@ export async function GET() {
       return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
     }
 
-    const { data: rows, error } = await fetchProductsWithUnitFallbacks(supabase, debug);
+    let establishmentId: string;
+    try {
+      establishmentId = await getActiveEstablishmentIdOrThrow();
+    } catch (tenantError: any) {
+      return NextResponse.json(
+        {
+          error:
+            tenantError?.message ??
+            "Não foi possível identificar a empresa ativa.",
+        },
+        { status: 403 }
+      );
+    }
+
+    const { data: rows, error } = await fetchProductsWithUnitFallbacks(
+      supabase,
+      debug,
+      establishmentId
+    );
 
     if (error) {
       // ✅ melhora: RLS geralmente dá 42501 (insufficient_privilege) ou mensagem "permission denied"

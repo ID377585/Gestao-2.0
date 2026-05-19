@@ -53,6 +53,10 @@ function getTenantName(params: {
   return params.establishment_id ? params.establishment_id.slice(0, 8) : "Sem empresa";
 }
 
+function isCompanyCreationEnabled() {
+  return process.env.GESTIFY_ENABLE_COMPANY_CREATION === "true";
+}
+
 export default async function EmpresasPage() {
   const [currentTenant, tenants] = await Promise.all([
     getCurrentTenant(),
@@ -62,7 +66,8 @@ export default async function EmpresasPage() {
   const activeTenants = tenants.filter(
     (tenant) => tenant.is_active && tenant.establishment_id
   );
-  const canCreateCompany = currentTenant?.role === "admin";
+  const canCreateCompany =
+    isCompanyCreationEnabled() && currentTenant?.role === "admin";
 
   const subscriptionByEstablishmentId = new Map<
     string,
@@ -131,7 +136,7 @@ export default async function EmpresasPage() {
             <ShieldCheck className="h-5 w-5 text-blue-500" />
           </div>
           <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
-            Apenas administradores podem criar novas empresas nesta fase.
+            A criação de novas empresas fica liberada apenas em ambiente controlado.
           </p>
         </div>
       </section>

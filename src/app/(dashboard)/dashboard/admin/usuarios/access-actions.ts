@@ -2,9 +2,9 @@ import "server-only";
 
 import { revalidatePath } from "next/cache";
 import {
-  createSupabaseServerClient,
   getSupabaseAdminClient,
 } from "@/lib/supabase/server";
+import { assertActiveTenantRole } from "@/lib/tenant/guards";
 import type { ProfileRole } from "./actions";
 import {
   ACCESS_MODULES,
@@ -25,43 +25,12 @@ export type {
 const ALL_MODULE_KEYS = ACCESS_MODULES.map((module) => module.key);
 
 async function getContextOrThrow() {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    throw new Error("Não autenticado.");
-  }
-
-  const { data: membership, error: membershipError } = await supabase
-    .from("establishment_memberships")
-    .select("establishment_id, role, is_active, created_at")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (membershipError) {
-    console.error("Erro ao buscar membership do usuário atual:", membershipError);
-    throw new Error("Erro ao validar acesso do usuário atual.");
-  }
-
-  if (!membership) {
-    throw new Error("Sem acesso ao estabelecimento.");
-  }
-
-  if (membership.role !== "admin" && membership.role !== "operacao") {
-    throw new Error("Apenas admin ou operação podem gerenciar acessos.");
-  }
+  const tenant = await assertActiveTenantRole(["admin", "operacao"]);
 
   return {
-    userId: user.id,
-    establishment_id: String(membership.establishment_id),
-    role: String(membership.role),
+    userId: tenant.userId,
+    establishment_id: tenant.establishmentId,
+    role: tenant.role,
   };
 }
 

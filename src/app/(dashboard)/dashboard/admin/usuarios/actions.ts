@@ -3,10 +3,10 @@
 import { dispatchCollaboratorCreatedOrUpdatedAlert } from "@/lib/alerts/domain-triggers";
 import { revalidatePath } from "next/cache";
 import {
-  createSupabaseServerClient,
   getSupabaseAdminClient,
 } from "@/lib/supabase/server";
 import { assertBillingLimitAvailable } from "@/lib/billing/limits";
+import { assertActiveTenantRole } from "@/lib/tenant/guards";
 
 export type ProfileRole =
   | "admin"
@@ -53,43 +53,12 @@ function getSupabaseAdmin() {
 }
 
 async function getContextOrThrow() {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    throw new Error("Não autenticado.");
-  }
-
-  const { data: membership, error: membershipError } = await supabase
-    .from("establishment_memberships")
-    .select("establishment_id, role, is_active, created_at")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (membershipError) {
-    console.error("Erro ao buscar membership do usuário atual:", membershipError);
-    throw new Error("Erro ao validar acesso do usuário atual.");
-  }
-
-  if (!membership) {
-    throw new Error("Sem acesso ao estabelecimento.");
-  }
-
-  if (membership.role !== "admin" && membership.role !== "operacao") {
-    throw new Error("Apenas admin ou operação podem gerenciar usuários.");
-  }
+  const tenant = await assertActiveTenantRole(["admin", "operacao"]);
 
   return {
-    userId: user.id,
-    establishment_id: String(membership.establishment_id),
-    role: String(membership.role),
+    userId: tenant.userId,
+    establishment_id: tenant.establishmentId,
+    role: tenant.role,
   };
 }
 

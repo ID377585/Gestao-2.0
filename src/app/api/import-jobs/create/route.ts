@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 const MAX_FILE_SIZE = 40 * 1024 * 1024; // 40 MB
 
 export async function POST(req: NextRequest) {
   try {
+    let tenantContext: Awaited<ReturnType<typeof getAuthenticatedTenantUserOrThrow>>;
+    try {
+      tenantContext = await getAuthenticatedTenantUserOrThrow();
+    } catch (error: any) {
+      return NextResponse.json(
+        { error: error?.message ?? "Não autenticado." },
+        { status: error?.message === "Não autenticado." ? 401 : 403 }
+      );
+    }
+
+    const { user, tenant } = tenantContext;
     const body = await req.json();
 
     const {
@@ -14,7 +26,6 @@ export async function POST(req: NextRequest) {
       fileSize,
       mimeType,
       category,
-      uploadedBy,
       establishmentId,
     } = body ?? {};
 
@@ -25,10 +36,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!establishmentId) {
+    const requestedEstablishmentId = String(establishmentId ?? "").trim();
+    const activeEstablishmentId = tenant.establishmentId;
+
+    if (requestedEstablishmentId && requestedEstablishmentId !== activeEstablishmentId) {
       return NextResponse.json(
-        { error: "establishmentId é obrigatório." },
-        { status: 400 }
+        { error: "Estabelecimento inválido para a empresa ativa." },
+        { status: 403 }
       );
     }
 
@@ -46,18 +60,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const normalizedFilePath = String(filePath ?? "").trim();
+    if (!normalizedFilePath.startsWith(`${activeEstablishmentId}/`)) {
+      return NextResponse.json(
+        { error: "Caminho do arquivo inválido para a empresa ativa." },
+        { status: 403 }
+      );
+    }
+
     const { data, error } = await supabaseAdmin
       .from("import_jobs")
       .insert({
         file_name: fileName,
         file_url: fileUrl,
-        file_path: filePath,
+        file_path: normalizedFilePath,
         file_size: Number(fileSize),
         mime_type: mimeType,
         category: category || "Importado PDF",
-        uploaded_by: uploadedBy || null,
-        created_by: uploadedBy || null,
-        establishment_id: establishmentId,
+        uploaded_by: user.id,
+        created_by: user.id,
+        establishment_id: activeEstablishmentId,
         status: "uploaded",
         total_pages: 0,
         detected_recipes: 0,

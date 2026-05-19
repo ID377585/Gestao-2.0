@@ -19,7 +19,17 @@ function normalizePlanSlug(value: string) {
   return "starter";
 }
 
+function isCompanyCreationEnabled() {
+  return process.env.GESTIFY_ENABLE_COMPANY_CREATION === "true";
+}
+
 export async function createCompanyFromAdminPageAction(formData: FormData) {
+  if (!isCompanyCreationEnabled()) {
+    throw new Error(
+      "Criação administrativa de empresas ainda não está liberada neste ambiente."
+    );
+  }
+
   const supabase = await createSupabaseServerClient();
 
   const {

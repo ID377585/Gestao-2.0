@@ -29,6 +29,28 @@ function normalize(value: unknown) {
     .trim();
 }
 
+async function assertProductBelongsToEstablishment(params: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  establishmentId: string;
+  productId: string;
+}) {
+  const { data, error } = await params.supabase
+    .from("products")
+    .select("id")
+    .eq("id", params.productId)
+    .eq("establishment_id", params.establishmentId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Erro ao validar produto do vínculo fiscal:", error);
+    throw new Error("Não foi possível validar o produto selecionado.");
+  }
+
+  if (!data?.id) {
+    throw new Error("Produto inválido para a empresa ativa.");
+  }
+}
+
 export async function listFiscalProductMappingsAction() {
   const { supabase, establishmentId } = await getContext();
 
@@ -80,6 +102,12 @@ export async function saveFiscalProductMappingAction(formData: FormData) {
   if (!xmlCode && !xmlEan && !xmlDescription) {
     throw new Error("Informe ao menos código, EAN ou descrição do item XML.");
   }
+
+  await assertProductBelongsToEstablishment({
+    supabase,
+    establishmentId,
+    productId,
+  });
 
   const payload = {
     establishment_id: establishmentId,

@@ -24,15 +24,68 @@ function safeNum(v: any): number {
 }
 
 function uuid() {
-  // Node 18+ tem crypto.randomUUID()
   return crypto.randomUUID();
 }
 
-/**
- * Retorna:
- * - establishmentId (origem padrão do usuário logado)
- * - lista de estabelecimentos acessíveis (para escolher destino)
- */
+async function getAuthenticatedUserId(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+) {
+  const { data: authData, error: authErr } = await supabase.auth.getUser();
+  const userId = normalizeId(authData?.user?.id);
+
+  if (authErr || !userId) {
+    throw new Error("Usuário não autenticado.");
+  }
+
+  return userId;
+}
+
+async function assertActiveMembershipForEstablishment(params: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  userId: string;
+  establishmentId: string;
+}) {
+  const { data, error } = await params.supabase
+    .from("memberships")
+    .select("id")
+    .eq("user_id", params.userId)
+    .eq("establishment_id", params.establishmentId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Erro ao validar membership:", error);
+    throw new Error("Não foi possível validar acesso ao estabelecimento.");
+  }
+
+  if (!data?.id) {
+    throw new Error("Você não tem acesso ao estabelecimento selecionado.");
+  }
+}
+
+async function assertProductBelongsToEstablishment(params: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  establishmentId: string;
+  productId: string;
+}) {
+  const { data, error } = await params.supabase
+    .from("products")
+    .select("id")
+    .eq("id", params.productId)
+    .eq("establishment_id", params.establishmentId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Erro ao validar produto da transferência:", error);
+    throw new Error("Não foi possível validar o produto selecionado.");
+  }
+
+  if (!data?.id) {
+    throw new Error("Produto inválido para o estabelecimento de origem.");
+  }
+}
+
 export async function getTransferOptions() {
   const supabase = await createSupabaseServerClient();
 
@@ -43,13 +96,7 @@ export async function getTransferOptions() {
     throw new Error("Estabelecimento não encontrado para o usuário atual.");
   }
 
-  // 1) pega todos establishments vinculados ao usuário (via memberships)
-  const { data: authData, error: authErr } = await supabase.auth.getUser();
-  const userId = normalizeId(authData?.user?.id);
-
-  if (authErr || !userId) {
-    throw new Error("Usuário não autenticado.");
-  }
+  const userId = await getAuthenticatedUserId(supabase);
 
   const { data: memberships, error: memErr } = await supabase
     .from("memberships")
@@ -70,10 +117,8 @@ export async function getTransferOptions() {
     ),
   );
 
-  // fallback: ao menos o establishment do membership atual
   if (establishmentIds.length === 0) establishmentIds.push(establishmentId);
 
-  // 2) carrega dados dos establishments acessíveis
   const { data: establishments, error: estErr } = await supabase
     .from("establishments")
     .select("id, name")
@@ -94,16 +139,13 @@ export async function getTransferOptions() {
   };
 }
 
-/**
- * Autocomplete de produtos (filtrado por establishment_id)
- */
 export async function searchProductsForTransfer(params: {
   establishmentId: string;
   q: string;
   limit?: number;
 }) {
   const supabase = await createSupabaseServerClient();
-  await getActiveMembershipOrRedirect();
+  const userId = await getAuthenticatedUserId(supabase);
 
   const establishmentId = normalizeId(params.establishmentId);
   const q = String(params.q ?? "").trim();
@@ -111,7 +153,12 @@ export async function searchProductsForTransfer(params: {
 
   if (!establishmentId) return [];
 
-  // se query vazia, retorna lista curta
+  await assertActiveMembershipForEstablishment({
+    supabase,
+    userId,
+    establishmentId,
+  });
+
   const query = q.length > 0 ? q : "";
 
   let db = supabase
@@ -123,7 +170,6 @@ export async function searchProductsForTransfer(params: {
     .limit(limit);
 
   if (query) {
-    // ilike para autocomplete
     db = db.ilike("name", `%${query}%`);
   }
 
@@ -141,27 +187,15 @@ export async function searchProductsForTransfer(params: {
   }));
 }
 
-/* =====================================================================================
-   PASSO 4 — HISTÓRICO / LISTAGEM + DETALHE (compatível com inventory_movements)
-===================================================================================== */
-
 export type TransferListItem = {
   transfer_id: string;
   created_at: string;
-
-  // produto
   product_id: string;
   product_name: string | null;
-
   unit_label: string;
   qty: number;
-
-  // "OUT" = enviado / "IN" = recebido
   direction: "IN" | "OUT";
-
-  // contraparte (destino no OUT / origem no IN)
   counterparty_establishment_id: string | null;
-
   reason: string | null;
   movement_id: string;
   details: any;
@@ -183,8 +217,8 @@ type RawMoveRow = {
 export async function listTransfers(params?: {
   q?: string;
   direction?: "IN" | "OUT" | "ALL";
-  from?: string; // YYYY-MM-DD
-  to?: string; // YYYY-MM-DD
+  from?: string;
+  to?: string;
   limit?: number;
 }): Promise<TransferListItem[]> {
   const supabase = await createSupabaseServerClient();
@@ -230,8 +264,6 @@ export async function listTransfers(params?: {
   }
 
   const rows = (data ?? []) as RawMoveRow[];
-
-  // Agrupa por transfer_id salvo em details.transfer_id
   const groups = new Map<string, RawMoveRow>();
 
   for (const r of rows) {
@@ -247,13 +279,10 @@ export async function listTransfers(params?: {
   for (const [transfer_id, r] of groups.entries()) {
     const toId = safeStr((r as any)?.details?.to_establishment_id);
     const fromId = safeStr((r as any)?.details?.from_establishment_id);
-
     const counterparty = r.direction === "OUT" ? toId ?? null : fromId ?? null;
-
     const productName =
       r?.products?.name ?? safeStr((r as any)?.details?.product_name) ?? null;
 
-    // filtro textual simples (pós-query)
     if (q) {
       const hay = [
         transfer_id,
@@ -314,7 +343,6 @@ export async function getTransferDetails(
   const tId = safeStr(transferId);
   if (!tId) return null;
 
-  // Abordagem robusta: busca últimos 500 e filtra em memória pelo details.transfer_id
   const { data, error } = await supabase
     .from("inventory_movements")
     .select(
@@ -375,15 +403,6 @@ export async function getTransferDetails(
   };
 }
 
-/* =====================================================================================
-   PASSO 5 — CRIAR TRANSFERÊNCIA (OUT na origem + IN no destino)
-   ✅ Melhorias:
-   - Tipagem exportada (CreateTransferInput) compatível com o Modal (items[])
-   - Validação de permissão no destino (membership ativo)
-   - Mantém validação de saldo (getAvailableStock)
-   - Cria OUT/IN com o MESMO transfer_id
-===================================================================================== */
-
 export type CreateTransferInput = {
   to_establishment_id: string;
   notes?: string | null;
@@ -418,7 +437,6 @@ async function getAvailableStock(params: {
   return Number(data?.qty_balance ?? 0);
 }
 
-
 export async function createTransfer(
   params: CreateTransferInput,
 ): Promise<{ ok: true; transfer_id: string }> {
@@ -431,6 +449,14 @@ export async function createTransfer(
     throw new Error("Estabelecimento de origem não encontrado para o usuário atual.");
   }
 
+  const created_by = await getAuthenticatedUserId(supabase);
+
+  await assertActiveMembershipForEstablishment({
+    supabase,
+    userId: created_by,
+    establishmentId: from_establishment_id,
+  });
+
   const to_establishment_id = normalizeId(params?.to_establishment_id);
   if (!to_establishment_id) {
     throw new Error("Destino inválido.");
@@ -439,6 +465,12 @@ export async function createTransfer(
   if (to_establishment_id === from_establishment_id) {
     throw new Error("Origem e destino não podem ser iguais.");
   }
+
+  await assertActiveMembershipForEstablishment({
+    supabase,
+    userId: created_by,
+    establishmentId: to_establishment_id,
+  });
 
   const items = (params?.items ?? [])
     .map((it) => ({
@@ -456,42 +488,17 @@ export async function createTransfer(
     throw new Error("Informe ao menos 1 item válido.");
   }
 
-  // valida destino: precisa estar na lista acessível pelo usuário (mantém o que já estava)
-  const opts = await getTransferOptions();
-  const allowed = (opts.establishments ?? []).some((e) => e.id === to_establishment_id);
-  if (!allowed) {
-    throw new Error("Você não tem acesso ao estabelecimento de destino selecionado.");
-  }
-
-  // ✅ melhoria: garante também que existe membership ativo no destino
-  const { data: authData, error: authErr } = await supabase.auth.getUser();
-  const created_by = normalizeId(authData?.user?.id);
-
-  if (authErr || !created_by) {
-    throw new Error("Usuário não autenticado.");
-  }
-
-  const { data: memTo, error: memToErr } = await supabase
-    .from("memberships")
-    .select("id")
-    .eq("user_id", created_by)
-    .eq("establishment_id", to_establishment_id)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (memToErr) {
-    console.error("Erro ao validar membership destino:", memToErr);
-    throw new Error("Não foi possível validar permissão no destino.");
-  }
-
-  if (!memTo?.id) {
-    throw new Error("Você não tem acesso ao estabelecimento de destino selecionado.");
+  for (const item of items) {
+    await assertProductBelongsToEstablishment({
+      supabase,
+      establishmentId: from_establishment_id,
+      productId: item.product_id,
+    });
   }
 
   const transfer_id = uuid();
   const notes = safeStr(params?.notes) ?? null;
 
-  // 1) valida estoque na ORIGEM para todos os itens
   for (const it of items) {
     const available = await getAvailableStock({
       supabase,
@@ -507,7 +514,6 @@ export async function createTransfer(
     }
   }
 
-  // 2) cria lançamentos OUT (origem) e IN (destino)
   const outRows = items.map((it) => ({
     establishment_id: from_establishment_id,
     product_id: it.product_id,
@@ -542,7 +548,6 @@ export async function createTransfer(
     },
   }));
 
-  // transação “manual”: se falhar IN após OUT, tentamos reverter OUT
   const { error: outErr } = await supabase.from("inventory_movements").insert(outRows);
   if (outErr) {
     console.error("Erro ao inserir OUT:", outErr);
@@ -553,7 +558,6 @@ export async function createTransfer(
   if (inErr) {
     console.error("Erro ao inserir IN:", inErr);
 
-    // rollback best-effort: remove tudo da origem com esse transfer_id
     try {
       await supabase
         .from("inventory_movements")

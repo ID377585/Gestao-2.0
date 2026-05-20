@@ -689,6 +689,12 @@ function buildPrintHtml(
       maximumFractionDigits: 3,
     }).format(value || 0);
 
+    const formatQuantidadeUtilizada = (value: number) =>
+  new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  }).format(value || 0);
+
   const textoRendimentoCompleto = `Rende: ${quantidadeRendimento} ${textoPorcao} de ${formatPeso(
     pesoPorcaoKg
   )} ${unidadePesoPorcao} - Peso Receita Total: ${formatPeso(
@@ -734,7 +740,7 @@ function buildPrintHtml(
                       <td class="col-ingredient ingredient-name">${escapeHtml(
                         i.nome
                       )}</td>
-                      <td class="col-usage">${i.quantidadeUso} ${escapeHtml(
+                      <td class="col-usage">${formatQuantidadeUtilizada(i.quantidadeUso)} ${escapeHtml(
                         i.unidadeUso
                       )}</td>
                       <td class="col-price right">${formatCurrency(

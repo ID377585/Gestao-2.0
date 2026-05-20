@@ -1,12 +1,23 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
   try {
-    const { data, error } = await supabaseAdmin
+    const tenant = await getCurrentTenant();
+
+    if (!tenant?.establishmentId) {
+      return NextResponse.json(
+        { error: "Empresa ativa não encontrada." },
+        { status: 403 }
+      );
+    }
+
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase
       .from("suppliers")
       .select("id, razao_social, nome_fantasia, cnpj, ativo")
       .order("razao_social", { ascending: true });

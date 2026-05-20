@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { dispatchOverdueOrderAlerts } from "@/lib/alerts/domain-triggers";
+import { assertActiveTenantRole } from "@/lib/tenant/guards";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +19,6 @@ function isAuthorizedBySecret(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createSupabaseServerClient();
-
     let establishmentId: string | null = null;
 
     if (isAuthorizedBySecret(request)) {
@@ -32,42 +30,15 @@ export async function POST(request: Request) {
         ? String(body.establishmentId)
         : null;
     } else {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) {
+      try {
+        const tenant = await assertActiveTenantRole(["admin", "operacao"]);
+        establishmentId = tenant.establishmentId;
+      } catch (error: any) {
         return NextResponse.json(
-          { error: "Não autenticado." },
-          { status: 401 }
-        );
-      }
-
-      const { data: membership } = await supabase
-        .from("establishment_memberships")
-        .select("establishment_id, role, is_active, created_at")
-        .eq("user_id", user.id)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (!membership) {
-        return NextResponse.json(
-          { error: "Sem acesso ao estabelecimento." },
+          { error: error?.message ?? "Sem permissão para executar esta verificação." },
           { status: 403 }
         );
       }
-
-      if (!["admin", "operacao"].includes(String((membership as any).role ?? ""))) {
-        return NextResponse.json(
-          { error: "Sem permissão para executar esta verificação." },
-          { status: 403 }
-        );
-      }
-
-      establishmentId = String((membership as any).establishment_id ?? "");
     }
 
     if (!establishmentId) {

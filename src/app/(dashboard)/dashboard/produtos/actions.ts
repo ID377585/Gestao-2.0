@@ -701,6 +701,7 @@ export async function createProduct(formData: FormData) {
 export async function updateProduct(formData: FormData) {
   const { establishmentId, userId } = await getMembershipIds();
   const supabase = await createSupabaseServerClient();
+  const adminSupabase = getSupabaseAdminClient();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) {
@@ -851,36 +852,22 @@ export async function updateProduct(formData: FormData) {
 
   try {
     await ensureStockBalanceForProduct({
-      supabase,
-      establishmentId,
-      productId: id,
-      unitLabel: default_unit_label,
-    });
-
-    const { error: stockUpdateError } = await supabase
-      .from("stock_balances")
-      .update({
-        unit_label: default_unit_label,
-      })
-      .eq("establishment_id", establishmentId)
-      .eq("product_id", id);
-
-    if (stockUpdateError) {
-      redirectWithError(
-        "Produto atualizado, mas houve falha ao sincronizar a unidade no estoque.",
-      );
-    }
-
-    await ensureStockBalanceForProduct({
-      supabase,
+      supabase: adminSupabase,
       establishmentId,
       productId: id,
       unitLabel: default_unit_label,
     });
   } catch (stockError: any) {
-    redirectWithError(
-      stockError?.message ??
-        "Produto atualizado, mas houve falha ao sincronizar com o estoque.",
+    console.error(
+      "[products.update] produto atualizado, mas falhou ao sincronizar estoque",
+      safeJson({
+        productId: id,
+        establishmentId,
+        unitLabel: default_unit_label,
+        message: stockError?.message,
+        code: stockError?.code,
+        details: stockError?.details,
+      }),
     );
   }
 

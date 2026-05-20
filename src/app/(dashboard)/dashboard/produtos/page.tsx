@@ -93,7 +93,16 @@ function formatCurrency(value: number | null | undefined) {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  }).format(value);
+}
+
+function formatPriceInput(value: number | null | undefined) {
+  if (value == null) return "";
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
   }).format(value);
 }
 
@@ -414,14 +423,15 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                   </div>
 
                   <div className="space-y-2">
+                    <Label htmlFor="price">Preço / Custo padrão</Label>
                     <Input
                       id="price"
                       name="price"
                       type="text"
                       inputMode="decimal"
-                      pattern="^[0-9]+([,.][0-9]{1,5})?$"
-                      placeholder="0,00000"
-                      title="Informe o valor no formato 0,00000. Exemplo: 8,25583"
+                      pattern="^[0-9]+([,.][0-9]{1,4})?$"
+                      placeholder="0,0000"
+                      title="Informe o valor no formato 0,0000. Exemplo: 8,2558"
                     />
                   </div>
 
@@ -877,14 +887,14 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                                   <div className="space-y-2">
                                     <Label htmlFor={`price-${product.id}`}>Preço / Custo padrão</Label>
                                     <Input
-                                      id="price"
+                                      id={`price-${product.id}`}
                                       name="price"
-                      type="text"
-                      inputMode="decimal"
-                      pattern="^[0-9]+([,.][0-9]{1,5})?$"
-                      placeholder="0,00000"
-                      title="Informe o valor no formato 0,00000. Exemplo: 8,25583"
-                                      defaultValue={product.price ?? undefined}
+                                      type="text"
+                                      inputMode="decimal"
+                                      pattern="^[0-9]+([,.][0-9]{1,4})?$"
+                                      placeholder="0,0000"
+                                      title="Informe o valor no formato 0,0000. Exemplo: 8,2558"
+                                      defaultValue={formatPriceInput(product.price)}
                                     />
                                   </div>
 

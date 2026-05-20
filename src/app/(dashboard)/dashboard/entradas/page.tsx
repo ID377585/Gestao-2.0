@@ -497,20 +497,39 @@ export default function EntradasPage() {
       }
 
       if (suppliersRes.ok) {
-        const suppliersData = await suppliersRes.json();
+  const suppliersData = await suppliersRes.json();
 
-        const normalizedSuppliers = Array.isArray(suppliersData)
-          ? suppliersData.map((supplier: any) => ({
-              id: String(supplier.id),
-              name: String(supplier.name ?? ""),
-              document: supplier.document ? String(supplier.document) : null,
-            }))
-          : [];
+  const normalizedSuppliers = Array.isArray(suppliersData)
+    ? suppliersData
+        .map((supplier: any) => ({
+          id: String(supplier.id ?? ""),
+          name: String(
+            supplier.name ??
+              supplier.razaoSocial ??
+              supplier.razao_social ??
+              supplier.nomeFantasia ??
+              supplier.nome_fantasia ??
+              ""
+          ).trim(),
+          document: supplier.document
+            ? String(supplier.document)
+            : supplier.cnpj
+            ? String(supplier.cnpj)
+            : null,
+        }))
+        .filter((supplier) => supplier.id && supplier.name)
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
+    : [];
 
-        setSuppliers(normalizedSuppliers);
-      } else {
-        setSuppliers([]);
-      }
+  setSuppliers(normalizedSuppliers);
+} else {
+  console.error(
+    "Erro ao carregar fornecedores:",
+    suppliersRes.status,
+    await suppliersRes.text()
+  );
+  setSuppliers([]);
+}
 
       const normalizedEntries = Array.isArray(entriesRes)
         ? entriesRes.map(normalizeEntry)

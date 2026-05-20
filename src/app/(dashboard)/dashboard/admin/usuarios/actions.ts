@@ -231,6 +231,30 @@ async function deletePrimaryMembership(params: {
   }
 }
 
+async function getCollaboratorMembershipOrThrow(params: {
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>;
+  establishmentId: string;
+  userId: string;
+}) {
+  const { data, error } = await params.supabaseAdmin
+    .from("establishment_memberships")
+    .select("role, is_active")
+    .eq("establishment_id", params.establishmentId)
+    .eq("user_id", params.userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Erro ao validar vínculo do usuário alvo:", error);
+    throw new Error("Não foi possível validar o vínculo do usuário.");
+  }
+
+  if (!data) {
+    throw new Error("Usuário não pertence à empresa ativa.");
+  }
+
+  return data as { role: string | null; is_active: boolean | null };
+}
+
 export async function listCollaborators(): Promise<Collaborator[]> {
   const ctx = await getContextOrThrow();
   const supabaseAdmin = getSupabaseAdmin();
@@ -562,12 +586,11 @@ export async function updateCollaborator(formData: FormData) {
     .eq("id", userId)
     .maybeSingle();
 
-  const { data: beforeMembership } = await supabaseAdmin
-    .from("establishment_memberships")
-    .select("role, is_active")
-    .eq("establishment_id", establishmentId)
-    .eq("user_id", userId)
-    .maybeSingle();
+  const beforeMembership = await getCollaboratorMembershipOrThrow({
+    supabaseAdmin,
+    establishmentId,
+    userId,
+  });
 
   if (ctx.userId === userId && !is_active) {
     throw new Error("Você não pode desativar seu próprio acesso.");
@@ -664,6 +687,12 @@ export async function resetCollaboratorPassword(formData: FormData) {
     throw new Error("A nova senha deve ter pelo menos 6 caracteres.");
   }
 
+  await getCollaboratorMembershipOrThrow({
+    supabaseAdmin,
+    establishmentId: ctx.establishment_id,
+    userId,
+  });
+
   const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
     password,
   });
@@ -709,17 +738,11 @@ export async function toggleCollaboratorStatus(formData: FormData) {
     .eq("id", userId)
     .maybeSingle();
 
-  const { data: currentMembership, error: currentMembershipErr } = await supabaseAdmin
-    .from("establishment_memberships")
-    .select("role, is_active")
-    .eq("establishment_id", establishmentId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (currentMembershipErr) {
-    console.error("Erro ao buscar membership atual:", currentMembershipErr);
-    throw new Error("Não foi possível consultar o acesso atual do usuário.");
-  }
+  const currentMembership = await getCollaboratorMembershipOrThrow({
+    supabaseAdmin,
+    establishmentId,
+    userId,
+  });
 
   const role = normalizeRole(String(currentMembership?.role ?? "producao"));
 
@@ -775,6 +798,12 @@ export async function deleteCollaborator(formData: FormData) {
   if (ctx.userId === userId) {
     throw new Error("Você não pode excluir seu próprio usuário.");
   }
+
+  await getCollaboratorMembershipOrThrow({
+    supabaseAdmin,
+    establishmentId,
+    userId,
+  });
 
   const { data: targetProfile } = await supabaseAdmin
     .from("profiles")

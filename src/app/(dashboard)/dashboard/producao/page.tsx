@@ -78,6 +78,15 @@ type KdsCollaborator = {
 
 type Membership = Awaited<ReturnType<typeof getMyMembership>>;
 
+const PRODUCTION_COLLABORATOR_ROLES = [
+  "admin",
+  "operacao",
+  "producao",
+  "estoque",
+  "fiscal",
+  "entrega",
+];
+
 function getMembershipScopeId(membership: Membership) {
   const scope = membership.establishmentId ?? membership.unitId;
 
@@ -91,6 +100,36 @@ function getMembershipScopeId(membership: Membership) {
 function assertProductionLeader(role: Role | null) {
   if (!["admin", "operacao"].includes(String(role))) {
     throw new Error("Somente líderes podem alterar a produção.");
+  }
+}
+
+async function assertProductionCollaboratorForEstablishment(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  establishmentId: string,
+  userId: string
+) {
+  const collaboratorId = String(userId ?? "").trim();
+
+  if (!collaboratorId) {
+    throw new Error("Colaborador não informado.");
+  }
+
+  const { data, error } = await supabase
+    .from("memberships")
+    .select("user_id")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", collaboratorId)
+    .eq("is_active", true)
+    .in("role", PRODUCTION_COLLABORATOR_ROLES)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Erro ao validar colaborador da produção:", error);
+    throw new Error("Erro ao validar colaborador.");
+  }
+
+  if (!data) {
+    throw new Error("Colaborador não encontrado nesta empresa.");
   }
 }
 
@@ -196,7 +235,7 @@ const PRODUCTION_COLUMNS: {
   },
 ];
 
-async function getKdsProductionItems(): Promise<KdsItem[]> {
+async function getKdsProductionItems(establishmentId: string): Promise<KdsItem[]> {
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
@@ -223,15 +262,60 @@ async function getKdsProductionItems(): Promise<KdsItem[]> {
     return [];
   }
 
-  return (data ?? []) as KdsItem[];
+  const items = (data ?? []) as KdsItem[];
+  const orderIds = Array.from(
+    new Set(items.map((item) => item.order_id).filter(Boolean))
+  );
+
+  if (orderIds.length === 0) {
+    return [];
+  }
+
+  const { data: orders, error: ordersError } = await supabase
+    .from("orders")
+    .select("id")
+    .in("id", orderIds)
+    .eq("establishment_id", establishmentId);
+
+  if (ordersError) {
+    console.error("Erro ao filtrar produção por empresa:", ordersError);
+    return [];
+  }
+
+  const allowedOrderIds = new Set((orders ?? []).map((order) => order.id));
+
+  return items.filter((item) => allowedOrderIds.has(item.order_id));
 }
 
-async function listKdsCollaboratorsServer(): Promise<KdsCollaborator[]> {
+async function listKdsCollaboratorsServer(
+  establishmentId: string
+): Promise<KdsCollaborator[]> {
   const supabase = await createSupabaseServerClient();
 
+  const { data: memberships, error: membershipsError } = await supabase
+    .from("memberships")
+    .select("user_id")
+    .eq("establishment_id", establishmentId)
+    .eq("is_active", true)
+    .in("role", PRODUCTION_COLLABORATOR_ROLES);
+
+  if (membershipsError) {
+    console.error("Erro ao listar memberships da produção:", membershipsError);
+    return [];
+  }
+
+  const userIds = Array.from(
+    new Set((memberships ?? []).map((membership) => membership.user_id))
+  ).filter(Boolean);
+
+  if (userIds.length === 0) {
+    return [];
+  }
+
   const { data, error } = await supabase
-    .from("kds_collaborators")
+    .from("profiles")
     .select("id, full_name, sector")
+    .in("id", userIds)
     .order("full_name", { ascending: true });
 
   if (error) {
@@ -256,6 +340,11 @@ async function assignProductionCollaboratorServer(
     supabase,
     orderItemId,
     establishmentId
+  );
+  await assertProductionCollaboratorForEstablishment(
+    supabase,
+    establishmentId,
+    userId
   );
 
   const { error } = await supabase
@@ -348,13 +437,13 @@ async function moveOrderToNextStageFromProductionServer(orderId: string) {
 }
 
 export default async function ProducaoPage() {
-  const [membership, orders, productionItems, collaborators] =
-    await Promise.all([
-      getMyMembership(),
-      listOrders(),
-      getKdsProductionItems(),
-      listKdsCollaboratorsServer(),
-    ]);
+  const membership = await getMyMembership();
+  const establishmentId = getMembershipScopeId(membership);
+  const [orders, productionItems, collaborators] = await Promise.all([
+    listOrders(),
+    getKdsProductionItems(establishmentId),
+    listKdsCollaboratorsServer(establishmentId),
+  ]);
 
   const role = membership.role as Role | null;
   const collaboratorOptions: KdsCollaborator[] = collaborators ?? [];

@@ -1,7 +1,9 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  legacyInsert,
+  legacySelect,
+  legacyUpdate,
   toBoolean,
   toIsoString,
   toNumber,
@@ -30,15 +32,13 @@ function normalizeBankAccount(row: Record<string, unknown>): BankAccount {
 }
 
 export async function listBankAccounts(): Promise<BankAccount[]> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query
     .order("banco", { ascending: true })
     .order("nome_conta", { ascending: true });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar as contas bancarias");
-  return (data ?? []).map((row) =>
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
     normalizeBankAccount(row as Record<string, unknown>)
   );
 }
@@ -46,10 +46,8 @@ export async function listBankAccounts(): Promise<BankAccount[]> {
 export async function getBankAccountById(
   id: string
 ): Promise<BankAccount | null> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query
     .eq("id", id)
     .maybeSingle();
 
@@ -58,10 +56,9 @@ export async function getBankAccountById(
 }
 
 export async function createBankAccount(input: CreateBankAccountInput) {
-  const supabase = getLegacySupabase();
   const id = createLegacyId();
 
-  const { error } = await supabase.from(TABLE_NAME).insert({
+  const { error } = await legacyInsert(TABLE_NAME, {
     id,
     banco: input.banco,
     nome_conta: input.nomeConta,
@@ -86,10 +83,8 @@ export async function updateBankAccount(params: {
   saldoInicial: number;
   ativo: boolean;
 }) {
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
+  const { error } = await (
+    await legacyUpdate(TABLE_NAME, {
       banco: params.banco,
       nome_conta: params.nomeConta,
       agencia: params.agencia ?? "",
@@ -98,7 +93,7 @@ export async function updateBankAccount(params: {
       saldo_inicial: Number(params.saldoInicial ?? 0),
       ativo: params.ativo,
     })
-    .eq("id", params.id);
+  ).eq("id", params.id);
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar a conta bancaria");
 }

@@ -1,7 +1,9 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  legacyInsert,
+  legacySelect,
+  legacyUpdate,
   toIsoString,
   toNumber,
   toText,
@@ -26,8 +28,7 @@ function normalizeGoal(row: Record<string, unknown>): BuyerMonthlyGoal {
 }
 
 export async function listBuyerMonthlyGoals(referenceMonth?: string) {
-  const supabase = getLegacySupabase();
-  let query = supabase.from(TABLE_NAME).select("*");
+  let { query } = await legacySelect(TABLE_NAME);
 
   if (referenceMonth) {
     query = query.eq("reference_month", referenceMonth);
@@ -38,7 +39,7 @@ export async function listBuyerMonthlyGoals(referenceMonth?: string) {
     .order("buyer", { ascending: true });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar as metas mensais");
-  return (data ?? []).map((row) => normalizeGoal(row as Record<string, unknown>));
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => normalizeGoal(row as Record<string, unknown>));
 }
 
 export async function createBuyerMonthlyGoal(input: {
@@ -50,10 +51,9 @@ export async function createBuyerMonthlyGoal(input: {
   notes?: string;
   createdBy?: string;
 }) {
-  const supabase = getLegacySupabase();
   const id = createLegacyId();
 
-  const { error } = await supabase.from(TABLE_NAME).insert({
+  const { error } = await legacyInsert(TABLE_NAME, {
     id,
     buyer: input.buyer,
     reference_month: input.referenceMonth,
@@ -75,16 +75,14 @@ export async function updateBuyerMonthlyGoal(params: {
   targetReviewsDone: number;
   notes?: string;
 }) {
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
+  const { error } = await (
+    await legacyUpdate(TABLE_NAME, {
       target_contacts: Number(params.targetContacts || 0),
       target_actions_completed: Number(params.targetActionsCompleted || 0),
       target_reviews_done: Number(params.targetReviewsDone || 0),
       notes: params.notes ?? "",
     })
-    .eq("id", params.id);
+  ).eq("id", params.id);
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar a meta mensal");
 }

@@ -1,7 +1,9 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  legacyInsert,
+  legacySelect,
+  legacyUpdate,
   toBoolean,
   toIsoString,
   toText,
@@ -26,14 +28,11 @@ function normalizeCostCenter(row: Record<string, unknown>): CostCenter {
 }
 
 export async function listCostCenters(): Promise<CostCenter[]> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
-    .order("nome", { ascending: true });
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query.order("nome", { ascending: true });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar os centros de custo");
-  return (data ?? []).map((row) =>
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
     normalizeCostCenter(row as Record<string, unknown>)
   );
 }
@@ -41,10 +40,8 @@ export async function listCostCenters(): Promise<CostCenter[]> {
 export async function getCostCenterById(
   id: string
 ): Promise<CostCenter | null> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query
     .eq("id", id)
     .maybeSingle();
 
@@ -53,10 +50,9 @@ export async function getCostCenterById(
 }
 
 export async function createCostCenter(input: CreateCostCenterInput) {
-  const supabase = getLegacySupabase();
   const id = createLegacyId();
 
-  const { error } = await supabase.from(TABLE_NAME).insert({
+  const { error } = await legacyInsert(TABLE_NAME, {
     id,
     codigo: input.codigo,
     nome: input.nome,
@@ -75,16 +71,14 @@ export async function updateCostCenter(params: {
   descricao?: string;
   ativo: boolean;
 }) {
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
+  const { error } = await (
+    await legacyUpdate(TABLE_NAME, {
       codigo: params.codigo,
       nome: params.nome,
       descricao: params.descricao ?? "",
       ativo: params.ativo,
     })
-    .eq("id", params.id);
+  ).eq("id", params.id);
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar o centro de custo");
 }

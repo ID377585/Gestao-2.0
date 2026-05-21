@@ -2,6 +2,7 @@
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isLegacyTableMissingError } from "@/lib/legacy/supabase";
+import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
 
 export type DashboardInvoiceEntry = {
   id: string;
@@ -87,11 +88,18 @@ function isMissingTableOrColumnError(error: unknown) {
 }
 
 async function trySelectFromTable(tableName: string) {
+  const tenant = await getCurrentTenant();
+
+  if (!tenant?.establishmentId) {
+    return [];
+  }
+
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
     .from(tableName)
     .select("*")
+    .eq("establishment_id", tenant.establishmentId)
     .limit(500);
 
   if (error) {

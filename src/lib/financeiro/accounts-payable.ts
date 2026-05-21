@@ -1,7 +1,10 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  getLegacyTenantScope,
+  legacyInsert,
+  legacySelect,
+  legacyUpdate,
   toIsoString,
   toNumber,
   toText,
@@ -180,7 +183,7 @@ function invoiceEntryToPayable(entry: InvoiceEntryFallback): AccountPayable {
 }
 
 async function listInvoiceEntriesAsPayables(): Promise<AccountPayable[]> {
-  const supabase = getLegacySupabase();
+  const { supabase, establishmentId } = await getLegacyTenantScope();
 
   const possibleTables = [
     "invoice_entries",
@@ -197,6 +200,7 @@ async function listInvoiceEntriesAsPayables(): Promise<AccountPayable[]> {
       const { data, error } = await supabase
         .from(tableName)
         .select("*")
+        .eq("establishment_id", establishmentId)
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -230,18 +234,14 @@ async function listInvoiceEntriesAsPayables(): Promise<AccountPayable[]> {
 }
 
 async function listAccountsPayableFromTable(): Promise<AccountPayable[]> {
-  const supabase = getLegacySupabase();
-
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
-    .order("created_at", { ascending: false });
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   if (error) {
     throw error;
   }
 
-  return (data ?? [])
+  return ((data ?? []) as Record<string, unknown>[])
     .map((row) => normalizePayable(row as Record<string, unknown>))
     .map((item) => ({
       ...item,
@@ -287,12 +287,9 @@ export async function getAccountPayableById(
     return payables.find((item) => item.id === id) ?? null;
   }
 
-  const supabase = getLegacySupabase();
-
   try {
-    const { data, error } = await supabase
-      .from(TABLE_NAME)
-      .select("*")
+    const { query } = await legacySelect(TABLE_NAME);
+    const { data, error } = await query
       .eq("id", id)
       .maybeSingle();
 
@@ -330,10 +327,9 @@ export async function createAccountPayable(input: {
   centroCusto?: string;
   observacoes?: string;
 }) {
-  const supabase = getLegacySupabase();
   const id = createLegacyId();
 
-  const { error } = await supabase.from(TABLE_NAME).insert({
+  const { error } = await legacyInsert(TABLE_NAME, {
     id,
     origem: input.origem ?? "manual",
     origem_id: input.origemId ?? "",
@@ -385,11 +381,8 @@ export async function updateAccountPayableStatus(
     );
   }
 
-  const supabase = getLegacySupabase();
-
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
+  const { error } = await (
+    await legacyUpdate(TABLE_NAME, {
       status_pagamento: input.statusPagamento,
       data_pagamento: input.dataPagamento ?? "",
       forma_pagamento: input.formaPagamento ?? "",
@@ -397,7 +390,7 @@ export async function updateAccountPayableStatus(
       bank_account_name: input.bankAccountName ?? "",
       observacoes: input.observacoes ?? "",
     })
-    .eq("id", id);
+  ).eq("id", id);
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar o status da conta a pagar");
 }
@@ -419,11 +412,8 @@ export async function updateAccountPayableDetails(params: {
     );
   }
 
-  const supabase = getLegacySupabase();
-
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
+  const { error } = await (
+    await legacyUpdate(TABLE_NAME, {
       descricao: params.descricao ?? "",
       vencimento: params.vencimento ?? "",
       numero_documento: params.numeroDocumento ?? "",
@@ -433,7 +423,7 @@ export async function updateAccountPayableDetails(params: {
       centro_custo: params.centroCusto ?? "",
       observacoes: params.observacoes ?? "",
     })
-    .eq("id", params.id);
+  ).eq("id", params.id);
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar a conta a pagar");
 

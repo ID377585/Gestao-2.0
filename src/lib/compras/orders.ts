@@ -1,7 +1,9 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  legacyInsert,
+  legacySelect,
+  legacyUpdate,
   toIsoString,
   toNumber,
   toText,
@@ -78,7 +80,6 @@ export async function createPurchaseOrder(
     throw new Error("O pedido precisa ter ao menos um item.");
   }
 
-  const supabase = getLegacySupabase();
   const orderId = createLegacyId();
   const numero = generateOrderNumber();
 
@@ -93,7 +94,7 @@ export async function createPurchaseOrder(
 
   const valorTotal = items.reduce((acc, item) => acc + item.valorTotal, 0);
 
-  const { error: orderError } = await supabase.from(ORDERS_TABLE).insert({
+  const orderQuery = await legacyInsert(ORDERS_TABLE, {
     id: orderId,
     numero,
     supplier_id: input.supplierId.trim(),
@@ -109,6 +110,7 @@ export async function createPurchaseOrder(
     created_by: input.createdBy.trim(),
     created_by_name: input.createdByName.trim(),
   });
+  const { error: orderError } = await orderQuery;
 
   assertSupabaseSuccess(orderError, "Nao foi possivel criar o pedido de compra");
 
@@ -125,9 +127,8 @@ export async function createPurchaseOrder(
     observacao: item.observacao?.trim() ?? "",
   }));
 
-  const { error: itemsError } = await supabase
-    .from(ORDER_ITEMS_TABLE)
-    .insert(itemsPayload);
+  const itemsQuery = await legacyInsert(ORDER_ITEMS_TABLE, itemsPayload);
+  const { error: itemsError } = await itemsQuery;
 
   assertSupabaseSuccess(itemsError, "Nao foi possivel salvar os itens do pedido");
   return orderId;
@@ -188,34 +189,28 @@ export async function createOrderFromRequest(
     items: normalizedItems,
   });
 
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from("purchase_requests")
-    .update({ status: "convertida" })
-    .eq("id", request.id);
+  const updateRequestQuery = await legacyUpdate("purchase_requests", {
+    status: "convertida",
+  });
+  const { error } = await updateRequestQuery.eq("id", request.id);
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar a solicitacao de compra");
   return orderId;
 }
 
 export async function listPurchaseOrders(): Promise<PurchaseOrder[]> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(ORDERS_TABLE)
-    .select("*")
-    .order("created_at", { ascending: false });
+  const { query } = await legacySelect(ORDERS_TABLE);
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar os pedidos de compra");
-  return (data ?? []).map((row) => normalizeOrder(row as Record<string, unknown>));
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => normalizeOrder(row as Record<string, unknown>));
 }
 
 export async function getPurchaseOrderById(
   id: string
 ): Promise<PurchaseOrder | null> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(ORDERS_TABLE)
-    .select("*")
+  const { query } = await legacySelect(ORDERS_TABLE);
+  const { data, error } = await query
     .eq("id", id)
     .maybeSingle();
 
@@ -226,15 +221,13 @@ export async function getPurchaseOrderById(
 export async function listPurchaseOrderItems(
   purchaseOrderId: string
 ): Promise<PurchaseOrderItem[]> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(ORDER_ITEMS_TABLE)
-    .select("*")
+  const { query } = await legacySelect(ORDER_ITEMS_TABLE);
+  const { data, error } = await query
     .eq("purchase_order_id", purchaseOrderId)
     .order("produto_nome", { ascending: true });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar os itens do pedido");
-  return (data ?? []).map((row) =>
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
     normalizeOrderItem(row as Record<string, unknown>)
   );
 }
@@ -243,11 +236,8 @@ export async function updatePurchaseOrderStatus(
   id: string,
   status: PurchaseOrderStatus
 ): Promise<void> {
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from(ORDERS_TABLE)
-    .update({ status })
-    .eq("id", id);
+  const { query } = await legacyUpdate(ORDERS_TABLE, { status });
+  const { error } = await query.eq("id", id);
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar o status do pedido");
 }

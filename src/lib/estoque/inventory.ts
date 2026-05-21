@@ -1,6 +1,9 @@
 import {
   assertSupabaseSuccess,
-  getLegacySupabase,
+  getLegacyTenantScope,
+  legacySelect,
+  legacyUpdate,
+  legacyUpsert,
   toBoolean,
 } from "@/lib/legacy/supabase";
 import { moveStock } from "@/lib/stock/moveStock";
@@ -27,11 +30,13 @@ export async function applyPurchaseReceiptToInventory(params: {
   observacoes?: string;
   vencimento?: string;
 }): Promise<FinalizeGoodsReceiptResult> {
-  const supabase = getLegacySupabase();
+  const { supabase, establishmentId } = await getLegacyTenantScope();
+  const { query: liveReceiptQuery } = await legacySelect(
+    RECEIPTS_TABLE,
+    "id, inventory_applied, inventory_pending_link, status, valor_total_recebido"
+  );
 
-  const { data: liveReceipt, error: receiptError } = await supabase
-    .from(RECEIPTS_TABLE)
-    .select("id, inventory_applied, inventory_pending_link, status, valor_total_recebido")
+  const { data: liveReceipt, error: receiptError } = await liveReceiptQuery
     .eq("id", params.receipt.id)
     .maybeSingle();
 
@@ -57,16 +62,15 @@ export async function applyPurchaseReceiptToInventory(params: {
     const quantidadeRecebida = Number(item.quantidadeRecebida ?? 0);
     const valorUnitarioReal = Number(item.valorUnitarioReal ?? 0);
 
-    const { error: itemError } = await supabase
-      .from(RECEIPT_ITEMS_TABLE)
-      .update({
-        quantidade_recebida: quantidadeRecebida,
-        valor_unitario_real: valorUnitarioReal,
-        lote: item.lote ?? "",
-        validade: item.validade ?? "",
-        divergencia: Boolean(item.divergencia),
-        motivo_divergencia: item.motivoDivergencia ?? "",
-      })
+    const { query: itemUpdateQuery } = await legacyUpdate(RECEIPT_ITEMS_TABLE, {
+      quantidade_recebida: quantidadeRecebida,
+      valor_unitario_real: valorUnitarioReal,
+      lote: item.lote ?? "",
+      validade: item.validade ?? "",
+      divergencia: Boolean(item.divergencia),
+      motivo_divergencia: item.motivoDivergencia ?? "",
+    });
+    const { error: itemError } = await itemUpdateQuery
       .eq("id", item.id)
       .eq("receipt_id", params.receipt.id);
 
@@ -85,6 +89,7 @@ export async function applyPurchaseReceiptToInventory(params: {
       .from("products")
       .select("id, establishment_id, default_unit_label")
       .eq("id", item.productId)
+      .eq("establishment_id", establishmentId)
       .maybeSingle();
 
     if (productError || !product) {
@@ -99,7 +104,7 @@ export async function applyPurchaseReceiptToInventory(params: {
 
     try {
       await moveStock(supabase as never, {
-        establishment_id: product.establishment_id,
+        establishment_id: establishmentId,
         product_id: product.id,
         unit_label: item.unidade || product.default_unit_label || "UN",
         qty_delta: quantidadeRecebida,
@@ -117,30 +122,35 @@ export async function applyPurchaseReceiptToInventory(params: {
     }
   }
 
-  const { error: receiptUpdateError } = await supabase
-    .from(RECEIPTS_TABLE)
-    .update({
-      status: params.receiptStatus,
-      observacoes: params.observacoes ?? params.receipt.observacoes ?? "",
-      valor_total_recebido: params.valorTotalRecebido,
-      inventory_applied: true,
-      inventory_pending_link: inventoryPendingLink,
-      payable_created: params.valorTotalRecebido > 0,
-      finalized_at: new Date().toISOString(),
-    })
-    .eq("id", params.receipt.id);
+  const { query: receiptUpdateQuery } = await legacyUpdate(RECEIPTS_TABLE, {
+    status: params.receiptStatus,
+    observacoes: params.observacoes ?? params.receipt.observacoes ?? "",
+    valor_total_recebido: params.valorTotalRecebido,
+    inventory_applied: true,
+    inventory_pending_link: inventoryPendingLink,
+    payable_created: params.valorTotalRecebido > 0,
+    finalized_at: new Date().toISOString(),
+  });
+  const { error: receiptUpdateError } = await receiptUpdateQuery.eq(
+    "id",
+    params.receipt.id
+  );
 
   assertSupabaseSuccess(receiptUpdateError, "Nao foi possivel finalizar o recebimento");
 
-  const { error: orderUpdateError } = await supabase
-    .from(ORDERS_TABLE)
-    .update({ status: params.orderStatus })
-    .eq("id", params.order.id);
+  const { query: orderUpdateQuery } = await legacyUpdate(ORDERS_TABLE, {
+    status: params.orderStatus,
+  });
+  const { error: orderUpdateError } = await orderUpdateQuery.eq(
+    "id",
+    params.order.id
+  );
 
   assertSupabaseSuccess(orderUpdateError, "Nao foi possivel atualizar o pedido de compra");
 
   if (params.valorTotalRecebido > 0) {
-    const { error: payableError } = await supabase.from(PAYABLES_TABLE).upsert(
+    const payableQuery = await legacyUpsert(
+      PAYABLES_TABLE,
       {
         id: params.receipt.id,
         origem: "recebimento",
@@ -160,6 +170,7 @@ export async function applyPurchaseReceiptToInventory(params: {
       },
       { onConflict: "id" }
     );
+    const { error: payableError } = await payableQuery;
 
     assertSupabaseSuccess(payableError, "Nao foi possivel gerar a conta a pagar do recebimento");
   }

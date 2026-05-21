@@ -1,7 +1,9 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  legacySelect,
+  legacyUpdate,
+  legacyUpsert,
   toBoolean,
   toIsoString,
   toNumber,
@@ -95,8 +97,7 @@ function normalizeMoney(value: string) {
 export async function listBankReconciliationEntries(
   bankAccountId?: string
 ): Promise<BankReconciliationEntry[]> {
-  const supabase = getLegacySupabase();
-  let query = supabase.from(TABLE_NAME).select("*");
+  let { query } = await legacySelect(TABLE_NAME);
 
   if (bankAccountId) {
     query = query.eq("bank_account_id", bankAccountId);
@@ -104,7 +105,7 @@ export async function listBankReconciliationEntries(
 
   const { data, error } = await query.order("data", { ascending: false });
   assertSupabaseSuccess(error, "Nao foi possivel listar os lancamentos bancarios");
-  return (data ?? []).map((row) => normalizeEntry(row as Record<string, unknown>));
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => normalizeEntry(row as Record<string, unknown>));
 }
 
 export async function createBankReconciliationEntry(input: {
@@ -118,13 +119,13 @@ export async function createBankReconciliationEntry(input: {
   origemId?: string;
   observacoes?: string;
 }) {
-  const supabase = getLegacySupabase();
   const id =
     input.origem === "financeiro" && input.origemId
       ? `${input.tipo}_${input.origemId}`
       : createLegacyId();
 
-  const { error } = await supabase.from(TABLE_NAME).upsert(
+  const { error } = await legacyUpsert(
+    TABLE_NAME,
     {
       id,
       bank_account_id: input.bankAccountId,
@@ -223,14 +224,12 @@ export async function markReconciliationEntry(params: {
   conciliado: boolean;
   observacoes?: string;
 }) {
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
+  const { error } = await (
+    await legacyUpdate(TABLE_NAME, {
       conciliado: params.conciliado,
       observacoes: params.observacoes ?? "",
     })
-    .eq("id", params.id);
+  ).eq("id", params.id);
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar a conciliacao");
 }
@@ -242,10 +241,8 @@ export async function linkReconciliationToFinance(params: {
   financeLabel: string;
   observacoes?: string;
 }) {
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
+  const { error } = await (
+    await legacyUpdate(TABLE_NAME, {
       conciliado: true,
       matched_finance_type: params.financeType,
       matched_finance_id: params.financeId,
@@ -253,7 +250,7 @@ export async function linkReconciliationToFinance(params: {
       matched_at: new Date().toISOString(),
       observacoes: params.observacoes ?? "",
     })
-    .eq("id", params.id);
+  ).eq("id", params.id);
 
   assertSupabaseSuccess(error, "Nao foi possivel vincular o lancamento ao financeiro");
 
@@ -274,10 +271,8 @@ export async function unlinkReconciliationFromFinance(params: {
   const currentEntries = await listBankReconciliationEntries();
   const currentEntry = currentEntries.find((item) => item.id === params.id);
 
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
+  const { error } = await (
+    await legacyUpdate(TABLE_NAME, {
       conciliado: false,
       matched_finance_type: "",
       matched_finance_id: "",
@@ -285,7 +280,7 @@ export async function unlinkReconciliationFromFinance(params: {
       matched_at: "",
       observacoes: params.observacoes ?? "",
     })
-    .eq("id", params.id);
+  ).eq("id", params.id);
 
   assertSupabaseSuccess(error, "Nao foi possivel desfazer a conciliacao");
 

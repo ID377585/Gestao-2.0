@@ -58,6 +58,7 @@ import {
   type ProductOption as MatcherProductOption,
   type Ingrediente as MatcherIngrediente,
   normalizeUnit,
+  syncIngredienteWithProduct,
   toNumber,
 } from "@/app/dashboard/fichas-tecnicas/lib/ingredient-product-matcher";
 import { detectAllergens } from "@/app/dashboard/fichas-tecnicas/utils/allergens";
@@ -501,6 +502,43 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
 
     createdAt: String(raw.created_at ?? ""),
     updatedAt: String(raw.updated_at ?? ""),
+  };
+}
+
+function syncFichaCostsWithCatalog(
+  ficha: FichaTecnica,
+  productsCatalog: ProductOption[]
+): FichaTecnica {
+  if (!productsCatalog.length || !ficha.ingredientes.length) {
+    return ficha;
+  }
+
+  const productById = new Map(
+    productsCatalog.map((product) => [String(product.id), product])
+  );
+
+  const ingredientesAtualizados = ficha.ingredientes.map((ingrediente) => {
+    if (!ingrediente.productId) return ingrediente;
+
+    const product = productById.get(String(ingrediente.productId));
+
+    if (!product) return ingrediente;
+
+    return syncIngredienteWithProduct(ingrediente, product);
+  });
+
+  const precificacao = calcularPrecificacaoPlanilha({
+    ingredientes: ingredientesAtualizados,
+    rendimento: ficha.rendimento,
+    pesoFinal: Number(ficha.correctionFactorGrams || 0),
+  });
+
+  return {
+    ...ficha,
+    ingredientes: ingredientesAtualizados,
+    custoTotal: precificacao.custoTotal,
+    custoPorPorcao: precificacao.custoPorPorcao,
+    precoVenda: precificacao.precoVendaReal || precificacao.precoVendaDesejavel,
   };
 }
 
@@ -1610,13 +1648,16 @@ export default function FichasTecnicasPage() {
       setLoadingProducts(true);
       setLoadingFichas(true);
 
-      const [, fichasRes] = await Promise.all([
+      const [productsCatalog, fichasRes] = await Promise.all([
         loadProductsCatalog(false),
         listTechnicalSheets(),
       ]);
 
       const fichasNormalizadas = Array.isArray(fichasRes)
-        ? fichasRes.map(normalizeFichaFromDb).sort(compareFichaByNome)
+        ? fichasRes
+            .map(normalizeFichaFromDb)
+            .map((ficha) => syncFichaCostsWithCatalog(ficha, productsCatalog))
+            .sort(compareFichaByNome)
         : [];
 
       setFichasTecnicas(fichasNormalizadas);
@@ -1652,7 +1693,21 @@ export default function FichasTecnicasPage() {
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
-      void loadProductsCatalog(false);
+      void loadProductsCatalog(false).then((productsCatalog) => {
+        if (!productsCatalog.length) return;
+
+        setFichasTecnicas((prev) =>
+          prev.map((ficha) => syncFichaCostsWithCatalog(ficha, productsCatalog))
+        );
+
+        setFichaSelecionada((prev) =>
+          prev ? syncFichaCostsWithCatalog(prev, productsCatalog) : prev
+        );
+
+        setFichaEditando((prev) =>
+          prev ? syncFichaCostsWithCatalog(prev, productsCatalog) : prev
+        );
+      });
     }, 30000);
 
     return () => window.clearInterval(intervalId);

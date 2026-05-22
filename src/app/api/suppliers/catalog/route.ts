@@ -20,6 +20,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("suppliers")
       .select("id, razao_social, nome_fantasia, cnpj, ativo")
+      .eq("establishment_id", tenant.establishmentId)
       .order("razao_social", { ascending: true });
 
     if (error) {

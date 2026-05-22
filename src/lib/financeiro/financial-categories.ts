@@ -1,7 +1,9 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  legacyInsert,
+  legacySelect,
+  legacyUpdate,
   toBoolean,
   toIsoString,
   toText,
@@ -28,15 +30,13 @@ function normalizeCategory(row: Record<string, unknown>): FinancialCategory {
 }
 
 export async function listFinancialCategories(): Promise<FinancialCategory[]> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query
     .order("grupo", { ascending: true })
     .order("categoria", { ascending: true });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar as categorias financeiras");
-  return (data ?? []).map((row) =>
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
     normalizeCategory(row as Record<string, unknown>)
   );
 }
@@ -44,10 +44,8 @@ export async function listFinancialCategories(): Promise<FinancialCategory[]> {
 export async function getFinancialCategoryById(
   id: string
 ): Promise<FinancialCategory | null> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query
     .eq("id", id)
     .maybeSingle();
 
@@ -58,10 +56,9 @@ export async function getFinancialCategoryById(
 export async function createFinancialCategory(
   input: CreateFinancialCategoryInput
 ) {
-  const supabase = getLegacySupabase();
   const id = createLegacyId();
 
-  const { error } = await supabase.from(TABLE_NAME).insert({
+  const { error } = await legacyInsert(TABLE_NAME, {
     id,
     codigo: input.codigo,
     grupo: input.grupo,
@@ -84,18 +81,15 @@ export async function updateFinancialCategory(params: {
   tipo: "receita" | "despesa" | "custo";
   ativo: boolean;
 }) {
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
-      codigo: params.codigo,
-      grupo: params.grupo,
-      categoria: params.categoria,
-      subcategoria: params.subcategoria ?? "",
-      tipo: params.tipo,
-      ativo: params.ativo,
-    })
-    .eq("id", params.id);
+  const { query } = await legacyUpdate(TABLE_NAME, {
+    codigo: params.codigo,
+    grupo: params.grupo,
+    categoria: params.categoria,
+    subcategoria: params.subcategoria ?? "",
+    tipo: params.tipo,
+    ativo: params.ativo,
+  });
+  const { error } = await query.eq("id", params.id);
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar a categoria financeira");
 }

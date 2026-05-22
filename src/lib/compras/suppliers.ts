@@ -1,7 +1,9 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  legacyInsert,
+  legacySelect,
+  legacyUpdate,
   toBoolean,
   toIsoString,
   toText,
@@ -143,42 +145,31 @@ function buildUpdatePayload(input: UpdateSupplierInput) {
 }
 
 export async function createSupplier(input: CreateSupplierInput): Promise<string> {
-  const supabase = getLegacySupabase();
-
   const payload = buildCreatePayload(input);
 
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .insert(payload)
-    .select("id")
-    .single();
+  const { error } = await legacyInsert(TABLE_NAME, payload);
 
   assertSupabaseSuccess(error, "Nao foi possivel salvar o fornecedor");
 
-  return String(data?.id ?? payload.id);
+  return String(payload.id);
 }
 
 export async function listSuppliers(): Promise<Supplier[]> {
-  const supabase = getLegacySupabase();
-
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
-    .order("razao_social", { ascending: true });
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query.order("razao_social", {
+    ascending: true,
+  });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar os fornecedores");
 
-  return (data ?? []).map((row) =>
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
     normalizeSupplier(row as Record<string, unknown>)
   );
 }
 
 export async function getSupplierById(id: string): Promise<Supplier | null> {
-  const supabase = getLegacySupabase();
-
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query
     .eq("id", id)
     .maybeSingle();
 
@@ -191,14 +182,10 @@ export async function updateSupplier(
   id: string,
   input: UpdateSupplierInput
 ): Promise<void> {
-  const supabase = getLegacySupabase();
-
   const payload = buildUpdatePayload(input);
 
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update(payload)
-    .eq("id", id);
+  const { query } = await legacyUpdate(TABLE_NAME, payload);
+  const { error } = await query.eq("id", id);
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar o fornecedor");
 }
@@ -207,15 +194,11 @@ export async function toggleSupplierStatus(
   id: string,
   ativo: boolean
 ): Promise<void> {
-  const supabase = getLegacySupabase();
-
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
-      ativo,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
+  const { query } = await legacyUpdate(TABLE_NAME, {
+    ativo,
+    updated_at: new Date().toISOString(),
+  });
+  const { error } = await query.eq("id", id);
 
   assertSupabaseSuccess(error, "Nao foi possivel atualizar o status do fornecedor");
 }

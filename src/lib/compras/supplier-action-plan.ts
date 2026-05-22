@@ -1,7 +1,9 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  legacyInsert,
+  legacySelect,
+  legacyUpdate,
   toIsoString,
   toText,
 } from "@/lib/legacy/supabase";
@@ -79,11 +81,8 @@ function normalizeScoreReviewItem(
 export async function listSupplierActionPlanItems(
   supplierId: string
 ): Promise<SupplierActionPlanItem[]> {
-  const supabase = getLegacySupabase();
-
-  const { data, error } = await supabase
-    .from(ACTION_PLAN_TABLE)
-    .select("*")
+  const { query } = await legacySelect(ACTION_PLAN_TABLE);
+  const { data, error } = await query
     .eq("supplier_id", supplierId)
     .order("created_at", { ascending: false });
 
@@ -92,7 +91,7 @@ export async function listSupplierActionPlanItems(
     "Nao foi possivel listar o plano de acao do fornecedor"
   );
 
-  return (data ?? []).map((row) =>
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
     normalizeActionPlanItem(row as Record<string, unknown>)
   );
 }
@@ -100,11 +99,8 @@ export async function listSupplierActionPlanItems(
 export async function listSupplierContactHistory(
   supplierId: string
 ): Promise<SupplierContactHistoryItem[]> {
-  const supabase = getLegacySupabase();
-
-  const { data, error } = await supabase
-    .from(CONTACT_HISTORY_TABLE)
-    .select("*")
+  const { query } = await legacySelect(CONTACT_HISTORY_TABLE);
+  const { data, error } = await query
     .eq("supplier_id", supplierId)
     .order("created_at", { ascending: false });
 
@@ -113,7 +109,7 @@ export async function listSupplierContactHistory(
     "Nao foi possivel listar o historico de contato do fornecedor"
   );
 
-  return (data ?? []).map((row) =>
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
     normalizeContactHistoryItem(row as Record<string, unknown>)
   );
 }
@@ -121,11 +117,8 @@ export async function listSupplierContactHistory(
 export async function listSupplierScoreReviews(
   supplierId: string
 ): Promise<SupplierScoreReviewItem[]> {
-  const supabase = getLegacySupabase();
-
-  const { data, error } = await supabase
-    .from(SCORE_REVIEW_TABLE)
-    .select("*")
+  const { query } = await legacySelect(SCORE_REVIEW_TABLE);
+  const { data, error } = await query
     .eq("supplier_id", supplierId)
     .order("created_at", { ascending: false });
 
@@ -134,7 +127,7 @@ export async function listSupplierScoreReviews(
     "Nao foi possivel listar as reavaliacoes do fornecedor"
   );
 
-  return (data ?? []).map((row) =>
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
     normalizeScoreReviewItem(row as Record<string, unknown>)
   );
 }
@@ -150,11 +143,10 @@ export async function createSupplierActionPlanItem(input: {
   assignedTo?: string;
   createdBy?: string;
 }): Promise<string> {
-  const supabase = getLegacySupabase();
   const id = createLegacyId();
   const now = new Date().toISOString();
 
-  const { error } = await supabase.from(ACTION_PLAN_TABLE).insert({
+  const { error } = await legacyInsert(ACTION_PLAN_TABLE, {
     id,
     supplier_id: input.supplierId,
     supplier_name: input.supplierName,
@@ -185,11 +177,10 @@ export async function createSupplierContactHistory(input: {
   nextFollowUpDate?: string;
   createdBy?: string;
 }): Promise<string> {
-  const supabase = getLegacySupabase();
   const id = createLegacyId();
   const now = new Date().toISOString();
 
-  const { error } = await supabase.from(CONTACT_HISTORY_TABLE).insert({
+  const { error } = await legacyInsert(CONTACT_HISTORY_TABLE, {
     id,
     supplier_id: input.supplierId,
     supplier_name: input.supplierName,
@@ -218,11 +209,10 @@ export async function createSupplierScoreReview(input: {
   notes?: string;
   createdBy?: string;
 }): Promise<string> {
-  const supabase = getLegacySupabase();
   const id = createLegacyId();
   const now = new Date().toISOString();
 
-  const { error } = await supabase.from(SCORE_REVIEW_TABLE).insert({
+  const { error } = await legacyInsert(SCORE_REVIEW_TABLE, {
     id,
     supplier_id: input.supplierId,
     supplier_name: input.supplierName,
@@ -246,15 +236,11 @@ export async function updateSupplierActionPlanStatus(input: {
   id: string;
   status: SupplierActionPlanItem["status"];
 }): Promise<void> {
-  const supabase = getLegacySupabase();
-
-  const { error } = await supabase
-    .from(ACTION_PLAN_TABLE)
-    .update({
-      status: input.status,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", input.id);
+  const { query } = await legacyUpdate(ACTION_PLAN_TABLE, {
+    status: input.status,
+    updated_at: new Date().toISOString(),
+  });
+  const { error } = await query.eq("id", input.id);
 
   assertSupabaseSuccess(
     error,
@@ -266,15 +252,11 @@ export async function updateSupplierScoreReviewStatus(input: {
   id: string;
   status: SupplierScoreReviewItem["status"];
 }): Promise<void> {
-  const supabase = getLegacySupabase();
-
-  const { error } = await supabase
-    .from(SCORE_REVIEW_TABLE)
-    .update({
-      status: input.status,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", input.id);
+  const { query } = await legacyUpdate(SCORE_REVIEW_TABLE, {
+    status: input.status,
+    updated_at: new Date().toISOString(),
+  });
+  const { error } = await query.eq("id", input.id);
 
   assertSupabaseSuccess(
     error,

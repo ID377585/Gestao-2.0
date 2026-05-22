@@ -1,7 +1,8 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  legacyInsert,
+  legacySelect,
   toIsoString,
   toText,
 } from "@/lib/legacy/supabase";
@@ -40,10 +41,9 @@ export async function createPurchaseHistoryEntry(input: {
   relatedEntityId?: string;
   createdBy?: string;
 }) {
-  const supabase = getLegacySupabase();
   const id = createLegacyId();
 
-  const { error } = await supabase.from(TABLE_NAME).insert({
+  const { error } = await legacyInsert(TABLE_NAME, {
     id,
     entity_type: input.entityType,
     entity_id: input.entityId,
@@ -63,25 +63,24 @@ export async function listPurchaseHistory(params: {
   entityType: PurchaseHistoryEntityType;
   entityId: string;
 }) {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query
     .eq("entity_type", params.entityType)
     .eq("entity_id", params.entityId)
     .order("created_at", { ascending: false });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar o historico de compras");
-  return (data ?? []).map((row) => normalizeEntry(row as Record<string, unknown>));
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+    normalizeEntry(row as Record<string, unknown>)
+  );
 }
 
 export async function listAllPurchaseHistory() {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
-    .order("created_at", { ascending: false });
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar a auditoria de compras");
-  return (data ?? []).map((row) => normalizeEntry(row as Record<string, unknown>));
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+    normalizeEntry(row as Record<string, unknown>)
+  );
 }

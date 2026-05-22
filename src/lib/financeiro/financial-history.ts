@@ -1,7 +1,8 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  legacyInsert,
+  legacySelect,
   toIsoString,
   toText,
 } from "@/lib/legacy/supabase";
@@ -39,10 +40,9 @@ export async function createFinancialHistoryEntry(input: {
   reconciliationEntryId?: string;
   createdBy?: string;
 }) {
-  const supabase = getLegacySupabase();
   const id = createLegacyId();
 
-  const { error } = await supabase.from(TABLE_NAME).insert({
+  const { error } = await legacyInsert(TABLE_NAME, {
     id,
     finance_type: input.financeType,
     finance_id: input.financeId,
@@ -62,25 +62,24 @@ export async function listFinancialHistory(params: {
   financeType: "pagar" | "receber";
   financeId: string;
 }) {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query
     .eq("finance_type", params.financeType)
     .eq("finance_id", params.financeId)
     .order("created_at", { ascending: false });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar o historico financeiro");
-  return (data ?? []).map((row) => normalizeEntry(row as Record<string, unknown>));
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+    normalizeEntry(row as Record<string, unknown>)
+  );
 }
 
 export async function listAllFinancialHistory() {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
-    .order("created_at", { ascending: false });
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar a auditoria financeira");
-  return (data ?? []).map((row) => normalizeEntry(row as Record<string, unknown>));
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+    normalizeEntry(row as Record<string, unknown>)
+  );
 }

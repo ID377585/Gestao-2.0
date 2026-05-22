@@ -1,7 +1,8 @@
 import {
   assertSupabaseSuccess,
   createLegacyId,
-  getLegacySupabase,
+  legacyInsert,
+  legacySelect,
   toBoolean,
   toIsoString,
   toNumber,
@@ -73,10 +74,8 @@ function normalizeReceiptItem(row: Record<string, unknown>): GoodsReceiptItem {
 async function findReceiptByOrderId(
   purchaseOrderId: string
 ): Promise<GoodsReceipt | null> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(RECEIPTS_TABLE)
-    .select("*")
+  const { query } = await legacySelect(RECEIPTS_TABLE);
+  const { data, error } = await query
     .eq("purchase_order_id", purchaseOrderId)
     .limit(1)
     .maybeSingle();
@@ -129,10 +128,9 @@ export async function createReceiptFromOrder(
     throw new Error("O pedido nao possui itens.");
   }
 
-  const supabase = getLegacySupabase();
   const receiptId = createLegacyId();
 
-  const { error: receiptError } = await supabase.from(RECEIPTS_TABLE).insert({
+  const receiptQuery = await legacyInsert(RECEIPTS_TABLE, {
     id: receiptId,
     numero: generateReceiptNumber(),
     purchase_order_id: order.id,
@@ -151,6 +149,7 @@ export async function createReceiptFromOrder(
     payable_created: false,
     finalized_at: null,
   });
+  const { error: receiptError } = await receiptQuery;
 
   assertSupabaseSuccess(receiptError, "Nao foi possivel iniciar o recebimento");
 
@@ -171,23 +170,19 @@ export async function createReceiptFromOrder(
     observacao: item.observacao?.trim() ?? "",
   }));
 
-  const { error: itemsError } = await supabase
-    .from(RECEIPT_ITEMS_TABLE)
-    .insert(itemsPayload);
+  const itemsQuery = await legacyInsert(RECEIPT_ITEMS_TABLE, itemsPayload);
+  const { error: itemsError } = await itemsQuery;
 
   assertSupabaseSuccess(itemsError, "Nao foi possivel salvar os itens do recebimento");
   return receiptId;
 }
 
 export async function listGoodsReceipts(): Promise<GoodsReceipt[]> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(RECEIPTS_TABLE)
-    .select("*")
-    .order("created_at", { ascending: false });
+  const { query } = await legacySelect(RECEIPTS_TABLE);
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar os recebimentos");
-  return (data ?? []).map((row) =>
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
     normalizeReceipt(row as Record<string, unknown>)
   );
 }
@@ -195,10 +190,8 @@ export async function listGoodsReceipts(): Promise<GoodsReceipt[]> {
 export async function getGoodsReceiptById(
   id: string
 ): Promise<GoodsReceipt | null> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(RECEIPTS_TABLE)
-    .select("*")
+  const { query } = await legacySelect(RECEIPTS_TABLE);
+  const { data, error } = await query
     .eq("id", id)
     .maybeSingle();
 
@@ -209,15 +202,13 @@ export async function getGoodsReceiptById(
 export async function listGoodsReceiptItems(
   receiptId: string
 ): Promise<GoodsReceiptItem[]> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(RECEIPT_ITEMS_TABLE)
-    .select("*")
+  const { query } = await legacySelect(RECEIPT_ITEMS_TABLE);
+  const { data, error } = await query
     .eq("receipt_id", receiptId)
     .order("produto_nome", { ascending: true });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar os itens do recebimento");
-  return (data ?? []).map((row) =>
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
     normalizeReceiptItem(row as Record<string, unknown>)
   );
 }
@@ -310,15 +301,13 @@ export async function finalizeGoodsReceipt(
 export async function listGoodsReceiptsByOrderId(
   purchaseOrderId: string
 ): Promise<GoodsReceipt[]> {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(RECEIPTS_TABLE)
-    .select("*")
+  const { query } = await legacySelect(RECEIPTS_TABLE);
+  const { data, error } = await query
     .eq("purchase_order_id", purchaseOrderId)
     .order("created_at", { ascending: false });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar os recebimentos do pedido");
-  return (data ?? []).map((row) =>
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
     normalizeReceipt(row as Record<string, unknown>)
   );
 }

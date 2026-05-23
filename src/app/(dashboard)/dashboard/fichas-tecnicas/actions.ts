@@ -1508,7 +1508,7 @@ export async function duplicateTechnicalSheetAction(technicalSheetId: string) {
         net_weight,
         sort_order,
         created_at,
-        ingredients:technical_sheet_scale_ingredients (
+        ingredients:technical_sheet_scale_ingredients!technical_sheet_scale_ingredients_scale_id_fkey (
           id,
           scale_id,
           technical_sheet_scale_id,

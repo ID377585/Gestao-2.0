@@ -49,6 +49,10 @@ function csvEscape(value: string) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
 
+function getShoppingItemKey(category: string, itemId: string) {
+  return `${category}::${itemId}`;
+}
+
 function getProductNameFromRaw(product: any) {
   return String(
     product?.name ??
@@ -154,6 +158,7 @@ function resolveShoppingCategory(value: string) {
 
 export default function ListasDeComprasPage() {
   const [products, setProducts] = useState<ProductCatalog[]>([]);
+  const [notesByItemKey, setNotesByItemKey] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -240,13 +245,21 @@ export default function ListasDeComprasPage() {
     [groupedShoppingList]
   );
 
-  const handleExportCsv = useCallback(() => {
+  const handleNoteChange = useCallback((itemKey: string, value: string) => {
+    setNotesByItemKey((current) => ({
+      ...current,
+      [itemKey]: value,
+    }));
+  }, []);
+
+  const csvHref = useMemo(() => {
     const rows = [["Categoria / Produto", "Unidade de medida", "Anotações"]];
 
     groupedShoppingList.forEach((group) => {
       rows.push([group.label, "", ""]);
       group.items.forEach((item) => {
-        rows.push([item.name, item.unit, ""]);
+        const itemKey = getShoppingItemKey(group.label, item.id);
+        rows.push([item.name, item.unit, notesByItemKey[itemKey] ?? ""]);
       });
     });
 
@@ -254,18 +267,8 @@ export default function ListasDeComprasPage() {
       .map((row) => row.map((cell) => csvEscape(cell)).join(";"))
       .join("\n");
 
-    const blob = new Blob([`\uFEFF${csvContent}`], {
-      type: "text/csv;charset=utf-8;",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "lista-de-compras.csv";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }, [groupedShoppingList]);
+    return `data:text/csv;charset=utf-8,${encodeURIComponent(`\uFEFF${csvContent}`)}`;
+  }, [groupedShoppingList, notesByItemKey]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-sky-50 to-violet-100 p-6 print:bg-white print:p-0">
@@ -313,6 +316,19 @@ export default function ListasDeComprasPage() {
           .notes-cell {
             height: 24px !important;
           }
+
+          .shopping-note-input {
+            border: 0 !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            font-size: 10px !important;
+            color: #0f172a !important;
+          }
+
+          .shopping-note-input::placeholder {
+            color: transparent !important;
+          }
         }
       `}</style>
 
@@ -337,13 +353,13 @@ export default function ListasDeComprasPage() {
             >
               Imprimir A4
             </button>
-            <button
-              type="button"
-              onClick={handleExportCsv}
+            <a
+              href={csvHref}
+              download="lista-de-compras.csv"
               className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-slate-900/20 transition-all hover:-translate-y-0.5 hover:bg-slate-800"
             >
               Exportar CSV
-            </button>
+            </a>
             <Link
               href="/engenharia"
               className="rounded-xl bg-white/80 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg shadow-slate-900/10 transition-all hover:-translate-y-0.5 hover:bg-white"
@@ -390,15 +406,20 @@ export default function ListasDeComprasPage() {
                   (Carnes), Frutos do Mar (Pescados), Descartáveis, Embalagens e
                   Produtos de Limpeza.
                 </p>
+                <p className="screen-only text-xs text-slate-500">
+                  Preencha o campo Anotações com quantidade, observação ou qualquer
+                  detalhe necessário. Ao imprimir ou exportar CSV, os dados preenchidos
+                  e os campos vazios serão mantidos.
+                </p>
               </div>
 
               <div className="overflow-x-auto print:overflow-visible">
                 <table className="w-full min-w-[760px] border-collapse text-sm print:min-w-0">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-100 text-left text-slate-800">
-                      <th className="w-[56%] px-3 py-3">Categoria / Produto</th>
+                      <th className="w-[50%] px-3 py-3">Categoria / Produto</th>
                       <th className="w-[16%] px-3 py-3">Unidade de medida</th>
-                      <th className="w-[28%] px-3 py-3">Anotações</th>
+                      <th className="w-[34%] px-3 py-3">Anotações</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -416,15 +437,29 @@ export default function ListasDeComprasPage() {
                             </td>
                           </tr>
                         ) : (
-                          group.items.map((item) => (
-                            <tr key={`${group.label}-${item.id}`} className="border-b border-slate-200 bg-white/45">
-                              <td className="px-3 py-3 font-semibold text-slate-950">
-                                {item.name}
-                              </td>
-                              <td className="px-3 py-3 text-slate-800">{item.unit || "UN"}</td>
-                              <td className="notes-cell px-3 py-3 text-slate-800">&nbsp;</td>
-                            </tr>
-                          ))
+                          group.items.map((item) => {
+                            const itemKey = getShoppingItemKey(group.label, item.id);
+
+                            return (
+                              <tr key={itemKey} className="border-b border-slate-200 bg-white/45">
+                                <td className="px-3 py-3 font-semibold text-slate-950">
+                                  {item.name}
+                                </td>
+                                <td className="px-3 py-3 text-slate-800">{item.unit || "UN"}</td>
+                                <td className="notes-cell px-3 py-2 text-slate-800">
+                                  <input
+                                    type="text"
+                                    value={notesByItemKey[itemKey] ?? ""}
+                                    onChange={(event) =>
+                                      handleNoteChange(itemKey, event.currentTarget.value)
+                                    }
+                                    placeholder="Qtd / anotação"
+                                    className="shopping-note-input w-full rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 print:rounded-none"
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })
                         )}
                       </Fragment>
                     ))}

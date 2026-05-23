@@ -271,12 +271,12 @@ export default function ListasDeComprasPage() {
   }, [groupedShoppingList, notesByItemKey]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-sky-50 to-violet-100 p-6 print:block print:min-h-0 print:overflow-visible print:bg-white print:p-0">
+    <div className="shopping-print-root min-h-screen bg-gradient-to-br from-emerald-50 via-sky-50 to-violet-100 p-6 print:block print:min-h-0 print:overflow-visible print:bg-white print:p-0">
       <style jsx global>{`
         @media print {
           @page {
             size: A4 portrait;
-            margin: 10mm;
+            margin: 8mm;
           }
 
           html,
@@ -288,8 +288,34 @@ export default function ListasDeComprasPage() {
             background: #ffffff !important;
           }
 
-          .screen-only {
+          body * {
+            visibility: hidden !important;
+          }
+
+          .shopping-print-area,
+          .shopping-print-area * {
+            visibility: visible !important;
+          }
+
+          .shopping-print-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            display: block !important;
+            width: 100% !important;
+            min-height: auto !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+
+          .screen-only,
+          nav,
+          aside,
+          header,
+          button,
+          [role="navigation"] {
             display: none !important;
+            visibility: hidden !important;
           }
 
           .print-sheet {
@@ -318,7 +344,11 @@ export default function ListasDeComprasPage() {
             display: table-header-group !important;
           }
 
-          tbody,
+          tbody {
+            break-inside: auto !important;
+            page-break-inside: auto !important;
+          }
+
           tr {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
@@ -365,19 +395,19 @@ export default function ListasDeComprasPage() {
       `}</style>
 
       <div className="mx-auto max-w-7xl space-y-6 print:block print:max-w-none print:space-y-3 print:overflow-visible">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between print:block">
+        <div className="screen-only flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700 print:hidden">
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">
               Engenharia
             </p>
-            <h1 className="text-2xl font-bold text-slate-950 print:text-xl">Listas de Compras</h1>
-            <p className="mt-1 text-sm text-slate-600 print:text-xs">
+            <h1 className="text-2xl font-bold text-slate-950">Listas de Compras</h1>
+            <p className="mt-1 text-sm text-slate-600">
               Lista imprimível gerada a partir dos produtos ativos do catálogo,
               separada por categoria e pronta para anotações manuais.
             </p>
           </div>
 
-          <div className="screen-only flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3">
             <button
               type="button"
               onClick={() => window.print()}
@@ -430,13 +460,11 @@ export default function ListasDeComprasPage() {
               </div>
             </div>
 
-            <div className={`${glassCard} print-sheet`}>
+            <div className={`${glassCard} shopping-print-area print-sheet`}>
               <div className="mb-4 flex flex-col gap-1 print:mb-2">
                 <h2 className="text-xl font-bold text-slate-950 print:text-lg">Lista de Compras</h2>
                 <p className="text-sm text-slate-600 print:text-xs">
-                  Categorias: Secos, Bebidas, Hortifruti, Laticínios, Açougue
-                  (Carnes), Frutos do Mar (Pescados), Descartáveis, Embalagens e
-                  Produtos de Limpeza.
+                  Produtos ativos do catálogo separados por categoria.
                 </p>
                 <p className="screen-only text-xs text-slate-500">
                   Preencha o campo Anotações com quantidade, observação ou qualquer

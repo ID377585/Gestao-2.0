@@ -271,7 +271,7 @@ export default function ListasDeComprasPage() {
   }, [groupedShoppingList, notesByItemKey]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-sky-50 to-violet-100 p-6 print:bg-white print:p-0">
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-sky-50 to-violet-100 p-6 print:block print:min-h-0 print:overflow-visible print:bg-white print:p-0">
       <style jsx global>{`
         @media print {
           @page {
@@ -279,7 +279,12 @@ export default function ListasDeComprasPage() {
             margin: 10mm;
           }
 
+          html,
           body {
+            width: auto !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
             background: #ffffff !important;
           }
 
@@ -288,20 +293,32 @@ export default function ListasDeComprasPage() {
           }
 
           .print-sheet {
+            display: block !important;
+            width: 100% !important;
+            min-height: auto !important;
+            height: auto !important;
+            overflow: visible !important;
             border: 0 !important;
             box-shadow: none !important;
             background: #ffffff !important;
             padding: 0 !important;
+            break-inside: auto !important;
+            page-break-inside: auto !important;
           }
 
           table {
+            width: 100% !important;
+            border-collapse: collapse !important;
             font-size: 10px !important;
+            break-inside: auto !important;
+            page-break-inside: auto !important;
           }
 
           thead {
             display: table-header-group !important;
           }
 
+          tbody,
           tr {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
@@ -311,6 +328,21 @@ export default function ListasDeComprasPage() {
           td {
             border: 1px solid #cbd5e1 !important;
             padding: 5px 7px !important;
+          }
+
+          .shopping-category-row,
+          .shopping-category-cell {
+            background: #000000 !important;
+            color: #ffffff !important;
+            font-weight: 900 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          .shopping-category-cell {
+            font-size: 13px !important;
+            letter-spacing: 0.08em !important;
+            padding: 7px 9px !important;
           }
 
           .notes-cell {
@@ -332,7 +364,7 @@ export default function ListasDeComprasPage() {
         }
       `}</style>
 
-      <div className="mx-auto max-w-7xl space-y-6 print:max-w-none print:space-y-3">
+      <div className="mx-auto max-w-7xl space-y-6 print:block print:max-w-none print:space-y-3 print:overflow-visible">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between print:block">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700 print:hidden">
@@ -425,8 +457,11 @@ export default function ListasDeComprasPage() {
                   <tbody>
                     {groupedShoppingList.map((group) => (
                       <Fragment key={group.label}>
-                        <tr className="border-b border-slate-200 bg-slate-900 text-white">
-                          <td className="px-3 py-2 font-extrabold uppercase" colSpan={3}>
+                        <tr className="shopping-category-row border-b border-black bg-black text-white">
+                          <td
+                            className="shopping-category-cell px-3 py-3 text-sm font-black uppercase tracking-[0.12em] text-white"
+                            colSpan={3}
+                          >
                             {group.label}
                           </td>
                         </tr>

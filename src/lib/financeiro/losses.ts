@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase/client";
+import "server-only";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getActiveEstablishmentIdOrThrow } from "@/lib/tenant/guards";
 
 export type LossFilters = {
   dateFrom?: string;
@@ -34,24 +36,8 @@ function endOfDay(value: string) {
 export async function listLosses(
   filters: LossFilters = {}
 ): Promise<LossEntry[]> {
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw new Error("Não autenticado.");
-  }
-
-  const { data: membership, error: membershipError } = await supabase
-    .from("memberships")
-    .select("establishment_id")
-    .eq("user_id", user.id)
-    .single();
-
-  if (membershipError || !membership?.establishment_id) {
-    throw new Error("Estabelecimento não encontrado.");
-  }
+  const supabase = await createSupabaseServerClient();
+  const establishmentId = await getActiveEstablishmentIdOrThrow();
 
   let query = supabase
     .from("losses")
@@ -74,7 +60,7 @@ export async function listLosses(
         "stock_after",
       ].join(",")
     )
-    .eq("establishment_id", membership.establishment_id)
+    .eq("establishment_id", establishmentId)
     .order("created_at", { ascending: false });
 
   if (filters.dateFrom) {
@@ -87,15 +73,15 @@ export async function listLosses(
 
   const { data, error } = await query;
 
-if (error) {
-  console.error(error);
-  return [];
-}
+  if (error) {
+    console.error(error);
+    return [];
+  }
 
-const rows = data as any[];
+  const rows = data as any[];
 
-return rows.map((item) => ({
-  id: String(item.id),
+  return rows.map((item) => ({
+    id: String(item.id),
     created_at: String(item.created_at),
     product_id: String(item.product_id ?? ""),
     product_name: String(item.product_name ?? ""),

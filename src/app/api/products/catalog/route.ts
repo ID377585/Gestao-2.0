@@ -1,24 +1,24 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     const supabase = await createSupabaseServerClient();
-    const { membership } = await getActiveMembershipOrRedirect();
+    let tenantContext: Awaited<ReturnType<typeof getAuthenticatedTenantUserOrThrow>>;
 
-    const establishmentId = (membership as any)?.establishment_id as
-      | string
-      | undefined;
-
-    if (!establishmentId) {
+    try {
+      tenantContext = await getAuthenticatedTenantUserOrThrow();
+    } catch (error: any) {
       return NextResponse.json(
-        { error: "Estabelecimento não encontrado." },
-        { status: 400 }
+        { error: error?.message ?? "Estabelecimento não encontrado." },
+        { status: error?.message === "Não autenticado." ? 401 : 403 }
       );
     }
+
+    const establishmentId = tenantContext.tenant.establishmentId;
 
     const { data, error } = await supabase
       .from("products")

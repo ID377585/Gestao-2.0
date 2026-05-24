@@ -1,8 +1,7 @@
 "use server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { listAccountsPayable } from "@/lib/financeiro/accounts-payable";
-import { listAccountsReceivable } from "@/lib/financeiro/accounts-receivable";
+import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
 import { classifyDreBucket } from "@/lib/financeiro/dre-classification";
 import { listLosses, type LossEntry } from "@/lib/financeiro/losses";
 import {
@@ -196,6 +195,12 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function toText(value: unknown, fallback = "") {
+  if (typeof value === "string") return value;
+  if (value == null) return fallback;
+  return String(value);
+}
+
 function inRange(date: string | undefined, filters: DreFilters) {
   if (!date) return false;
 
@@ -317,11 +322,18 @@ function normalizeInvoiceEntry(raw: any): InvoiceEntry {
 
 async function readTableSafely(tableName: string) {
   try {
+    const tenant = await getCurrentTenant();
+
+    if (!tenant?.establishmentId) {
+      return [];
+    }
+
     const supabase = await createSupabaseServerClient();
 
     const { data, error } = await supabase
       .from(tableName)
       .select("*")
+      .eq("establishment_id", tenant.establishmentId)
       .limit(5000);
 
     if (error) {
@@ -337,6 +349,61 @@ async function readTableSafely(tableName: string) {
     console.warn(`[dre] Não foi possível ler a tabela ${tableName}.`, error);
     return [];
   }
+}
+
+function normalizeDrePayable(row: Record<string, unknown>): AccountPayable {
+  return {
+    id: toText(row.id),
+    origem: toText(row.origem, "compra") as AccountPayable["origem"],
+    origemId: toText(row.origem_id),
+    supplierId: toText(row.supplier_id),
+    supplierName: toText(row.supplier_name),
+    descricao: toText(row.descricao),
+    valor: toNumber(row.valor),
+    vencimento: toText(row.vencimento),
+    statusPagamento: toText(
+      row.status_pagamento,
+      "pendente"
+    ) as AccountPayable["statusPagamento"],
+    dataPagamento: toText(row.data_pagamento),
+    formaPagamento: toText(row.forma_pagamento),
+    bankAccountId: toText(row.bank_account_id),
+    bankAccountName: toText(row.bank_account_name),
+    numeroDocumento: toText(row.numero_documento),
+    categoriaId: toText(row.categoria_id),
+    categoria: toText(row.categoria),
+    centroCustoId: toText(row.centro_custo_id),
+    centroCusto: toText(row.centro_custo),
+    observacoes: toText(row.observacoes),
+    createdAt: toText(row.created_at),
+    updatedAt: toText(row.updated_at),
+  };
+}
+
+function normalizeDreReceivable(row: Record<string, unknown>): AccountReceivable {
+  return {
+    id: toText(row.id),
+    origem: toText(row.origem, "manual") as AccountReceivable["origem"],
+    origemId: toText(row.origem_id),
+    customerId: toText(row.customer_id),
+    customerName: toText(row.customer_name),
+    descricao: toText(row.descricao),
+    valor: toNumber(row.valor),
+    vencimento: toText(row.vencimento),
+    statusRecebimento: toText(
+      row.status_recebimento,
+      "pendente"
+    ) as AccountReceivable["statusRecebimento"],
+    dataRecebimento: toText(row.data_recebimento),
+    formaRecebimento: toText(row.forma_recebimento),
+    bankAccountId: toText(row.bank_account_id),
+    bankAccountName: toText(row.bank_account_name),
+    observacoes: toText(row.observacoes),
+    categoriaId: toText(row.categoria_id),
+    categoria: toText(row.categoria),
+    createdAt: toText(row.created_at),
+    updatedAt: toText(row.updated_at),
+  };
 }
 
 async function loadInvoiceEntries(filters: DreFilters): Promise<InvoiceEntry[]> {
@@ -368,7 +435,10 @@ async function loadInvoiceEntries(filters: DreFilters): Promise<InvoiceEntry[]> 
 
 async function safeListAccountsPayable() {
   try {
-    return await listAccountsPayable();
+    const rows = await readTableSafely("accounts_payable");
+    return rows.map((row) =>
+      normalizeDrePayable(row as Record<string, unknown>)
+    );
   } catch (error) {
     if (isMissingTableError(error)) {
       return [] as AccountPayable[];
@@ -381,7 +451,10 @@ async function safeListAccountsPayable() {
 
 async function safeListAccountsReceivable() {
   try {
-    return await listAccountsReceivable();
+    const rows = await readTableSafely("accounts_receivable");
+    return rows.map((row) =>
+      normalizeDreReceivable(row as Record<string, unknown>)
+    );
   } catch (error) {
     if (isMissingTableError(error)) {
       return [] as AccountReceivable[];

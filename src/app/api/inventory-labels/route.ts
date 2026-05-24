@@ -1,7 +1,10 @@
 // src/app/api/inventory-labels/route.ts
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import {
+  createSupabaseAdminClient,
+  createSupabaseServerClient,
+} from "@/lib/supabase/server";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 // ✅ NOVO: permite PATCH aqui também (evita 405 e mantém compatibilidade)
 import { revalidateInventoryLabel } from "@/app/(dashboard)/dashboard/etiquetas/actions";
@@ -70,83 +73,31 @@ function normalizeUnitLabel(input: any): string {
   return cleaned;
 }
 
-async function resolveEstablishmentId(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
-): Promise<{
+async function resolveTenantContext(): Promise<{
   establishmentId: string | null;
   userId: string | null;
   debug: string[];
 }> {
-  const debug: string[] = [];
-
   try {
-    const helperRes = await getActiveMembershipOrRedirect();
-    const membership = (helperRes as any)?.membership ?? helperRes;
+    const { user, tenant } = await getAuthenticatedTenantUserOrThrow();
 
-    const estId = normalizeId((membership as any)?.establishment_id);
-    const orgId = normalizeId((membership as any)?.organization_id);
-    const userId = normalizeId((membership as any)?.user_id);
-
-    const picked = estId ?? orgId ?? null;
-    debug.push(
-      `membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"} user=${
-        userId ?? "null"
-      })`
-    );
-
-    return { establishmentId: picked, userId, debug };
-  } catch (e: any) {
-    debug.push(`membership-helper: falhou (${e?.message ?? "sem mensagem"})`);
+    return {
+      establishmentId: tenant.establishmentId,
+      userId: user.id,
+      debug: [`current-tenant: ok (est=${tenant.establishmentId})`],
+    };
+  } catch (error: any) {
+    return {
+      establishmentId: null,
+      userId: null,
+      debug: [`current-tenant: falhou (${error?.message ?? "sem mensagem"})`],
+    };
   }
-
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  const userId = normalizeId(userData?.user?.id);
-
-  if (userErr) debug.push(`auth.getUser: erro (${userErr.message})`);
-  if (!userId) {
-    debug.push("auth.getUser: sem userId");
-    return { establishmentId: null, userId: null, debug };
-  }
-
-  debug.push(`auth.getUser: ok (user=${userId})`);
-
-  const { data: m, error: mErr } = await supabase
-    .from("memberships")
-    .select("establishment_id, organization_id")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (mErr) debug.push(`fallback memberships: erro (${mErr.message})`);
-
-  const estId = normalizeId((m as any)?.establishment_id);
-  const orgId = normalizeId((m as any)?.organization_id);
-  if (estId ?? orgId) {
-    debug.push(
-      `fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`
-    );
-    return { establishmentId: estId ?? orgId ?? null, userId, debug };
-  }
-
-  const { data: p, error: pErr } = await supabase
-    .from("profiles")
-    .select("establishment_id, organization_id")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (pErr) debug.push(`fallback profiles: erro (${pErr.message})`);
-
-  const estId2 = normalizeId((p as any)?.establishment_id);
-  const orgId2 = normalizeId((p as any)?.organization_id);
-  debug.push(
-    `fallback profiles: ok (est=${estId2 ?? "null"} org=${orgId2 ?? "null"})`
-  );
-
-  return { establishmentId: estId2 ?? orgId2 ?? null, userId, debug };
 }
 
 export async function GET() {
   const supabase = await createSupabaseServerClient();
-  const { establishmentId } = await resolveEstablishmentId(supabase);
+  const { establishmentId } = await resolveTenantContext();
 
   if (!establishmentId) {
     return NextResponse.json(
@@ -171,12 +122,10 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const supabase = await createSupabaseServerClient();
-  const { establishmentId, debug } = await resolveEstablishmentId(
-    supabase
-  );
+  const supabase = createSupabaseAdminClient();
+  const { establishmentId, userId, debug } = await resolveTenantContext();
 
-  if (!establishmentId) {
+  if (!establishmentId || !userId) {
     return NextResponse.json(
       { error: "Estabelecimento não encontrado no membership.", debug },
       { status: 401 }
@@ -237,6 +186,7 @@ export async function POST(req: Request) {
       p_unit_label: unitLabel,
       p_notes: notes,
       p_label_type: labelType,
+      p_user_id: userId,
     })
     .single();
 

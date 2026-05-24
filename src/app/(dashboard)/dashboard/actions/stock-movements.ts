@@ -14,13 +14,11 @@ export async function createStockMovementAction(
   const supabase = await createSupabaseServerClient();
 
   // ✅ establishment do usuário logado
-  const { membership } = await getActiveMembershipOrRedirect();
-  const establishmentId = (membership as any)?.establishment_id as
-    | string
-    | undefined;
+  const ctx = await getActiveMembershipOrRedirect();
+  const establishmentId = String(ctx.establishmentId ?? "").trim();
 
   if (!establishmentId) {
-    console.error("[createStockMovementAction] membership recebido:", membership);
+    console.error("[createStockMovementAction] membership recebido:", ctx.membership);
     throw new Error("Estabelecimento não encontrado para o usuário atual.");
   }
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 import {
   isProductSectorConstraintError,
   normalizeProductSectorCategory,
@@ -24,24 +24,19 @@ function toNumber(value: unknown, fallback = 0) {
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createSupabaseServerClient();
-    const { membership } = await getActiveMembershipOrRedirect();
+    let tenantContext: Awaited<ReturnType<typeof getAuthenticatedTenantUserOrThrow>>;
 
-    const establishmentId = (membership as any)?.establishment_id as string | undefined;
-    if (!establishmentId) {
+    try {
+      tenantContext = await getAuthenticatedTenantUserOrThrow();
+    } catch (error: any) {
       return NextResponse.json(
-        { error: "Estabelecimento não encontrado." },
-        { status: 400 }
+        { error: error?.message ?? "Usuário não autenticado." },
+        { status: error?.message === "Não autenticado." ? 401 : 403 }
       );
     }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user?.id) {
-      return NextResponse.json({ error: "Usuário não autenticado." }, { status: 401 });
-    }
-
+    const { user, tenant } = tenantContext;
+    const establishmentId = tenant.establishmentId;
     const body = await req.json();
 
     const name = normalizeText(body.name);

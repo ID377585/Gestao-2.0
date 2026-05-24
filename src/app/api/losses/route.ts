@@ -1,56 +1,33 @@
 // src/app/api/losses/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 function numOrNull(v: any) {
   const n = Number(String(v).replace(",", "."));
   return Number.isFinite(n) ? n : null;
 }
 
-function getScopeId(ctx: Awaited<ReturnType<typeof getActiveMembershipOrRedirect>>) {
-  const scope = ctx.establishmentId ?? ctx.unitId;
-
-  if (!scope) {
-    throw new Error("Estabelecimento não encontrado.");
-  }
-
-  return scope;
-}
-
 async function getAuthAndEstablishment() {
   const supabase = await createSupabaseServerClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  try {
+    const { user, tenant } = await getAuthenticatedTenantUserOrThrow();
 
-  if (!user) {
+    return {
+      supabase,
+      user,
+      establishment_id: tenant.establishmentId,
+      error: null,
+    };
+  } catch (error: any) {
     return {
       supabase,
       user: null,
       establishment_id: null,
-      error: NextResponse.json({ error: "Não autenticado." }, { status: 401 }),
-    };
-  }
-
-  try {
-    const ctx = await getActiveMembershipOrRedirect();
-
-    return {
-      supabase,
-      user,
-      establishment_id: getScopeId(ctx),
-      error: null,
-    };
-  } catch {
-    return {
-      supabase,
-      user,
-      establishment_id: null,
       error: NextResponse.json(
-        { error: "Estabelecimento não encontrado." },
-        { status: 400 }
+        { error: error?.message ?? "Estabelecimento não encontrado." },
+        { status: error?.message === "Não autenticado." ? 401 : 403 }
       ),
     };
   }

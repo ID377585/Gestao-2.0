@@ -144,6 +144,11 @@ export const menuSections: MenuSectionConfig[] = [
         icon: ClipboardList,
       },
       {
+        label: "Listas de Compras",
+        href: "/engenharia/listas-de-compras",
+        icon: ShoppingCart,
+      },
+      {
         label: "Etiquetas",
         href: "/dashboard/etiquetas",
         icon: Tag,

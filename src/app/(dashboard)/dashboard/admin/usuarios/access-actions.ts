@@ -34,6 +34,28 @@ async function getContextOrThrow() {
   };
 }
 
+async function assertCollaboratorBelongsToActiveEstablishment(params: {
+  supabaseAdmin: ReturnType<typeof getSupabaseAdminClient>;
+  establishmentId: string;
+  userId: string;
+}) {
+  const { data, error } = await params.supabaseAdmin
+    .from("establishment_memberships")
+    .select("user_id")
+    .eq("establishment_id", params.establishmentId)
+    .eq("user_id", params.userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Erro ao validar vínculo do usuário para permissões:", error);
+    throw new Error("Não foi possível validar o vínculo do usuário.");
+  }
+
+  if (!data) {
+    throw new Error("Usuário não pertence à empresa ativa.");
+  }
+}
+
 export function getDefaultModulesForRole(role: ProfileRole): UserModulePermissionMap {
   const permissions = emptyModulePermissionMap();
 
@@ -122,6 +144,12 @@ export async function updateCollaboratorModulePermissions(formData: FormData) {
   if (establishmentId !== ctx.establishment_id) {
     throw new Error("Estabelecimento inválido para alteração de permissões.");
   }
+
+  await assertCollaboratorBelongsToActiveEstablishment({
+    supabaseAdmin,
+    establishmentId,
+    userId,
+  });
 
   const selectedModules = new Set(
     formData

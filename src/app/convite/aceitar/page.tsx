@@ -72,6 +72,7 @@ export default async function AcceptInvitationPage({
       await acceptTenantInvitationInternalAction({
         token: invitationToken,
         userId: currentUser.id,
+        userEmail: currentUser.email ?? null,
       });
     } catch (error: any) {
       const message = encodeURIComponent(

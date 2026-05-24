@@ -5,11 +5,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 
 function getMembershipScopeId(membership: Record<string, unknown>) {
-  const scope = membership.establishment_id ?? membership.unit_id;
-  if (!scope) {
+  if (!membership.establishment_id) {
     throw new Error("Estabelecimento não encontrado no membership.");
   }
-  return String(scope);
+  return String(membership.establishment_id);
 }
 
 /**

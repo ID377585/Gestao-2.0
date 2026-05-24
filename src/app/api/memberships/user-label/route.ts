@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
-import { assertSameActiveEstablishment } from "@/lib/tenant/guards";
+import {
+  assertSameActiveEstablishment,
+  getAuthenticatedTenantUserOrThrow,
+} from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +22,7 @@ function prettyRole(role: string) {
 
 export async function GET(request: Request) {
   try {
-    await getActiveMembershipOrRedirect();
+    await getAuthenticatedTenantUserOrThrow();
     const supabase = await createSupabaseServerClient();
 
     const { searchParams } = new URL(request.url);

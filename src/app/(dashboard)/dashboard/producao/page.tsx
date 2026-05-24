@@ -88,13 +88,11 @@ const PRODUCTION_COLLABORATOR_ROLES = [
 ];
 
 function getMembershipScopeId(membership: Membership) {
-  const scope = membership.establishmentId ?? membership.unitId;
-
-  if (!scope) {
+  if (!membership.establishmentId) {
     throw new Error("Estabelecimento não encontrado no membership.");
   }
 
-  return scope;
+  return membership.establishmentId;
 }
 
 function assertProductionLeader(role: Role | null) {

@@ -1,12 +1,12 @@
 // src/app/api/import/products/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { normalizeAllergenList } from "@/lib/allergens";
 import {
   PRODUCT_SECTOR_CATEGORIES,
   normalizeProductSectorCategory,
 } from "@/lib/product-sectors";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -274,96 +274,25 @@ function generateSequentialSku(
   return sku;
 }
 
-async function resolveEstablishmentId(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-): Promise<{ establishmentId: string | null; debug: string[] }> {
-  const debug: string[] = [];
-
+async function resolveTenantContext(): Promise<{
+  establishmentId: string | null;
+  userId: string | null;
+  debug: string[];
+}> {
   try {
-    const helperRes = await getActiveMembershipOrRedirect();
-    const membership = (helperRes as any)?.membership ?? helperRes;
+    const { user, tenant } = await getAuthenticatedTenantUserOrThrow();
 
-    const estId = normalizeId((membership as any)?.establishment_id);
-    const orgId = normalizeId((membership as any)?.organization_id);
-    const picked = estId ?? orgId ?? null;
-
-    debug.push(
-      `membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
-    );
-    if (picked) return { establishmentId: picked, debug };
-
-    debug.push("membership-helper: sem establishment/org no membership");
-  } catch (e: any) {
-    debug.push(`membership-helper: falhou (${e?.message ?? "sem mensagem"})`);
-  }
-
-  try {
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError || !userData?.user) {
-      debug.push("auth.getUser: falhou/sem user");
-      return { establishmentId: null, debug };
-    }
-
-    const userId = userData.user.id;
-    debug.push(`auth.getUser: ok (user=${userId})`);
-
-    try {
-      const { data: m, error: mErr } = await supabase
-        .from("memberships")
-        .select("establishment_id, organization_id")
-        .eq("user_id", userId)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (mErr) {
-        debug.push(`fallback memberships: erro (${mErr.message})`);
-      } else {
-        const estId = normalizeId((m as any)?.establishment_id);
-        const orgId = normalizeId((m as any)?.organization_id);
-        const picked = estId ?? orgId ?? null;
-
-        debug.push(
-          `fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
-        );
-        if (picked) return { establishmentId: picked, debug };
-      }
-    } catch (e: any) {
-      debug.push(
-        `fallback memberships: exceção (${e?.message ?? "sem mensagem"})`,
-      );
-    }
-
-    try {
-      const { data: p, error: pErr } = await supabase
-        .from("profiles")
-        .select("establishment_id, organization_id")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (pErr) {
-        debug.push(`fallback profiles: erro (${pErr.message})`);
-      } else {
-        const estId = normalizeId((p as any)?.establishment_id);
-        const orgId = normalizeId((p as any)?.organization_id);
-        const picked = estId ?? orgId ?? null;
-
-        debug.push(
-          `fallback profiles: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
-        );
-        if (picked) return { establishmentId: picked, debug };
-      }
-    } catch (e: any) {
-      debug.push(
-        `fallback profiles: exceção (${e?.message ?? "sem mensagem"})`,
-      );
-    }
-
-    return { establishmentId: null, debug };
-  } catch (e: any) {
-    debug.push(`auth+fallback: exceção geral (${e?.message ?? "sem mensagem"})`);
-    return { establishmentId: null, debug };
+    return {
+      establishmentId: tenant.establishmentId,
+      userId: user.id,
+      debug: [`current-tenant: ok (est=${tenant.establishmentId})`],
+    };
+  } catch (error: any) {
+    return {
+      establishmentId: null,
+      userId: null,
+      debug: [`current-tenant: falhou (${error?.message ?? "sem mensagem"})`],
+    };
   }
 }
 
@@ -371,14 +300,11 @@ export async function POST(request: Request) {
   try {
     const supabase = await createSupabaseServerClient();
 
-    const { establishmentId: resolvedEstablishmentId, debug } =
-      await resolveEstablishmentId(supabase);
-
-    let authUserId: string | null = null;
-    try {
-      const { data: authData } = await supabase.auth.getUser();
-      authUserId = normalizeId(authData?.user?.id);
-    } catch {}
+    const {
+      establishmentId: resolvedEstablishmentId,
+      userId: authUserId,
+      debug,
+    } = await resolveTenantContext();
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
@@ -467,49 +393,37 @@ export async function POST(request: Request) {
 
     let effectiveEstablishmentId: string | null = resolvedEstablishmentId;
 
-    if (effectiveEstablishmentId) {
-      if (csvEstabSet.size > 0) {
-        for (const v of csvEstabSet.values()) {
-          if (v !== effectiveEstablishmentId) {
-            return respondError(
-              request,
-              "CSV contém establishment_id diferente do establishment do usuário logado. Verifique o UUID.",
-              400,
-              {
-                debug: {
-                  resolvedEstablishmentId: effectiveEstablishmentId,
-                  csvEstablishmentIds: Array.from(csvEstabSet),
-                  resolveDebug: debug,
-                },
-              },
-            );
-          }
-        }
-      }
-    } else {
-      if (csvEstabSet.size !== 1) {
-        return respondError(
-          request,
-          "Estabelecimento não encontrado no membership/login. Preencha a coluna establishment_id no CSV com o MESMO UUID em todas as linhas.",
-          400,
-          {
-            debug: {
-              csvEstablishmentIds: Array.from(csvEstabSet),
-              resolveDebug: debug,
-            },
-          },
-        );
-      }
-      effectiveEstablishmentId = Array.from(csvEstabSet)[0];
-    }
-
     if (!effectiveEstablishmentId) {
       return respondError(
         request,
-        "Não foi possível determinar o establishment_id para importar.",
-        400,
-        { debug: { resolveDebug: debug } },
+        "Nenhuma empresa ativa encontrada para importar produtos.",
+        403,
+        {
+          debug: {
+            csvEstablishmentIds: Array.from(csvEstabSet),
+            resolveDebug: debug,
+          },
+        },
       );
+    }
+
+    if (csvEstabSet.size > 0) {
+      for (const v of csvEstabSet.values()) {
+        if (v !== effectiveEstablishmentId) {
+          return respondError(
+            request,
+            "CSV contém establishment_id diferente da empresa ativa. Verifique o UUID.",
+            400,
+            {
+              debug: {
+                resolvedEstablishmentId: effectiveEstablishmentId,
+                csvEstablishmentIds: Array.from(csvEstabSet),
+                resolveDebug: debug,
+              },
+            },
+          );
+        }
+      }
     }
 
     const allowedSectorCategories = await loadAllowedSectorCategoriesFromDb(

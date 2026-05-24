@@ -1,7 +1,7 @@
 // src/app/api/transferencias/stock/create/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ function jsonError(message: string, status = 400, extra?: any) {
  */
 export async function POST() {
   try {
-    await getActiveMembershipOrRedirect();
+    await getAuthenticatedTenantUserOrThrow();
     await createSupabaseServerClient(); // garante sessão server ok
 
     return NextResponse.json(

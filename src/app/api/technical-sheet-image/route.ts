@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 const TECHNICAL_SHEET_BUCKET = "technical-sheet-images";
 
@@ -11,11 +11,15 @@ export async function GET(request: NextRequest) {
     return new NextResponse("Imagem não informada.", { status: 400 });
   }
 
-  const { membership } = await getActiveMembershipOrRedirect();
-  const establishmentId = String((membership as any)?.establishment_id || "");
-
-  if (!establishmentId) {
-    return new NextResponse("Estabelecimento não encontrado.", { status: 403 });
+  let establishmentId = "";
+  try {
+    const { tenant } = await getAuthenticatedTenantUserOrThrow();
+    establishmentId = tenant.establishmentId;
+  } catch (error: any) {
+    return new NextResponse(
+      error?.message ?? "Estabelecimento não encontrado.",
+      { status: error?.message === "Não autenticado." ? 401 : 403 }
+    );
   }
 
   const normalizedPath = imagePath.trim();

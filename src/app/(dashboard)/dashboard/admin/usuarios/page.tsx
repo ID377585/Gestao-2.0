@@ -16,6 +16,7 @@ import {
   createCollaborator,
   deleteCollaborator,
   listCollaborators,
+  listTenantInvitations,
   listUserAccessAuditLogs,
   resetCollaboratorPassword,
   toggleCollaboratorStatus,
@@ -28,6 +29,7 @@ import {
   updateCollaboratorModulePermissions,
 } from "./access-actions";
 import { UserAccessCard } from "./UserAccessCard";
+import { InviteUserCard } from "./InviteUserCard";
 
 const AUDIT_LABEL: Record<string, string> = {
   create_user: "Criação de usuário",
@@ -135,11 +137,14 @@ export default async function UsuariosPage({
   const membershipContext = await getActiveMembershipOrRedirect();
   const establishmentId = String(membershipContext.establishmentId ?? "");
 
-  const collaborators = await listCollaborators();
+  const [collaborators, tenantInvitations, auditLogs] = await Promise.all([
+    listCollaborators(),
+    listTenantInvitations(12),
+    listUserAccessAuditLogs(30),
+  ]);
   const accessPermissionsByUser = await listCollaboratorModulePermissions(
     collaborators.map((colab) => colab.id)
   );
-  const auditLogs = await listUserAccessAuditLogs(30);
 
   const subscription = establishmentId
     ? await getCompanySubscriptionStatus(establishmentId)
@@ -271,65 +276,69 @@ export default async function UsuariosPage({
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle className="text-lg">Novo colaborador</CardTitle>
-          </CardHeader>
+        <div className="space-y-6">
+          <Card className="h-fit">
+            <CardHeader>
+              <CardTitle className="text-lg">Novo colaborador</CardTitle>
+            </CardHeader>
 
-          <CardContent>
-            {usersMetric && usersWarning ? (
-              <div
-                className={`mb-4 rounded-lg border px-3 py-2 text-xs ${getLimitWarningClassName(
-                  usersWarning.severity
-                )}`}
-              >
-                <p className="font-semibold">
-                  {usersWarning.title} · {formatLimit(usersMetric.used, usersMetric.limit)} usuários
-                </p>
-                <p className="mt-1 opacity-90">{usersWarning.message}</p>
-                <p className="mt-1 text-[11px] opacity-80">
-                  Aviso informativo: o cadastro ainda não será bloqueado automaticamente.
-                </p>
-              </div>
-            ) : null}
+            <CardContent>
+              {usersMetric && usersWarning ? (
+                <div
+                  className={`mb-4 rounded-lg border px-3 py-2 text-xs ${getLimitWarningClassName(
+                    usersWarning.severity
+                  )}`}
+                >
+                  <p className="font-semibold">
+                    {usersWarning.title} · {formatLimit(usersMetric.used, usersMetric.limit)} usuários
+                  </p>
+                  <p className="mt-1 opacity-90">{usersWarning.message}</p>
+                  <p className="mt-1 text-[11px] opacity-80">
+                    Ao atingir o limite, novos cadastros serão bloqueados pelo plano.
+                  </p>
+                </div>
+              ) : null}
 
-            <form action={handleCreate} className="space-y-4">
-              <div className="space-y-1">
-                <Label htmlFor="full_name">Nome completo</Label>
-                <Input id="full_name" name="full_name" placeholder="Ex.: Ana Produção" required />
-              </div>
+              <form action={handleCreate} className="space-y-4">
+                <div className="space-y-1">
+                  <Label htmlFor="full_name">Nome completo</Label>
+                  <Input id="full_name" name="full_name" placeholder="Ex.: Ana Produção" required />
+                </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="email">E-mail</Label>
-                <Input id="email" name="email" type="email" placeholder="ana@gestify.app" required />
-              </div>
+                <div className="space-y-1">
+                  <Label htmlFor="email">E-mail</Label>
+                  <Input id="email" name="email" type="email" placeholder="ana@gestify.app" required />
+                </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="password">Senha inicial</Label>
-                <Input id="password" name="password" type="password" placeholder="••••••••" required />
-              </div>
+                <div className="space-y-1">
+                  <Label htmlFor="password">Senha inicial</Label>
+                  <Input id="password" name="password" type="password" placeholder="••••••••" required />
+                </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="role">Papel de acesso</Label>
-                <select id="role" name="role" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue="producao" required>
-                  <option value="admin">Admin</option>
-                  <option value="operacao">Operação</option>
-                  <option value="producao">Produção</option>
-                  <option value="estoque">Estoque</option>
-                  <option value="fiscal">Fiscal</option>
-                  <option value="entrega">Entrega</option>
-                </select>
-              </div>
+                <div className="space-y-1">
+                  <Label htmlFor="role">Papel de acesso</Label>
+                  <select id="role" name="role" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue="producao" required>
+                    <option value="admin">Admin</option>
+                    <option value="operacao">Operação</option>
+                    <option value="producao">Produção</option>
+                    <option value="estoque">Estoque</option>
+                    <option value="fiscal">Fiscal</option>
+                    <option value="entrega">Entrega</option>
+                  </select>
+                </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="sector">Setor / Área</Label>
-                <Input id="sector" name="sector" placeholder="Ex.: Confeitaria, Estoque, Logística" />
-              </div>
+                <div className="space-y-1">
+                  <Label htmlFor="sector">Setor / Área</Label>
+                  <Input id="sector" name="sector" placeholder="Ex.: Confeitaria, Estoque, Logística" />
+                </div>
 
-              <Button type="submit" className="w-full">Salvar colaborador</Button>
-            </form>
-          </CardContent>
-        </Card>
+                <Button type="submit" className="w-full">Salvar colaborador</Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <InviteUserCard invitations={tenantInvitations} />
+        </div>
 
         <Card>
           <CardHeader className="space-y-4">

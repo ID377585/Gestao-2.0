@@ -1,9 +1,14 @@
 "use server";
 
 import { randomBytes, createHash } from "crypto";
+import { cookies } from "next/headers";
 import { getSupabaseAdminClient } from "@/lib/supabase/server";
 import { assertBillingLimitAvailable } from "@/lib/billing/limits";
 import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
+import {
+  TENANT_COOKIE_MAX_AGE_SECONDS,
+  TENANT_COOKIE_NAME,
+} from "@/lib/tenant/constants";
 import { writeTenantAuditLog } from "@/lib/tenant/audit";
 import { upsertDefaultModulePermissions } from "@/lib/tenant/module-permissions";
 import type { TenantMembershipRole } from "@/lib/tenant/types";
@@ -87,6 +92,17 @@ async function getTenantForInvitationAdmin() {
   }
 
   return tenant;
+}
+
+async function setActiveTenantCookie(establishmentId: string) {
+  const cookieStore = await cookies();
+  cookieStore.set(TENANT_COOKIE_NAME, establishmentId, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: TENANT_COOKIE_MAX_AGE_SECONDS,
+  });
 }
 
 export async function listTenantInvitationsInternalAction(): Promise<
@@ -259,9 +275,11 @@ export async function cancelTenantInvitationInternalAction(invitationId: string)
 export async function acceptTenantInvitationInternalAction(params: {
   token: string;
   userId: string;
+  userEmail?: string | null;
 }) {
   const token = String(params.token ?? "").trim();
   const userId = String(params.userId ?? "").trim();
+  const userEmail = normalizeEmail(params.userEmail ?? "");
 
   if (!token || !userId) {
     throw new Error("Convite inválido.");
@@ -288,6 +306,14 @@ export async function acceptTenantInvitationInternalAction(params: {
 
   if (!invitation) {
     throw new Error("Convite não encontrado ou já utilizado.");
+  }
+
+  const invitedEmail = normalizeEmail((invitation as any).email);
+
+  if (invitedEmail && userEmail && invitedEmail !== userEmail) {
+    throw new Error(
+      `Este convite foi emitido para ${invitedEmail}. Entre com essa conta para aceitar.`
+    );
   }
 
   if (new Date(String((invitation as any).expires_at)).getTime() < Date.now()) {
@@ -368,6 +394,8 @@ export async function acceptTenantInvitationInternalAction(params: {
       email: (invitation as any).email,
     },
   });
+
+  await setActiveTenantCookie(establishmentId);
 
   return {
     ok: true as const,

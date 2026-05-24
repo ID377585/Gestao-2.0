@@ -276,14 +276,12 @@ function isMissingRelationError(error: any) {
 
 async function getSupabaseAndEstablishment() {
   const supabase = await createSupabaseServerClient();
-  const { membership } = await getActiveMembershipOrRedirect();
+  const ctx = await getActiveMembershipOrRedirect();
 
-  const establishmentId = (membership as any)?.establishment_id as
-    | string
-    | undefined;
+  const establishmentId = String(ctx.establishmentId ?? "").trim();
 
   if (!establishmentId) {
-    console.error("Objeto de membership recebido:", membership);
+    console.error("Contexto de membership recebido:", ctx.membership);
     throw new Error(
       "Estabelecimento não encontrado para o usuário atual ao carregar dados de estoque."
     );

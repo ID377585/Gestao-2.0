@@ -70,14 +70,13 @@ export default async function ProdutividadePage() {
   const supabase = await createSupabaseServerClient();
   const membership = await getActiveMembershipOrRedirect();
 
-  const establishmentId = membership.establishmentId ?? membership.unitId;
+  const establishmentId = membership.establishmentId;
   if (!establishmentId) {
     return (
       <div className="space-y-2">
         <h1 className="text-xl font-semibold">Produtividade</h1>
         <p className="text-sm text-muted-foreground">
-          Membership sem establishmentId/unitId. Verifique sua tabela de
-          memberships.
+          Membership sem establishmentId. Verifique sua tabela de memberships.
         </p>
       </div>
     );

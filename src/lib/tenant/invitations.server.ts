@@ -1,10 +1,13 @@
 "use server";
 
 import { randomBytes, createHash } from "crypto";
+import { cookies } from "next/headers";
+import { assertBillingLimitAvailable } from "@/lib/billing/limits";
 import { getSupabaseAdminClient } from "@/lib/supabase/server";
 import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
 import { writeTenantAuditLog } from "@/lib/tenant/audit";
 import { upsertDefaultModulePermissions } from "@/lib/tenant/module-permissions";
+import { TENANT_COOKIE_MAX_AGE_SECONDS, TENANT_COOKIE_NAME } from "@/lib/tenant/constants";
 import type { TenantMembershipRole } from "@/lib/tenant/types";
 
 export type TenantInvitationRole = Extract<
@@ -150,9 +153,11 @@ export async function createTenantInvitationInternalAction(
 export async function acceptTenantInvitationInternalAction(params: {
   token: string;
   userId: string;
+  userEmail?: string | null;
 }) {
   const token = String(params.token ?? "").trim();
   const userId = String(params.userId ?? "").trim();
+  const userEmail = normalizeEmail(params.userEmail);
 
   if (!token || !userId) {
     throw new Error("Convite inválido.");
@@ -186,7 +191,33 @@ export async function acceptTenantInvitationInternalAction(params: {
   }
 
   const establishmentId = String((invitation as any).establishment_id);
+  const invitedEmail = normalizeEmail((invitation as any).email);
   const role = normalizeRole((invitation as any).role);
+
+  if (userEmail && invitedEmail && userEmail !== invitedEmail) {
+    throw new Error("Este convite foi emitido para outro e-mail.");
+  }
+
+  const { data: currentMembership, error: currentMembershipError } =
+    await supabaseAdmin
+      .from("memberships")
+      .select("id, is_active")
+      .eq("establishment_id", establishmentId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+  if (currentMembershipError) {
+    console.error("Erro ao validar vínculo existente do convite:", currentMembershipError);
+    throw new Error("Não foi possível validar seu vínculo atual com a empresa.");
+  }
+
+  if (!currentMembership?.is_active) {
+    await assertBillingLimitAvailable({
+      supabaseAdmin,
+      establishmentId,
+      kind: "users",
+    });
+  }
 
   const membershipPayload = {
     establishment_id: establishmentId,
@@ -252,6 +283,15 @@ export async function acceptTenantInvitationInternalAction(params: {
       role,
       email: (invitation as any).email,
     },
+  });
+
+  const cookieStore = await cookies();
+  cookieStore.set(TENANT_COOKIE_NAME, establishmentId, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: TENANT_COOKIE_MAX_AGE_SECONDS,
   });
 
   return {

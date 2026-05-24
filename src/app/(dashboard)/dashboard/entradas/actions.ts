@@ -81,11 +81,9 @@ type NormalizedInvoiceEntryItem = {
 
 async function getContext() {
   const supabase = await createSupabaseServerClient();
-  const { membership } = await getActiveMembershipOrRedirect();
+  const membershipContext = await getActiveMembershipOrRedirect();
 
-  const establishmentId = (membership as any)?.establishment_id as
-    | string
-    | undefined;
+  const establishmentId = String(membershipContext.establishmentId ?? "").trim();
 
   if (!establishmentId) {
     throw new Error("Estabelecimento não encontrado para o usuário atual.");

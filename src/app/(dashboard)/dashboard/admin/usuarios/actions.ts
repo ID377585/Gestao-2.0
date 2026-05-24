@@ -2,11 +2,17 @@
 
 import { dispatchCollaboratorCreatedOrUpdatedAlert } from "@/lib/alerts/domain-triggers";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import {
   getSupabaseAdminClient,
 } from "@/lib/supabase/server";
 import { assertBillingLimitAvailable } from "@/lib/billing/limits";
 import { assertActiveTenantRole } from "@/lib/tenant/guards";
+import { writeTenantAuditLog } from "@/lib/tenant/audit";
+import {
+  createTenantInvitationInternalAction,
+  type TenantInvitationRole,
+} from "@/lib/tenant/invitations.server";
 
 export type ProfileRole =
   | "admin"
@@ -48,6 +54,35 @@ export type UserAccessAuditLog = {
   details: Record<string, any> | null;
 };
 
+export type TenantInvitationSummary = {
+  id: string;
+  email: string;
+  role: TenantInvitationRole;
+  sector: string | null;
+  status: string;
+  invited_by: string | null;
+  accepted_by: string | null;
+  accepted_at: string | null;
+  expires_at: string | null;
+  created_at: string | null;
+};
+
+export type CreateTenantInvitationActionState = {
+  status: "idle" | "success" | "error";
+  message: string | null;
+  inviteUrl: string | null;
+  email: string | null;
+  expiresAt: string | null;
+};
+
+const INITIAL_TENANT_INVITATION_STATE: CreateTenantInvitationActionState = {
+  status: "idle",
+  message: null,
+  inviteUrl: null,
+  email: null,
+  expiresAt: null,
+};
+
 function getSupabaseAdmin() {
   return getSupabaseAdminClient();
 }
@@ -86,6 +121,55 @@ function normalizeRole(value: string): ProfileRole {
   }
 
   return "producao";
+}
+
+function normalizeInvitationRole(value: FormDataEntryValue | null): TenantInvitationRole {
+  return normalizeRole(String(value ?? "").trim()) as TenantInvitationRole;
+}
+
+function parseInviteExpiration(value: FormDataEntryValue | null) {
+  const hours = Number(String(value ?? "").trim());
+  if (!Number.isFinite(hours)) return 72;
+  return Math.min(Math.max(Math.trunc(hours), 1), 24 * 30);
+}
+
+function isMissingTableError(error: any) {
+  const code = String(error?.code ?? "");
+  const message = String(error?.message ?? "").toLowerCase();
+
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    code === "PGRST204" ||
+    message.includes("schema cache")
+  );
+}
+
+async function getAppOrigin() {
+  const configured =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    process.env.APP_URL;
+
+  if (configured) return configured.replace(/\/$/, "");
+
+  const requestHeaders = await headers();
+  const host =
+    requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+
+  if (!host) return "http://localhost:3000";
+
+  const protocol =
+    requestHeaders.get("x-forwarded-proto") ??
+    (host.includes("localhost") || host.includes("127.0.0.1") ? "http" : "https");
+
+  return `${protocol}://${host}`;
+}
+
+async function buildInviteUrl(token: string) {
+  const url = new URL("/convite", await getAppOrigin());
+  url.searchParams.set("token", token);
+  return url.toString();
 }
 
 async function getAuthUsersSnapshotMap(
@@ -440,6 +524,128 @@ export async function listUserAccessAuditLogs(
   }
 }
 
+export async function listTenantInvitations(
+  limit = 12
+): Promise<TenantInvitationSummary[]> {
+  const ctx = await getContextOrThrow();
+  const supabaseAdmin = getSupabaseAdmin();
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("tenant_invitations")
+      .select(
+        "id, email, role, sector, status, invited_by, accepted_by, accepted_at, expires_at, created_at"
+      )
+      .eq("establishment_id", ctx.establishment_id)
+      .order("created_at", { ascending: false })
+      .limit(Math.min(Math.max(limit, 1), 50));
+
+    if (error) {
+      if (isMissingTableError(error)) {
+        console.warn("Tabela tenant_invitations ainda não disponível.");
+        return [];
+      }
+
+      console.error("Erro ao listar convites multiempresa:", error);
+      return [];
+    }
+
+    return (data ?? []).map((row: any) => ({
+      id: String(row.id),
+      email: String(row.email ?? ""),
+      role: normalizeRole(String(row.role ?? "producao")) as TenantInvitationRole,
+      sector: row.sector ? String(row.sector) : null,
+      status: String(row.status ?? "pending"),
+      invited_by: row.invited_by ? String(row.invited_by) : null,
+      accepted_by: row.accepted_by ? String(row.accepted_by) : null,
+      accepted_at: row.accepted_at ? String(row.accepted_at) : null,
+      expires_at: row.expires_at ? String(row.expires_at) : null,
+      created_at: row.created_at ? String(row.created_at) : null,
+    }));
+  } catch (error) {
+    console.error("Falha inesperada ao listar convites multiempresa:", error);
+    return [];
+  }
+}
+
+export async function createTenantInvitationForAdminAction(
+  _previousState: CreateTenantInvitationActionState,
+  formData: FormData
+): Promise<CreateTenantInvitationActionState> {
+  const ctx = await getContextOrThrow();
+  const supabaseAdmin = getSupabaseAdmin();
+
+  const email = String(formData.get("invite_email") ?? "").trim().toLowerCase();
+  const role = normalizeInvitationRole(formData.get("invite_role"));
+  const sectorRaw = String(formData.get("invite_sector") ?? "").trim();
+  const sector = sectorRaw.length > 0 ? sectorRaw : null;
+  const expiresInHours = parseInviteExpiration(formData.get("invite_expires_hours"));
+
+  if (!email || !email.includes("@")) {
+    return {
+      ...INITIAL_TENANT_INVITATION_STATE,
+      status: "error",
+      message: "Informe um e-mail válido para o convite.",
+      email,
+    };
+  }
+
+  if (ctx.role !== "admin" && role === "admin") {
+    return {
+      ...INITIAL_TENANT_INVITATION_STATE,
+      status: "error",
+      message: "Apenas administradores podem convidar outro administrador.",
+      email,
+    };
+  }
+
+  try {
+    await assertBillingLimitAvailable({
+      supabaseAdmin,
+      establishmentId: ctx.establishment_id,
+      kind: "users",
+    });
+
+    const result = await createTenantInvitationInternalAction({
+      email,
+      role,
+      sector,
+      expiresInHours,
+    });
+
+    if (!result.ok) {
+      return {
+        ...INITIAL_TENANT_INVITATION_STATE,
+        status: "error",
+        message: "Convites ainda não estão habilitados neste ambiente.",
+        email,
+      };
+    }
+
+    const inviteUrl = await buildInviteUrl(result.token);
+    const expiresAt = String((result.invitation as any)?.expires_at ?? "");
+
+    revalidatePath("/dashboard/admin/usuarios");
+
+    return {
+      status: "success",
+      message: "Convite criado. Envie o link para o usuário convidado.",
+      inviteUrl,
+      email,
+      expiresAt: expiresAt || null,
+    };
+  } catch (error: any) {
+    console.error("Erro ao criar convite pela tela de usuários:", error);
+
+    return {
+      ...INITIAL_TENANT_INVITATION_STATE,
+      status: "error",
+      message: error?.message ?? "Não foi possível criar o convite.",
+      email,
+    };
+  }
+}
+
 export async function createCollaborator(formData: FormData) {
   const ctx = await getContextOrThrow();
   const supabaseAdmin = getSupabaseAdmin();
@@ -545,6 +751,23 @@ export async function createCollaborator(formData: FormData) {
       target_email: email,
       role,
       sector,
+    },
+  });
+
+  await writeTenantAuditLog({
+    supabaseAdmin,
+    establishmentId: ctx.establishment_id,
+    actorUserId: ctx.userId,
+    targetUserId: userId,
+    action: "create_membership",
+    entityType: "membership",
+    entityId: `${ctx.establishment_id}:${userId}`,
+    details: {
+      source: "admin_users_page",
+      email,
+      role,
+      sector,
+      existing_auth_user: Boolean(existingAuthUser?.id),
     },
   });
 

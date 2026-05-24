@@ -331,62 +331,19 @@ async function generateNextSku(
 }
 
 async function getMembershipIds() {
-  const supabase = await createSupabaseServerClient();
-
-  const membership = await getActiveMembershipOrRedirect();
-  const establishmentFromHelper = normalizeId(
-    (membership as any)?.establishment_id,
-  );
-  const userIdFromHelper = normalizeId((membership as any)?.user_id) ?? null;
+  const ctx = await getActiveMembershipOrRedirect();
+  const establishmentId = normalizeId(ctx.establishmentId);
+  const userId = normalizeId(ctx.user?.id) ?? normalizeId(ctx.membership.user_id);
 
   console.log(
     "[products.membership] helper",
     safeJson({
-      establishment_id: (membership as any)?.establishment_id ?? null,
-      user_id: (membership as any)?.user_id ?? null,
-      role: (membership as any)?.role ?? null,
-      is_active: (membership as any)?.is_active ?? null,
+      establishment_id: ctx.establishmentId,
+      user_id: userId,
+      role: ctx.role,
+      is_active: ctx.membership.is_active,
     }),
   );
-
-  if (establishmentFromHelper) {
-    return {
-      establishmentId: establishmentFromHelper as string,
-      userId: userIdFromHelper,
-    };
-  }
-
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-
-  if (authError) {
-    console.error("[products.membership] auth.getUser error", safeJson(authError));
-    redirect("/dashboard/produtos?error=usuario_nao_autenticado");
-  }
-
-  const authUserId = normalizeId(authData?.user?.id);
-  if (!authUserId) {
-    redirect("/dashboard/produtos?error=usuario_nao_autenticado");
-  }
-
-  const { data: mData, error: mError } = await supabase
-    .from("memberships")
-    .select("establishment_id, user_id, role, is_active, created_at")
-    .eq("user_id", authUserId)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (mError) {
-    console.error(
-      "[products.membership] memberships lookup error",
-      safeJson(mError),
-    );
-    redirectWithError(supabaseErrorText(mError));
-  }
-
-  const establishmentId = normalizeId(mData?.establishment_id);
-  const userId = normalizeId(mData?.user_id) ?? authUserId;
 
   if (!establishmentId) {
     redirect("/dashboard/produtos?error=estabelecimento_nao_encontrado");

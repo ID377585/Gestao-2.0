@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +12,12 @@ import {
 import { getBillingPlan } from "@/lib/billing/plans";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
 import { getCompanyPlanUsage } from "@/lib/billing/usage-limits";
+import {
+  cancelTenantInvitationInternalAction,
+  createTenantInvitationInternalAction,
+  listTenantInvitationsInternalAction,
+  type TenantInvitationListItem,
+} from "@/lib/tenant/invitations.server";
 
 import {
   createCollaborator,
@@ -57,6 +64,44 @@ function getQueryValue(value: string | string[] | undefined) {
 function formatLimit(used: number, limit: number | null) {
   if (limit === null) return `${used} de ilimitado`;
   return `${used} de ${limit}`;
+}
+
+function getInvitationStatusLabel(status?: string | null) {
+  switch (String(status ?? "").trim()) {
+    case "pending":
+      return "Pendente";
+    case "accepted":
+      return "Aceito";
+    case "canceled":
+      return "Cancelado";
+    default:
+      return "—";
+  }
+}
+
+function getRoleLabel(role?: string | null) {
+  switch (String(role ?? "").trim()) {
+    case "admin":
+      return "Admin";
+    case "operacao":
+      return "Operação";
+    case "producao":
+      return "Produção";
+    case "estoque":
+      return "Estoque";
+    case "fiscal":
+      return "Fiscal";
+    case "entrega":
+      return "Entrega";
+    default:
+      return "Usuário";
+  }
+}
+
+function buildInvitationUrl(token: string) {
+  const appUrl = String(process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+  const path = `/convite/aceitar?token=${encodeURIComponent(token)}`;
+  return appUrl ? `${appUrl}${path}` : path;
 }
 
 function AuditLogCard({ log }: { log: UserAccessAuditLog }) {
@@ -121,6 +166,49 @@ function AuditLogCard({ log }: { log: UserAccessAuditLog }) {
   );
 }
 
+function InvitationCard({ invitation }: { invitation: TenantInvitationListItem }) {
+  async function handleCancel(formData: FormData) {
+    "use server";
+    const invitationId = String(formData.get("invitation_id") ?? "").trim();
+    await cancelTenantInvitationInternalAction(invitationId);
+    redirect("/dashboard/admin/usuarios?invite_canceled=1");
+  }
+
+  const isPending = invitation.status === "pending";
+
+  return (
+    <div className="rounded-xl border p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="font-semibold text-gray-900">{invitation.email}</p>
+          <p className="text-sm text-muted-foreground">
+            {getRoleLabel(invitation.role)}
+            {invitation.sector ? ` • ${invitation.sector}` : ""}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Criado em {formatDate(invitation.created_at)} · Expira em {formatDate(invitation.expires_at)}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Badge variant={isPending ? "default" : "outline"}>
+            {getInvitationStatusLabel(invitation.status)}
+          </Badge>
+
+          {isPending ? (
+            <form action={handleCancel}>
+              <input type="hidden" name="invitation_id" value={invitation.id} />
+              <Button type="submit" variant="outline" size="sm">
+                Cancelar
+              </Button>
+            </form>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default async function UsuariosPage({
   searchParams,
 }: {
@@ -129,6 +217,9 @@ export default async function UsuariosPage({
     role?: string | string[];
     status?: string | string[];
     sector?: string | string[];
+    invite_token?: string | string[];
+    invite_email?: string | string[];
+    invite_canceled?: string | string[];
   }>;
 }) {
   const resolvedSearchParams = await searchParams;
@@ -140,6 +231,7 @@ export default async function UsuariosPage({
     collaborators.map((colab) => colab.id)
   );
   const auditLogs = await listUserAccessAuditLogs(30);
+  const invitations = await listTenantInvitationsInternalAction();
 
   const subscription = establishmentId
     ? await getCompanySubscriptionStatus(establishmentId)
@@ -155,6 +247,9 @@ export default async function UsuariosPage({
   const roleFilter = getQueryValue(resolvedSearchParams?.role).trim();
   const statusFilter = getQueryValue(resolvedSearchParams?.status).trim();
   const sectorFilter = getQueryValue(resolvedSearchParams?.sector).trim();
+  const inviteToken = getQueryValue(resolvedSearchParams?.invite_token).trim();
+  const inviteEmail = getQueryValue(resolvedSearchParams?.invite_email).trim();
+  const inviteCanceled = getQueryValue(resolvedSearchParams?.invite_canceled).trim() === "1";
 
   const sectors = Array.from(
     new Set(
@@ -193,6 +288,27 @@ export default async function UsuariosPage({
     await createCollaborator(formData);
   }
 
+  async function handleInvite(formData: FormData) {
+    "use server";
+    const email = String(formData.get("email") ?? "").trim();
+    const role = String(formData.get("role") ?? "producao").trim() as any;
+    const sector = String(formData.get("sector") ?? "").trim();
+    const result = await createTenantInvitationInternalAction({
+      email,
+      role,
+      sector,
+      expiresInHours: 72,
+    });
+
+    if (!result.ok || !result.token) {
+      redirect("/dashboard/admin/usuarios?invite_error=1");
+    }
+
+    redirect(
+      `/dashboard/admin/usuarios?invite_email=${encodeURIComponent(email)}&invite_token=${encodeURIComponent(result.token)}`
+    );
+  }
+
   async function handleUpdate(formData: FormData) {
     "use server";
     await updateCollaborator(formData);
@@ -223,10 +339,33 @@ export default async function UsuariosPage({
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <h1 className="text-3xl font-bold text-gray-900">Gestão de Usuários</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Cadastre colaboradores, pesquise, filtre e gerencie acessos por sessão com
-          ações organizadas em janelas de confirmação.
+          Cadastre colaboradores, convide novos usuários e gerencie acessos por sessão com auditoria.
         </p>
       </div>
+
+      {inviteToken ? (
+        <Card className="border-emerald-200 bg-emerald-50">
+          <CardHeader>
+            <CardTitle className="text-lg text-emerald-900">Convite criado</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-emerald-900">
+            <p>
+              Envie este link para {inviteEmail || "o usuário convidado"}. Ele é exibido apenas uma vez.
+            </p>
+            <div className="rounded-lg border border-emerald-200 bg-white p-3 font-mono text-xs break-all">
+              {buildInvitationUrl(inviteToken)}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {inviteCanceled ? (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="p-4 text-sm text-amber-900">
+            Convite cancelado com sucesso.
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
         <Card>
@@ -271,65 +410,94 @@ export default async function UsuariosPage({
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle className="text-lg">Novo colaborador</CardTitle>
-          </CardHeader>
+        <div className="space-y-6">
+          <Card className="h-fit">
+            <CardHeader>
+              <CardTitle className="text-lg">Novo colaborador</CardTitle>
+            </CardHeader>
 
-          <CardContent>
-            {usersMetric && usersWarning ? (
-              <div
-                className={`mb-4 rounded-lg border px-3 py-2 text-xs ${getLimitWarningClassName(
-                  usersWarning.severity
-                )}`}
-              >
-                <p className="font-semibold">
-                  {usersWarning.title} · {formatLimit(usersMetric.used, usersMetric.limit)} usuários
-                </p>
-                <p className="mt-1 opacity-90">{usersWarning.message}</p>
-                <p className="mt-1 text-[11px] opacity-80">
-                  Aviso informativo: o cadastro ainda não será bloqueado automaticamente.
-                </p>
-              </div>
-            ) : null}
+            <CardContent>
+              {usersMetric && usersWarning ? (
+                <div
+                  className={`mb-4 rounded-lg border px-3 py-2 text-xs ${getLimitWarningClassName(
+                    usersWarning.severity
+                  )}`}
+                >
+                  <p className="font-semibold">
+                    {usersWarning.title} · {formatLimit(usersMetric.used, usersMetric.limit)} usuários
+                  </p>
+                  <p className="mt-1 opacity-90">{usersWarning.message}</p>
+                </div>
+              ) : null}
 
-            <form action={handleCreate} className="space-y-4">
-              <div className="space-y-1">
-                <Label htmlFor="full_name">Nome completo</Label>
-                <Input id="full_name" name="full_name" placeholder="Ex.: Ana Produção" required />
-              </div>
+              <form action={handleCreate} className="space-y-4">
+                <div className="space-y-1">
+                  <Label htmlFor="full_name">Nome completo</Label>
+                  <Input id="full_name" name="full_name" placeholder="Ex.: Ana Produção" required />
+                </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="email">E-mail</Label>
-                <Input id="email" name="email" type="email" placeholder="ana@gestify.app" required />
-              </div>
+                <div className="space-y-1">
+                  <Label htmlFor="email">E-mail</Label>
+                  <Input id="email" name="email" type="email" placeholder="ana@gestify.app" required />
+                </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="password">Senha inicial</Label>
-                <Input id="password" name="password" type="password" placeholder="••••••••" required />
-              </div>
+                <div className="space-y-1">
+                  <Label htmlFor="password">Senha inicial</Label>
+                  <Input id="password" name="password" type="password" placeholder="••••••••" required />
+                </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="role">Papel de acesso</Label>
-                <select id="role" name="role" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue="producao" required>
-                  <option value="admin">Admin</option>
-                  <option value="operacao">Operação</option>
-                  <option value="producao">Produção</option>
-                  <option value="estoque">Estoque</option>
-                  <option value="fiscal">Fiscal</option>
-                  <option value="entrega">Entrega</option>
-                </select>
-              </div>
+                <div className="space-y-1">
+                  <Label htmlFor="role">Papel de acesso</Label>
+                  <select id="role" name="role" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue="producao" required>
+                    <option value="admin">Admin</option>
+                    <option value="operacao">Operação</option>
+                    <option value="producao">Produção</option>
+                    <option value="estoque">Estoque</option>
+                    <option value="fiscal">Fiscal</option>
+                    <option value="entrega">Entrega</option>
+                  </select>
+                </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="sector">Setor / Área</Label>
-                <Input id="sector" name="sector" placeholder="Ex.: Confeitaria, Estoque, Logística" />
-              </div>
+                <div className="space-y-1">
+                  <Label htmlFor="sector">Setor / Área</Label>
+                  <Input id="sector" name="sector" placeholder="Ex.: Confeitaria, Estoque, Logística" />
+                </div>
 
-              <Button type="submit" className="w-full">Salvar colaborador</Button>
-            </form>
-          </CardContent>
-        </Card>
+                <Button type="submit" className="w-full">Salvar colaborador</Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card className="h-fit">
+            <CardHeader>
+              <CardTitle className="text-lg">Convidar usuário</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form action={handleInvite} className="space-y-4">
+                <div className="space-y-1">
+                  <Label htmlFor="invite-email">E-mail</Label>
+                  <Input id="invite-email" name="email" type="email" placeholder="usuario@empresa.com" required />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="invite-role">Papel</Label>
+                  <select id="invite-role" name="role" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" defaultValue="producao" required>
+                    <option value="admin">Admin</option>
+                    <option value="operacao">Operação</option>
+                    <option value="producao">Produção</option>
+                    <option value="estoque">Estoque</option>
+                    <option value="fiscal">Fiscal</option>
+                    <option value="entrega">Entrega</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="invite-sector">Setor / Área</Label>
+                  <Input id="invite-sector" name="sector" placeholder="Ex.: Produção" />
+                </div>
+                <Button type="submit" variant="outline" className="w-full">Gerar convite</Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
 
         <Card>
           <CardHeader className="space-y-4">
@@ -408,6 +576,21 @@ export default async function UsuariosPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Convites recentes</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {invitations.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum convite encontrado ainda.</p>
+          ) : (
+            invitations.map((invitation) => (
+              <InvitationCard key={invitation.id} invitation={invitation} />
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

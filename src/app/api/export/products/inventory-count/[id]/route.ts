@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,8 +22,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Mantém seu gate já validado (não mexi)
-    await getActiveMembershipOrRedirect();
+    const { tenant } = await getAuthenticatedTenantUserOrThrow();
 
     const supabase = await createSupabaseServerClient();
     const countId = (await params).id;
@@ -55,6 +54,7 @@ export async function GET(
       `
       )
       .eq("id", countId)
+      .eq("establishment_id", tenant.establishmentId)
       .maybeSingle();
 
     if (error) {

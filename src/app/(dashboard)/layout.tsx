@@ -40,6 +40,7 @@ export default async function DashboardLayout({
     userId: tenant.userId,
     redirectPath: "/dashboard/pedidos",
   });
+
   await touchUserAuthenticatedAccess({
     userId: tenant.userId,
     path: "/dashboard",
@@ -81,15 +82,10 @@ export default async function DashboardLayout({
           </div>
         </aside>
 
-        <div
-          className="flex min-w-0 flex-1 flex-col"
-          style={{
-            paddingLeft: "var(--sidebar-w)",
-            transition: "padding-left 300ms ease",
-          }}
-        >
+        <div className="flex min-w-0 flex-1 flex-col transition-[padding-left] duration-300 ease-in-out md:pl-[var(--sidebar-w)]">
           <Topbar />
-          <main className="min-h-0 flex-1 overflow-y-auto p-4 pt-20 md:p-8 md:pt-24">
+
+          <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-20 md:p-8 md:pt-24">
             {children}
           </main>
         </div>

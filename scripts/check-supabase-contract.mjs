@@ -62,6 +62,16 @@ if (error) {
   console.error(
     `[supabase-contract] RPC gestify_contract_check falhou: ${error.message}`
   );
+
+  if (
+    String(error.message ?? "").includes("Could not find the function") ||
+    String(error.message ?? "").includes("schema cache")
+  ) {
+    console.error(
+      "[supabase-contract] Aplique as migrations Supabase antes de rodar o contrato neste banco."
+    );
+  }
+
   process.exit(1);
 }
 

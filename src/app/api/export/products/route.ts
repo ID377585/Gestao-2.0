@@ -1,8 +1,8 @@
 // src/app/api/export/products/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { normalizeAllergenList } from "@/lib/allergens";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,119 +48,24 @@ type ProductExportRow = {
   is_active: boolean | null;
 };
 
-function normalizeId(value: any): string | null {
-  if (!value) return null;
-  const v = String(value).trim();
-  if (!v || v.toLowerCase() === "undefined" || v.toLowerCase() === "null") {
-    return null;
-  }
-  return v;
-}
-
-async function resolveEstablishmentId(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-): Promise<{ establishmentId: string | null; debug: string[] }> {
-  const debug: string[] = [];
-
-  try {
-    const helperRes = await getActiveMembershipOrRedirect();
-    const membership = (helperRes as any)?.membership ?? helperRes;
-
-    const estId = normalizeId((membership as any)?.establishment_id);
-    const orgId = normalizeId((membership as any)?.organization_id);
-    const picked = estId ?? orgId ?? null;
-
-    debug.push(
-      `membership-helper: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
-    );
-    if (picked) return { establishmentId: picked, debug };
-
-    debug.push("membership-helper: sem establishment/org no membership");
-  } catch (e: any) {
-    debug.push(`membership-helper: falhou (${e?.message ?? "sem mensagem"})`);
-  }
-
-  try {
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError || !userData?.user) {
-      debug.push("auth.getUser: falhou/sem user");
-      return { establishmentId: null, debug };
-    }
-
-    const userId = userData.user.id;
-    debug.push(`auth.getUser: ok (user=${userId})`);
-
-    try {
-      const { data: m, error: mErr } = await supabase
-        .from("memberships")
-        .select("establishment_id, organization_id")
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      if (mErr) {
-        debug.push(`fallback memberships: erro (${mErr.message})`);
-      } else {
-        const estId = normalizeId((m as any)?.establishment_id);
-        const orgId = normalizeId((m as any)?.organization_id);
-        const picked = estId ?? orgId ?? null;
-
-        debug.push(
-          `fallback memberships: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
-        );
-        if (picked) return { establishmentId: picked, debug };
-      }
-    } catch (e: any) {
-      debug.push(
-        `fallback memberships: exceção (${e?.message ?? "sem mensagem"})`,
-      );
-    }
-
-    try {
-      const { data: p, error: pErr } = await supabase
-        .from("profiles")
-        .select("establishment_id, organization_id")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (pErr) {
-        debug.push(`fallback profiles: erro (${pErr.message})`);
-      } else {
-        const estId = normalizeId((p as any)?.establishment_id);
-        const orgId = normalizeId((p as any)?.organization_id);
-        const picked = estId ?? orgId ?? null;
-
-        debug.push(
-          `fallback profiles: ok (est=${estId ?? "null"} org=${orgId ?? "null"})`,
-        );
-        if (picked) return { establishmentId: picked, debug };
-      }
-    } catch (e: any) {
-      debug.push(
-        `fallback profiles: exceção (${e?.message ?? "sem mensagem"})`,
-      );
-    }
-
-    return { establishmentId: null, debug };
-  } catch (e: any) {
-    debug.push(`auth+fallback: exceção geral (${e?.message ?? "sem mensagem"})`);
-    return { establishmentId: null, debug };
-  }
-}
-
 export async function GET(_request: Request) {
   try {
     const supabase = await createSupabaseServerClient();
+    let establishmentId: string;
 
-    const { establishmentId, debug } = await resolveEstablishmentId(supabase);
-
-    if (!establishmentId) {
-      console.error("Export products: establishmentId não resolvido", debug);
+    try {
+      const { tenant } = await getAuthenticatedTenantUserOrThrow();
+      establishmentId = tenant.establishmentId;
+    } catch (error: any) {
+      console.error("Export products: establishmentId não resolvido", {
+        message: error?.message,
+      });
       return NextResponse.json(
         {
           error:
             "Não foi possível identificar o estabelecimento do usuário. Verifique membership/profiles e RLS.",
         },
-        { status: 403 },
+        { status: error?.message === "Não autenticado." ? 401 : 403 },
       );
     }
 

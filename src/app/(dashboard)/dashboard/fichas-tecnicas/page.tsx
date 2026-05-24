@@ -1,7 +1,7 @@
 "use client";
 
-import { formatPtBrDecimal, parsePtBrNumber } from "@/lib/number-format";
 import Image from "next/image";
+import { formatPtBrDecimal, parsePtBrNumber } from "@/lib/number-format";
 import {
   useCallback,
   useEffect,
@@ -58,6 +58,7 @@ import {
   type ProductOption as MatcherProductOption,
   type Ingrediente as MatcherIngrediente,
   normalizeUnit,
+  syncIngredienteWithProduct,
   toNumber,
 } from "@/app/dashboard/fichas-tecnicas/lib/ingredient-product-matcher";
 import { detectAllergens } from "@/app/dashboard/fichas-tecnicas/utils/allergens";
@@ -144,6 +145,43 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+
+type TechnicalSheetImageLike = {
+  imagePath?: string | null;
+  imageUrl?: string | null;
+};
+
+function getTechnicalSheetImageSrcFromPath(
+  imagePath?: string | null,
+  imageUrl?: string | null,
+  absolute = false
+) {
+  const cleanPath = String(imagePath || "").trim();
+
+  if (cleanPath) {
+    const route = `/api/technical-sheet-image?path=${encodeURIComponent(cleanPath)}`;
+
+    if (absolute && typeof window !== "undefined") {
+      return `${window.location.origin}${route}`;
+    }
+
+    return route;
+  }
+
+  return imageUrl || "";
+}
+
+function getTechnicalSheetImageSrc(
+  ficha: TechnicalSheetImageLike,
+  absolute = false
+) {
+  return getTechnicalSheetImageSrcFromPath(
+    ficha.imagePath,
+    ficha.imageUrl,
+    absolute
+  );
+}
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -224,6 +262,34 @@ function calcularRendimentoPorPesoFinal(
   }
 
   return Number((pesoFinalNumber / pesoPorPorcaoNumber).toFixed(3));
+}
+
+function calcularPesoUsoIngredientes(ingredientes: Ingrediente[]) {
+  const total = ingredientes.reduce((acc, item) => {
+    const quantidade = toNumber(item.quantidadeUso, 0);
+    const unidade = String(item.unidadeUso || "").trim().toUpperCase();
+
+    if (unidade === "KG" || unidade === "L") return acc + quantidade;
+    if (unidade === "G" || unidade === "ML") return acc + quantidade / 1000;
+
+    return acc + quantidade;
+  }, 0);
+
+  return Number(total.toFixed(3));
+}
+
+
+function formatPesoAutomaticoEmpratamento(
+  value: number | "" | null | undefined
+) {
+  const numero = toNumber(value, 0);
+
+  if (numero <= 0) return "";
+
+  return numero.toLocaleString("pt-BR", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  });
 }
 
 function somarCustoIngredientes(ingredientes: Ingrediente[]) {
@@ -439,6 +505,43 @@ function normalizeFichaFromDb(raw: any): FichaTecnica {
   };
 }
 
+function syncFichaCostsWithCatalog(
+  ficha: FichaTecnica,
+  productsCatalog: ProductOption[]
+): FichaTecnica {
+  if (!productsCatalog.length || !ficha.ingredientes.length) {
+    return ficha;
+  }
+
+  const productById = new Map(
+    productsCatalog.map((product) => [String(product.id), product])
+  );
+
+  const ingredientesAtualizados = ficha.ingredientes.map((ingrediente) => {
+    if (!ingrediente.productId) return ingrediente;
+
+    const product = productById.get(String(ingrediente.productId));
+
+    if (!product) return ingrediente;
+
+    return syncIngredienteWithProduct(ingrediente, product);
+  });
+
+  const precificacao = calcularPrecificacaoPlanilha({
+    ingredientes: ingredientesAtualizados,
+    rendimento: ficha.rendimento,
+    pesoFinal: Number(ficha.correctionFactorGrams || 0),
+  });
+
+  return {
+    ...ficha,
+    ingredientes: ingredientesAtualizados,
+    custoTotal: precificacao.custoTotal,
+    custoPorPorcao: precificacao.custoPorPorcao,
+    precoVenda: precificacao.precoVendaReal || precificacao.precoVendaDesejavel,
+  };
+}
+
 function toActionPayload(
   ficha: Omit<FichaTecnica, "id" | "createdAt" | "updatedAt"> & {
     id?: string;
@@ -554,7 +657,6 @@ function buildPrintHtml(
   const precoVenda =
     precificacao.precoVendaReal || precificacao.precoVendaDesejavel || ficha.precoVenda || 0;
   const custoTotalAjustado = scaled.custoTotal || ficha.custoTotal || 0;
-  const cmv = precificacao.cmvRealPercent || 0;
 
   const quantidadeRendimento = Number(ficha.rendimento || 0);
   const textoPorcao = quantidadeRendimento === 1 ? "porção" : "porções";
@@ -625,16 +727,24 @@ function buildPrintHtml(
       maximumFractionDigits: 3,
     }).format(value || 0);
 
+    const formatQuantidadeUtilizada = (value: number) =>
+  new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  }).format(value || 0);
+
   const textoRendimentoCompleto = `Rende: ${quantidadeRendimento} ${textoPorcao} de ${formatPeso(
     pesoPorcaoKg
   )} ${unidadePesoPorcao} - Peso Receita Total: ${formatPeso(
     pesoReceitaTotalKg
   )} ${unidadePesoPorcao}`;
 
-  const imageHtml = ficha.imageUrl
+  const imageSrc = getTechnicalSheetImageSrc(ficha, true);
+
+  const imageHtml = imageSrc
     ? `
       <div class="photo-box has-photo">
-        <img src="${escapeAttr(ficha.imageUrl)}" alt="${escapeAttr(
+        <img src="${escapeAttr(imageSrc)}" alt="${escapeAttr(
         ficha.nome
       )}" />
       </div>
@@ -668,7 +778,7 @@ function buildPrintHtml(
                       <td class="col-ingredient ingredient-name">${escapeHtml(
                         i.nome
                       )}</td>
-                      <td class="col-usage">${i.quantidadeUso} ${escapeHtml(
+                      <td class="col-usage">${formatQuantidadeUtilizada(i.quantidadeUso)} ${escapeHtml(
                         i.unidadeUso
                       )}</td>
                       <td class="col-price right">${formatCurrency(
@@ -832,7 +942,7 @@ function buildPrintHtml(
 
   .metrics-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 10px;
     margin-bottom: 14px;
   }
@@ -1066,10 +1176,6 @@ function buildPrintHtml(
         <div class="metric-value">${formatCurrency(precoVenda)}</div>
       </div>
 
-      <div class="metric-card">
-        <div class="metric-label">CMV</div>
-        <div class="metric-value">${cmv.toFixed(1)}%</div>
-      </div>
     </section>
 
     <section class="section">
@@ -1216,18 +1322,19 @@ function RecipeViewerInline({
     precificacao.precoVendaReal || precificacao.precoVendaDesejavel || ficha.precoVenda || 0;
 
   const lucro = precificacao.lucroUnitario || 0;
-  const cmv = precificacao.cmvRealPercent || 0;
 
   return (
     <Card className="overflow-hidden border border-slate-200 bg-white text-slate-900 shadow-sm">
-      {ficha.imageUrl ? (
+      {(ficha.imagePath || ficha.imageUrl) ? (
         <div className="relative h-[260px] w-full border-b border-slate-200 bg-slate-100 sm:h-[320px]">
-          <Image
-            src={ficha.imageUrl}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={getTechnicalSheetImageSrc(ficha)}
             alt={ficha.nome}
-            fill
-            className="object-cover"
-            unoptimized
+            className="h-full w-full object-cover"
+            onError={(event) => {
+              event.currentTarget.style.display = "none";
+            }}
           />
         </div>
       ) : (
@@ -1301,7 +1408,7 @@ function RecipeViewerInline({
       </div>
 
       <CardContent className="space-y-6 bg-white p-4 text-slate-900 sm:p-6">
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-xs text-slate-500">Custo total</p>
             <p className="mt-1 text-2xl font-bold text-red-600">
@@ -1330,12 +1437,6 @@ function RecipeViewerInline({
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs text-slate-500">CMV</p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">
-              {cmv.toFixed(1)}%
-            </p>
-          </div>
         </div>
       </CardContent>
     </Card>
@@ -1396,6 +1497,53 @@ export default function FichasTecnicasPage() {
   const autoEditAllergens = useMemo(() => {
     return detectAllergens(fichaEditando?.ingredientes ?? [], products);
   }, [fichaEditando?.ingredientes, products]);
+  const pesoUsoIngredientesNovaFicha = useMemo(() => {
+    return calcularPesoUsoIngredientes(ingredientes);
+  }, [ingredientes]);
+
+  const pesoUsoIngredientesFichaEditando = useMemo(() => {
+    return calcularPesoUsoIngredientes(fichaEditando?.ingredientes ?? []);
+  }, [fichaEditando?.ingredientes]);
+
+  useEffect(() => {
+    if (categoria !== "Empratamento") return;
+
+    const pesoCalculado =
+      pesoUsoIngredientesNovaFicha > 0 ? pesoUsoIngredientesNovaFicha : "";
+
+    setPesoPorcao(pesoCalculado);
+    setCorrectionFactorGrams(pesoCalculado);
+    setRendimento(pesoCalculado === "" ? 1 : 1);
+  }, [categoria, pesoUsoIngredientesNovaFicha]);
+
+  useEffect(() => {
+    if (!fichaEditando || fichaEditando.categoria !== "Empratamento") return;
+
+    const pesoCalculado =
+      pesoUsoIngredientesFichaEditando > 0
+        ? pesoUsoIngredientesFichaEditando
+        : 0;
+
+    setFichaEditando((prev) => {
+      if (!prev || prev.categoria !== "Empratamento") return prev;
+
+      if (
+        prev.pesoPorcao === pesoCalculado &&
+        prev.correctionFactorGrams === pesoCalculado &&
+        prev.rendimento === 1
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        pesoPorcao: pesoCalculado,
+        correctionFactorGrams: pesoCalculado,
+        rendimento: 1,
+      };
+    });
+  }, [fichaEditando?.categoria, pesoUsoIngredientesFichaEditando]);
+
   const [establishmentId, setEstablishmentId] = useState("");
   const [uploadedBy, setUploadedBy] = useState("");
   const newImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -1500,13 +1648,16 @@ export default function FichasTecnicasPage() {
       setLoadingProducts(true);
       setLoadingFichas(true);
 
-      const [, fichasRes] = await Promise.all([
+      const [productsCatalog, fichasRes] = await Promise.all([
         loadProductsCatalog(false),
         listTechnicalSheets(),
       ]);
 
       const fichasNormalizadas = Array.isArray(fichasRes)
-        ? fichasRes.map(normalizeFichaFromDb).sort(compareFichaByNome)
+        ? fichasRes
+            .map(normalizeFichaFromDb)
+            .map((ficha) => syncFichaCostsWithCatalog(ficha, productsCatalog))
+            .sort(compareFichaByNome)
         : [];
 
       setFichasTecnicas(fichasNormalizadas);
@@ -1542,7 +1693,21 @@ export default function FichasTecnicasPage() {
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
-      void loadProductsCatalog(false);
+      void loadProductsCatalog(false).then((productsCatalog) => {
+        if (!productsCatalog.length) return;
+
+        setFichasTecnicas((prev) =>
+          prev.map((ficha) => syncFichaCostsWithCatalog(ficha, productsCatalog))
+        );
+
+        setFichaSelecionada((prev) =>
+          prev ? syncFichaCostsWithCatalog(prev, productsCatalog) : prev
+        );
+
+        setFichaEditando((prev) =>
+          prev ? syncFichaCostsWithCatalog(prev, productsCatalog) : prev
+        );
+      });
     }, 30000);
 
     return () => window.clearInterval(intervalId);
@@ -2341,14 +2506,16 @@ export default function FichasTecnicasPage() {
                           : "border-border bg-white hover:bg-slate-50"
                       }`}
                     >
-                      {ficha.imageUrl ? (
+                      {(ficha.imagePath || ficha.imageUrl) ? (
                         <div className="relative h-40 w-full bg-slate-100">
-                          <Image
-                            src={ficha.imageUrl}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={getTechnicalSheetImageSrc(ficha)}
                             alt={ficha.nome}
-                            fill
-                            className="object-cover"
-                            unoptimized
+                            className="h-full w-full object-cover"
+                            onError={(event) => {
+                              event.currentTarget.style.display = "none";
+                            }}
                           />
                         </div>
                       ) : (
@@ -2395,12 +2562,6 @@ export default function FichasTecnicasPage() {
                             </p>
                           </div>
 
-                          <div>
-                            <p className="text-muted-foreground">CMV</p>
-                            <p className="font-bold">
-                              {(precificacao.cmvRealPercent || 0).toFixed(1)}%
-                            </p>
-                          </div>
 
                           <div>
                             <p className="text-muted-foreground">Escalas</p>
@@ -2558,10 +2719,22 @@ export default function FichasTecnicasPage() {
               <div>
                 <Label>Peso por porção</Label>
                 <Input
-                  type="number"
+                  type={categoria === "Empratamento" ? "text" : "number"}
                   step="0.001"
-                  value={pesoPorcao}
+                  value={
+                    categoria === "Empratamento"
+                      ? formatPesoAutomaticoEmpratamento(pesoPorcao)
+                      : pesoPorcao
+                  }
+                  readOnly={categoria === "Empratamento"}
+                  className={
+                    categoria === "Empratamento"
+                      ? "bg-slate-100 font-semibold text-slate-700"
+                      : undefined
+                  }
                   onChange={(e) => {
+                    if (categoria === "Empratamento") return;
+
                     const nextPesoPorcao =
                       e.target.value === "" ? "" : toNumber(e.target.value, 0);
 
@@ -2659,9 +2832,21 @@ export default function FichasTecnicasPage() {
               <div>
                 <Label>Peso Final (g)</Label>
                 <Input
-                  type="number"
-                  value={correctionFactorGrams}
+                  type={categoria === "Empratamento" ? "text" : "number"}
+                  value={
+                    categoria === "Empratamento"
+                      ? formatPesoAutomaticoEmpratamento(correctionFactorGrams)
+                      : correctionFactorGrams
+                  }
+                  readOnly={categoria === "Empratamento"}
+                  className={
+                    categoria === "Empratamento"
+                      ? "bg-slate-100 font-semibold text-slate-700"
+                      : undefined
+                  }
                   onChange={(e) => {
+                    if (categoria === "Empratamento") return;
+
                     const nextPesoFinal =
                       e.target.value === "" ? "" : toNumber(e.target.value, 0);
 
@@ -2805,7 +2990,7 @@ export default function FichasTecnicasPage() {
                     {uploadingImage ? "Enviando imagem..." : "Enviar imagem"}
                   </Button>
 
-                  {imageUrl ? (
+                  {(imagePath || imageUrl) ? (
                     <Button
                       type="button"
                       variant="ghost"
@@ -2820,14 +3005,16 @@ export default function FichasTecnicasPage() {
                 </div>
               </div>
 
-              {imageUrl ? (
+              {(imagePath || imageUrl) ? (
                 <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
-                  <Image
-                    src={imageUrl}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={getTechnicalSheetImageSrcFromPath(imagePath, imageUrl)}
                     alt="Pré-visualização da receita"
-                    fill
-                    className="object-cover"
-                    unoptimized
+                    className="h-full w-full object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
                   />
                 </div>
               ) : (
@@ -2995,12 +3182,30 @@ export default function FichasTecnicasPage() {
                 <div>
                   <Label>Peso por porção</Label>
                   <Input
-                    type="number"
+                    type={
+                      fichaEditando.categoria === "Empratamento"
+                        ? "text"
+                        : "number"
+                    }
                     step="0.001"
-                    value={fichaEditando.pesoPorcao}
+                    value={
+                      fichaEditando.categoria === "Empratamento"
+                        ? formatPesoAutomaticoEmpratamento(
+                            fichaEditando.pesoPorcao
+                          )
+                        : fichaEditando.pesoPorcao
+                    }
+                    readOnly={fichaEditando.categoria === "Empratamento"}
+                    className={
+                      fichaEditando.categoria === "Empratamento"
+                        ? "bg-slate-100 font-semibold text-slate-700"
+                        : undefined
+                    }
                     onChange={(e) =>
                       setFichaEditando((prev) => {
-                        if (!prev) return prev;
+                        if (!prev || prev.categoria === "Empratamento") {
+                          return prev;
+                        }
 
                         const nextPesoPorcao = toNumber(e.target.value, 0);
 
@@ -3151,11 +3356,29 @@ export default function FichasTecnicasPage() {
                 <div>
                   <Label>Peso Final (g)</Label>
                   <Input
-                    type="number"
-                    value={fichaEditando.correctionFactorGrams ?? ""}
+                    type={
+                      fichaEditando.categoria === "Empratamento"
+                        ? "text"
+                        : "number"
+                    }
+                    value={
+                      fichaEditando.categoria === "Empratamento"
+                        ? formatPesoAutomaticoEmpratamento(
+                            fichaEditando.correctionFactorGrams
+                          )
+                        : fichaEditando.correctionFactorGrams ?? ""
+                    }
+                    readOnly={fichaEditando.categoria === "Empratamento"}
+                    className={
+                      fichaEditando.categoria === "Empratamento"
+                        ? "bg-slate-100 font-semibold text-slate-700"
+                        : undefined
+                    }
                     onChange={(e) =>
                       setFichaEditando((prev) => {
-                        if (!prev) return prev;
+                        if (!prev || prev.categoria === "Empratamento") {
+                          return prev;
+                        }
 
                         const nextPesoFinal =
                           e.target.value === ""
@@ -3384,7 +3607,7 @@ export default function FichasTecnicasPage() {
                       {uploadingImage ? "Enviando imagem..." : "Trocar imagem"}
                     </Button>
 
-                    {fichaEditando.imageUrl ? (
+                    {(fichaEditando.imagePath || fichaEditando.imageUrl) ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -3406,10 +3629,10 @@ export default function FichasTecnicasPage() {
                   </div>
                 </div>
 
-                {fichaEditando.imageUrl ? (
+                {(fichaEditando.imagePath || fichaEditando.imageUrl) ? (
                   <div className="relative h-56 w-full overflow-hidden rounded-xl border bg-slate-100">
                     <Image
-                      src={fichaEditando.imageUrl}
+                      src={getTechnicalSheetImageSrcFromPath(fichaEditando.imagePath, fichaEditando.imageUrl)}
                       alt={fichaEditando.nome}
                       fill
                       className="object-cover"

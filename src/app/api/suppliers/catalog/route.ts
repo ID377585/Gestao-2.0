@@ -1,33 +1,58 @@
 import { NextResponse } from "next/server";
-import { listSuppliers } from "@/lib/compras/suppliers";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
   try {
-    const suppliers = await listSuppliers();
+    const tenant = await getCurrentTenant();
 
-    const normalized = (suppliers ?? []).map((supplier: any) => ({
-      id: String(supplier.id),
-      name: String(
-        supplier.razaoSocial ??
+    if (!tenant?.establishmentId) {
+      return NextResponse.json(
+        { error: "Empresa ativa não encontrada." },
+        { status: 403 }
+      );
+    }
+
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase
+      .from("suppliers")
+      .select("id, razao_social, nome_fantasia, cnpj, ativo")
+      .eq("establishment_id", tenant.establishmentId)
+      .order("razao_social", { ascending: true });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const normalized = (data ?? [])
+      .map((supplier: any) => {
+        const name = String(
           supplier.razao_social ??
-          supplier.name ??
-          ""
-      ),
-      document: supplier.cnpj
-        ? String(supplier.cnpj)
-        : supplier.documento
-        ? String(supplier.documento)
-        : supplier.document
-        ? String(supplier.document)
-        : null,
-    }));
+            supplier.nome_fantasia ??
+            ""
+        ).trim();
+
+        return {
+          id: String(supplier.id ?? ""),
+          name,
+          document: supplier.cnpj ? String(supplier.cnpj) : null,
+          active: supplier.ativo ?? true,
+        };
+      })
+      .filter((supplier) => supplier.id && supplier.name)
+      .filter((supplier) => supplier.active !== false)
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
     return NextResponse.json(normalized);
   } catch (error) {
-    console.error("[GET /api/suppliers/catalog] erro ao carregar fornecedores:", error);
+    console.error(
+      "[GET /api/suppliers/catalog] erro ao carregar fornecedores:",
+      error
+    );
+
     return NextResponse.json(
       { error: "Não foi possível carregar os fornecedores." },
       { status: 500 }

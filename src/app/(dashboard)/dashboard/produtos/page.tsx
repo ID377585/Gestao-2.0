@@ -106,8 +106,8 @@ function formatQty(value: number | null | undefined) {
 
 export default async function ProductsPage({ searchParams }: PageProps) {
   const resolvedSearchParams = await searchParams;
-  const { membership } = await getActiveMembershipOrRedirect();
-  const establishmentId = String((membership as any)?.establishment_id ?? "").trim();
+  const membershipContext = await getActiveMembershipOrRedirect();
+  const establishmentId = String(membershipContext.establishmentId ?? "").trim();
 
   const supabase = await createSupabaseServerClient();
 

@@ -53,11 +53,40 @@ export type InventoryLabel = {
 };
 
 function getMembershipScopeId(membership: Record<string, unknown>) {
-  const scope = membership.establishment_id ?? membership.unit_id;
-  if (!scope) {
+  if (!membership.establishment_id) {
     throw new Error("Estabelecimento não encontrado no membership.");
   }
-  return String(scope);
+  return String(membership.establishment_id);
+}
+
+async function assertProductionCollaboratorBelongsToEstablishment(
+  supabase: any,
+  establishmentId: string,
+  userId: string
+) {
+  const collaboratorId = String(userId ?? "").trim();
+
+  if (!collaboratorId) {
+    throw new Error("Colaborador não informado.");
+  }
+
+  const { data, error } = await supabase
+    .from("memberships")
+    .select("user_id, role, is_active")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", collaboratorId)
+    .eq("is_active", true)
+    .in("role", ["admin", "operacao", "producao", "estoque", "fiscal", "entrega"])
+    .maybeSingle();
+
+  if (error) {
+    console.error("Erro ao validar colaborador da produção:", error);
+    throw new Error("Erro ao validar colaborador.");
+  }
+
+  if (!data) {
+    throw new Error("Colaborador não encontrado nesta empresa.");
+  }
 }
 
 // ----------------------------------------------------
@@ -65,12 +94,14 @@ function getMembershipScopeId(membership: Record<string, unknown>) {
 // ----------------------------------------------------
 async function findOrderItem(
   supabase: any,
-  orderItemId: string
+  orderItemId: string,
+  establishmentId: string
 ): Promise<{
   table: "order_line_items" | "order_items" | null;
   item:
     | {
         id: string;
+        order_id: string;
         production_status: string;
         production_assigned_to: string | null;
         production_start_at: string | null;
@@ -81,43 +112,94 @@ async function findOrderItem(
       }
     | null;
 }> {
-  const tablesToTry = ["order_line_items", "order_items"] as const;
+  const { data: lineItem, error: lineItemError } = await supabase
+    .from("order_line_items")
+    .select(
+      `
+        id,
+        order_id,
+        establishment_id,
+        production_status,
+        production_assigned_to,
+        production_start_at,
+        production_end_at,
+        product_id,
+        quantity,
+        unit_label
+      `
+    )
+    .eq("id", orderItemId)
+    .eq("establishment_id", establishmentId)
+    .maybeSingle();
 
-  for (const table of tablesToTry) {
-    const { data, error } = await supabase
-      .from(table)
-      .select(
-        `
-          id,
-          production_status,
-          production_assigned_to,
-          production_start_at,
-          production_end_at,
-          product_id,
-          order_qty,
-          default_unit_label
-        `
-      )
-      .eq("id", orderItemId)
+  if (lineItemError) {
+    console.error("Erro ao buscar em order_line_items:", lineItemError);
+    throw lineItemError;
+  }
+
+  if (lineItem) {
+    return {
+      table: "order_line_items",
+      item: {
+        id: lineItem.id,
+        order_id: lineItem.order_id,
+        production_status: lineItem.production_status,
+        production_assigned_to: lineItem.production_assigned_to,
+        production_start_at: lineItem.production_start_at ?? null,
+        production_end_at: lineItem.production_end_at ?? null,
+        product_id: lineItem.product_id ?? null,
+        order_qty: lineItem.quantity ?? null,
+        default_unit_label: lineItem.unit_label ?? null,
+      },
+    };
+  }
+
+  const { data: legacyItem, error: legacyItemError } = await supabase
+    .from("order_items")
+    .select(
+      `
+        id,
+        order_id,
+        production_status,
+        production_assigned_to,
+        qty,
+        unit
+      `
+    )
+    .eq("id", orderItemId)
+    .maybeSingle();
+
+  if (legacyItemError) {
+    console.error("Erro ao buscar em order_items:", legacyItemError);
+    throw legacyItemError;
+  }
+
+  if (legacyItem?.order_id) {
+    const { data: order, error: orderError } = await supabase
+      .from("orders")
+      .select("id")
+      .eq("id", legacyItem.order_id)
+      .eq("establishment_id", establishmentId)
       .maybeSingle();
 
-    if (error) {
-      console.error(`Erro ao buscar em ${table}:`, error);
-      throw error;
+    if (orderError) {
+      console.error("Erro ao validar pedido do item legado:", orderError);
+      throw orderError;
     }
 
-    if (data) {
+    if (order) {
       return {
-        table,
+        table: "order_items",
         item: {
-          id: data.id,
-          production_status: data.production_status,
-          production_assigned_to: data.production_assigned_to,
-          production_start_at: data.production_start_at ?? null,
-          production_end_at: data.production_end_at ?? null,
-          product_id: data.product_id ?? null,
-          order_qty: data.order_qty ?? null,
-          default_unit_label: data.default_unit_label ?? null,
+          id: legacyItem.id,
+          order_id: legacyItem.order_id,
+          production_status: legacyItem.production_status,
+          production_assigned_to: legacyItem.production_assigned_to,
+          production_start_at: null,
+          production_end_at: null,
+          product_id: null,
+          order_qty: legacyItem.qty ?? null,
+          default_unit_label: legacyItem.unit ?? null,
         },
       };
     }
@@ -136,7 +218,8 @@ async function findOrderItem(
 // ---------------------------------------------------------------------
 export async function getKdsProductionData(): Promise<{ items: KdsItem[] }> {
   const supabase = await createSupabaseServerClient();
-  await getActiveMembershipOrRedirect();
+  const { membership } = await getActiveMembershipOrRedirect();
+  const establishmentId = getMembershipScopeId(membership);
 
   const { data, error } = await supabase
     .from("kds_production_view")
@@ -145,7 +228,28 @@ export async function getKdsProductionData(): Promise<{ items: KdsItem[] }> {
 
   if (error) throw error;
 
-  return { items: (data ?? []) as KdsItem[] };
+  const items = (data ?? []) as KdsItem[];
+  const orderIds = Array.from(
+    new Set(items.map((item) => item.order_id).filter(Boolean))
+  );
+
+  if (orderIds.length === 0) {
+    return { items: [] };
+  }
+
+  const { data: orders, error: ordersError } = await supabase
+    .from("orders")
+    .select("id")
+    .in("id", orderIds)
+    .eq("establishment_id", establishmentId);
+
+  if (ordersError) throw ordersError;
+
+  const allowedOrderIds = new Set((orders ?? []).map((order: any) => order.id));
+
+  return {
+    items: items.filter((item) => allowedOrderIds.has(item.order_id)),
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -153,12 +257,30 @@ export async function getKdsProductionData(): Promise<{ items: KdsItem[] }> {
 // ---------------------------------------------------------------------
 export async function listKdsCollaborators(): Promise<KdsCollaborator[]> {
   const supabase = await createSupabaseServerClient();
-  await getActiveMembershipOrRedirect();
+  const { membership } = await getActiveMembershipOrRedirect();
+  const establishmentId = getMembershipScopeId(membership);
+
+  const { data: memberships, error: membershipsError } = await supabase
+    .from("memberships")
+    .select("user_id, role")
+    .eq("establishment_id", establishmentId)
+    .eq("is_active", true)
+    .in("role", ["admin", "operacao", "producao", "estoque", "fiscal", "entrega"]);
+
+  if (membershipsError) throw membershipsError;
+
+  const userIds = Array.from(
+    new Set((memberships ?? []).map((membership: any) => membership.user_id))
+  ).filter(Boolean);
+
+  if (userIds.length === 0) {
+    return [];
+  }
 
   const { data, error } = await supabase
     .from("profiles")
     .select("id, full_name, role, sector")
-    .in("role", ["admin", "operacao", "producao", "estoque", "fiscal", "entrega"])
+    .in("id", userIds)
     .order("full_name", { ascending: true });
 
   if (error) throw error;
@@ -179,13 +301,20 @@ export async function assignProductionCollaborator(
   userId: string
 ) {
   const { membership } = await getActiveMembershipOrRedirect();
+  const establishmentId = getMembershipScopeId(membership);
 
   if (!["admin", "operacao"].includes(membership.role)) {
     throw new Error("Somente líderes podem definir colaborador.");
   }
 
   const supabase = getSupabaseAdminClient();
-  const { table } = await findOrderItem(supabase, orderItemId);
+  await assertProductionCollaboratorBelongsToEstablishment(
+    supabase,
+    establishmentId,
+    userId
+  );
+
+  const { table } = await findOrderItem(supabase, orderItemId, establishmentId);
 
   if (!table) {
     console.error(
@@ -195,10 +324,16 @@ export async function assignProductionCollaborator(
     throw new Error("Item de pedido não encontrado para definir colaborador.");
   }
 
-  const { error } = await supabase
+  let updateQuery = supabase
     .from(table)
     .update({ production_assigned_to: userId })
     .eq("id", orderItemId);
+
+  if (table === "order_line_items") {
+    updateQuery = updateQuery.eq("establishment_id", establishmentId);
+  }
+
+  const { error } = await updateQuery;
 
   if (error) {
     console.error("🔥 Erro ao definir colaborador:", error);
@@ -213,9 +348,14 @@ export async function assignProductionCollaborator(
 // ---------------------------------------------------------------------
 export async function advanceProductionStatus(orderItemId: string) {
   const { membership } = await getActiveMembershipOrRedirect();
+  const establishmentId = getMembershipScopeId(membership);
   const supabase = getSupabaseAdminClient();
 
-  const { table, item } = await findOrderItem(supabase, orderItemId);
+  const { table, item } = await findOrderItem(
+    supabase,
+    orderItemId,
+    establishmentId
+  );
   if (!table || !item) {
     console.error(
       "Item não encontrado em nenhuma tabela ao avançar status:",
@@ -241,14 +381,27 @@ export async function advanceProductionStatus(orderItemId: string) {
       throw new Error("Defina um colaborador antes de avançar o status.");
     }
 
-    const { error: updErr } = await supabase
+    const updatePayload =
+      table === "order_line_items"
+        ? {
+            production_status: "in_progress",
+            production_start_at: now,
+            production_end_at: null,
+          }
+        : {
+            production_status: "in_progress",
+          };
+
+    let updateQuery = supabase
       .from(table)
-      .update({
-        production_status: "in_progress",
-        production_start_at: now,
-        production_end_at: null,
-      })
+      .update(updatePayload)
       .eq("id", orderItemId);
+
+    if (table === "order_line_items") {
+      updateQuery = updateQuery.eq("establishment_id", establishmentId);
+    }
+
+    const { error: updErr } = await updateQuery;
 
     if (updErr) {
       console.error("Erro ao atualizar status para in_progress:", updErr);
@@ -265,13 +418,26 @@ export async function advanceProductionStatus(orderItemId: string) {
       throw new Error("Sem permissão para finalizar a produção.");
     }
 
-    const { error: updErr } = await supabase
+    const updatePayload =
+      table === "order_line_items"
+        ? {
+            production_status: "done",
+            production_end_at: now,
+          }
+        : {
+            production_status: "done",
+          };
+
+    let updateQuery = supabase
       .from(table)
-      .update({
-        production_status: "done",
-        production_end_at: now,
-      })
+      .update(updatePayload)
       .eq("id", orderItemId);
+
+    if (table === "order_line_items") {
+      updateQuery = updateQuery.eq("establishment_id", establishmentId);
+    }
+
+    const { error: updErr } = await updateQuery;
 
     if (updErr) {
       console.error("Erro ao atualizar status para done:", updErr);
@@ -291,13 +457,14 @@ export async function advanceProductionStatus(orderItemId: string) {
       const { error: prodErr } = await supabase
         .from("production_productivity")
         .insert({
-          order_item_id: orderItemId,
+          order_item_id: table === "order_line_items" ? orderItemId : null,
+          order_item_id_alt: table === "order_items" ? orderItemId : null,
           product_id: item.product_id,
           collaborator_id: item.production_assigned_to,
-          qty: item.order_qty,
-          unit: item.default_unit_label,
-          start_at: item.production_start_at,
-          end_at: now,
+          qty_produced: Number(item.order_qty ?? 0),
+          unit_label: item.default_unit_label,
+          started_at: item.production_start_at,
+          finished_at: now,
           duration_minutes: minutes,
         });
 

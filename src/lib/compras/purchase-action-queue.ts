@@ -1,6 +1,8 @@
 import {
   assertSupabaseSuccess,
-  getLegacySupabase,
+  legacySelect,
+  legacyUpdate,
+  legacyUpsert,
   toIsoString,
   toText,
 } from "@/lib/legacy/supabase";
@@ -33,14 +35,13 @@ function normalizeItem(row: Record<string, unknown>): PurchaseAlertActionItem {
 }
 
 export async function listPurchaseActionQueue() {
-  const supabase = getLegacySupabase();
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("*")
-    .order("updated_at", { ascending: false });
+  const { query } = await legacySelect(TABLE_NAME);
+  const { data, error } = await query.order("updated_at", { ascending: false });
 
   assertSupabaseSuccess(error, "Nao foi possivel listar a fila de acoes");
-  return (data ?? []).map((row) => normalizeItem(row as Record<string, unknown>));
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+    normalizeItem(row as Record<string, unknown>)
+  );
 }
 
 export async function upsertPurchaseActionItem(input: {
@@ -54,7 +55,6 @@ export async function upsertPurchaseActionItem(input: {
   purchaseOrderId?: string;
   purchaseOrderNumber?: string;
 }) {
-  const supabase = getLegacySupabase();
   const payload = {
     id: input.alertId,
     alert_id: input.alertId,
@@ -72,7 +72,7 @@ export async function upsertPurchaseActionItem(input: {
     treated_by: "",
   };
 
-  const { error } = await supabase.from(TABLE_NAME).upsert(payload, {
+  const { error } = await legacyUpsert(TABLE_NAME, payload, {
     onConflict: "id",
   });
 
@@ -85,31 +85,25 @@ export async function markPurchaseActionAsDone(params: {
   observacaoTratativa?: string;
   treatedBy?: string;
 }) {
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
-      status: "tratado",
-      observacao_tratativa: params.observacaoTratativa ?? "",
-      treated_at: new Date().toISOString(),
-      treated_by: params.treatedBy ?? "",
-    })
-    .eq("id", params.id);
+  const { query } = await legacyUpdate(TABLE_NAME, {
+    status: "tratado",
+    observacao_tratativa: params.observacaoTratativa ?? "",
+    treated_at: new Date().toISOString(),
+    treated_by: params.treatedBy ?? "",
+  });
+  const { error } = await query.eq("id", params.id);
 
   assertSupabaseSuccess(error, "Nao foi possivel concluir a acao");
 }
 
 export async function reopenPurchaseAction(params: { id: string }) {
-  const supabase = getLegacySupabase();
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .update({
-      status: "pendente",
-      observacao_tratativa: "",
-      treated_at: "",
-      treated_by: "",
-    })
-    .eq("id", params.id);
+  const { query } = await legacyUpdate(TABLE_NAME, {
+    status: "pendente",
+    observacao_tratativa: "",
+    treated_at: "",
+    treated_by: "",
+  });
+  const { error } = await query.eq("id", params.id);
 
   assertSupabaseSuccess(error, "Nao foi possivel reabrir a acao");
 }

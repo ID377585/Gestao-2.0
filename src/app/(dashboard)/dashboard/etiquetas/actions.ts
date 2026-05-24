@@ -1,6 +1,9 @@
 "use server";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseAdminClient,
+  createSupabaseServerClient,
+} from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { revalidatePath } from "next/cache";
 
@@ -56,12 +59,21 @@ export async function createInventoryLabel(
   if (!labelCode?.trim()) throw new Error("Código/Lote da etiqueta vazio.");
 
   const supabase = await createSupabaseServerClient();
+  const supabaseAdmin = createSupabaseAdminClient();
   const { membership } = await getActiveMembershipOrRedirect();
 
   const establishmentId = (membership as any).establishment_id;
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  const userId =
+    (!authError && authData?.user?.id ? authData.user.id : null) ??
+    ((membership as any).user_id ?? null);
 
   if (!establishmentId) {
     throw new Error("Estabelecimento não encontrado no membership.");
+  }
+
+  if (!userId) {
+    throw new Error("Usuário não encontrado para criar etiqueta.");
   }
 
   const notesJson =
@@ -75,7 +87,7 @@ export async function createInventoryLabel(
   // ✅ NORMALIZA unidade (mantém padrão do resto do sistema)
   const normalizedUnit = String(unitLabel).trim().toUpperCase();
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .rpc("create_inventory_label", {
       p_establishment_id: establishmentId,
       p_product_id: productId,
@@ -84,6 +96,7 @@ export async function createInventoryLabel(
       p_unit_label: normalizedUnit,
       p_notes: notesJson,
       p_label_type: null,
+      p_user_id: userId,
     })
     .single();
 

@@ -1,7 +1,7 @@
 // src/app/api/transferencias/stock/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
+import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,41 +15,11 @@ function normalizeId(value: any): string | null {
   return v;
 }
 
-async function resolveEstablishmentId(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
-): Promise<string | null> {
-  // 1) helper principal do app
+async function resolveEstablishmentId(): Promise<string | null> {
   try {
-    const helperRes = await getActiveMembershipOrRedirect();
-    const membership = (helperRes as any)?.membership ?? helperRes;
-
-    const estId = normalizeId((membership as any)?.establishment_id);
-    const orgId = normalizeId((membership as any)?.organization_id);
-
-    return estId ?? orgId ?? null;
+    const { tenant } = await getAuthenticatedTenantUserOrThrow();
+    return tenant.establishmentId;
   } catch {}
-
-  // 2) fallback via memberships
-  try {
-    const { data: userData } = await supabase.auth.getUser();
-    const userId = userData?.user?.id;
-    if (!userId) return null;
-
-    const { data: m } = await supabase
-      .from("memberships")
-      .select("establishment_id, organization_id")
-      .eq("user_id", userId)
-      .eq("is_active", true)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const estId = normalizeId((m as any)?.establishment_id);
-    const orgId = normalizeId((m as any)?.organization_id);
-
-    return estId ?? orgId ?? null;
-  } catch {}
-
   return null;
 }
 
@@ -63,7 +33,7 @@ function jsonError(message: string, status = 400, extra?: any) {
 export async function POST(request: Request) {
   try {
     const supabase = await createSupabaseServerClient();
-    const establishmentId = await resolveEstablishmentId(supabase);
+    const establishmentId = await resolveEstablishmentId();
 
     if (!establishmentId) {
       return jsonError(

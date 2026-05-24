@@ -191,13 +191,12 @@ function nextStatus(current: string) {
 
 // escopo final para filtrar pedidos (coluna do banco: orders.establishment_id)
 function getScopeId(ctx: MembershipContext): string {
-  const scope = ctx.establishmentId ?? ctx.unitId;
-  if (!scope) {
+  if (!ctx.establishmentId) {
     throw new Error(
-      "Membership sem establishmentId/unitId. Verifique sua tabela memberships."
+      "Membership sem establishmentId. Verifique sua tabela memberships."
     );
   }
-  return scope;
+  return ctx.establishmentId;
 }
 
 type SupabaseServerClient = Awaited<

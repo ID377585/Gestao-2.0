@@ -1,6 +1,9 @@
 // src/app/api/inventory-labels/route.ts
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseAdminClient,
+  createSupabaseServerClient,
+} from "@/lib/supabase/server";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 // ✅ NOVO: permite PATCH aqui também (evita 405 e mantém compatibilidade)
@@ -119,10 +122,10 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const supabase = await createSupabaseServerClient();
-  const { establishmentId, debug } = await resolveTenantContext();
+  const supabase = createSupabaseAdminClient();
+  const { establishmentId, userId, debug } = await resolveTenantContext();
 
-  if (!establishmentId) {
+  if (!establishmentId || !userId) {
     return NextResponse.json(
       { error: "Estabelecimento não encontrado no membership.", debug },
       { status: 401 }
@@ -183,6 +186,7 @@ export async function POST(req: Request) {
       p_unit_label: unitLabel,
       p_notes: notes,
       p_label_type: labelType,
+      p_user_id: userId,
     })
     .single();
 

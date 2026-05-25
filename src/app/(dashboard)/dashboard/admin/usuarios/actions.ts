@@ -803,17 +803,17 @@ export async function updateCollaborator(formData: FormData) {
 
   assertSameEstablishment(establishmentId, ctx);
 
-  const { data: beforeProfile } = await supabaseAdmin
-    .from("profiles")
-    .select("full_name, role, sector")
-    .eq("id", userId)
-    .maybeSingle();
-
   const beforeMembership = await getCollaboratorMembershipOrThrow({
     supabaseAdmin,
     establishmentId,
     userId,
   });
+
+  const { data: beforeProfile } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name, role, sector")
+    .eq("id", userId)
+    .maybeSingle();
 
   if (ctx.userId === userId && !is_active) {
     throw new Error("Você não pode desativar seu próprio acesso.");
@@ -955,17 +955,17 @@ export async function toggleCollaboratorStatus(formData: FormData) {
     throw new Error("Você não pode desativar seu próprio acesso.");
   }
 
-  const { data: currentProfile } = await supabaseAdmin
-    .from("profiles")
-    .select("full_name")
-    .eq("id", userId)
-    .maybeSingle();
-
   const currentMembership = await getCollaboratorMembershipOrThrow({
     supabaseAdmin,
     establishmentId,
     userId,
   });
+
+  const { data: currentProfile } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name")
+    .eq("id", userId)
+    .maybeSingle();
 
   const role = normalizeRole(String(currentMembership?.role ?? "producao"));
 

@@ -35,6 +35,8 @@ const TENANT_ID_TOKENS = [
 const SAFE_TENANT_GUARD_TOKENS = [
   "getActiveMembershipOrRedirect",
   "getAuthenticatedTenantUserOrThrow",
+  "assertSameEstablishment",
+  "getCollaboratorMembershipOrThrow",
   "getScopeId(ctx)",
   ".eq(\"establishment_id\"",
   ".eq('establishment_id'",

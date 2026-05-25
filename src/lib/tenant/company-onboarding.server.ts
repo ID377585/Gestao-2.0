@@ -14,6 +14,7 @@ export type CreateCompanyInternalInput = {
   planSlug?: "starter" | "growth" | "enterprise";
   selectAsActive?: boolean;
   actorUserId?: string | null;
+  referenceEstablishmentId?: string | null;
 };
 
 function normalizeText(value: unknown) {
@@ -24,12 +25,105 @@ function isUuidLike(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+function isMissingOptionalTable(error: any) {
+  const code = String(error?.code ?? "");
+  return code === "42P01" || code === "PGRST205" || code === "PGRST204";
+}
+
+async function assertActorCanCreateCompany(params: {
+  supabaseAdmin: ReturnType<typeof getSupabaseAdminClient>;
+  actorUserId: string;
+  referenceEstablishmentId: string;
+}) {
+  const { data, error } = await params.supabaseAdmin
+    .from("memberships")
+    .select("role, is_active")
+    .eq("establishment_id", params.referenceEstablishmentId)
+    .eq("user_id", params.actorUserId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error && !isMissingOptionalTable(error)) {
+    console.error("Erro ao validar actor para criar empresa:", error);
+    throw new Error("Não foi possível validar permissão para criar empresa.");
+  }
+
+  if ((data as any)?.role === "admin") return;
+
+  const { data: legacyData, error: legacyError } = await params.supabaseAdmin
+    .from("establishment_memberships")
+    .select("role, is_active")
+    .eq("establishment_id", params.referenceEstablishmentId)
+    .eq("user_id", params.actorUserId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (legacyError && !isMissingOptionalTable(legacyError)) {
+    console.error(
+      "Erro ao validar actor para criar empresa em establishment_memberships:",
+      legacyError
+    );
+    throw new Error("Não foi possível validar permissão para criar empresa.");
+  }
+
+  if ((legacyData as any)?.role !== "admin") {
+    throw new Error("Apenas administradores podem criar novas empresas.");
+  }
+}
+
+async function deleteIfTableExists(params: {
+  supabaseAdmin: ReturnType<typeof getSupabaseAdminClient>;
+  table: string;
+  establishmentId: string;
+}) {
+  const { error } = await params.supabaseAdmin
+    .from(params.table)
+    .delete()
+    .eq("establishment_id", params.establishmentId);
+
+  if (error && !isMissingOptionalTable(error)) {
+    console.error(
+      `Erro ao limpar ${params.table} no rollback da empresa:`,
+      error
+    );
+  }
+}
+
+async function rollbackCreatedCompany(params: {
+  supabaseAdmin: ReturnType<typeof getSupabaseAdminClient>;
+  establishmentId: string;
+}) {
+  for (const table of [
+    "company_subscriptions",
+    "user_module_permissions",
+    "memberships",
+    "establishment_memberships",
+    "audit_logs",
+  ]) {
+    await deleteIfTableExists({
+      supabaseAdmin: params.supabaseAdmin,
+      table,
+      establishmentId: params.establishmentId,
+    });
+  }
+
+  const { error } = await params.supabaseAdmin
+    .from("establishments")
+    .delete()
+    .eq("id", params.establishmentId);
+
+  if (error) {
+    console.error("Erro ao remover empresa no rollback:", error);
+  }
+}
+
 export async function createCompanyInternalAction(input: CreateCompanyInternalInput) {
   const supabaseAdmin = getSupabaseAdminClient();
 
   const name = normalizeText(input.name);
   const adminUserId = normalizeText(input.adminUserId);
   const actorUserId = normalizeText(input.actorUserId) || adminUserId;
+  const referenceEstablishmentId = normalizeText(input.referenceEstablishmentId);
   const adminRole = input.adminRole === "operacao" ? "operacao" : "admin";
   const planSlug = input.planSlug ?? "starter";
 
@@ -39,6 +133,14 @@ export async function createCompanyInternalAction(input: CreateCompanyInternalIn
 
   if (!adminUserId || !isUuidLike(adminUserId)) {
     throw new Error("Informe um usuário administrador válido.");
+  }
+
+  if (referenceEstablishmentId) {
+    await assertActorCanCreateCompany({
+      supabaseAdmin,
+      actorUserId,
+      referenceEstablishmentId,
+    });
   }
 
   const { data: establishment, error: establishmentError } = await supabaseAdmin
@@ -121,6 +223,7 @@ export async function createCompanyInternalAction(input: CreateCompanyInternalIn
         admin_role: adminRole,
         plan_slug: planSlug,
         source: "internal_action",
+        reference_establishment_id: referenceEstablishmentId || null,
       },
     });
 
@@ -146,10 +249,10 @@ export async function createCompanyInternalAction(input: CreateCompanyInternalIn
   } catch (error) {
     console.error("Erro no onboarding interno da empresa; tentando rollback:", error);
 
-    await supabaseAdmin
-      .from("establishments")
-      .delete()
-      .eq("id", establishmentId);
+    await rollbackCreatedCompany({
+      supabaseAdmin,
+      establishmentId,
+    });
 
     throw new Error("Não foi possível concluir o onboarding interno da empresa.");
   }

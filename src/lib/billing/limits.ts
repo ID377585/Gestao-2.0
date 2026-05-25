@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getBillingPlan } from "@/lib/billing/plans";
-import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
+import { getCompanySubscriptionStatusWithClient } from "@/lib/billing/subscription-status";
 
 export type BillingLimitKind = "users" | "establishments" | "products";
 
@@ -73,7 +73,10 @@ export async function getBillingLimitCheck(params: {
   establishmentId: string;
   kind: Exclude<BillingLimitKind, "establishments">;
 }): Promise<BillingLimitCheck> {
-  const subscription = await getCompanySubscriptionStatus(params.establishmentId);
+  const subscription = await getCompanySubscriptionStatusWithClient(
+    params.supabaseAdmin,
+    params.establishmentId
+  );
   const plan = getBillingPlan(subscription.planSlug);
   const limit = plan?.limits[params.kind] ?? null;
 
@@ -114,7 +117,10 @@ export async function assertEstablishmentCreationLimitAvailable(params: {
   referenceEstablishmentId: string;
   userId: string;
 }) {
-  const subscription = await getCompanySubscriptionStatus(params.referenceEstablishmentId);
+  const subscription = await getCompanySubscriptionStatusWithClient(
+    params.supabaseAdmin,
+    params.referenceEstablishmentId
+  );
   const plan = getBillingPlan(subscription.planSlug);
   const limit = plan?.limits.establishments ?? null;
   const current = await countUserEstablishments(params);

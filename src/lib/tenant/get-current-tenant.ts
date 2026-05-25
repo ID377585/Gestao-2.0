@@ -31,6 +31,13 @@ type TenantNameData = {
   establishment?: any | null;
 };
 
+type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+
+type AuthenticatedTenantUser = {
+  id: string;
+  email?: string | null;
+};
+
 function buildTenantDisplayName(data?: TenantNameData | null) {
   return (
     normalizeDisplayName(data?.fiscalProfile?.nome_fantasia) ??
@@ -68,7 +75,7 @@ const MEMBERSHIP_SELECT =
   "id,user_id,role,org_id,unit_id,establishment_id,is_active,created_at";
 
 async function getTenantNameDataByEstablishmentId(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  supabase: SupabaseServerClient,
   establishmentIds: string[]
 ) {
   const uniqueIds = Array.from(new Set(establishmentIds.filter(Boolean)));
@@ -126,30 +133,22 @@ async function getTenantNameDataByEstablishmentId(
   return nameDataByEstablishmentId;
 }
 
-export async function listCurrentUserTenants(): Promise<TenantMembership[]> {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    return [];
-  }
-
+export async function listCurrentUserTenantsForUser(
+  supabase: SupabaseServerClient,
+  userId: string
+): Promise<TenantMembership[]> {
   const { data, error } = await supabase
     .from("memberships")
     .select(MEMBERSHIP_SELECT)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .eq("is_active", true)
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("[listCurrentUserTenants] memberships error:", {
+    console.error("[listCurrentUserTenantsForUser] memberships error:", {
       message: error.message,
       code: error.code,
-      user_id: user.id,
+      user_id: userId,
     });
     return [];
   }
@@ -165,7 +164,7 @@ export async function listCurrentUserTenants(): Promise<TenantMembership[]> {
   );
 }
 
-export async function getCurrentTenant(): Promise<TenantContext | null> {
+export async function listCurrentUserTenants(): Promise<TenantMembership[]> {
   const supabase = await createSupabaseServerClient();
 
   const {
@@ -174,9 +173,16 @@ export async function getCurrentTenant(): Promise<TenantContext | null> {
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
-    return null;
+    return [];
   }
 
+  return listCurrentUserTenantsForUser(supabase, user.id);
+}
+
+export async function getCurrentTenantForUser(
+  supabase: SupabaseServerClient,
+  user: AuthenticatedTenantUser
+): Promise<TenantContext | null> {
   const cookieStore = await cookies();
   const selectedEstablishmentId = cookieStore.get(TENANT_COOKIE_NAME)?.value ?? null;
 
@@ -196,7 +202,7 @@ export async function getCurrentTenant(): Promise<TenantContext | null> {
     .maybeSingle();
 
   if (error) {
-    console.error("[getCurrentTenant] memberships error:", {
+    console.error("[getCurrentTenantForUser] memberships error:", {
       message: error.message,
       code: error.code,
       user_id: user.id,
@@ -230,4 +236,22 @@ export async function getCurrentTenant(): Promise<TenantContext | null> {
     establishmentName: membership.establishment_name ?? null,
     displayName: membership.display_name ?? null,
   };
+}
+
+export async function getCurrentTenant(): Promise<TenantContext | null> {
+  const supabase = await createSupabaseServerClient();
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return null;
+  }
+
+  return getCurrentTenantForUser(supabase, {
+    id: user.id,
+    email: user.email ?? null,
+  });
 }

@@ -19,11 +19,12 @@ export type CompanySubscriptionStatus = {
 
 const ACCESS_ALLOWED_STATUSES: SubscriptionStatus[] = ["trialing", "active", "not_configured"];
 
-export async function getCompanySubscriptionStatus(
+type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+
+export async function getCompanySubscriptionStatusWithClient(
+  supabase: SupabaseServerClient,
   establishmentId: string
 ): Promise<CompanySubscriptionStatus> {
-  const supabase = await createSupabaseServerClient();
-
   try {
     const { data, error } = await supabase
       .from("company_subscriptions")
@@ -74,4 +75,11 @@ export async function getCompanySubscriptionStatus(
       canAccessSystem: true,
     };
   }
+}
+
+export async function getCompanySubscriptionStatus(
+  establishmentId: string
+): Promise<CompanySubscriptionStatus> {
+  const supabase = await createSupabaseServerClient();
+  return getCompanySubscriptionStatusWithClient(supabase, establishmentId);
 }

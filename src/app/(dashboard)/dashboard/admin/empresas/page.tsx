@@ -1,9 +1,11 @@
 import Link from "next/link";
 import {
+  BarChart3,
   Building2,
   CheckCircle2,
   CircleSlash,
   Factory,
+  HeartPulse,
   Info,
   Search,
   ShieldCheck,
@@ -110,6 +112,11 @@ function shortId(value?: string | null) {
   return `${id.slice(0, 8)}...${id.slice(-4)}`;
 }
 
+function percentage(value: number, total: number) {
+  if (!total) return 0;
+  return Math.round((value / total) * 100);
+}
+
 function isCompanyCreationEnabled() {
   return process.env.GESTIFY_ENABLE_COMPANY_CREATION === "true";
 }
@@ -169,6 +176,34 @@ export default async function EmpresasPage({
     const plan = getBillingPlan(subscription?.planSlug ?? null);
     return !plan;
   }).length;
+
+  const planCounts = activeTenants.reduce(
+    (acc, tenant) => {
+      const subscription = tenant.establishment_id
+        ? subscriptionByEstablishmentId.get(tenant.establishment_id)
+        : null;
+      const plan = getBillingPlan(subscription?.planSlug ?? null);
+      const key = plan?.slug === "growth" || plan?.slug === "enterprise" ? plan.slug : plan?.slug === "starter" ? "starter" : "not_configured";
+      acc[key] += 1;
+      return acc;
+    },
+    { starter: 0, growth: 0, enterprise: 0, not_configured: 0 }
+  );
+
+  const statusCounts = activeTenants.reduce(
+    (acc, tenant) => {
+      const subscription = tenant.establishment_id
+        ? subscriptionByEstablishmentId.get(tenant.establishment_id)
+        : null;
+      const status = String(subscription?.status ?? "not_configured");
+      if (status === "active" || status === "trialing") acc.ok += 1;
+      else if (status === "past_due") acc.attention += 1;
+      else if (status === "blocked" || status === "canceled") acc.restricted += 1;
+      else acc.notConfigured += 1;
+      return acc;
+    },
+    { ok: 0, attention: 0, restricted: 0, notConfigured: 0 }
+  );
 
   const filteredTenants = activeTenants.filter((tenant) => {
     const tenantName = getTenantName(tenant).toLowerCase();
@@ -283,6 +318,77 @@ export default async function EmpresasPage({
               </h2>
             </div>
             <Factory className="h-5 w-5 text-gray-400" />
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                Distribuição por plano
+              </h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                Visão rápida da carteira de empresas vinculadas ao seu usuário.
+              </p>
+            </div>
+            <BarChart3 className="h-5 w-5 text-gray-400" />
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {[
+              { label: "Starter", value: planCounts.starter },
+              { label: "Growth", value: planCounts.growth },
+              { label: "Enterprise", value: planCounts.enterprise },
+              { label: "Sem plano", value: planCounts.not_configured },
+            ].map((item) => {
+              const pct = percentage(item.value, activeTenants.length);
+              return (
+                <div key={item.label}>
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-medium text-gray-700 dark:text-slate-300">{item.label}</span>
+                    <span className="text-gray-500 dark:text-slate-400">
+                      {item.value} empresa{item.value === 1 ? "" : "s"} · {pct}%
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-800">
+                    <div className="h-full rounded-full bg-blue-600" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                Saúde das assinaturas
+              </h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                Acompanhe empresas operando normalmente, em atenção ou com restrição.
+              </p>
+            </div>
+            <HeartPulse className="h-5 w-5 text-gray-400" />
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {[
+              { label: "Operando", value: statusCounts.ok, className: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300" },
+              { label: "Atenção", value: statusCounts.attention, className: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300" },
+              { label: "Restritas", value: statusCounts.restricted, className: "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300" },
+              { label: "Não configuradas", value: statusCounts.notConfigured, className: "border-gray-200 bg-gray-50 text-gray-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" },
+            ].map((item) => (
+              <div key={item.label} className={`rounded-xl border p-4 ${item.className}`}>
+                <p className="text-sm font-medium">{item.label}</p>
+                <p className="mt-2 text-2xl font-semibold">{item.value}</p>
+                <p className="mt-1 text-xs opacity-80">
+                  {percentage(item.value, activeTenants.length)}% da carteira
+                </p>
+              </div>
+            ))}
           </div>
         </div>
       </section>

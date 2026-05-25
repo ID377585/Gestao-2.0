@@ -7,6 +7,25 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 
+const MAX_ORIGINAL_AVATAR_BYTES = 25 * 1024 * 1024;
+const MAX_UPLOAD_AVATAR_BYTES = 2 * 1024 * 1024;
+const AVATAR_MAX_DIMENSION = 1200;
+const AVATAR_ACCEPT = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ".heic",
+  ".heif",
+].join(",");
+
 interface ProfileModalProps {
   open: boolean;
   onClose: () => void;
@@ -69,9 +88,122 @@ function getInitials(name?: string | null) {
     .join("");
 }
 
-function getAvatarPath(userId: string, file: File) {
-  const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-  return `${userId}/avatar-${Date.now()}.${extension}`;
+function getFileExtension(file: File) {
+  return file.name.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function isHeicFile(file: File) {
+  const extension = getFileExtension(file);
+  return (
+    file.type === "image/heic" ||
+    file.type === "image/heif" ||
+    extension === "heic" ||
+    extension === "heif"
+  );
+}
+
+function isSupportedAvatarFile(file: File) {
+  const extension = getFileExtension(file);
+  const supportedExtensions = ["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"];
+  return file.type.startsWith("image/") || supportedExtensions.includes(extension);
+}
+
+function getAvatarPath(userId: string) {
+  return `${userId}/avatar-${Date.now()}.jpg`;
+}
+
+async function convertHeicToJpeg(file: File) {
+  const heic2any = (await import("heic2any")).default as unknown as (options: {
+    blob: Blob;
+    toType: string;
+    quality?: number;
+  }) => Promise<Blob | Blob[]>;
+
+  const converted = await heic2any({
+    blob: file,
+    toType: "image/jpeg",
+    quality: 0.9,
+  });
+
+  const blob = Array.isArray(converted) ? converted[0] : converted;
+  return new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), {
+    type: "image/jpeg",
+  });
+}
+
+function loadImage(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Não foi possível ler a imagem."));
+    };
+
+    image.src = objectUrl;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("Não foi possível processar a imagem."));
+          return;
+        }
+
+        resolve(blob);
+      },
+      "image/jpeg",
+      quality
+    );
+  });
+}
+
+async function compressAvatarFile(file: File) {
+  const image = await loadImage(file);
+  const scale = Math.min(
+    1,
+    AVATAR_MAX_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight)
+  );
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Não foi possível processar a imagem.");
+
+  context.drawImage(image, 0, 0, width, height);
+
+  const qualities = [0.88, 0.82, 0.76, 0.7, 0.64, 0.58];
+  let lastBlob: Blob | null = null;
+
+  for (const quality of qualities) {
+    const blob = await canvasToBlob(canvas, quality);
+    lastBlob = blob;
+
+    if (blob.size <= MAX_UPLOAD_AVATAR_BYTES) {
+      return new File([blob], "avatar.jpg", { type: "image/jpeg" });
+    }
+  }
+
+  if (!lastBlob) throw new Error("Não foi possível processar a imagem.");
+  return new File([lastBlob], "avatar.jpg", { type: "image/jpeg" });
+}
+
+async function prepareAvatarFile(file: File) {
+  const readableFile = isHeicFile(file) ? await convertHeicToJpeg(file) : file;
+  return compressAvatarFile(readableFile);
 }
 
 export function ProfileModal({
@@ -125,13 +257,13 @@ export function ProfileModal({
   const handleAvatarUpload = async (file?: File | null) => {
     if (!file || uploadingAvatar) return;
 
-    if (!file.type.startsWith("image/")) {
-      setAvatarError("Envie uma imagem válida.");
+    if (!isSupportedAvatarFile(file)) {
+      setAvatarError("Envie uma imagem válida: HEIC, PNG, JPG, WebP ou GIF.");
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      setAvatarError("A imagem precisa ter até 2 MB.");
+    if (file.size > MAX_ORIGINAL_AVATAR_BYTES) {
+      setAvatarError("A imagem precisa ter até 25 MB.");
       return;
     }
 
@@ -140,11 +272,13 @@ export function ProfileModal({
       setAvatarError(null);
 
       const userId = await getCurrentUserId();
-      const filePath = getAvatarPath(userId, file);
+      const preparedFile = await prepareAvatarFile(file);
+      const filePath = getAvatarPath(userId);
       const { error: uploadError } = await supabase.storage
         .from("avatars")
-        .upload(filePath, file, {
+        .upload(filePath, preparedFile, {
           cacheControl: "3600",
+          contentType: "image/jpeg",
           upsert: true,
         });
 
@@ -199,14 +333,14 @@ export function ProfileModal({
               Foto de perfil
             </div>
             <div className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-              JPG, PNG ou WebP até 2 MB.
+              HEIC, PNG, JPG, WebP ou GIF até 25 MB. A imagem é otimizada automaticamente.
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
               <input
                 ref={inputRef}
                 type="file"
-                accept="image/*"
+                accept={AVATAR_ACCEPT}
                 className="hidden"
                 onChange={(event) => void handleAvatarUpload(event.target.files?.[0])}
               />

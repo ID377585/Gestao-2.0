@@ -16,6 +16,8 @@ type NotificationsModalProps = {
   notifications: AppNotification[];
   onMarkAsRead?: (id: string) => void;
   onMarkAllAsRead?: () => void;
+  onArchive?: (id: string) => void;
+  onArchiveRead?: () => void;
 };
 
 function formatDate(value?: AppNotification["createdAt"]) {
@@ -111,8 +113,11 @@ export default function NotificationsModal({
   notifications,
   onMarkAsRead,
   onMarkAllAsRead,
+  onArchive,
+  onArchiveRead,
 }: NotificationsModalProps) {
   const unreadCount = notifications.filter((item) => !item.read).length;
+  const readCount = notifications.filter((item) => item.read).length;
   const criticalCount = notifications.filter((item) => item.priority === "critical").length;
 
   return (
@@ -148,7 +153,15 @@ export default function NotificationsModal({
           </div>
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onArchiveRead}
+            disabled={readCount === 0}
+          >
+            Arquivar lidas
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -239,6 +252,15 @@ export default function NotificationsModal({
                         Abrir
                       </Button>
                     ) : null}
+
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-gray-500 hover:text-gray-900 dark:text-slate-400 dark:hover:text-slate-100"
+                      onClick={() => onArchive?.(n.id)}
+                    >
+                      Arquivar
+                    </Button>
                   </div>
                 </div>
               </div>

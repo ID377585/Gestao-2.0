@@ -6,6 +6,7 @@ import {
   CURRENT_TERMS_DOCUMENT_VERSION,
   CURRENT_TERMS_UPDATED_AT,
   hasAcceptedCurrentTerms,
+  readTermsComplianceFromMetadata,
 } from "@/lib/auth/terms-config";
 import {
   getUserTermsComplianceState,
@@ -84,7 +85,12 @@ export async function GET(request: Request) {
       );
     }
 
-    const state = await getUserTermsComplianceState(user.id);
+    const sessionState = readTermsComplianceFromMetadata(
+      user.app_metadata as Record<string, unknown> | undefined
+    );
+    const state = hasAcceptedCurrentTerms(sessionState)
+      ? sessionState
+      : await getUserTermsComplianceState(user.id);
 
     return NextResponse.json(
       {
@@ -139,6 +145,24 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "O aceite dos termos é obrigatório para continuar." },
         { status: 400 }
+      );
+    }
+
+    const sessionState = readTermsComplianceFromMetadata(
+      user.app_metadata as Record<string, unknown> | undefined
+    );
+
+    if (hasAcceptedCurrentTerms(sessionState)) {
+      return NextResponse.json(
+        {
+          ok: true,
+          skipped: true,
+          acceptedAt: sessionState?.current_terms_accepted_at ?? null,
+          currentTermsTitle: CURRENT_TERMS_DOCUMENT_TITLE,
+          currentTermsVersion: CURRENT_TERMS_DOCUMENT_VERSION,
+          currentTermsUpdatedAt: CURRENT_TERMS_UPDATED_AT,
+        },
+        { status: 200 }
       );
     }
 

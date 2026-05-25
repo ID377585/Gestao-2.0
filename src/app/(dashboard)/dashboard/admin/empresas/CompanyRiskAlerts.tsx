@@ -8,15 +8,18 @@ import {
 
 type CompanyRiskAlertsProps = {
   attentionCount: number;
-  restrictedCount: number;
+  blockedCount: number;
+  canceledCount: number;
   notConfiguredCount: number;
 };
 
 export function CompanyRiskAlerts({
   attentionCount,
-  restrictedCount,
+  blockedCount,
+  canceledCount,
   notConfiguredCount,
 }: CompanyRiskAlertsProps) {
+  const restrictedCount = blockedCount + canceledCount;
   const hasRisks = attentionCount > 0 || restrictedCount > 0 || notConfiguredCount > 0;
 
   if (!hasRisks) {
@@ -79,20 +82,26 @@ export function CompanyRiskAlerts({
               Restritas
             </div>
             <p className="mt-2 text-2xl font-semibold">{restrictedCount}</p>
-            <p className="mt-1 text-xs opacity-80">Bloqueadas ou canceladas exigem validação.</p>
+            <p className="mt-1 text-xs opacity-80">
+              {blockedCount} bloqueada{blockedCount === 1 ? "" : "s"} · {canceledCount} cancelada{canceledCount === 1 ? "" : "s"}
+            </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Link
-                href="/dashboard/admin/empresas?status=blocked"
-                className="rounded-lg bg-red-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-red-400"
-              >
-                Ver bloqueadas
-              </Link>
-              <Link
-                href="/dashboard/admin/empresas?status=canceled"
-                className="rounded-lg border border-red-300 px-2.5 py-1.5 text-xs font-semibold text-red-900 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400 dark:border-red-800 dark:text-red-200 dark:hover:bg-red-950/50"
-              >
-                Ver canceladas
-              </Link>
+              {blockedCount > 0 ? (
+                <Link
+                  href="/dashboard/admin/empresas?status=blocked"
+                  className="rounded-lg bg-red-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-red-400"
+                >
+                  Ver bloqueadas
+                </Link>
+              ) : null}
+              {canceledCount > 0 ? (
+                <Link
+                  href="/dashboard/admin/empresas?status=canceled"
+                  className="rounded-lg border border-red-300 px-2.5 py-1.5 text-xs font-semibold text-red-900 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400 dark:border-red-800 dark:text-red-200 dark:hover:bg-red-950/50"
+                >
+                  Ver canceladas
+                </Link>
+              ) : null}
             </div>
           </div>
         ) : null}

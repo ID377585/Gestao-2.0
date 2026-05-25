@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import Link from "next/link";
 import {
   listNutritionLabelSheets,
+  listNutritionSnapshots,
   saveNutritionSnapshot,
   type NutritionLabelSheet,
+  type NutritionSnapshotSummary,
 } from "./actions";
 
 function formatNumber(value: number, fractionDigits = 1) {
@@ -13,6 +15,18 @@ function formatNumber(value: number, fractionDigits = 1) {
     minimumFractionDigits: 0,
     maximumFractionDigits: fractionDigits,
   }).format(Number.isFinite(value) ? value : 0);
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Data indisponível";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function formatValue(value: number, unit: string) {
@@ -104,8 +118,10 @@ function NutritionTable({ sheet }: { sheet: NutritionLabelSheet }) {
 export default function TabelaNutricionalPage() {
   const printRef = useRef<HTMLDivElement | null>(null);
   const [sheets, setSheets] = useState<NutritionLabelSheet[]>([]);
+  const [snapshots, setSnapshots] = useState<NutritionSnapshotSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingSnapshots, setLoadingSnapshots] = useState(false);
   const [error, setError] = useState("");
   const [snapshotMessage, setSnapshotMessage] = useState("");
   const [query, setQuery] = useState("");
@@ -147,6 +163,28 @@ export default function TabelaNutricionalPage() {
   const selectedSheet = useMemo(() => {
     return sheets.find((sheet) => sheet.id === selectedId) ?? filteredSheets[0] ?? null;
   }, [filteredSheets, selectedId, sheets]);
+
+  async function refreshSnapshots(technicalSheetId: string) {
+    try {
+      setLoadingSnapshots(true);
+      const data = await listNutritionSnapshots(technicalSheetId);
+      setSnapshots(data);
+    } catch (err) {
+      console.error(err);
+      setSnapshots([]);
+    } finally {
+      setLoadingSnapshots(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedSheet) {
+      setSnapshots([]);
+      return;
+    }
+
+    refreshSnapshots(selectedSheet.id);
+  }, [selectedSheet?.id]);
 
   const metrics = useMemo(() => {
     return {
@@ -202,9 +240,10 @@ export default function TabelaNutricionalPage() {
         setSnapshotMessage("");
         await saveNutritionSnapshot(selectedSheet);
         setSnapshotMessage("Snapshot salvo com sucesso para histórico da receita.");
+        await refreshSnapshots(selectedSheet.id);
       } catch (err) {
         console.error(err);
-        setError("Não foi possível salvar o snapshot da tabela nutricional.");
+        setError((err as Error)?.message || "Não foi possível salvar o snapshot da tabela nutricional.");
       }
     });
   }
@@ -334,6 +373,37 @@ export default function TabelaNutricionalPage() {
                       <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs font-semibold text-emerald-700">
                         {snapshotMessage}
                       </p>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-white/70 bg-white/75 p-4 text-sm shadow-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <strong>Histórico de snapshots</strong>
+                      <span className="text-xs text-slate-500">Últimos 10</span>
+                    </div>
+                    {loadingSnapshots ? (
+                      <p className="mt-3 text-xs text-slate-500">Carregando histórico...</p>
+                    ) : snapshots.length === 0 ? (
+                      <p className="mt-3 text-xs text-slate-500">Nenhum snapshot salvo para esta receita.</p>
+                    ) : (
+                      <div className="mt-3 space-y-2">
+                        {snapshots.map((snapshot) => (
+                          <div key={snapshot.id} className="rounded-xl border border-slate-100 bg-white/70 p-3 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-slate-900">{formatDateTime(snapshot.createdAt)}</span>
+                              <span className={`rounded-full border px-2 py-0.5 font-bold ${statusClass(snapshot.status)}`}>
+                                {statusLabel(snapshot.status)}
+                              </span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-2 text-slate-600">
+                              <span>Porção: {formatNumber(snapshot.servingWeightG, 1)} g</span>
+                              <span>Rend.: {formatNumber(snapshot.portions, 0)}</span>
+                              <span>Energia: {formatNumber(snapshot.caloriesKcal, 0)} kcal</span>
+                              <span>Sódio: {formatNumber(snapshot.sodiumMg, 0)} mg</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
 

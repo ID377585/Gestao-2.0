@@ -45,7 +45,7 @@ export async function GET() {
     const [{ data: profile }, tenants] = await Promise.all([
       supabase
         .from("profiles")
-        .select("id, full_name, role, sector")
+        .select("id, full_name, role, sector, avatar_url")
         .eq("id", user.id)
         .maybeSingle(),
       listCurrentUserTenantsForUser(supabase, user.id),
@@ -69,6 +69,12 @@ export async function GET() {
       ? await getCompanySubscriptionStatusWithClient(supabase, establishmentId)
       : null;
 
+    const avatarUrl =
+      ((profile as any)?.avatar_url as string | null) ??
+      ((user.user_metadata as any)?.avatar_url as string | null) ??
+      ((user.user_metadata as any)?.picture as string | null) ??
+      null;
+
     const payload = {
       id: user.id,
       email: user.email ?? "",
@@ -79,10 +85,7 @@ export async function GET() {
       }),
       role: String((membership as any)?.role ?? (profile as any)?.role ?? "user"),
       sector: ((profile as any)?.sector as string | null) ?? null,
-      avatar:
-        ((user.user_metadata as any)?.avatar_url as string | null) ??
-        ((user.user_metadata as any)?.picture as string | null) ??
-        null,
+      avatar: avatarUrl,
       establishmentId,
       establishmentName,
       orgId: (membership as any)?.org_id ?? null,

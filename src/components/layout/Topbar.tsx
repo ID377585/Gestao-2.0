@@ -5,6 +5,7 @@ import {
   Bell,
   HelpCircle,
   LogOut,
+  RefreshCw,
   Settings,
   User as UserIcon,
 } from "lucide-react";
@@ -144,6 +145,10 @@ function getPriorityClass(priority?: AppNotification["priority"]) {
   }
 }
 
+function canRunNotificationChecks(role?: string | null) {
+  return ["admin", "operacao", "estoque"].includes(String(role ?? ""));
+}
+
 export function Topbar({ className }: TopbarProps) {
   const [user, setUser] = useState<TopbarUser | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
@@ -158,6 +163,8 @@ export function Topbar({ className }: TopbarProps) {
 
   const [notificacoes, setNotificacoes] = useState<AppNotification[]>([]);
   const [settings, setSettings] = useState<UserSettings>(getUserSettings());
+  const [checkingNotifications, setCheckingNotifications] = useState(false);
+  const [notificationCheckMessage, setNotificationCheckMessage] = useState<string | null>(null);
 
   const previousIdsRef = useRef<string[]>([]);
 
@@ -252,6 +259,39 @@ export function Topbar({ className }: TopbarProps) {
   }, [userNotificationId, settings.browserNotifications, settings.soundNotifications]);
 
   const notificacoesNaoLidas = notificacoes.filter((n) => !n.read).length;
+  const podeVerificarAlertas = canRunNotificationChecks(user?.role);
+
+  const handleRunNotificationChecks = async () => {
+    if (!podeVerificarAlertas || checkingNotifications) return;
+
+    try {
+      setCheckingNotifications(true);
+      setNotificationCheckMessage(null);
+
+      const response = await fetch("/api/admin/notifications/run-checks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        result?: unknown;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Não foi possível verificar os alertas.");
+      }
+
+      setNotificationCheckMessage("Alertas verificados agora.");
+    } catch (error: any) {
+      console.error("Erro ao verificar alertas operacionais:", error);
+      setNotificationCheckMessage(error?.message ?? "Erro ao verificar alertas.");
+    } finally {
+      setCheckingNotifications(false);
+    }
+  };
 
   const handleMarkAllAsRead = async () => {
     if (!userNotificationId) return;
@@ -368,6 +408,33 @@ export function Topbar({ className }: TopbarProps) {
                     Marcar todas
                   </Button>
                 </DropdownMenuLabel>
+
+                {podeVerificarAlertas ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <div className="space-y-2 p-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-center"
+                        onClick={handleRunNotificationChecks}
+                        disabled={checkingNotifications}
+                      >
+                        <RefreshCw
+                          className={`h-4 w-4 ${checkingNotifications ? "animate-spin" : ""}`}
+                        />
+                        {checkingNotifications ? "Verificando..." : "Verificar alertas agora"}
+                      </Button>
+
+                      {notificationCheckMessage ? (
+                        <p className="text-center text-[11px] text-gray-500 dark:text-slate-400">
+                          {notificationCheckMessage}
+                        </p>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
 
                 <DropdownMenuSeparator />
 

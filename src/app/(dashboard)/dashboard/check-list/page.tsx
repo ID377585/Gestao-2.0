@@ -17,6 +17,7 @@ import {
   completeChecklistRun,
   createChecklistRun,
   getChecklistDashboard,
+  resumeChecklistRun,
   updateChecklistRunItem,
   type ChecklistItemStatus,
   type ChecklistShift,
@@ -125,12 +126,21 @@ async function cancelRunAction(formData: FormData) {
   );
 }
 
+async function resumeRunAction(formData: FormData) {
+  "use server";
+  await resumeChecklistRun(
+    String(formData.get("run_id") ?? ""),
+    String(formData.get("notes") ?? "") || undefined,
+  );
+}
+
 export default async function CheckListPage() {
   const data = await getChecklistDashboard();
   const activeRun = data.activeRun;
   const activeItems = data.activeRunItems;
   const pendingCount = activeItems.filter((item) => item.status === "pending").length;
   const doneCount = activeItems.length - pendingCount;
+  const isBlocked = activeRun?.status === "blocked";
 
   const groups = activeItems.reduce<Record<string, KitchenChecklistRunItem[]>>((acc, item) => {
     const template = templateFromRunItem(item);
@@ -192,6 +202,27 @@ export default async function CheckListPage() {
             <Card><CardHeader><CardDescription>Aberta em</CardDescription><CardTitle className="text-base">{formatDateTime(activeRun.opened_at)}</CardTitle></CardHeader></Card>
           </div>
 
+          {isBlocked ? (
+            <Card className="border-orange-200 bg-orange-50/50">
+              <CardHeader>
+                <CardTitle>Execução bloqueada</CardTitle>
+                <CardDescription>
+                  Esta Check-List está pausada. Retome apenas quando o motivo do bloqueio estiver resolvido.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form action={resumeRunAction} className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                  <input type="hidden" name="run_id" value={activeRun.id} />
+                  <div className="space-y-2">
+                    <Label>Observação de retomada</Label>
+                    <Textarea name="notes" placeholder="Ex.: equipamento liberado, responsável presente, auditoria concluída" />
+                  </div>
+                  <Button type="submit">Retomar execução</Button>
+                </form>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader>
               <CardTitle>Controle da execução</CardTitle>
@@ -205,17 +236,18 @@ export default async function CheckListPage() {
                 <input type="hidden" name="run_id" value={activeRun.id} />
                 <Label>Observação final</Label>
                 <Textarea name="notes" placeholder="Resumo final do turno" />
-                <Button type="submit" disabled={pendingCount > 0}>Concluir Check-List</Button>
+                <Button type="submit" disabled={pendingCount > 0 || isBlocked}>Concluir Check-List</Button>
                 {pendingCount > 0 ? (
                   <p className="text-xs text-muted-foreground">Ainda existem {pendingCount} item(ns) pendente(s).</p>
                 ) : null}
+                {isBlocked ? <p className="text-xs text-muted-foreground">Retome a execução antes de concluir.</p> : null}
               </form>
 
               <form action={blockRunAction} className="space-y-3 rounded-md border p-3">
                 <input type="hidden" name="run_id" value={activeRun.id} />
                 <Label>Motivo do bloqueio</Label>
                 <Textarea name="notes" required placeholder="Ex.: câmara fria em manutenção, falta de responsável, auditoria em andamento" />
-                <Button type="submit" variant="secondary">Bloquear execução</Button>
+                <Button type="submit" variant="secondary" disabled={isBlocked}>Bloquear execução</Button>
               </form>
 
               <form action={cancelRunAction} className="space-y-3 rounded-md border p-3">
@@ -253,7 +285,7 @@ export default async function CheckListPage() {
                         <div className="grid gap-3 md:grid-cols-4">
                           <div className="space-y-2">
                             <Label>Status</Label>
-                            <select name="status" defaultValue={item.status} className="h-10 rounded-md border bg-background px-3 text-sm">
+                            <select name="status" defaultValue={item.status} className="h-10 rounded-md border bg-background px-3 text-sm" disabled={isBlocked}>
                               <option value="pending">Pendente</option>
                               <option value="ok">OK</option>
                               <option value="not_ok">Não OK</option>
@@ -264,13 +296,13 @@ export default async function CheckListPage() {
                           {template?.requires_temperature ? (
                             <div className="space-y-2">
                               <Label>Temperatura</Label>
-                              <Input name="measured_temperature" defaultValue={item.measured_temperature ?? ""} placeholder="Ex.: 4" />
+                              <Input name="measured_temperature" defaultValue={item.measured_temperature ?? ""} placeholder="Ex.: 4" disabled={isBlocked} />
                             </div>
                           ) : null}
                           {template?.requires_quantity ? (
                             <div className="space-y-2">
                               <Label>Quantidade</Label>
-                              <Input name="quantity" defaultValue={item.quantity ?? ""} placeholder="Ex.: 2" />
+                              <Input name="quantity" defaultValue={item.quantity ?? ""} placeholder="Ex.: 2" disabled={isBlocked} />
                             </div>
                           ) : null}
                           <div className="space-y-2">
@@ -279,10 +311,10 @@ export default async function CheckListPage() {
                           </div>
                         </div>
                         <div className="grid gap-3 md:grid-cols-2">
-                          <Textarea name="notes" defaultValue={item.notes ?? ""} placeholder="Observações" />
-                          <Textarea name="corrective_action" defaultValue={item.corrective_action ?? ""} placeholder="Ação corretiva" />
+                          <Textarea name="notes" defaultValue={item.notes ?? ""} placeholder="Observações" disabled={isBlocked} />
+                          <Textarea name="corrective_action" defaultValue={item.corrective_action ?? ""} placeholder="Ação corretiva" disabled={isBlocked} />
                         </div>
-                        <Button type="submit">Salvar item</Button>
+                        <Button type="submit" disabled={isBlocked}>Salvar item</Button>
                       </form>
                     </CardContent>
                   </Card>

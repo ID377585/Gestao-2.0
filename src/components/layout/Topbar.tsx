@@ -36,6 +36,8 @@ import {
 
 import { clearSession } from "@/lib/auth/session";
 import {
+  archiveNotification,
+  archiveReadNotifications,
   markAllNotificationsAsRead,
   markNotificationAsRead,
   playNotificationSound,
@@ -308,6 +310,24 @@ export function Topbar({ className }: TopbarProps) {
       await markNotificationAsRead(id);
     } catch (error) {
       console.error("Erro ao marcar notificação como lida:", error);
+    }
+  };
+
+  const handleArchiveNotification = async (id: string) => {
+    try {
+      await archiveNotification(id);
+    } catch (error) {
+      console.error("Erro ao arquivar notificação:", error);
+    }
+  };
+
+  const handleArchiveReadNotifications = async () => {
+    if (!userNotificationId) return;
+
+    try {
+      await archiveReadNotifications(userNotificationId);
+    } catch (error) {
+      console.error("Erro ao arquivar notificações lidas:", error);
     }
   };
 
@@ -609,6 +629,8 @@ export function Topbar({ className }: TopbarProps) {
         notifications={notificacoes}
         onMarkAsRead={handleMarkAsRead}
         onMarkAllAsRead={handleMarkAllAsRead}
+        onArchive={handleArchiveNotification}
+        onArchiveRead={handleArchiveReadNotifications}
       />
 
       <ProfileModal

@@ -7,11 +7,16 @@ import {
 } from "@/lib/auth/terms-config";
 import { createClient as createSupabaseMiddlewareClient } from "@/utils/supabase/middleware";
 
+const DEFAULT_AUTH_REDIRECT = "/dashboard/pedidos";
+
 function isAuthRoute(pathname: string) {
   return (
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/forgot-password") ||
-    pathname.startsWith("/reset-password")
+    pathname === "/login" ||
+    pathname === "/forgot-password" ||
+    pathname === "/reset-password" ||
+    pathname.startsWith("/login/") ||
+    pathname.startsWith("/forgot-password/") ||
+    pathname.startsWith("/reset-password/")
   );
 }
 
@@ -24,12 +29,22 @@ function isProtectedRoute(pathname: string) {
 }
 
 function safeRedirect(raw: string | null) {
-  if (!raw) return "/dashboard/pedidos";
-  if (raw.startsWith("http://") || raw.startsWith("https://")) {
-    return "/dashboard/pedidos";
+  if (!raw) return DEFAULT_AUTH_REDIRECT;
+
+  try {
+    if (raw.startsWith("http://") || raw.startsWith("https://")) {
+      return DEFAULT_AUTH_REDIRECT;
+    }
+
+    if (!raw.startsWith("/")) return DEFAULT_AUTH_REDIRECT;
+
+    const url = new URL(raw, "http://local");
+    if (url.pathname.startsWith("//")) return DEFAULT_AUTH_REDIRECT;
+
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return DEFAULT_AUTH_REDIRECT;
   }
-  if (!raw.startsWith("/")) return "/dashboard/pedidos";
-  return raw;
 }
 
 function getSessionTermsCompliance(
@@ -46,6 +61,21 @@ function copyResponseCookies(source: NextResponse, target: NextResponse) {
   return target;
 }
 
+function redirectWithCookies(
+  req: NextRequest,
+  supabaseResponse: NextResponse,
+  pathname: string,
+  params?: Record<string, string>
+) {
+  const url = new URL(pathname, req.url);
+
+  Object.entries(params ?? {}).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+
+  return copyResponseCookies(supabaseResponse, NextResponse.redirect(url));
+}
+
 export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
 
@@ -54,6 +84,7 @@ export async function middleware(req: NextRequest) {
       headers: req.headers,
     },
   });
+
   let middlewareClient: ReturnType<typeof createSupabaseMiddlewareClient>;
 
   try {
@@ -66,43 +97,52 @@ export async function middleware(req: NextRequest) {
     return supabaseResponse;
   }
 
+  /*
+   * Mantemos getUser() por enquanto porque o fluxo de aceite de termos depende
+   * de app_metadata. A melhoria cirúrgica aqui é reduzir escopo, endurecer
+   * redirects e evitar trabalho desnecessário fora das rotas realmente usadas.
+   *
+   * Próximo passo seguro: migrar a checagem simples de sessão para getClaims()
+   * somente depois de confirmar que o projeto usa JWT assimétrico/JWKS e que o
+   * estado de termos pode ser lido dos claims sem quebrar o fluxo atual.
+   */
   const {
     data: { user },
   } = await middlewareClient.supabase.auth.getUser();
+
   supabaseResponse = middlewareClient.getResponse();
 
   if (!user && isProtectedRoute(pathname)) {
-    const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("redirect", pathname);
-    return copyResponseCookies(
-      supabaseResponse,
-      NextResponse.redirect(loginUrl)
-    );
+    return redirectWithCookies(req, supabaseResponse, "/login", {
+      redirect: pathname,
+    });
   }
 
-  if (user) {
-    const complianceState = getSessionTermsCompliance(
-      user.app_metadata as Record<string, unknown> | undefined
+  if (!user) {
+    return supabaseResponse;
+  }
+
+  const complianceState = getSessionTermsCompliance(
+    user.app_metadata as Record<string, unknown> | undefined
+  );
+  const acceptedCurrentTerms = hasAcceptedCurrentTerms(complianceState);
+
+  if (isProtectedRoute(pathname) && !acceptedCurrentTerms) {
+    return redirectWithCookies(req, supabaseResponse, "/login", {
+      redirect: pathname,
+      terms: TERMS_REQUIRED_QUERY_VALUE,
+    });
+  }
+
+  if (isAuthRoute(pathname) && acceptedCurrentTerms) {
+    const requestedRedirect = safeRedirect(
+      req.nextUrl.searchParams.get("redirect")
     );
-    const acceptedCurrentTerms = hasAcceptedCurrentTerms(complianceState);
 
-    if (isProtectedRoute(pathname) && !acceptedCurrentTerms) {
-      const loginUrl = new URL("/login", req.url);
-      loginUrl.searchParams.set("redirect", pathname);
-      loginUrl.searchParams.set("terms", TERMS_REQUIRED_QUERY_VALUE);
-      return copyResponseCookies(
-        supabaseResponse,
-        NextResponse.redirect(loginUrl)
-      );
-    }
-
-    if (isAuthRoute(pathname) && acceptedCurrentTerms) {
-      const requestedRedirect = safeRedirect(req.nextUrl.searchParams.get("redirect"));
-      return copyResponseCookies(
-        supabaseResponse,
-        NextResponse.redirect(new URL(requestedRedirect, req.url))
-      );
-    }
+    return copyResponseCookies(
+      supabaseResponse,
+      NextResponse.redirect(new URL(requestedRedirect, req.url))
+    );
   }
 
   return supabaseResponse;
@@ -114,8 +154,10 @@ export const config = {
     "/compras/:path*",
     "/financeiro/:path*",
     "/login",
+    "/login/:path*",
     "/forgot-password",
+    "/forgot-password/:path*",
     "/reset-password",
-    "/sem-acesso",
+    "/reset-password/:path*",
   ],
 };

@@ -12,6 +12,7 @@ import { getCurrentTenant, listCurrentUserTenants } from "@/lib/tenant/get-curre
 import { getBillingPlan } from "@/lib/billing/plans";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
 import type { TenantMembershipRole } from "@/lib/tenant/types";
+import { CompanyRowActions } from "./CompanyRowActions";
 import { createCompanyFromAdminPageAction } from "./actions";
 
 function getRoleLabel(role?: TenantMembershipRole | string | null) {
@@ -436,6 +437,7 @@ export default async function EmpresasPage({
                 ? subscriptionByEstablishmentId.get(tenant.establishment_id)
                 : null;
               const plan = getBillingPlan(subscription?.planSlug ?? null);
+              const establishmentId = String(tenant.establishment_id ?? "");
 
               return (
                 <div
@@ -454,7 +456,7 @@ export default async function EmpresasPage({
                       ) : null}
                     </div>
                     <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                      ID: <span className="font-mono">{shortId(tenant.establishment_id)}</span>
+                      ID: <span className="font-mono">{shortId(establishmentId)}</span>
                     </p>
                   </div>
 
@@ -488,7 +490,7 @@ export default async function EmpresasPage({
                     <p className="text-xs text-gray-500 dark:text-slate-400">
                       Vinculado em {formatDate(tenant.created_at)}
                     </p>
-                    <div className="flex flex-wrap gap-3 text-xs font-medium">
+                    <div className="flex flex-wrap gap-3 text-xs font-medium xl:justify-end">
                       <Link
                         href="/dashboard/admin/assinatura"
                         className="text-blue-700 hover:underline dark:text-blue-300"
@@ -502,6 +504,7 @@ export default async function EmpresasPage({
                         Usuários
                       </Link>
                     </div>
+                    <CompanyRowActions establishmentId={establishmentId} isCurrent={isCurrent} />
                   </div>
                 </div>
               );

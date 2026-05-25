@@ -104,10 +104,27 @@ async function getContext() {
 
   if (!establishmentId) throw new Error("Estabelecimento não encontrado para o usuário atual.");
 
-  const { data: { user }, error: userError } = await supabaseAuth.auth.getUser();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabaseAuth.auth.getUser();
+
   if (userError || !user) throw new Error("Usuário não autenticado.");
 
   return { supabase, establishmentId, userId: user.id };
+}
+
+function isMissingNutritionTableError(error: unknown) {
+  const code = String((error as any)?.code ?? "");
+  const message = String((error as any)?.message ?? "").toLowerCase();
+
+  return (
+    code === "42P01" ||
+    message.includes("product_nutrition_facts") ||
+    message.includes("technical_sheet_nutrition_snapshots") ||
+    message.includes("does not exist") ||
+    message.includes("schema cache")
+  );
 }
 
 function toNumber(value: unknown) {
@@ -265,11 +282,15 @@ export async function listNutritionLabelSheets(): Promise<NutritionLabelSheet[]>
       .in("product_id", productIds);
 
     if (nutritionError) {
-      console.error("Erro ao carregar nutrientes dos produtos:", nutritionError);
-      throw new Error("Não foi possível carregar os dados nutricionais dos produtos.");
+      if (isMissingNutritionTableError(nutritionError)) {
+        console.warn("Tabela product_nutrition_facts ainda não existe. Exibindo fichas como pendentes até aplicar a migration.");
+      } else {
+        console.error("Erro ao carregar nutrientes dos produtos:", nutritionError);
+        throw new Error("Não foi possível carregar os dados nutricionais dos produtos.");
+      }
+    } else {
+      for (const row of (nutritionFacts ?? []) as ProductNutritionRow[]) nutritionByProductId.set(String(row.product_id), row);
     }
-
-    for (const row of (nutritionFacts ?? []) as ProductNutritionRow[]) nutritionByProductId.set(String(row.product_id), row);
   }
 
   return typedSheets.filter((sheet) => sheet.active !== false).map((sheet) => buildNutritionLabel(sheet, nutritionByProductId));
@@ -291,6 +312,10 @@ export async function saveNutritionSnapshot(sheet: NutritionLabelSheet) {
     created_by: userId,
   });
   if (error) {
+    if (isMissingNutritionTableError(error)) {
+      throw new Error("A migration da Tabela Nutricional ainda não foi aplicada no Supabase.");
+    }
+
     console.error("Erro ao salvar snapshot nutricional:", error);
     throw new Error("Não foi possível salvar o snapshot da tabela nutricional.");
   }

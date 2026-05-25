@@ -261,6 +261,45 @@ export async function markAllNotificationsAsRead(userId: string) {
   if (error) throw error;
 }
 
+export async function archiveNotification(id: string) {
+  const archivedAt = new Date().toISOString();
+
+  let { error } = await supabase
+    .from("notifications")
+    .update({ archived_at: archivedAt, read_at: archivedAt })
+    .eq("id", id);
+
+  if (!error) return;
+
+  ({ error } = await supabase
+    .from("notifications")
+    .update({ archivedAt, read: true })
+    .eq("id", id));
+
+  if (error) throw error;
+}
+
+export async function archiveReadNotifications(userId: string) {
+  const archivedAt = new Date().toISOString();
+
+  let { error } = await supabase
+    .from("notifications")
+    .update({ archived_at: archivedAt })
+    .or(`user_id.is.null,user_id.eq.${userId}`)
+    .not("read_at", "is", null)
+    .is("archived_at", null);
+
+  if (!error) return;
+
+  ({ error } = await supabase
+    .from("notifications")
+    .update({ archivedAt })
+    .eq("userId", userId)
+    .eq("read", true));
+
+  if (error) throw error;
+}
+
 export function playNotificationSound(priority: NotificationPriority = "normal") {
   if (typeof window === "undefined") return;
 

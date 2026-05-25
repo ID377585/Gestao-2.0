@@ -1,9 +1,8 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import {
-  getCurrentTenantForUser,
-  listCurrentUserTenantsForUser,
-} from "@/lib/tenant/get-current-tenant";
+import { listCurrentUserTenantsForUser } from "@/lib/tenant/get-current-tenant";
+import { TENANT_COOKIE_NAME } from "@/lib/tenant/constants";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
 
 export const dynamic = "force-dynamic";
@@ -43,26 +42,28 @@ export async function GET() {
       );
     }
 
-    const authenticatedUser = {
-      id: user.id,
-      email: user.email ?? null,
-    };
+    const [{ data: profile }, tenants] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("id, full_name, role, sector")
+        .eq("id", user.id)
+        .maybeSingle(),
+      listCurrentUserTenantsForUser(supabase, user.id),
+    ]);
 
-    const [{ data: profile }, tenant, tenants] =
-      await Promise.all([
-        supabase
-          .from("profiles")
-          .select("id, full_name, role, sector")
-          .eq("id", user.id)
-          .maybeSingle(),
-        getCurrentTenantForUser(supabase, authenticatedUser),
-        listCurrentUserTenantsForUser(supabase, user.id),
-      ]);
+    const cookieStore = await cookies();
+    const selectedEstablishmentId =
+      cookieStore.get(TENANT_COOKIE_NAME)?.value ?? null;
 
-    const membership = tenant?.membership ?? null;
-    const establishmentId = tenant?.establishmentId ?? null;
+    const membership = selectedEstablishmentId
+      ? tenants.find(
+          (tenant) => tenant.establishment_id === selectedEstablishmentId
+        ) ?? null
+      : tenants[0] ?? null;
+
+    const establishmentId = membership?.establishment_id ?? null;
     const establishmentName =
-      tenant?.displayName ?? tenant?.establishmentName ?? null;
+      membership?.display_name ?? membership?.establishment_name ?? null;
 
     const subscription = establishmentId
       ? await getCompanySubscriptionStatus(establishmentId)

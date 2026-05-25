@@ -37,6 +37,7 @@ import { clearSession } from "@/lib/auth/session";
 import {
   markAllNotificationsAsRead,
   markNotificationAsRead,
+  playNotificationSound,
   subscribeToNotifications,
   type AppNotification,
 } from "@/lib/notifications";
@@ -115,6 +116,32 @@ function getInitials(name?: string | null) {
     .slice(0, 2)
     .map((item) => item[0]?.toUpperCase() ?? "")
     .join("");
+}
+
+function getPriorityLabel(priority?: AppNotification["priority"]) {
+  switch (priority) {
+    case "critical":
+      return "Crítica";
+    case "high":
+      return "Alta";
+    case "info":
+      return "Info";
+    default:
+      return "Normal";
+  }
+}
+
+function getPriorityClass(priority?: AppNotification["priority"]) {
+  switch (priority) {
+    case "critical":
+      return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300";
+    case "high":
+      return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300";
+    case "info":
+      return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-300";
+    default:
+      return "border-gray-200 bg-gray-50 text-gray-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300";
+  }
 }
 
 export function Topbar({ className }: TopbarProps) {
@@ -198,6 +225,11 @@ export function Topbar({ className }: TopbarProps) {
         (item) => !previousIds.includes(item.id)
       );
 
+      if (previousIds.length > 0 && settings.soundNotifications && newNotifications.length > 0) {
+        const hasCritical = newNotifications.some((item) => item.priority === "critical");
+        playNotificationSound(hasCritical ? "critical" : newNotifications[0]?.priority ?? "normal");
+      }
+
       if (
         settings.browserNotifications &&
         typeof window !== "undefined" &&
@@ -217,7 +249,7 @@ export function Topbar({ className }: TopbarProps) {
     });
 
     return () => unsubscribe();
-  }, [userNotificationId, settings.browserNotifications]);
+  }, [userNotificationId, settings.browserNotifications, settings.soundNotifications]);
 
   const notificacoesNaoLidas = notificacoes.filter((n) => !n.read).length;
 
@@ -371,9 +403,14 @@ export function Topbar({ className }: TopbarProps) {
                         <span className="text-xs text-gray-700 dark:text-slate-300">
                           {n.message}
                         </span>
-                        <span className="text-[11px] text-gray-500 dark:text-slate-400">
-                          {formatDate(n.createdAt)}
-                        </span>
+                        <div className="flex items-center gap-2 pt-1">
+                          <span className="text-[11px] text-gray-500 dark:text-slate-400">
+                            {formatDate(n.createdAt)}
+                          </span>
+                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${getPriorityClass(n.priority)}`}>
+                            {getPriorityLabel(n.priority)}
+                          </span>
+                        </div>
                       </DropdownMenuItem>
                     ))}
                   </div>

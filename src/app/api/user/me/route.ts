@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listCurrentUserTenantsForUser } from "@/lib/tenant/get-current-tenant";
 import { TENANT_COOKIE_NAME } from "@/lib/tenant/constants";
-import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
+import { getCompanySubscriptionStatusWithClient } from "@/lib/billing/subscription-status";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +66,7 @@ export async function GET() {
       membership?.display_name ?? membership?.establishment_name ?? null;
 
     const subscription = establishmentId
-      ? await getCompanySubscriptionStatus(establishmentId)
+      ? await getCompanySubscriptionStatusWithClient(supabase, establishmentId)
       : null;
 
     const payload = {

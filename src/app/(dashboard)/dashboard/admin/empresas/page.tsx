@@ -1,5 +1,13 @@
 import Link from "next/link";
-import { Building2, CheckCircle2, ShieldCheck, Users } from "lucide-react";
+import {
+  Building2,
+  CheckCircle2,
+  CircleSlash,
+  Factory,
+  Search,
+  ShieldCheck,
+  Users,
+} from "lucide-react";
 import { getCurrentTenant, listCurrentUserTenants } from "@/lib/tenant/get-current-tenant";
 import { getBillingPlan } from "@/lib/billing/plans";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
@@ -24,6 +32,40 @@ function getRoleLabel(role?: TenantMembershipRole | string | null) {
       return "Cliente";
     default:
       return "Usuário";
+  }
+}
+
+function getStatusLabel(status?: string | null) {
+  switch (String(status ?? "not_configured").trim()) {
+    case "trialing":
+      return "Teste";
+    case "active":
+      return "Ativa";
+    case "past_due":
+      return "Pagamento pendente";
+    case "canceled":
+      return "Cancelada";
+    case "blocked":
+      return "Bloqueada";
+    case "not_configured":
+      return "Não configurada";
+    default:
+      return "Status desconhecido";
+  }
+}
+
+function getStatusClassName(status?: string | null) {
+  switch (String(status ?? "not_configured").trim()) {
+    case "active":
+    case "trialing":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300";
+    case "past_due":
+      return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300";
+    case "blocked":
+    case "canceled":
+      return "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300";
+    default:
+      return "border-gray-200 bg-gray-50 text-gray-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300";
   }
 }
 
@@ -53,11 +95,33 @@ function getTenantName(params: {
   return params.establishment_id ? params.establishment_id.slice(0, 8) : "Sem empresa";
 }
 
+function getQueryValue(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return value ?? "";
+}
+
+function shortId(value?: string | null) {
+  const id = String(value ?? "").trim();
+  if (!id) return "—";
+  if (id.length <= 12) return id;
+  return `${id.slice(0, 8)}...${id.slice(-4)}`;
+}
+
 function isCompanyCreationEnabled() {
   return process.env.GESTIFY_ENABLE_COMPANY_CREATION === "true";
 }
 
-export default async function EmpresasPage() {
+export default async function EmpresasPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{
+    q?: string | string[];
+    plan?: string | string[];
+    status?: string | string[];
+    created?: string | string[];
+  }>;
+}) {
+  const resolvedSearchParams = await searchParams;
   const [currentTenant, tenants] = await Promise.all([
     getCurrentTenant(),
     listCurrentUserTenants(),
@@ -66,8 +130,8 @@ export default async function EmpresasPage() {
   const activeTenants = tenants.filter(
     (tenant) => tenant.is_active && tenant.establishment_id
   );
-  const canCreateCompany =
-    isCompanyCreationEnabled() && currentTenant?.role === "admin";
+  const companyCreationEnabled = isCompanyCreationEnabled();
+  const canCreateCompany = companyCreationEnabled && currentTenant?.role === "admin";
 
   const subscriptionByEstablishmentId = new Map<
     string,
@@ -82,25 +146,82 @@ export default async function EmpresasPage() {
     })
   );
 
+  const q = getQueryValue(resolvedSearchParams?.q).trim().toLowerCase();
+  const planFilter = getQueryValue(resolvedSearchParams?.plan).trim();
+  const statusFilter = getQueryValue(resolvedSearchParams?.status).trim();
+  const created = getQueryValue(resolvedSearchParams?.created).trim() === "1";
+
+  const activeSubscriptionCount = activeTenants.filter((tenant) => {
+    const subscription = tenant.establishment_id
+      ? subscriptionByEstablishmentId.get(tenant.establishment_id)
+      : null;
+    return subscription?.status === "active" || subscription?.status === "trialing";
+  }).length;
+
+  const withoutPlanCount = activeTenants.filter((tenant) => {
+    const subscription = tenant.establishment_id
+      ? subscriptionByEstablishmentId.get(tenant.establishment_id)
+      : null;
+    const plan = getBillingPlan(subscription?.planSlug ?? null);
+    return !plan;
+  }).length;
+
+  const filteredTenants = activeTenants.filter((tenant) => {
+    const tenantName = getTenantName(tenant).toLowerCase();
+    const subscription = tenant.establishment_id
+      ? subscriptionByEstablishmentId.get(tenant.establishment_id)
+      : null;
+    const plan = getBillingPlan(subscription?.planSlug ?? null);
+    const status = String(subscription?.status ?? "not_configured");
+    const planSlug = String(subscription?.planSlug ?? "not_configured");
+
+    const matchesQuery =
+      !q ||
+      tenantName.includes(q) ||
+      String(tenant.establishment_id ?? "").toLowerCase().includes(q);
+    const matchesPlan = !planFilter || planFilter === planSlug || (!plan && planFilter === "not_configured");
+    const matchesStatus = !statusFilter || statusFilter === status;
+
+    return matchesQuery && matchesPlan && matchesStatus;
+  });
+
   return (
     <main className="space-y-6 p-6">
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl bg-blue-50 p-3 text-blue-700 dark:bg-slate-800 dark:text-blue-300">
-            <Building2 className="h-6 w-6" />
+      <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="rounded-2xl bg-blue-50 p-3 text-blue-700 dark:bg-slate-800 dark:text-blue-300">
+              <Building2 className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">
+                Central multiempresa
+              </p>
+              <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-slate-100">
+                Empresas e unidades
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm text-gray-600 dark:text-slate-400">
+                Gerencie os vínculos multiempresa, acompanhe planos, permissões e status operacional de cada tenant.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100">
-              Minhas empresas
-            </h1>
-            <p className="text-sm text-gray-600 dark:text-slate-400">
-              Consulte as empresas vinculadas ao seu usuário e cadastre novas empresas de forma controlada.
+
+          <div className="rounded-2xl border border-gray-200 px-4 py-3 text-sm dark:border-slate-800">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Seu perfil atual</p>
+            <p className="mt-1 font-semibold text-gray-900 dark:text-slate-100">
+              {getRoleLabel(currentTenant?.role)}
             </p>
           </div>
         </div>
       </div>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      {created ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+          Empresa criada com sucesso. Os vínculos, permissões padrão e assinatura inicial foram preparados.
+        </div>
+      ) : null}
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -116,7 +237,7 @@ export default async function EmpresasPage() {
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm text-gray-500 dark:text-slate-400">Empresa ativa</p>
+              <p className="text-sm text-gray-500 dark:text-slate-400">Empresa em uso</p>
               <h2 className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-slate-100">
                 {currentTenant?.displayName ?? currentTenant?.establishmentName ?? "Não carregada"}
               </h2>
@@ -128,16 +249,37 @@ export default async function EmpresasPage() {
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm text-gray-500 dark:text-slate-400">Modo</p>
-              <h2 className="mt-1 text-lg font-semibold text-gray-900 dark:text-slate-100">
-                Multiempresa controlado
+              <p className="text-sm text-gray-500 dark:text-slate-400">Assinaturas ok</p>
+              <h2 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-slate-100">
+                {activeSubscriptionCount}
               </h2>
             </div>
             <ShieldCheck className="h-5 w-5 text-blue-500" />
           </div>
-          <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
-            A criação de novas empresas fica liberada apenas em ambiente controlado.
-          </p>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm text-gray-500 dark:text-slate-400">Sem plano</p>
+              <h2 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-slate-100">
+                {withoutPlanCount}
+              </h2>
+            </div>
+            <CircleSlash className="h-5 w-5 text-gray-400" />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm text-gray-500 dark:text-slate-400">Criação</p>
+              <h2 className="mt-1 text-lg font-semibold text-gray-900 dark:text-slate-100">
+                {canCreateCompany ? "Liberada" : "Restrita"}
+              </h2>
+            </div>
+            <Factory className="h-5 w-5 text-gray-400" />
+          </div>
         </div>
       </section>
 
@@ -198,25 +340,94 @@ export default async function EmpresasPage() {
             </div>
           </form>
         </section>
-      ) : null}
+      ) : (
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-slate-100 p-2 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                Criação de empresas restrita
+              </h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                Novas empresas só podem ser criadas por administradores e quando a liberação administrativa estiver ativa neste ambiente.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="border-b border-gray-200 p-5 dark:border-slate-800">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-            Vínculos do usuário
-          </h2>
-          <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
-            A troca de empresa ativa continua disponível no seletor do topo quando houver mais de uma empresa.
-          </p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                Empresas vinculadas
+              </h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                Consulte permissões, assinatura e atalhos administrativos de cada empresa vinculada ao seu usuário.
+              </p>
+            </div>
+
+            <form method="get" className="grid gap-3 sm:grid-cols-[minmax(220px,1fr)_180px_190px_auto] lg:min-w-[720px]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  name="q"
+                  defaultValue={q}
+                  placeholder="Buscar empresa ou ID..."
+                  className="w-full rounded-xl border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-blue-950"
+                />
+              </div>
+
+              <select
+                name="plan"
+                defaultValue={planFilter}
+                className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-blue-950"
+              >
+                <option value="">Todos os planos</option>
+                <option value="starter">Starter</option>
+                <option value="growth">Growth</option>
+                <option value="enterprise">Enterprise</option>
+                <option value="not_configured">Sem plano</option>
+              </select>
+
+              <select
+                name="status"
+                defaultValue={statusFilter}
+                className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-blue-950"
+              >
+                <option value="">Todos os status</option>
+                <option value="active">Ativa</option>
+                <option value="trialing">Teste</option>
+                <option value="past_due">Pagamento pendente</option>
+                <option value="blocked">Bloqueada</option>
+                <option value="canceled">Cancelada</option>
+                <option value="not_configured">Não configurada</option>
+              </select>
+
+              <button
+                type="submit"
+                className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"
+              >
+                Filtrar
+              </button>
+            </form>
+          </div>
         </div>
 
         {activeTenants.length === 0 ? (
           <div className="p-6 text-sm text-gray-600 dark:text-slate-400">
             Nenhuma empresa ativa encontrada para o seu usuário.
           </div>
+        ) : filteredTenants.length === 0 ? (
+          <div className="p-6 text-sm text-gray-600 dark:text-slate-400">
+            Nenhuma empresa encontrada com os filtros selecionados.
+          </div>
         ) : (
           <div className="divide-y divide-gray-200 dark:divide-slate-800">
-            {activeTenants.map((tenant) => {
+            {filteredTenants.map((tenant) => {
               const tenantName = getTenantName(tenant);
               const isCurrent =
                 Boolean(currentTenant?.establishmentId) &&
@@ -229,7 +440,7 @@ export default async function EmpresasPage() {
               return (
                 <div
                   key={tenant.id}
-                  className="grid gap-4 p-5 md:grid-cols-[1.4fr_0.8fr_0.8fr_auto] md:items-center"
+                  className="grid gap-4 p-5 xl:grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_auto] xl:items-center"
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -242,8 +453,8 @@ export default async function EmpresasPage() {
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-1 break-all text-xs text-gray-500 dark:text-slate-400">
-                      {tenant.establishment_id}
+                    <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                      ID: <span className="font-mono">{shortId(tenant.establishment_id)}</span>
                     </p>
                   </div>
 
@@ -255,25 +466,42 @@ export default async function EmpresasPage() {
                   </div>
 
                   <div>
-                    <p className="text-xs text-gray-500 dark:text-slate-400">Vinculado em</p>
-                    <p className="mt-1 text-sm font-medium text-gray-900 dark:text-slate-100">
-                      {formatDate(tenant.created_at)}
+                    <p className="text-xs text-gray-500 dark:text-slate-400">Plano</p>
+                    <p className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 dark:border-slate-700 dark:text-slate-300">
+                      <Users className="h-3 w-3" />
+                      {plan?.name ?? "Não configurado"}
                     </p>
                   </div>
 
-                  <div className="flex flex-col gap-2 md:items-end">
-                    <span className="inline-flex w-fit items-center gap-1 rounded-full border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 dark:border-slate-700 dark:text-slate-300">
-                      <Users className="h-3 w-3" />
-                      {plan?.name ?? "Plano não configurado"}
-                    </span>
-                    {tenant.establishment_id ? (
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-slate-400">Assinatura</p>
+                    <p
+                      className={`mt-1 inline-flex w-fit rounded-full border px-2 py-1 text-xs font-medium ${getStatusClassName(
+                        subscription?.status
+                      )}`}
+                    >
+                      {getStatusLabel(subscription?.status)}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-2 xl:items-end">
+                    <p className="text-xs text-gray-500 dark:text-slate-400">
+                      Vinculado em {formatDate(tenant.created_at)}
+                    </p>
+                    <div className="flex flex-wrap gap-3 text-xs font-medium">
                       <Link
                         href="/dashboard/admin/assinatura"
-                        className="text-xs font-medium text-blue-700 hover:underline dark:text-blue-300"
+                        className="text-blue-700 hover:underline dark:text-blue-300"
                       >
                         Ver assinatura
                       </Link>
-                    ) : null}
+                      <Link
+                        href="/dashboard/admin/usuarios"
+                        className="text-blue-700 hover:underline dark:text-blue-300"
+                      >
+                        Usuários
+                      </Link>
+                    </div>
                   </div>
                 </div>
               );

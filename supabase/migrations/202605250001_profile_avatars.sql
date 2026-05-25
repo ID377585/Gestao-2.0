@@ -22,12 +22,17 @@ set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
-create policy if not exists "Public can view avatars"
+drop policy if exists "Public can view avatars" on storage.objects;
+drop policy if exists "Users can upload own avatars" on storage.objects;
+drop policy if exists "Users can update own avatars" on storage.objects;
+drop policy if exists "Users can delete own avatars" on storage.objects;
+
+create policy "Public can view avatars"
   on storage.objects
   for select
   using (bucket_id = 'avatars');
 
-create policy if not exists "Users can upload own avatars"
+create policy "Users can upload own avatars"
   on storage.objects
   for insert
   to authenticated
@@ -36,7 +41,7 @@ create policy if not exists "Users can upload own avatars"
     and (storage.foldername(name))[1] = auth.uid()::text
   );
 
-create policy if not exists "Users can update own avatars"
+create policy "Users can update own avatars"
   on storage.objects
   for update
   to authenticated
@@ -49,7 +54,7 @@ create policy if not exists "Users can update own avatars"
     and (storage.foldername(name))[1] = auth.uid()::text
   );
 
-create policy if not exists "Users can delete own avatars"
+create policy "Users can delete own avatars"
   on storage.objects
   for delete
   to authenticated

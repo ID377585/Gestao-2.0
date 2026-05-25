@@ -1,7 +1,11 @@
 import {
+  Activity,
   BadgeDollarSign,
   CalendarDays,
   CheckCircle2,
+  CreditCard,
+  Gauge,
+  LockKeyhole,
   ShieldAlert,
 } from "lucide-react";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
@@ -64,17 +68,29 @@ export default async function AssinaturaPage() {
 
   return (
     <main className="space-y-6 p-6">
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl bg-blue-50 p-3 text-blue-700 dark:bg-slate-800 dark:text-blue-300">
-            <BadgeDollarSign className="h-6 w-6" />
+      <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="rounded-2xl bg-blue-50 p-3 text-blue-700 dark:bg-slate-800 dark:text-blue-300">
+              <BadgeDollarSign className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">
+                Central SaaS
+              </p>
+              <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-slate-100">
+                Assinatura e plano
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm text-gray-600 dark:text-slate-400">
+                Acompanhe a assinatura da empresa ativa, monitore os limites do plano e mantenha a operação dentro das regras comerciais do Gestify.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100">
-              Assinatura e plano
-            </h1>
-            <p className="text-sm text-gray-600 dark:text-slate-400">
-              Acompanhe o plano da empresa ativa e prepare a cobrança mensal do Gestify.
+
+          <div className="rounded-2xl border border-gray-200 px-4 py-3 text-sm dark:border-slate-800">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Empresa ativa</p>
+            <p className="mt-1 font-semibold text-gray-900 dark:text-slate-100">
+              Controle por tenant
             </p>
           </div>
         </div>
@@ -89,7 +105,7 @@ export default async function AssinaturaPage() {
                 {plan?.name ?? "Não configurado"}
               </h2>
             </div>
-            <BadgeDollarSign className="h-5 w-5 text-gray-400" />
+            <CreditCard className="h-5 w-5 text-gray-400" />
           </div>
           <p className="mt-2 text-sm font-medium text-gray-900 dark:text-slate-100">
             {formatBillingPrice(plan)}
@@ -116,8 +132,8 @@ export default async function AssinaturaPage() {
           </div>
           <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
             {subscription?.canAccessSystem === false
-              ? "Esta empresa está marcada como sem acesso no controle de assinatura."
-              : "O acesso permanece liberado nesta etapa de preparação SaaS."}
+              ? "Esta empresa está sem acesso conforme o controle de assinatura."
+              : "O acesso está liberado para a empresa ativa conforme o status atual."}
           </p>
         </div>
 
@@ -132,18 +148,23 @@ export default async function AssinaturaPage() {
             <CalendarDays className="h-5 w-5 text-gray-400" />
           </div>
           <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
-            Esse campo será preenchido quando a integração de cobrança estiver ativa.
+            Data vinculada ao período vigente da assinatura quando disponível.
           </p>
         </div>
       </section>
 
       <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-          Uso e limites do plano
-        </h2>
-        <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
-          Nesta etapa os limites são apenas informativos. Nenhum cadastro será bloqueado automaticamente.
-        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+              Uso e limites do plano
+            </h2>
+            <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+              Monitore a ocupação do plano em tempo real e antecipe ajustes antes de atingir os limites contratados.
+            </p>
+          </div>
+          <Gauge className="h-5 w-5 text-gray-400" />
+        </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-3">
           {(usage?.metrics ?? []).map((metric) => {
@@ -194,29 +215,58 @@ export default async function AssinaturaPage() {
       </section>
 
       <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-          Preparação para cobrança mensal
-        </h2>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+              Governança do plano
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm text-gray-600 dark:text-slate-400">
+              A base de assinatura já está estruturada para operação multiempresa, controle de acesso, limites comerciais e auditoria por tenant.
+            </p>
+          </div>
+          <Activity className="h-5 w-5 text-gray-400" />
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
           <div className="rounded-xl border border-gray-200 p-4 dark:border-slate-800">
-            <h3 className="font-medium text-gray-900 dark:text-slate-100">Pronto nesta etapa</h3>
-            <ul className="mt-2 space-y-1 text-sm text-gray-600 dark:text-slate-400">
-              <li>Empresa ativa por tenant</li>
-              <li>Status de assinatura por empresa</li>
-              <li>Planos Starter, Growth e Enterprise</li>
-              <li>Uso atual comparado aos limites do plano</li>
-              <li>Avisos reutilizáveis para 80%, 90% e 100% de uso</li>
-              <li>Base para auditoria global por empresa</li>
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              <h3 className="font-medium text-gray-900 dark:text-slate-100">
+                Operação ativa
+              </h3>
+            </div>
+            <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-slate-400">
+              <li>Empresa ativa identificada por tenant.</li>
+              <li>Status de assinatura aplicado por empresa.</li>
+              <li>Planos Starter, Growth e Enterprise configurados.</li>
             </ul>
           </div>
 
           <div className="rounded-xl border border-gray-200 p-4 dark:border-slate-800">
-            <h3 className="font-medium text-gray-900 dark:text-slate-100">Próximos passos</h3>
-            <ul className="mt-2 space-y-1 text-sm text-gray-600 dark:text-slate-400">
-              <li>Integrar checkout/portal de pagamento</li>
-              <li>Criar webhooks de assinatura</li>
-              <li>Exibir avisos nos formulários de usuários e produtos</li>
-              <li>Bloquear novos cadastros apenas após validação em produção</li>
+            <div className="flex items-center gap-2">
+              <Gauge className="h-4 w-4 text-blue-500" />
+              <h3 className="font-medium text-gray-900 dark:text-slate-100">
+                Limites e avisos
+              </h3>
+            </div>
+            <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-slate-400">
+              <li>Uso atual comparado automaticamente aos limites do plano.</li>
+              <li>Alertas reutilizáveis em 80%, 90% e 100% de uso.</li>
+              <li>Avisos integrados aos fluxos de usuários e produtos.</li>
+            </ul>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 p-4 dark:border-slate-800">
+            <div className="flex items-center gap-2">
+              <LockKeyhole className="h-4 w-4 text-slate-500" />
+              <h3 className="font-medium text-gray-900 dark:text-slate-100">
+                Controle e auditoria
+              </h3>
+            </div>
+            <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-slate-400">
+              <li>Base para auditoria global por empresa.</li>
+              <li>Bloqueio de acesso respeitando o status da assinatura.</li>
+              <li>Estrutura pronta para conciliação com checkout, portal e webhooks.</li>
             </ul>
           </div>
         </div>

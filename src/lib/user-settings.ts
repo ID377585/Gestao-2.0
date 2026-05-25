@@ -1,6 +1,7 @@
 export type UserSettings = {
   emailNotifications: boolean;
   browserNotifications: boolean;
+  soundNotifications: boolean;
   darkMode: boolean;
 };
 
@@ -10,6 +11,7 @@ const THEME_STORAGE_KEY = "gestify-theme";
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   emailNotifications: true,
   browserNotifications: true,
+  soundNotifications: true,
   darkMode: false,
 };
 
@@ -21,6 +23,8 @@ function normalizeSettings(
       parsed?.emailNotifications ?? DEFAULT_USER_SETTINGS.emailNotifications,
     browserNotifications:
       parsed?.browserNotifications ?? DEFAULT_USER_SETTINGS.browserNotifications,
+    soundNotifications:
+      parsed?.soundNotifications ?? DEFAULT_USER_SETTINGS.soundNotifications,
     darkMode: parsed?.darkMode ?? DEFAULT_USER_SETTINGS.darkMode,
   };
 }

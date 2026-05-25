@@ -163,8 +163,7 @@ export async function getChecklistDashboard(): Promise<ChecklistDashboardData> {
   if (runsError) throw new Error(runsError.message);
 
   const activeRun =
-    (recentRuns ?? []).find((run: KitchenChecklistRun) => ACTIVE_RUN_STATUSES.includes(run.status)) ??
-    null;
+    (recentRuns ?? []).find((run: KitchenChecklistRun) => ACTIVE_RUN_STATUSES.includes(run.status)) ?? null;
 
   let activeRunItems: KitchenChecklistRunItem[] = [];
   if (activeRun) {
@@ -329,18 +328,69 @@ export async function updateChecklistRunItem(input: UpdateChecklistRunItemInput)
   revalidatePath(CHECKLIST_PATH);
 }
 
-export async function completeChecklistRun(runId: string, notes?: string) {
+async function updateChecklistRunStatus(runId: string, status: "blocked" | "cancelled", notes?: string) {
   const { db, userId, establishmentId } = await getContext();
+
+  const finalNotes = notes?.trim() || null;
+  if (!finalNotes) {
+    throw new Error("Informe uma observação para bloquear ou cancelar a Check-List.");
+  }
 
   const { data: run, error: runError } = await db
     .from("kitchen_checklist_runs")
-    .select("id, establishment_id")
+    .select("id, establishment_id, status")
     .eq("id", runId)
     .eq("establishment_id", establishmentId)
     .single();
 
   if (runError || !run) {
     throw new Error(runError?.message ?? "Checklist não encontrada.");
+  }
+
+  if (!ACTIVE_RUN_STATUSES.includes(run.status)) {
+    throw new Error("Somente Check-Lists abertas podem ser bloqueadas ou canceladas.");
+  }
+
+  const { error } = await db
+    .from("kitchen_checklist_runs")
+    .update({
+      status,
+      completed_by: status === "cancelled" ? userId : null,
+      completed_at: status === "cancelled" ? new Date().toISOString() : null,
+      notes: finalNotes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", runId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(CHECKLIST_PATH);
+}
+
+export async function blockChecklistRun(runId: string, notes?: string) {
+  await updateChecklistRunStatus(runId, "blocked", notes);
+}
+
+export async function cancelChecklistRun(runId: string, notes?: string) {
+  await updateChecklistRunStatus(runId, "cancelled", notes);
+}
+
+export async function completeChecklistRun(runId: string, notes?: string) {
+  const { db, userId, establishmentId } = await getContext();
+
+  const { data: run, error: runError } = await db
+    .from("kitchen_checklist_runs")
+    .select("id, establishment_id, status")
+    .eq("id", runId)
+    .eq("establishment_id", establishmentId)
+    .single();
+
+  if (runError || !run) {
+    throw new Error(runError?.message ?? "Checklist não encontrada.");
+  }
+
+  if (!ACTIVE_RUN_STATUSES.includes(run.status)) {
+    throw new Error("Somente Check-Lists abertas podem ser concluídas.");
   }
 
   const { count, error: pendingError } = await db

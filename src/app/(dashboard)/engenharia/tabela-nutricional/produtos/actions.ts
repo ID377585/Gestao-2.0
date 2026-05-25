@@ -93,6 +93,40 @@ function normalizeNutrition(input: Partial<NutritionFacts>): NutritionFacts {
   };
 }
 
+async function assertProductsBelongToEstablishment(
+  supabase: Awaited<ReturnType<typeof createSupabaseAdminClient>>,
+  establishmentId: string,
+  productIds: string[],
+) {
+  const uniqueProductIds = Array.from(new Set(productIds.filter(Boolean)));
+
+  if (uniqueProductIds.length === 0) {
+    throw new Error("Nenhum produto informado.");
+  }
+
+  const { data: products, error } = await supabase
+    .from("products")
+    .select("id,establishment_id")
+    .in("id", uniqueProductIds);
+
+  if (error) {
+    console.error("Erro ao validar produtos para nutrição:", error);
+    throw new Error("Não foi possível validar os produtos informados.");
+  }
+
+  const allowedIds = new Set(
+    (products ?? [])
+      .filter((product: any) => product.establishment_id === establishmentId)
+      .map((product: any) => String(product.id)),
+  );
+
+  const invalidIds = uniqueProductIds.filter((productId) => !allowedIds.has(productId));
+
+  if (invalidIds.length > 0) {
+    throw new Error(`Há produtos inválidos ou de outro estabelecimento: ${invalidIds.slice(0, 5).join(", ")}`);
+  }
+}
+
 export async function listProductsForNutritionEditor(): Promise<ProductNutritionEditorItem[]> {
   const { supabase, establishmentId } = await getContext();
 
@@ -159,15 +193,7 @@ export async function saveProductNutrition(input: ProductNutritionInput) {
     throw new Error("Produto não informado.");
   }
 
-  const { data: product, error: productError } = await supabase
-    .from("products")
-    .select("id,establishment_id")
-    .eq("id", input.productId)
-    .single();
-
-  if (productError || !product || (product as any).establishment_id !== establishmentId) {
-    throw new Error("Produto não encontrado para este estabelecimento.");
-  }
+  await assertProductsBelongToEstablishment(supabase, establishmentId, [input.productId]);
 
   const nutrition = normalizeNutrition(input);
 
@@ -198,4 +224,54 @@ export async function saveProductNutrition(input: ProductNutritionInput) {
 
   revalidatePath("/engenharia/tabela-nutricional");
   revalidatePath("/engenharia/tabela-nutricional/produtos");
+}
+
+export async function saveProductNutritionBatch(inputs: ProductNutritionInput[]) {
+  const { supabase, establishmentId, userId } = await getContext();
+
+  const cleanInputs = inputs.filter((input) => input.productId);
+
+  if (cleanInputs.length === 0) {
+    throw new Error("Nenhuma linha válida para importar.");
+  }
+
+  if (cleanInputs.length > 500) {
+    throw new Error("Importe no máximo 500 produtos por vez.");
+  }
+
+  await assertProductsBelongToEstablishment(
+    supabase,
+    establishmentId,
+    cleanInputs.map((input) => input.productId),
+  );
+
+  const now = new Date().toISOString();
+  const payload = cleanInputs.map((input) => ({
+    establishment_id: establishmentId,
+    product_id: input.productId,
+    serving_basis: "100g",
+    ...normalizeNutrition(input),
+    source: input.source?.trim() || null,
+    notes: input.notes?.trim() || null,
+    created_by: userId,
+    updated_at: now,
+  }));
+
+  const { error } = await supabase
+    .from("product_nutrition_facts")
+    .upsert(payload, { onConflict: "establishment_id,product_id" });
+
+  if (error) {
+    if (isMissingNutritionTableError(error)) {
+      throw new Error("A migration da Tabela Nutricional ainda não foi aplicada no Supabase.");
+    }
+
+    console.error("Erro ao importar dados nutricionais:", error);
+    throw new Error("Não foi possível importar os dados nutricionais.");
+  }
+
+  revalidatePath("/engenharia/tabela-nutricional");
+  revalidatePath("/engenharia/tabela-nutricional/produtos");
+
+  return { importedCount: payload.length };
 }

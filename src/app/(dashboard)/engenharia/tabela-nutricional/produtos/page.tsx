@@ -69,6 +69,25 @@ function toFormState(product: ProductNutritionEditorItem | null) {
   };
 }
 
+function escapeCsvCell(value: unknown) {
+  const text = String(value ?? "");
+  if (/[";\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
+}
+
+function downloadCsv(filename: string, rows: unknown[][]) {
+  const csv = rows.map((row) => row.map(escapeCsvCell).join(";")).join("\n");
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function ProdutosTabelaNutricionalPage() {
   const [products, setProducts] = useState<ProductNutritionEditorItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -89,7 +108,7 @@ export default function ProdutosTabelaNutricionalPage() {
       setSelectedId((current) => current ?? data[0]?.productId ?? null);
     } catch (err) {
       console.error(err);
-      setError("Não foi possível carregar os produtos.");
+      setError((err as Error)?.message || "Não foi possível carregar os produtos.");
     } finally {
       setLoading(false);
     }
@@ -147,6 +166,52 @@ export default function ProdutosTabelaNutricionalPage() {
     }));
   }
 
+  function handleExportCsv() {
+    const rows = [
+      [
+        "product_id",
+        "produto",
+        "marca",
+        "categoria",
+        "unidade_base",
+        "valor_energetico_kcal_100g",
+        "carboidratos_g_100g",
+        "acucares_totais_g_100g",
+        "acucares_adicionados_g_100g",
+        "proteinas_g_100g",
+        "gorduras_totais_g_100g",
+        "gorduras_saturadas_g_100g",
+        "gorduras_trans_g_100g",
+        "fibra_alimentar_g_100g",
+        "sodio_mg_100g",
+        "fonte",
+        "observacoes",
+      ],
+      ...filteredProducts.map((product) => [
+        product.productId,
+        product.name,
+        product.brand ?? "",
+        product.category ?? product.sectorCategory ?? "",
+        product.defaultUnitLabel ?? "100g/100ml",
+        product.nutrition.calories_kcal || "",
+        product.nutrition.carbohydrates_g || "",
+        product.nutrition.total_sugars_g || "",
+        product.nutrition.added_sugars_g || "",
+        product.nutrition.proteins_g || "",
+        product.nutrition.total_fat_g || "",
+        product.nutrition.saturated_fat_g || "",
+        product.nutrition.trans_fat_g || "",
+        product.nutrition.dietary_fiber_g || "",
+        product.nutrition.sodium_mg || "",
+        product.source ?? "",
+        product.notes ?? "",
+      ]),
+    ];
+
+    const suffix = statusFilter === "pending" ? "pendentes" : statusFilter === "complete" ? "completos" : "todos";
+    downloadCsv(`produtos-nutricao-${suffix}.csv`, rows);
+  }
+
   function handleSave() {
     if (!selectedProduct) return;
 
@@ -164,7 +229,7 @@ export default function ProdutosTabelaNutricionalPage() {
         await loadProducts();
       } catch (err) {
         console.error(err);
-        setError("Não foi possível salvar os dados nutricionais.");
+        setError((err as Error)?.message || "Não foi possível salvar os dados nutricionais.");
       }
     });
   }
@@ -187,6 +252,14 @@ export default function ProdutosTabelaNutricionalPage() {
             </div>
 
             <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                disabled={filteredProducts.length === 0}
+                className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Exportar CSV
+              </button>
               <Link
                 href="/engenharia/tabela-nutricional"
                 className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
@@ -235,6 +308,10 @@ export default function ProdutosTabelaNutricionalPage() {
                   <div className="text-xs opacity-75">Pendentes</div>
                   <div className="mt-1 text-2xl font-black">{metrics.pending}</div>
                 </button>
+              </div>
+
+              <div className="rounded-2xl border border-white/60 bg-white/70 p-4 text-xs text-slate-600 shadow-sm">
+                O botão <strong>Exportar CSV</strong> baixa os produtos do filtro atual. Use “Pendentes” para gerar uma lista de itens que precisam de dados nutricionais.
               </div>
 
               <input

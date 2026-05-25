@@ -12,7 +12,7 @@ interface ProfileModalProps {
   onClose: () => void;
   onAvatarUpdated?: (avatarUrl: string | null) => void;
   user: {
-    id: string;
+    id?: string;
     name: string;
     email: string;
     avatar?: string | null;
@@ -87,11 +87,28 @@ export function ProfileModal({
 
   if (!open) return null;
 
+  const getCurrentUserId = async () => {
+    if (user.id) return user.id;
+
+    const {
+      data: { user: authUser },
+      error,
+    } = await supabase.auth.getUser();
+
+    if (error || !authUser?.id) {
+      throw error ?? new Error("Usuário não autenticado.");
+    }
+
+    return authUser.id;
+  };
+
   const updateAvatar = async (nextAvatarUrl: string | null) => {
+    const userId = await getCurrentUserId();
+
     const { error: profileError } = await supabase
       .from("profiles")
       .update({ avatar_url: nextAvatarUrl })
-      .eq("id", user.id);
+      .eq("id", userId);
 
     if (profileError) throw profileError;
 
@@ -122,7 +139,8 @@ export function ProfileModal({
       setUploadingAvatar(true);
       setAvatarError(null);
 
-      const filePath = getAvatarPath(user.id, file);
+      const userId = await getCurrentUserId();
+      const filePath = getAvatarPath(userId, file);
       const { error: uploadError } = await supabase.storage
         .from("avatars")
         .upload(filePath, file, {

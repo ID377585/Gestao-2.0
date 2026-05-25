@@ -17,6 +17,7 @@ import { getBillingPlan } from "@/lib/billing/plans";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
 import type { TenantMembershipRole } from "@/lib/tenant/types";
 import { CompanyOperationsGuide } from "./CompanyOperationsGuide";
+import { CompanyRiskAlerts } from "./CompanyRiskAlerts";
 import { CompanyRowActions } from "./CompanyRowActions";
 import { createCompanyFromAdminPageAction } from "./actions";
 
@@ -322,6 +323,12 @@ export default async function EmpresasPage({
           </div>
         </div>
       </section>
+
+      <CompanyRiskAlerts
+        attentionCount={statusCounts.attention}
+        restrictedCount={statusCounts.restricted}
+        notConfiguredCount={statusCounts.notConfigured}
+      />
 
       <CompanyOperationsGuide />
 

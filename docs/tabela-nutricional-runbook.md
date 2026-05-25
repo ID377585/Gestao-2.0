@@ -13,6 +13,8 @@ Este guia descreve como ativar e validar a área de Tabela Nutricional criada em
 - `/engenharia/tabela-nutricional/produtos`
   - Lista produtos ativos do catálogo.
   - Permite cadastrar os nutrientes por 100 g ou 100 ml.
+  - Permite exportar produtos para CSV.
+  - Permite importar CSV preenchido para atualizar nutrientes em lote.
   - Alimenta automaticamente os cálculos das receitas.
 
 ## Migration necessária
@@ -67,10 +69,59 @@ As políticas RLS usam `public.establishment_memberships` com `is_active = true`
 10. Salvar snapshot após validação.
 11. Imprimir.
 
+## Fluxo por CSV
+
+Use este fluxo quando houver muitos produtos para preencher.
+
+1. Acessar `/engenharia/tabela-nutricional/produtos`.
+2. Selecionar o filtro desejado:
+   - `Pendentes`, para exportar apenas produtos sem nutrientes;
+   - `Com nutrientes`, para revisar produtos já preenchidos;
+   - `Produtos`, para exportar todos.
+3. Clicar em `Exportar CSV`.
+4. Preencher os valores nutricionais na planilha exportada.
+5. Salvar como CSV mantendo a coluna `product_id`.
+6. Clicar em `Importar CSV`.
+7. Selecionar o arquivo preenchido.
+8. Conferir a mensagem de sucesso e revisar os cards atualizados.
+
+### Regras do CSV
+
+- O arquivo pode usar separador `;` ou `,`.
+- O sistema aceita números com vírgula decimal brasileira, por exemplo `12,5`.
+- O sistema aceita números com ponto decimal, por exemplo `12.5`.
+- A coluna `product_id` é obrigatória e não deve ser alterada.
+- A importação atualiza até 500 produtos por vez.
+- Produtos de outro estabelecimento são recusados.
+- Linhas sem `product_id` são ignoradas.
+
+### Colunas exportadas/importadas
+
+| Coluna | Obrigatória | Descrição |
+| --- | --- | --- |
+| `product_id` | Sim | Identificador interno do produto. Não editar. |
+| `produto` | Não | Nome do produto para conferência visual. |
+| `marca` | Não | Marca do produto para conferência visual. |
+| `categoria` | Não | Categoria/setor para conferência visual. |
+| `unidade_base` | Não | Indicação de referência, geralmente 100 g ou 100 ml. |
+| `valor_energetico_kcal_100g` | Não | Valor energético por 100 g/100 ml. |
+| `carboidratos_g_100g` | Não | Carboidratos por 100 g/100 ml. |
+| `acucares_totais_g_100g` | Não | Açúcares totais por 100 g/100 ml. |
+| `acucares_adicionados_g_100g` | Não | Açúcares adicionados por 100 g/100 ml. |
+| `proteinas_g_100g` | Não | Proteínas por 100 g/100 ml. |
+| `gorduras_totais_g_100g` | Não | Gorduras totais por 100 g/100 ml. |
+| `gorduras_saturadas_g_100g` | Não | Gorduras saturadas por 100 g/100 ml. |
+| `gorduras_trans_g_100g` | Não | Gorduras trans por 100 g/100 ml. |
+| `fibra_alimentar_g_100g` | Não | Fibra alimentar por 100 g/100 ml. |
+| `sodio_mg_100g` | Não | Sódio por 100 g/100 ml. |
+| `fonte` | Não | Origem dos dados nutricionais. |
+| `observacoes` | Não | Observações internas. |
+
 ## Critérios de aceite
 
 - A tela de produtos deve carregar todos os produtos ativos do estabelecimento.
 - Ao salvar nutrientes de um produto, o card deve mudar de `Pendente` para `OK`.
+- Ao importar CSV válido, os produtos importados devem mudar para `OK`.
 - A tela de tabela nutricional deve refletir os novos valores sem exigir alteração na ficha técnica.
 - Receitas com ingredientes sem `product_id`, sem cadastro nutricional ou com unidade não convertível devem aparecer como `Parcial` ou `Pendente`.
 - A tabela deve exibir colunas de 100 g, porção e `%VD`.
@@ -83,6 +134,7 @@ As políticas RLS usam `public.establishment_memberships` com `is_active = true`
 - Para `ml` e `l`, o cálculo assume equivalência aproximada com gramas. Ingredientes com densidade diferente precisam de validação técnica.
 - O sistema não inventa valores nutricionais. Quando não houver dado cadastrado no produto, a receita fica pendente/parcial.
 - O cálculo usa os dados por 100 g/100 ml do produto e multiplica pela quantidade usada na ficha técnica.
+- A importação CSV faz `upsert`, ou seja, cria o registro nutricional se não existir e atualiza se já existir.
 
 ## Validação regulatória
 

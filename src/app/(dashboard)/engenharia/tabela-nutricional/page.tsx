@@ -16,6 +16,10 @@ function formatValue(value: number, unit: string) {
   return `${formatNumber(value, 1)} ${unit}`;
 }
 
+function getNutritionValue(sheet: NutritionLabelSheet, key: keyof NutritionLabelSheet["per100g"]) {
+  return Number(sheet.per100g[key] ?? 0);
+}
+
 function statusLabel(status: NutritionLabelSheet["status"]) {
   if (status === "complete") return "Completa";
   if (status === "partial") return "Parcial";
@@ -36,11 +40,11 @@ function getPrintStyles() {
       body { margin: 0; padding: 0; background: #fff; color: #111827; font-family: Arial, Helvetica, sans-serif; }
       .no-print { display: none !important; }
       .print-shell { width: 100%; max-width: 190mm; margin: 0 auto; }
-      .nutrition-label { width: 92mm; max-width: 100%; border: 2.5px solid #111; padding: 2.5mm; color: #111; background: #fff; font-family: Arial, Helvetica, sans-serif; }
+      .nutrition-label { width: 110mm; max-width: 100%; border: 2.5px solid #111; padding: 2.5mm; color: #111; background: #fff; font-family: Arial, Helvetica, sans-serif; }
       .nutrition-title { font-size: 20px; line-height: 1; font-weight: 900; letter-spacing: -0.02em; border-bottom: 8px solid #111; padding-bottom: 2mm; margin: 0 0 2mm; }
       .nutrition-subtitle { font-size: 9px; line-height: 1.25; margin: 0 0 2mm; }
-      .nutrition-table { width: 100%; border-collapse: collapse; font-size: 9px; }
-      .nutrition-table th, .nutrition-table td { border-top: 1px solid #111; padding: 1.2mm 0.8mm; text-align: right; vertical-align: top; }
+      .nutrition-table { width: 100%; border-collapse: collapse; font-size: 8.4px; }
+      .nutrition-table th, .nutrition-table td { border-top: 1px solid #111; padding: 1.1mm 0.7mm; text-align: right; vertical-align: top; }
       .nutrition-table th:first-child, .nutrition-table td:first-child { text-align: left; font-weight: 700; }
       .nutrition-table thead th { border-top: 3px solid #111; border-bottom: 1px solid #111; font-weight: 800; }
       .nutrition-footnote { border-top: 4px solid #111; margin-top: 2mm; padding-top: 1.5mm; font-size: 8px; line-height: 1.25; }
@@ -61,11 +65,12 @@ function NutritionTable({ sheet }: { sheet: NutritionLabelSheet }) {
         {sheet.householdMeasure ? ` (${sheet.householdMeasure})` : ""}
       </p>
 
-      <table className="nutrition-table w-full border-collapse text-[11px]">
+      <table className="nutrition-table w-full border-collapse text-[10px]">
         <thead>
           <tr>
             <th className="border-y-[3px] border-black py-1 text-left">Nutriente</th>
-            <th className="border-y-[3px] border-black py-1 text-right">Quantidade por porção</th>
+            <th className="border-y-[3px] border-black py-1 text-right">100 g</th>
+            <th className="border-y-[3px] border-black py-1 text-right">Porção</th>
             <th className="border-y-[3px] border-black py-1 text-right">%VD*</th>
           </tr>
         </thead>
@@ -73,6 +78,9 @@ function NutritionTable({ sheet }: { sheet: NutritionLabelSheet }) {
           {sheet.labelRows.map((row) => (
             <tr key={row.key}>
               <td className="border-t border-black py-1 pr-2 font-bold">{row.label}</td>
+              <td className="border-t border-black py-1 text-right">
+                {formatValue(getNutritionValue(sheet, row.key), row.unit)}
+              </td>
               <td className="border-t border-black py-1 text-right">{formatValue(row.value, row.unit)}</td>
               <td className="border-t border-black py-1 text-right">
                 {row.dailyValuePercent === null ? "**" : `${row.dailyValuePercent}%`}
@@ -187,7 +195,7 @@ export default function TabelaNutricionalPage() {
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Engenharia</p>
             <h1 className="mt-2 text-3xl font-black tracking-tight">Tabela Nutricional</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Cards de todas as fichas técnicas ativas. Clique em uma receita para visualizar e imprimir a tabela nutricional no modelo obrigatório.
+              Cards de todas as fichas técnicas ativas. Clique em uma receita para visualizar e imprimir a tabela nutricional com colunas por 100 g, por porção e %VD.
             </p>
           </div>
 
@@ -206,7 +214,7 @@ export default function TabelaNutricionalPage() {
         ) : error ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700 shadow-lg">{error}</div>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_430px]">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_460px]">
             <section className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-4">
                 <div className="rounded-2xl border border-white/60 bg-white/70 p-4 shadow-sm">

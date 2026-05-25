@@ -21,6 +21,7 @@ interface SettingsModalProps {
 const DEFAULT_SETTINGS: UserSettings = {
   emailNotifications: true,
   browserNotifications: true,
+  soundNotifications: true,
   darkMode: false,
 };
 
@@ -97,6 +98,23 @@ export function SettingsModal({
           ...next,
           browserNotifications: false,
         };
+      }
+    }
+
+    if (key === "soundNotifications" && value && typeof window !== "undefined") {
+      // Prime the browser audio permission with a silent, short user-triggered audio context.
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+
+      if (AudioContextClass) {
+        try {
+          const context = new AudioContextClass();
+          const gain = context.createGain();
+          gain.gain.value = 0;
+          gain.connect(context.destination);
+          await context.close();
+        } catch {
+          // Audio can still be blocked by the browser until the next direct user interaction.
+        }
       }
     }
 
@@ -177,6 +195,24 @@ export function SettingsModal({
               disabled={loading || savingKey === "browserNotifications"}
               onCheckedChange={(checked) =>
                 void updateSettings("browserNotifications", checked)
+              }
+            />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
+            <div>
+              <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
+                Som de alerta
+              </div>
+              <div className="text-xs text-gray-500 dark:text-slate-400">
+                Tocar um aviso sonoro quando chegar uma notificação nova
+              </div>
+            </div>
+            <Switch
+              checked={settings.soundNotifications}
+              disabled={loading || savingKey === "soundNotifications"}
+              onCheckedChange={(checked) =>
+                void updateSettings("soundNotifications", checked)
               }
             />
           </div>

@@ -9,6 +9,8 @@ import {
   CURRENT_TERMS_DOCUMENT_VERSION,
   CURRENT_TERMS_UPDATED_AT,
   TERMS_REQUIRED_QUERY_VALUE,
+  hasAcceptedCurrentTerms,
+  readTermsComplianceFromMetadata,
 } from "@/lib/auth/terms-config";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -83,6 +85,16 @@ function LoginInner() {
 
         setSessionEmail(session.user.email ?? null);
         setSessionAccessToken(session.access_token ?? null);
+
+        const sessionState = readTermsComplianceFromMetadata(
+          session.user.app_metadata as Record<string, unknown> | undefined
+        );
+
+        if (hasAcceptedCurrentTerms(sessionState)) {
+          router.replace(redirect);
+          router.refresh();
+          return;
+        }
 
         const response = await fetch("/api/auth/compliance", {
           method: "GET",
@@ -254,10 +266,16 @@ function LoginInner() {
         await supabase.auth.getSession();
       }
 
-      await ensureTermsAcceptance({
-        accessToken,
-        source: "login_form",
-      });
+      const sessionState = readTermsComplianceFromMetadata(
+        data.user.app_metadata as Record<string, unknown> | undefined
+      );
+
+      if (!hasAcceptedCurrentTerms(sessionState)) {
+        await ensureTermsAcceptance({
+          accessToken,
+          source: "login_form",
+        });
+      }
 
       router.replace(redirect);
       router.refresh();
@@ -421,59 +439,51 @@ function LoginInner() {
         </Alert>
       )}
 
-      <div className="rounded-2xl border border-cyan-100 bg-cyan-50 p-4 text-sm leading-6 text-cyan-950">
-        Preencha os dados abaixo para solicitar acesso ao Gestify. A ativação da
-        conta será feita pela equipe responsável pela operação.
-      </div>
-
       <div className="space-y-2">
-        <Label htmlFor="signup-name">Nome</Label>
+        <Label htmlFor="signupName">Nome</Label>
         <Input
-          id="signup-name"
+          id="signupName"
           type="text"
           placeholder="Seu nome"
           value={signupName}
           onChange={(e) => setSignupName(e.target.value)}
           required
-          autoComplete="name"
           className="h-12 rounded-2xl border-slate-200 bg-slate-50 px-4 text-base transition focus-visible:ring-cyan-500"
         />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="signup-email">Email</Label>
+        <Label htmlFor="signupEmail">Email</Label>
         <Input
-          id="signup-email"
+          id="signupEmail"
           type="email"
           placeholder="seu@email.com"
           value={signupEmail}
           onChange={(e) => setSignupEmail(e.target.value)}
           required
-          autoComplete="email"
           className="h-12 rounded-2xl border-slate-200 bg-slate-50 px-4 text-base transition focus-visible:ring-cyan-500"
         />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="signup-company">Empresa ou restaurante</Label>
+        <Label htmlFor="signupCompany">Empresa/Restaurante</Label>
         <Input
-          id="signup-company"
+          id="signupCompany"
           type="text"
-          placeholder="Nome da operação"
+          placeholder="Nome da empresa"
           value={signupCompany}
           onChange={(e) => setSignupCompany(e.target.value)}
           required
-          autoComplete="organization"
           className="h-12 rounded-2xl border-slate-200 bg-slate-50 px-4 text-base transition focus-visible:ring-cyan-500"
         />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="signup-message">Mensagem</Label>
+        <Label htmlFor="signupMessage">Mensagem opcional</Label>
         <Input
-          id="signup-message"
+          id="signupMessage"
           type="text"
-          placeholder="Ex.: preciso liberar acesso para minha equipe"
+          placeholder="Conte rapidamente o que precisa"
           value={signupMessage}
           onChange={(e) => setSignupMessage(e.target.value)}
           className="h-12 rounded-2xl border-slate-200 bg-slate-50 px-4 text-base transition focus-visible:ring-cyan-500"
@@ -482,224 +492,145 @@ function LoginInner() {
 
       <Button
         type="submit"
-        className="h-12 w-full rounded-2xl bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-600 font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:-translate-y-0.5 hover:from-emerald-400 hover:via-cyan-400 hover:to-blue-500"
+        className="h-12 w-full rounded-2xl bg-slate-950 font-semibold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800"
         disabled={requestLoading}
       >
-        {requestLoading ? "Preparando solicitação..." : "Solicitar acesso"}
+        {requestLoading ? "Preparando..." : "Solicitar acesso"}
       </Button>
-
-      <div className="text-center text-sm">
-        <button
-          type="button"
-          onClick={() => switchMode("login")}
-          className="font-medium text-blue-600 transition hover:text-blue-800 lg:hidden"
-        >
-          Já tenho acesso
-        </button>
-      </div>
     </form>
   );
 
-  return (
-    <div className="min-h-screen overflow-hidden bg-slate-950 text-white">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.24),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.2),transparent_26%),linear-gradient(to_bottom,rgba(15,23,42,0.96),rgba(2,6,23,1))]" />
-
-      <div className="pointer-events-none fixed left-10 top-10 h-40 w-40 rounded-full bg-cyan-400/10 blur-3xl" />
-      <div className="pointer-events-none fixed bottom-10 right-10 h-48 w-48 rounded-full bg-emerald-400/10 blur-3xl" />
-
-      <div className="relative flex min-h-screen items-center justify-center px-4 py-8">
-        <div className="w-full max-w-6xl">
-          <div className="mb-8 flex justify-center">
-            <GestifyLogo
-              size={78}
-              showText
-              subtitle="Sistema de gestão para restaurantes"
-              textClassName="text-left"
-            />
-          </div>
-
-          {!sessionChecked ? (
-            <div className="mx-auto max-w-md rounded-[2rem] border border-white/10 bg-white/95 p-8 text-center text-slate-700 shadow-2xl shadow-black/30">
-              <div className="mx-auto mb-5 h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-cyan-500" />
-              <p className="text-sm font-medium">
-                Validando sua sessão e os requisitos de acesso...
-              </p>
-            </div>
-          ) : sessionRequiresTerms ? (
-            <div className="mx-auto max-w-lg rounded-[2rem] border border-white/10 bg-white/95 p-6 text-slate-900 shadow-2xl shadow-black/30 sm:p-8">
-              <div className="mb-6">
-                <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-cyan-600">
-                  Ação necessária
-                </p>
-                <h1 className="text-3xl font-black tracking-tight">
-                  Aceite obrigatório dos termos
-                </h1>
-                <p className="mt-3 text-sm leading-6 text-slate-600">
-                  Sua sessão já está ativa, mas o acesso só continua após o
-                  aceite da versão atual do contrato SaaS.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                {error && (
-                  <Alert variant="destructive">
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                )}
-
-                {termsRequired ? (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    O acesso foi interrompido até que a versão atual dos termos
-                    seja aceita.
-                  </div>
-                ) : null}
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                  <p className="font-medium text-slate-900">
-                    Sessão identificada{sessionEmail ? `: ${sessionEmail}` : "."}
-                  </p>
-                  <p className="mt-2">
-                    Versão atual do contrato: {CURRENT_TERMS_DOCUMENT_VERSION} •
-                    atualização em {CURRENT_TERMS_UPDATED_AT}.
-                  </p>
-                </div>
-
-                <ConsentCheckbox
-                  id="terms-gate-consent"
-                  value={acceptedTerms}
-                  onChange={(value) => {
-                    setAcceptedTerms(value);
-                    if (value) setConsentError("");
-                  }}
-                  error={consentError}
-                  helperText="O aceite é obrigatório para liberar a entrada na área do usuário e registrar a versão contratual vinculada à sua sessão."
-                />
-
-                <div className="space-y-2">
-                  <Button
-                    type="button"
-                    className="h-12 w-full rounded-2xl bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-500 text-white hover:from-blue-500 hover:via-cyan-400 hover:to-emerald-400"
-                    disabled={loading || !acceptedTerms}
-                    onClick={handleAcceptExistingSession}
-                  >
-                    {loading ? "Registrando aceite..." : "Aceitar e continuar"}
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-12 w-full rounded-2xl"
-                    disabled={loading}
-                    onClick={handleSignOutAndSwitchAccount}
-                  >
-                    Entrar com outra conta
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="relative mx-auto grid min-h-[650px] w-full overflow-hidden rounded-[2.2rem] border border-white/10 bg-white text-slate-900 shadow-2xl shadow-black/40 lg:grid-cols-2">
-              <div
-                className={`absolute inset-y-0 z-20 hidden w-1/2 overflow-hidden bg-gradient-to-br from-blue-600 via-cyan-500 to-emerald-500 text-white transition-transform duration-700 ease-in-out lg:block ${
-                  isLoginMode ? "translate-x-full" : "translate-x-0"
-                }`}
-              >
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.28),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.18),transparent_26%)]" />
-                <div className="relative flex h-full flex-col items-center justify-center px-12 text-center">
-                  <div className="mb-8 flex h-24 w-24 items-center justify-center rounded-[2rem] bg-white/15 shadow-2xl shadow-slate-950/20 ring-1 ring-white/30 backdrop-blur">
-                    <span className="text-5xl">G</span>
-                  </div>
-
-                  <h2 className="text-4xl font-black tracking-tight">
-                    {isLoginMode ? "Bem-vindo de volta!" : "Comece com o Gestify"}
-                  </h2>
-
-                  <p className="mt-5 max-w-sm text-sm leading-7 text-white/85">
-                    {isLoginMode
-                      ? "Acesse sua operação com segurança e continue gerenciando pedidos, produção, estoque e financeiro."
-                      : "Solicite seu acesso para centralizar sua operação em uma plataforma moderna e feita para restaurantes."}
-                  </p>
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => switchMode(isLoginMode ? "signup" : "login")}
-                    className="mt-9 h-12 rounded-full border-white/70 bg-white/10 px-10 font-bold uppercase tracking-[0.18em] text-white backdrop-blur transition hover:bg-white hover:text-slate-950"
-                  >
-                    {isLoginMode ? "Criar acesso" : "Já tenho acesso"}
-                  </Button>
-                </div>
-              </div>
-
-              <section
-                className={`flex items-center p-6 transition-opacity duration-500 sm:p-10 lg:p-12 ${
-                  isLoginMode ? "lg:opacity-100" : "lg:opacity-0"
-                }`}
-              >
-                <div className="mx-auto w-full max-w-md">
-                  <div className="mb-8">
-                    <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-cyan-600">
-                      Acesso seguro
-                    </p>
-                    <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
-                      Entrar no sistema
-                    </h1>
-                    <p className="mt-3 text-sm leading-6 text-slate-600">
-                      Digite suas credenciais para acessar sua operação.
-                    </p>
-                  </div>
-
-                  {LoginForm}
-                </div>
-              </section>
-
-              <section
-                className={`flex items-center p-6 transition-opacity duration-500 sm:p-10 lg:p-12 ${
-                  isLoginMode ? "lg:opacity-0" : "lg:opacity-100"
-                }`}
-              >
-                <div className="mx-auto w-full max-w-md">
-                  <div className="mb-8">
-                    <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-emerald-600">
-                      Novo acesso
-                    </p>
-                    <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
-                      Solicitar acesso
-                    </h1>
-                    <p className="mt-3 text-sm leading-6 text-slate-600">
-                      Envie seus dados para a equipe liberar sua conta no
-                      Gestify.
-                    </p>
-                  </div>
-
-                  {SignupForm}
-                </div>
-              </section>
-            </div>
-          )}
-
-          <div className="mt-6 text-center">
-            <Link href="/" className="text-sm text-slate-300 hover:text-white">
-              Voltar para página inicial
-            </Link>
-          </div>
-
-          <div className="mt-4 border-t border-white/10 pt-4 text-center">
-            <p className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">
-              Informações jurídicas
-            </p>
-            <LegalLinks variant="auth" className="flex justify-center" />
-          </div>
+  if (!sessionChecked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-cyan-300 border-t-transparent" />
+          <p className="text-sm text-slate-300">Verificando sessão...</p>
         </div>
       </div>
-    </div>
+    );
+  }
+
+  if (sessionRequiresTerms) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
+        <div className="w-full max-w-md rounded-3xl bg-white p-8 text-slate-950 shadow-2xl">
+          <GestifyLogo className="mx-auto mb-6 h-14 w-14" />
+          <h1 className="mb-2 text-2xl font-bold">Aceite necessário</h1>
+          <p className="mb-5 text-sm text-slate-600">
+            A sessão de {sessionEmail ?? "usuário autenticado"} precisa aceitar a versão atual dos termos para continuar.
+          </p>
+
+          {error ? (
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <ConsentCheckbox
+            id="existing-session-legal-consent"
+            value={acceptedTerms}
+            onChange={(value) => {
+              setAcceptedTerms(value);
+              if (value) setConsentError("");
+            }}
+            error={consentError}
+            helperText="O aceite é obrigatório para liberar o acesso à área do usuário."
+          />
+
+          <Button
+            type="button"
+            className="mt-5 h-12 w-full rounded-2xl bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-500 font-semibold text-white"
+            disabled={loading || !acceptedTerms}
+            onClick={handleAcceptExistingSession}
+          >
+            {loading ? "Liberando..." : "Aceitar e continuar"}
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            className="mt-3 w-full"
+            onClick={handleSignOutAndSwitchAccount}
+            disabled={loading}
+          >
+            Sair e usar outra conta
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <main className="min-h-screen overflow-hidden bg-slate-950 text-slate-950">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.18),_transparent_35%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.22),_transparent_30%)]" />
+      <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col items-center justify-center px-4 py-10">
+        <div className="mb-8 flex items-center gap-3 text-white">
+          <GestifyLogo className="h-14 w-14" />
+          <div>
+            <p className="text-xl font-bold leading-none">Gestify</p>
+            <p className="text-xs text-slate-300">Sistema de gestão para restaurantes</p>
+          </div>
+        </div>
+
+        <div className="grid w-full max-w-5xl overflow-hidden rounded-[2rem] bg-white shadow-2xl lg:grid-cols-[1fr_1.15fr]">
+          <section className="p-8 sm:p-12 lg:p-14">
+            <p className="mb-3 text-xs font-bold uppercase tracking-[0.35em] text-cyan-600">
+              Acesso seguro
+            </p>
+            <h1 className="mb-3 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+              {isLoginMode ? "Entrar no sistema" : "Solicitar acesso"}
+            </h1>
+            <p className="mb-8 text-sm text-slate-600">
+              {isLoginMode
+                ? "Digite suas credenciais para acessar sua operação."
+                : "Informe seus dados para solicitar a criação ou liberação do acesso."}
+            </p>
+
+            {isLoginMode ? LoginForm : SignupForm}
+          </section>
+
+          <section className="relative hidden min-h-[520px] items-center justify-center overflow-hidden bg-gradient-to-br from-blue-600 via-cyan-500 to-emerald-400 p-10 text-white lg:flex">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.25),_transparent_32%)]" />
+            <div className="relative max-w-sm text-center">
+              <div className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-3xl bg-white/20 shadow-2xl backdrop-blur">
+                <span className="text-4xl font-black">G</span>
+              </div>
+              <h2 className="mb-4 text-4xl font-black tracking-tight">Bem-vindo de volta!</h2>
+              <p className="mb-8 text-sm leading-6 text-white/90">
+                Acesse sua operação com segurança e continue gerenciando pedidos, produção, estoque e financeiro.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full border-white/60 bg-white/10 px-10 py-6 text-xs font-bold uppercase tracking-[0.25em] text-white backdrop-blur hover:bg-white hover:text-slate-950"
+                onClick={() => switchMode(isLoginMode ? "signup" : "login")}
+              >
+                {isLoginMode ? "Criar acesso" : "Voltar ao login"}
+              </Button>
+            </div>
+          </section>
+        </div>
+
+        <div className="mt-6 text-center text-xs text-slate-400">
+          <LegalLinks />
+        </div>
+      </div>
+    </main>
   );
 }
 
 export default function LoginPage() {
   return (
     <Suspense
-      fallback={<div className="p-4 text-sm text-muted-foreground">Carregando...</div>}
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-cyan-300 border-t-transparent" />
+            <p className="text-sm text-slate-300">Carregando...</p>
+          </div>
+        </div>
+      }
     >
       <LoginInner />
     </Suspense>

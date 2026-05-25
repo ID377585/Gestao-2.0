@@ -74,8 +74,8 @@ export type ChecklistDashboardData = {
 export type UpdateChecklistRunItemInput = {
   runItemId: string;
   status: ChecklistItemStatus;
-  measured_temperature?: number | null;
-  quantity?: number | null;
+  measured_temperature?: unknown;
+  quantity?: unknown;
   notes?: string | null;
   corrective_action?: string | null;
 };

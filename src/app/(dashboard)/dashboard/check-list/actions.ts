@@ -10,6 +10,10 @@ const CHECKLIST_PATH = "/dashboard/check-list";
 export type ChecklistShift = "opening" | "closing" | "any" | "morning" | "afternoon" | "night";
 export type ChecklistItemStatus = "pending" | "ok" | "not_ok" | "not_applicable" | "corrected";
 
+const VALID_SHIFTS: ChecklistShift[] = ["opening", "closing", "any", "morning", "afternoon", "night"];
+const VALID_ITEM_STATUSES: ChecklistItemStatus[] = ["pending", "ok", "not_ok", "not_applicable", "corrected"];
+const ACTIVE_RUN_STATUSES = ["open", "in_progress", "blocked"];
+
 export type KitchenChecklistTemplate = {
   id: string;
   establishment_id: string;
@@ -86,6 +90,23 @@ function toNumberOrNull(value: unknown) {
   return Number.isFinite(n) ? n : null;
 }
 
+function assertValidShift(shift: ChecklistShift) {
+  if (!VALID_SHIFTS.includes(shift)) {
+    throw new Error("Turno inválido para Check-List.");
+  }
+}
+
+function assertValidItemStatus(status: ChecklistItemStatus) {
+  if (!VALID_ITEM_STATUSES.includes(status)) {
+    throw new Error("Status inválido para item da Check-List.");
+  }
+}
+
+function getRelationRow<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
 async function getContext() {
   const supabase = await createSupabaseServerClient();
   const membership = await getActiveMembershipOrRedirect();
@@ -142,9 +163,8 @@ export async function getChecklistDashboard(): Promise<ChecklistDashboardData> {
   if (runsError) throw new Error(runsError.message);
 
   const activeRun =
-    (recentRuns ?? []).find((run: KitchenChecklistRun) =>
-      ["open", "in_progress", "blocked"].includes(run.status)
-    ) ?? null;
+    (recentRuns ?? []).find((run: KitchenChecklistRun) => ACTIVE_RUN_STATUSES.includes(run.status)) ??
+    null;
 
   let activeRunItems: KitchenChecklistRunItem[] = [];
   if (activeRun) {
@@ -172,6 +192,25 @@ export async function getChecklistDashboard(): Promise<ChecklistDashboardData> {
 
 export async function createChecklistRun(templateId: string, shift: ChecklistShift) {
   const { db, userId, establishmentId } = await getContext();
+  assertValidShift(shift);
+
+  if (!templateId) {
+    throw new Error("Selecione um template para abrir a Check-List.");
+  }
+
+  const { data: existingRun, error: existingRunError } = await db
+    .from("kitchen_checklist_runs")
+    .select("id")
+    .eq("establishment_id", establishmentId)
+    .eq("shift", shift)
+    .in("status", ACTIVE_RUN_STATUSES)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingRunError) throw new Error(existingRunError.message);
+  if (existingRun) {
+    throw new Error("Já existe uma Check-List aberta para este estabelecimento e turno.");
+  }
 
   const { data: template, error: templateError } = await db
     .from("kitchen_checklist_templates")
@@ -218,10 +257,7 @@ export async function createChecklistRun(templateId: string, shift: ChecklistShi
   }));
 
   if (runItems.length > 0) {
-    const { error: insertItemsError } = await db
-      .from("kitchen_checklist_run_items")
-      .insert(runItems);
-
+    const { error: insertItemsError } = await db.from("kitchen_checklist_run_items").insert(runItems);
     if (insertItemsError) throw new Error(insertItemsError.message);
   }
 
@@ -231,10 +267,13 @@ export async function createChecklistRun(templateId: string, shift: ChecklistShi
 
 export async function updateChecklistRunItem(input: UpdateChecklistRunItemInput) {
   const { db, userId, establishmentId } = await getContext();
+  assertValidItemStatus(input.status);
 
   const { data: existing, error: existingError } = await db
     .from("kitchen_checklist_run_items")
-    .select("id, run:kitchen_checklist_runs(id, establishment_id)")
+    .select(
+      "id, run:kitchen_checklist_runs(id, establishment_id), template_item:kitchen_checklist_template_items(requires_notes, requires_temperature, min_temperature, max_temperature)"
+    )
     .eq("id", input.runItemId)
     .single();
 
@@ -242,22 +281,43 @@ export async function updateChecklistRunItem(input: UpdateChecklistRunItemInput)
     throw new Error(existingError?.message ?? "Item da checklist não encontrado.");
   }
 
-  const runEstablishmentId = Array.isArray(existing.run)
-    ? existing.run[0]?.establishment_id
-    : existing.run?.establishment_id;
-
-  if (runEstablishmentId !== establishmentId) {
+  const run = getRelationRow<{ establishment_id: string }>(existing.run);
+  if (run?.establishment_id !== establishmentId) {
     throw new Error("Item da checklist pertence a outro estabelecimento.");
+  }
+
+  const templateItem = getRelationRow<{
+    requires_notes: boolean;
+    requires_temperature: boolean;
+    min_temperature: number | null;
+    max_temperature: number | null;
+  }>(existing.template_item);
+
+  const notes = input.notes?.trim() || null;
+  const correctiveAction = input.corrective_action?.trim() || null;
+  const measuredTemperature = toNumberOrNull(input.measured_temperature);
+  const quantity = toNumberOrNull(input.quantity);
+
+  if ((templateItem?.requires_notes || input.status === "not_ok") && !notes) {
+    throw new Error("Informe uma observação para este item.");
+  }
+
+  if ((input.status === "not_ok" || input.status === "corrected") && !correctiveAction) {
+    throw new Error("Informe a ação corretiva para itens não OK ou corrigidos.");
+  }
+
+  if (templateItem?.requires_temperature && measuredTemperature === null && input.status !== "not_applicable") {
+    throw new Error("Informe a temperatura medida para este item.");
   }
 
   const { error } = await db
     .from("kitchen_checklist_run_items")
     .update({
       status: input.status,
-      measured_temperature: toNumberOrNull(input.measured_temperature),
-      quantity: toNumberOrNull(input.quantity),
-      notes: input.notes?.trim() || null,
-      corrective_action: input.corrective_action?.trim() || null,
+      measured_temperature: measuredTemperature,
+      quantity,
+      notes,
+      corrective_action: correctiveAction,
       checked_by: userId,
       checked_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

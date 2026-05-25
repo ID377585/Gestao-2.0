@@ -1,8 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { listNutritionLabelSheets, type NutritionLabelSheet } from "./actions";
+import {
+  listNutritionLabelSheets,
+  saveNutritionSnapshot,
+  type NutritionLabelSheet,
+} from "./actions";
 
 function formatNumber(value: number, fractionDigits = 1) {
   return new Intl.NumberFormat("pt-BR", {
@@ -103,7 +107,9 @@ export default function TabelaNutricionalPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [snapshotMessage, setSnapshotMessage] = useState("");
   const [query, setQuery] = useState("");
+  const [isSavingSnapshot, startSavingSnapshot] = useTransition();
 
   useEffect(() => {
     let mounted = true;
@@ -187,6 +193,22 @@ export default function TabelaNutricionalPage() {
     printWindow.document.close();
   }, [selectedSheet?.name]);
 
+  function handleSaveSnapshot() {
+    if (!selectedSheet) return;
+
+    startSavingSnapshot(async () => {
+      try {
+        setError("");
+        setSnapshotMessage("");
+        await saveNutritionSnapshot(selectedSheet);
+        setSnapshotMessage("Snapshot salvo com sucesso para histórico da receita.");
+      } catch (err) {
+        console.error(err);
+        setError("Não foi possível salvar o snapshot da tabela nutricional.");
+      }
+    });
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-sky-50 to-violet-100 p-6 text-slate-950">
       <div className="mx-auto max-w-7xl space-y-6">
@@ -200,10 +222,13 @@ export default function TabelaNutricionalPage() {
           </div>
 
           <div className="flex flex-wrap gap-3">
+            <Link href="/engenharia/tabela-nutricional/produtos" className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-900/20 transition hover:-translate-y-0.5 hover:bg-emerald-800">
+              Cadastrar nutrientes
+            </Link>
             <Link href="/engenharia" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               Voltar à Engenharia
             </Link>
-            <button type="button" onClick={handlePrint} disabled={!selectedSheet} className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-900/20 transition hover:-translate-y-0.5 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" onClick={handlePrint} disabled={!selectedSheet} className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-slate-900/20 transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
               Imprimir tabela
             </button>
           </div>
@@ -247,7 +272,10 @@ export default function TabelaNutricionalPage() {
                   <button
                     key={sheet.id}
                     type="button"
-                    onClick={() => setSelectedId(sheet.id)}
+                    onClick={() => {
+                      setSelectedId(sheet.id);
+                      setSnapshotMessage("");
+                    }}
                     className={`rounded-2xl border bg-white/75 p-5 text-left shadow-lg shadow-slate-900/10 transition hover:-translate-y-1 hover:shadow-xl ${selectedSheet?.id === sheet.id ? "border-emerald-500 ring-2 ring-emerald-300" : "border-white/70"}`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -290,6 +318,25 @@ export default function TabelaNutricionalPage() {
                     <NutritionTable sheet={selectedSheet} />
                   </div>
 
+                  <div className="rounded-2xl border border-white/70 bg-white/75 p-4 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={handleSaveSnapshot}
+                      disabled={isSavingSnapshot || !selectedSheet}
+                      className="w-full rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-emerald-900/20 transition hover:-translate-y-0.5 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSavingSnapshot ? "Salvando snapshot..." : "Salvar snapshot da tabela"}
+                    </button>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Use após revisar os dados para guardar o resultado calculado desta versão da receita.
+                    </p>
+                    {snapshotMessage && (
+                      <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs font-semibold text-emerald-700">
+                        {snapshotMessage}
+                      </p>
+                    )}
+                  </div>
+
                   <div className={`rounded-2xl border p-4 text-sm shadow-sm ${statusClass(selectedSheet.status)}`}>
                     <strong>Status: {statusLabel(selectedSheet.status)}</strong>
                     {selectedSheet.status !== "complete" && (
@@ -300,6 +347,9 @@ export default function TabelaNutricionalPage() {
                         {selectedSheet.invalidQuantityIngredients.length > 0 && (
                           <p>Quantidade/unidade a revisar: {selectedSheet.invalidQuantityIngredients.join(", ")}</p>
                         )}
+                        <Link href="/engenharia/tabela-nutricional/produtos" className="inline-flex rounded-lg bg-white/70 px-3 py-2 text-xs font-bold shadow-sm transition hover:bg-white">
+                          Completar cadastro de nutrientes
+                        </Link>
                       </div>
                     )}
                   </div>

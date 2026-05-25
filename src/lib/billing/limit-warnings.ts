@@ -25,7 +25,7 @@ export function getLimitWarning(metric: PlanUsageMetric): LimitWarning {
     return {
       severity: "danger",
       title: "Limite atingido",
-      message: `${metric.label} atingiu o limite do plano. Em uma etapa futura, novos cadastros poderão exigir upgrade.`,
+      message: `${metric.label} atingiu o limite do plano. Novos cadastros podem exigir upgrade.`,
       shouldSuggestUpgrade: true,
     };
   }

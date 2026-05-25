@@ -1,4 +1,5 @@
 import "server-only";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type SubscriptionStatus =
@@ -19,10 +20,8 @@ export type CompanySubscriptionStatus = {
 
 const ACCESS_ALLOWED_STATUSES: SubscriptionStatus[] = ["trialing", "active", "not_configured"];
 
-type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
-
 export async function getCompanySubscriptionStatusWithClient(
-  supabase: SupabaseServerClient,
+  supabase: SupabaseClient<any, any, any>,
   establishmentId: string
 ): Promise<CompanySubscriptionStatus> {
   try {

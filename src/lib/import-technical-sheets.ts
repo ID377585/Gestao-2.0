@@ -352,15 +352,36 @@ function splitPages(fullText: string) {
   return pages;
 }
 
-export async function processImportJob(jobId: string) {
+export async function processImportJob(params: {
+  jobId: string;
+  establishmentId: string;
+}) {
+  const jobId = String(params.jobId ?? "").trim();
+  const establishmentId = String(params.establishmentId ?? "").trim();
+
+  if (!jobId || !establishmentId) {
+    throw new Error("Job e empresa são obrigatórios para processar a importação.");
+  }
+
   const { data: job, error: jobError } = await supabaseAdmin
     .from("import_jobs")
     .select("*")
     .eq("id", jobId)
+    .eq("establishment_id", establishmentId)
     .single();
 
   if (jobError || !job) {
-    throw new Error("Job de importação não encontrado.");
+    throw new Error("Job de importação não encontrado para a empresa ativa.");
+  }
+
+  const jobEstablishmentId = String(job.establishment_id ?? "");
+  if (jobEstablishmentId !== establishmentId) {
+    throw new Error("Job de importação não pertence à empresa ativa.");
+  }
+
+  const filePath = String(job.file_path ?? "");
+  if (!filePath.startsWith(`${establishmentId}/`)) {
+    throw new Error("Arquivo de importação não pertence à empresa ativa.");
   }
 
   await supabaseAdmin
@@ -369,13 +390,14 @@ export async function processImportJob(jobId: string) {
       status: "processing",
       updated_at: new Date().toISOString(),
     })
-    .eq("id", jobId);
+    .eq("id", jobId)
+    .eq("establishment_id", establishmentId);
 
   await supabaseAdmin.from("import_job_pages").delete().eq("job_id", jobId);
 
   const { data: fileData, error: downloadError } = await supabaseAdmin.storage
     .from("technical-sheets")
-    .download(job.file_path);
+    .download(filePath);
 
   if (downloadError || !fileData) {
     await supabaseAdmin
@@ -385,7 +407,8 @@ export async function processImportJob(jobId: string) {
         errors: [downloadError?.message || "Falha ao baixar PDF do bucket."],
         updated_at: new Date().toISOString(),
       })
-      .eq("id", jobId);
+      .eq("id", jobId)
+      .eq("establishment_id", establishmentId);
 
     throw new Error(downloadError?.message || "Falha ao baixar PDF.");
   }
@@ -459,7 +482,7 @@ export async function processImportJob(jobId: string) {
 
   for (const page of validPages) {
     const sheetPayload = {
-      establishment_id: job.establishment_id,
+      establishment_id: establishmentId,
       created_by: job.created_by || null,
       name: page.parsed.name,
       category:
@@ -585,7 +608,8 @@ export async function processImportJob(jobId: string) {
       errors,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", jobId);
+    .eq("id", jobId)
+    .eq("establishment_id", establishmentId);
 
   return {
     totalPages: parsedPages.length,

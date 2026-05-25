@@ -1,10 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { acceptTenantInvitationInternalAction } from "@/lib/tenant/invitations.server";
 
 export const dynamic = "force-dynamic";
 
@@ -19,34 +17,19 @@ function getQueryValue(value: string | string[] | undefined) {
   return value ?? "";
 }
 
-function buildLoginUrl(token: string) {
-  const redirectPath = `/convite?token=${encodeURIComponent(token)}`;
-  return `/login?redirect=${encodeURIComponent(redirectPath)}`;
-}
-
 function MessageCard({
   title,
   message,
-  variant,
 }: {
   title: string;
   message: string;
-  variant: "error" | "success";
 }) {
-  const Icon = variant === "success" ? CheckCircle2 : AlertCircle;
-
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-950 p-4 text-slate-900">
       <Card className="w-full max-w-md border-white/10 bg-white/95 shadow-2xl shadow-black/30">
         <CardHeader>
           <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100">
-            <Icon
-              className={
-                variant === "success"
-                  ? "h-6 w-6 text-emerald-600"
-                  : "h-6 w-6 text-red-600"
-              }
-            />
+            <AlertCircle className="h-6 w-6 text-red-600" />
           </div>
           <CardTitle className="text-2xl">{title}</CardTitle>
         </CardHeader>
@@ -75,36 +58,9 @@ export default async function ConvitePage({ searchParams }: ConvitePageProps) {
       <MessageCard
         title="Convite inválido"
         message="O link acessado não possui um token de convite válido."
-        variant="error"
       />
     );
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    redirect(buildLoginUrl(token));
-  }
-
-  try {
-    await acceptTenantInvitationInternalAction({
-      token,
-      userId: user.id,
-      userEmail: user.email ?? null,
-    });
-  } catch (error: any) {
-    return (
-      <MessageCard
-        title="Não foi possível aceitar o convite"
-        message={error?.message ?? "O convite não pôde ser validado."}
-        variant="error"
-      />
-    );
-  }
-
-  redirect("/dashboard/pedidos?convite=aceito");
+  redirect(`/convite/aceitar?token=${encodeURIComponent(token)}`);
 }

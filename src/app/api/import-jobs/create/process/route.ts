@@ -48,7 +48,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await processImportJob(jobId);
+    const result = await processImportJob({
+      jobId: String(jobId),
+      establishmentId: tenant.establishmentId,
+    });
 
     return NextResponse.json({
       ok: true,

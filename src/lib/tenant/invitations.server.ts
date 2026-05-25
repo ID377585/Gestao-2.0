@@ -310,7 +310,7 @@ export async function acceptTenantInvitationInternalAction(params: {
 
   const invitedEmail = normalizeEmail((invitation as any).email);
 
-  if (invitedEmail && userEmail && invitedEmail !== userEmail) {
+  if (invitedEmail && invitedEmail !== userEmail) {
     throw new Error(
       `Este convite foi emitido para ${invitedEmail}. Entre com essa conta para aceitar.`
     );
@@ -323,11 +323,29 @@ export async function acceptTenantInvitationInternalAction(params: {
   const establishmentId = String((invitation as any).establishment_id);
   const role = normalizeRole((invitation as any).role);
 
-  await assertBillingLimitAvailable({
-    supabaseAdmin,
-    establishmentId,
-    kind: "users",
-  });
+  const { data: existingMembership, error: existingMembershipError } =
+    await supabaseAdmin
+      .from("memberships")
+      .select("is_active")
+      .eq("establishment_id", establishmentId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+  if (existingMembershipError) {
+    console.error(
+      "Erro ao validar vínculo existente do convite:",
+      existingMembershipError
+    );
+    throw new Error("Não foi possível validar o vínculo do usuário com a empresa.");
+  }
+
+  if (!Boolean((existingMembership as any)?.is_active)) {
+    await assertBillingLimitAvailable({
+      supabaseAdmin,
+      establishmentId,
+      kind: "users",
+    });
+  }
 
   const membershipPayload = {
     establishment_id: establishmentId,
@@ -375,7 +393,9 @@ export async function acceptTenantInvitationInternalAction(params: {
       accepted_by: userId,
       accepted_at: new Date().toISOString(),
     })
-    .eq("id", (invitation as any).id);
+    .eq("id", (invitation as any).id)
+    .eq("establishment_id", establishmentId)
+    .eq("status", "pending");
 
   if (updateInvitationError) {
     console.error("Erro ao marcar convite como aceito:", updateInvitationError);

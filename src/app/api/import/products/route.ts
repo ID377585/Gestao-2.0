@@ -6,10 +6,16 @@ import {
   PRODUCT_SECTOR_CATEGORIES,
   normalizeProductSectorCategory,
 } from "@/lib/product-sectors";
+import { getBillingLimitCheck } from "@/lib/billing/limits";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type ExistingProductReference = {
+  id: string;
+  isActive: boolean;
+};
 
 function normalizeId(value: any): string | null {
   if (!value) return null;
@@ -296,6 +302,72 @@ async function resolveTenantContext(): Promise<{
   }
 }
 
+async function getProductImportLimitViolation(params: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  establishmentId: string;
+  activeProductDelta: number;
+}) {
+  if (params.activeProductDelta <= 0) return null;
+
+  const check = await getBillingLimitCheck({
+    supabaseAdmin: params.supabase,
+    establishmentId: params.establishmentId,
+    kind: "products",
+  });
+
+  if (check.limit === null) return null;
+
+  const projected = check.current + params.activeProductDelta;
+  if (projected <= check.limit) return null;
+
+  return {
+    message:
+      `A importação deixaria ${projected} produto(s) ativo(s), ` +
+      `ultrapassando o limite do plano ${check.planName}. ` +
+      `Uso atual: ${check.current}/${check.limit}.`,
+    check,
+    projected,
+  };
+}
+
+function trackProjectedActiveStatus(params: {
+  productId: string;
+  wasActive: boolean;
+  willBeActive: boolean;
+  originalActiveByProductId: Map<string, boolean>;
+  projectedActiveByProductId: Map<string, boolean>;
+}) {
+  if (!params.originalActiveByProductId.has(params.productId)) {
+    params.originalActiveByProductId.set(params.productId, params.wasActive);
+  }
+
+  params.projectedActiveByProductId.set(
+    params.productId,
+    params.willBeActive,
+  );
+}
+
+function countActivePayloads(payloads: any[]) {
+  return payloads.filter((payload) => Boolean(payload?.is_active)).length;
+}
+
+function calculateActiveProductDelta(params: {
+  activeNewProductCount: number;
+  originalActiveByProductId: Map<string, boolean>;
+  projectedActiveByProductId: Map<string, boolean>;
+}) {
+  let delta = params.activeNewProductCount;
+
+  for (const [productId, willBeActive] of params.projectedActiveByProductId) {
+    const wasActive = params.originalActiveByProductId.get(productId) ?? false;
+
+    if (!wasActive && willBeActive) delta += 1;
+    if (wasActive && !willBeActive) delta -= 1;
+  }
+
+  return delta;
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createSupabaseServerClient();
@@ -559,16 +631,19 @@ export async function POST(request: Request) {
     const dedupedBySku = Array.from(bySku.values());
     const dedupedSkuList = Array.from(bySku.keys());
 
-    let upsertSkuInsertedOrUpdated = 0;
+    const toUpdateBySkuId: any[] = [];
+    const toInsertBySku: any[] = [];
+    const originalActiveByProductId = new Map<string, boolean>();
+    const projectedActiveByProductId = new Map<string, boolean>();
 
     if (dedupedBySku.length > 0) {
-      const existingBySku = new Map<string, string>();
+      const existingBySku = new Map<string, ExistingProductReference>();
       const skuChunks = chunkArray(dedupedSkuList, 250);
 
       for (const chunk of skuChunks) {
         const { data: existing, error: existingErr } = await supabase
           .from("products")
-          .select("id,sku")
+          .select("id,sku,is_active")
           .eq("establishment_id", effectiveEstablishmentId)
           .in("sku", chunk);
 
@@ -587,75 +662,244 @@ export async function POST(request: Request) {
 
         for (const row of existing ?? []) {
           if ((row as any)?.sku) {
-            existingBySku.set(
-              String((row as any).sku),
-              String((row as any).id),
-            );
+            existingBySku.set(String((row as any).sku), {
+              id: String((row as any).id),
+              isActive: Boolean((row as any).is_active),
+            });
           }
         }
       }
 
-      const toUpdateById: any[] = [];
-      const toInsert: any[] = [];
-
       for (const payload of dedupedBySku) {
         const sku = String(payload.sku);
-        const existingId = existingBySku.get(sku);
+        const existingProduct = existingBySku.get(sku);
 
-        if (existingId) {
+        if (existingProduct) {
           const { establishment_id, ...rest } = payload;
-          toUpdateById.push({
-            id: existingId,
+          toUpdateBySkuId.push({
+            id: existingProduct.id,
             establishment_id: effectiveEstablishmentId,
             ...rest,
             ...(userId ? { updated_by: userId, updated_at: nowIso } : {}),
           });
+          trackProjectedActiveStatus({
+            productId: existingProduct.id,
+            wasActive: existingProduct.isActive,
+            willBeActive: Boolean(payload.is_active),
+            originalActiveByProductId,
+            projectedActiveByProductId,
+          });
         } else {
-          toInsert.push(payload);
+          toInsertBySku.push(payload);
         }
       }
+    }
 
-      if (toUpdateById.length > 0) {
-        const { error: upErr, data: upData } = await supabase
+    let insertedWithId = 0;
+    let updatedById = 0;
+    const toInsertWithId: any[] = [];
+    const toUpdateByProvidedId: any[] = [];
+
+    if (withIdPayloads.length > 0) {
+      const ids = Array.from(
+        new Set(withIdPayloads.map((p) => String(p.id)).filter(Boolean)),
+      );
+
+      const existingById = new Map<string, ExistingProductReference>();
+      const idChunks = chunkArray(ids, 250);
+
+      for (const chunk of idChunks) {
+        const { data: existing, error: existingErr } = await supabase
           .from("products")
-          .upsert(toUpdateById, { onConflict: "id", ignoreDuplicates: false })
-          .select("id");
+          .select("id,is_active")
+          .eq("establishment_id", effectiveEstablishmentId)
+          .in("id", chunk);
 
-        if (upErr) {
+        if (existingErr) {
           console.error(
-            "Erro ao atualizar produtos por SKU (via id) (import):",
-            upErr,
+            "Erro ao buscar produtos existentes por ID (import):",
+            existingErr,
           );
           return respondError(
             request,
-            "Erro ao atualizar produtos existentes (por SKU).",
+            "Erro ao preparar importação (busca por ID).",
             500,
-            { details: { upsertById: errDetails(upErr) } },
+            { details: { select: errDetails(existingErr) } },
           );
         }
-        upsertSkuInsertedOrUpdated += (upData ?? []).length;
-      }
 
-      if (toInsert.length > 0) {
-        const { error: insErr, data: insData } = await supabase
-          .from("products")
-          .insert(toInsert)
-          .select("id");
-
-        if (insErr) {
-          console.error(
-            "Erro ao inserir novos produtos (por SKU) (import):",
-            insErr,
-          );
-          return respondError(
-            request,
-            "Erro ao inserir novos produtos (por SKU).",
-            500,
-            { details: { insert: errDetails(insErr) } },
-          );
+        for (const row of existing ?? []) {
+          if ((row as any)?.id) {
+            const productId = String((row as any).id);
+            existingById.set(productId, {
+              id: productId,
+              isActive: Boolean((row as any).is_active),
+            });
+          }
         }
-        upsertSkuInsertedOrUpdated += (insData ?? []).length;
       }
+
+      const skuList = Array.from(
+        new Set(
+          withIdPayloads
+            .map((p) => String((p as any)?.sku ?? "").trim())
+            .filter((v) => v.length > 0),
+        ),
+      );
+
+      const existingBySku = new Map<string, ExistingProductReference>();
+      if (skuList.length > 0) {
+        const skuChunks = chunkArray(skuList, 250);
+
+        for (const chunk of skuChunks) {
+          const { data: existingSkuRows, error: existingSkuErr } = await supabase
+            .from("products")
+            .select("id,sku,is_active")
+            .eq("establishment_id", effectiveEstablishmentId)
+            .in("sku", chunk);
+
+          if (existingSkuErr) {
+            console.error(
+              "Erro ao buscar produtos existentes por SKU (import - withId):",
+              existingSkuErr,
+            );
+            return respondError(
+              request,
+              "Erro ao preparar importação (busca por SKU).",
+              500,
+              { details: { select: errDetails(existingSkuErr) } },
+            );
+          }
+
+          for (const row of existingSkuRows ?? []) {
+            if ((row as any)?.sku && (row as any)?.id) {
+              existingBySku.set(String((row as any).sku), {
+                id: String((row as any).id),
+                isActive: Boolean((row as any).is_active),
+              });
+            }
+          }
+        }
+      }
+
+      for (const payload of withIdPayloads) {
+        const csvId = String(payload.id);
+        const sku = String((payload as any)?.sku ?? "").trim();
+        const existingProductById = existingById.get(csvId);
+        const existingProductFromSku = sku ? existingBySku.get(sku) : null;
+
+        if (existingProductById) {
+          toUpdateByProvidedId.push({
+            ...payload,
+            ...(userId ? { updated_by: userId, updated_at: nowIso } : {}),
+          });
+          trackProjectedActiveStatus({
+            productId: existingProductById.id,
+            wasActive: existingProductById.isActive,
+            willBeActive: Boolean(payload.is_active),
+            originalActiveByProductId,
+            projectedActiveByProductId,
+          });
+          continue;
+        }
+
+        if (existingProductFromSku) {
+          const { id: _ignoreIdFromCsv, ...restPayload } = payload;
+
+          toUpdateByProvidedId.push({
+            ...restPayload,
+            id: existingProductFromSku.id,
+            establishment_id: effectiveEstablishmentId,
+            ...(userId ? { updated_by: userId, updated_at: nowIso } : {}),
+          });
+          trackProjectedActiveStatus({
+            productId: existingProductFromSku.id,
+            wasActive: existingProductFromSku.isActive,
+            willBeActive: Boolean(payload.is_active),
+            originalActiveByProductId,
+            projectedActiveByProductId,
+          });
+          continue;
+        }
+
+        toInsertWithId.push({
+          ...payload,
+          ...(userId ? { created_by: userId, created_at: nowIso } : {}),
+        });
+      }
+    }
+
+    const activeNewProductCount =
+      countActivePayloads(toInsertBySku) +
+      countActivePayloads(insertNoSku) +
+      countActivePayloads(toInsertWithId);
+    const activeProductDelta = calculateActiveProductDelta({
+      activeNewProductCount,
+      originalActiveByProductId,
+      projectedActiveByProductId,
+    });
+
+    const limitViolation = await getProductImportLimitViolation({
+      supabase,
+      establishmentId: effectiveEstablishmentId,
+      activeProductDelta,
+    });
+
+    if (limitViolation) {
+      return respondError(request, limitViolation.message, 400, {
+        limit: {
+          current: limitViolation.check.current,
+          limit: limitViolation.check.limit,
+          projected: limitViolation.projected,
+          active_delta: activeProductDelta,
+          new_active_products: activeNewProductCount,
+          plan: limitViolation.check.planName,
+        },
+      });
+    }
+
+    let upsertSkuInsertedOrUpdated = 0;
+
+    if (toUpdateBySkuId.length > 0) {
+      const { error: upErr, data: upData } = await supabase
+        .from("products")
+        .upsert(toUpdateBySkuId, { onConflict: "id", ignoreDuplicates: false })
+        .select("id");
+
+      if (upErr) {
+        console.error(
+          "Erro ao atualizar produtos por SKU (via id) (import):",
+          upErr,
+        );
+        return respondError(
+          request,
+          "Erro ao atualizar produtos existentes (por SKU).",
+          500,
+          { details: { upsertById: errDetails(upErr) } },
+        );
+      }
+      upsertSkuInsertedOrUpdated += (upData ?? []).length;
+    }
+
+    if (toInsertBySku.length > 0) {
+      const { error: insErr, data: insData } = await supabase
+        .from("products")
+        .insert(toInsertBySku)
+        .select("id");
+
+      if (insErr) {
+        console.error(
+          "Erro ao inserir novos produtos (por SKU) (import):",
+          insErr,
+        );
+        return respondError(
+          request,
+          "Erro ao inserir novos produtos (por SKU).",
+          500,
+          { details: { insert: errDetails(insErr) } },
+        );
+      }
+      upsertSkuInsertedOrUpdated += (insData ?? []).length;
     }
 
     let insertedNoSku = 0;
@@ -679,7 +923,7 @@ export async function POST(request: Request) {
                 hasUserId: Boolean(userId),
                 userIdUsed: userId ?? null,
               },
-            },
+            }
           },
         );
       }
@@ -687,174 +931,60 @@ export async function POST(request: Request) {
       insertedNoSku = (data ?? []).length;
     }
 
-    let insertedWithId = 0;
-    let updatedById = 0;
+    if (toInsertWithId.length > 0) {
+      const { error: insErr, data: insData } = await supabase
+        .from("products")
+        .insert(toInsertWithId)
+        .select("id");
 
-    if (withIdPayloads.length > 0) {
-      const ids = Array.from(
-        new Set(withIdPayloads.map((p) => String(p.id)).filter(Boolean)),
-      );
-
-      const existingIdSet = new Set<string>();
-      const idChunks = chunkArray(ids, 250);
-
-      for (const chunk of idChunks) {
-        const { data: existing, error: existingErr } = await supabase
-          .from("products")
-          .select("id")
-          .eq("establishment_id", effectiveEstablishmentId)
-          .in("id", chunk);
-
-        if (existingErr) {
-          console.error(
-            "Erro ao buscar produtos existentes por ID (import):",
-            existingErr,
-          );
-          return respondError(
-            request,
-            "Erro ao preparar importação (busca por ID).",
-            500,
-            { details: { select: errDetails(existingErr) } },
-          );
-        }
-
-        for (const row of existing ?? []) {
-          if ((row as any)?.id) existingIdSet.add(String((row as any).id));
-        }
+      if (insErr) {
+        console.error("Erro ao inserir produtos com ID (import):", insErr);
+        return respondError(
+          request,
+          "Erro ao inserir produtos (com ID do CSV).",
+          500,
+          { details: { insert: errDetails(insErr) } },
+        );
       }
 
-      const skuList = Array.from(
-        new Set(
-          withIdPayloads
-            .map((p) => String((p as any)?.sku ?? "").trim())
-            .filter((v) => v.length > 0),
-        ),
-      );
+      insertedWithId = (insData ?? []).length;
+    }
 
-      const existingBySku = new Map<string, string>();
-      if (skuList.length > 0) {
-        const skuChunks = chunkArray(skuList, 250);
+    if (toUpdateByProvidedId.length > 0) {
+      const { error: upsertIdErr, data } = await supabase
+        .from("products")
+        .upsert(toUpdateByProvidedId, { onConflict: "id", ignoreDuplicates: false })
+        .select("id");
 
-        for (const chunk of skuChunks) {
-          const { data: existingSkuRows, error: existingSkuErr } = await supabase
+      if (upsertIdErr) {
+        console.error("Erro upsert por ID (import):", upsertIdErr);
+
+        for (const rec of toUpdateByProvidedId) {
+          const { id, ...rest } = rec;
+
+          const { error: updateErr } = await supabase
             .from("products")
-            .select("id,sku")
-            .eq("establishment_id", effectiveEstablishmentId)
-            .in("sku", chunk);
+            .update(rest)
+            .eq("id", id)
+            .eq("establishment_id", effectiveEstablishmentId);
 
-          if (existingSkuErr) {
+          if (updateErr) {
             console.error(
-              "Erro ao buscar produtos existentes por SKU (import - withId):",
-              existingSkuErr,
+              `Erro fallback update produto id=${id} (import):`,
+              updateErr,
             );
             return respondError(
               request,
-              "Erro ao preparar importação (busca por SKU).",
+              `Erro ao atualizar produto id=${id}.`,
               500,
-              { details: { select: errDetails(existingSkuErr) } },
+              { details: { update: errDetails(updateErr) } },
             );
           }
-
-          for (const row of existingSkuRows ?? []) {
-            if ((row as any)?.sku && (row as any)?.id) {
-              existingBySku.set(
-                String((row as any).sku),
-                String((row as any).id),
-              );
-            }
-          }
-        }
-      }
-
-      const toInsertWithId: any[] = [];
-      const toUpdateById: any[] = [];
-
-      for (const payload of withIdPayloads) {
-        const csvId = String(payload.id);
-        const sku = String((payload as any)?.sku ?? "").trim();
-        const existingIdFromSku = sku ? existingBySku.get(sku) : null;
-
-        if (existingIdSet.has(csvId)) {
-          toUpdateById.push({
-            ...payload,
-            ...(userId ? { updated_by: userId, updated_at: nowIso } : {}),
-          });
-          continue;
         }
 
-        if (existingIdFromSku) {
-          const { id: _ignoreIdFromCsv, ...restPayload } = payload;
-
-          toUpdateById.push({
-            ...restPayload,
-            id: existingIdFromSku,
-            establishment_id: effectiveEstablishmentId,
-            ...(userId ? { updated_by: userId, updated_at: nowIso } : {}),
-          });
-          continue;
-        }
-
-        toInsertWithId.push({
-          ...payload,
-          ...(userId ? { created_by: userId, created_at: nowIso } : {}),
-        });
-      }
-
-      if (toInsertWithId.length > 0) {
-        const { error: insErr, data: insData } = await supabase
-          .from("products")
-          .insert(toInsertWithId)
-          .select("id");
-
-        if (insErr) {
-          console.error("Erro ao inserir produtos com ID (import):", insErr);
-          return respondError(
-            request,
-            "Erro ao inserir produtos (com ID do CSV).",
-            500,
-            { details: { insert: errDetails(insErr) } },
-          );
-        }
-
-        insertedWithId = (insData ?? []).length;
-      }
-
-      if (toUpdateById.length > 0) {
-        const { error: upsertIdErr, data } = await supabase
-          .from("products")
-          .upsert(toUpdateById, { onConflict: "id", ignoreDuplicates: false })
-          .select("id");
-
-        if (upsertIdErr) {
-          console.error("Erro upsert por ID (import):", upsertIdErr);
-
-          for (const rec of toUpdateById) {
-            const { id, ...rest } = rec;
-
-            const { error: updateErr } = await supabase
-              .from("products")
-              .update(rest)
-              .eq("id", id)
-              .eq("establishment_id", effectiveEstablishmentId);
-
-            if (updateErr) {
-              console.error(
-                `Erro fallback update produto id=${id} (import):`,
-                updateErr,
-              );
-              return respondError(
-                request,
-                `Erro ao atualizar produto id=${id}.`,
-                500,
-                { details: { update: errDetails(updateErr) } },
-              );
-            }
-          }
-
-          updatedById = toUpdateById.length;
-        } else {
-          updatedById = (data ?? []).length;
-        }
+        updatedById = toUpdateByProvidedId.length;
+      } else {
+        updatedById = (data ?? []).length;
       }
     }
 
@@ -877,6 +1007,10 @@ export async function POST(request: Request) {
         received_with_id: withIdPayloads.length,
         inserted_with_id: insertedWithId,
         updated_by_id: updatedById,
+      },
+      limit_stats: {
+        active_delta: activeProductDelta,
+        new_active_products: activeNewProductCount,
       },
     };
 

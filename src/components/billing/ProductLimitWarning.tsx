@@ -29,7 +29,7 @@ export function ProductLimitWarning({ metric }: ProductLimitWarningProps) {
       </p>
       <p className="mt-1 opacity-90">{warning.message}</p>
       <p className="mt-1 text-[11px] opacity-80">
-        Aviso informativo: o cadastro de produtos ainda não será bloqueado automaticamente.
+        Ao atingir o limite, novos cadastros e importações serão bloqueados pelo plano.
       </p>
     </div>
   );

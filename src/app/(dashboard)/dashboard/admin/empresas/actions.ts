@@ -73,6 +73,7 @@ export async function createCompanyFromAdminPageAction(formData: FormData) {
     planSlug,
     selectAsActive,
     actorUserId: user.id,
+    referenceEstablishmentId: currentTenant.establishmentId,
   });
 
   revalidatePath("/dashboard/admin/empresas");

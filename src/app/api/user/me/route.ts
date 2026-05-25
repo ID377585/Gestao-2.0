@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
-  getCurrentTenant,
-  listCurrentUserTenants,
+  getCurrentTenantForUser,
+  listCurrentUserTenantsForUser,
 } from "@/lib/tenant/get-current-tenant";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
 
@@ -43,6 +43,11 @@ export async function GET() {
       );
     }
 
+    const authenticatedUser = {
+      id: user.id,
+      email: user.email ?? null,
+    };
+
     const [{ data: profile }, tenant, tenants] =
       await Promise.all([
         supabase
@@ -50,8 +55,8 @@ export async function GET() {
           .select("id, full_name, role, sector")
           .eq("id", user.id)
           .maybeSingle(),
-        getCurrentTenant(),
-        listCurrentUserTenants(),
+        getCurrentTenantForUser(supabase, authenticatedUser),
+        listCurrentUserTenantsForUser(supabase, user.id),
       ]);
 
     const membership = tenant?.membership ?? null;

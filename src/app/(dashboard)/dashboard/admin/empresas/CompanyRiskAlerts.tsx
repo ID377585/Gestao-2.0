@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, CircleSlash, ShieldAlert } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CircleSlash,
+  ShieldAlert,
+} from "lucide-react";
 
 type CompanyRiskAlertsProps = {
   attentionCount: number;
@@ -45,7 +50,7 @@ export function CompanyRiskAlerts({
 
         <Link
           href="/dashboard/admin/assinatura"
-          className="inline-flex w-fit items-center justify-center rounded-xl bg-amber-800 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-900"
+          className="inline-flex w-fit items-center justify-center rounded-xl bg-amber-800 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-400"
         >
           Revisar assinatura
         </Link>
@@ -55,7 +60,8 @@ export function CompanyRiskAlerts({
         {attentionCount > 0 ? (
           <Link
             href="/dashboard/admin/empresas?status=past_due"
-            className="rounded-xl border border-amber-300 bg-white/60 p-4 hover:bg-white dark:border-amber-800 dark:bg-amber-950/30 dark:hover:bg-amber-950/50"
+            aria-label={`Filtrar ${attentionCount} empresa${attentionCount === 1 ? "" : "s"} com pagamento pendente`}
+            className="rounded-xl border border-amber-300 bg-white/60 p-4 hover:bg-white focus:outline-none focus:ring-2 focus:ring-amber-400 dark:border-amber-800 dark:bg-amber-950/30 dark:hover:bg-amber-950/50"
           >
             <div className="flex items-center gap-2 font-medium">
               <AlertTriangle className="h-4 w-4" />
@@ -67,23 +73,35 @@ export function CompanyRiskAlerts({
         ) : null}
 
         {restrictedCount > 0 ? (
-          <Link
-            href="/dashboard/admin/empresas?status=blocked"
-            className="rounded-xl border border-red-300 bg-white/60 p-4 text-red-900 hover:bg-white dark:border-red-900 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-950/50"
-          >
+          <div className="rounded-xl border border-red-300 bg-white/60 p-4 text-red-900 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
             <div className="flex items-center gap-2 font-medium">
               <ShieldAlert className="h-4 w-4" />
               Restritas
             </div>
             <p className="mt-2 text-2xl font-semibold">{restrictedCount}</p>
             <p className="mt-1 text-xs opacity-80">Bloqueadas ou canceladas exigem validação.</p>
-          </Link>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href="/dashboard/admin/empresas?status=blocked"
+                className="rounded-lg bg-red-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-red-400"
+              >
+                Ver bloqueadas
+              </Link>
+              <Link
+                href="/dashboard/admin/empresas?status=canceled"
+                className="rounded-lg border border-red-300 px-2.5 py-1.5 text-xs font-semibold text-red-900 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400 dark:border-red-800 dark:text-red-200 dark:hover:bg-red-950/50"
+              >
+                Ver canceladas
+              </Link>
+            </div>
+          </div>
         ) : null}
 
         {notConfiguredCount > 0 ? (
           <Link
             href="/dashboard/admin/empresas?status=not_configured"
-            className="rounded-xl border border-gray-300 bg-white/60 p-4 text-gray-800 hover:bg-white dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-200 dark:hover:bg-slate-900"
+            aria-label={`Filtrar ${notConfiguredCount} empresa${notConfiguredCount === 1 ? "" : "s"} sem assinatura configurada`}
+            className="rounded-xl border border-gray-300 bg-white/60 p-4 text-gray-800 hover:bg-white focus:outline-none focus:ring-2 focus:ring-gray-400 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-200 dark:hover:bg-slate-900"
           >
             <div className="flex items-center gap-2 font-medium">
               <CircleSlash className="h-4 w-4" />

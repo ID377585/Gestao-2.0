@@ -45,6 +45,19 @@ export type NutritionLabelSheet = {
   labelRows: NutritionLabelRow[];
 };
 
+export type NutritionSnapshotSummary = {
+  id: string;
+  technicalSheetId: string;
+  createdAt: string;
+  status: "complete" | "partial" | "pending";
+  servingWeightG: number;
+  totalRecipeWeightG: number;
+  portions: number;
+  caloriesKcal: number;
+  sodiumMg: number;
+  createdBy: string | null;
+};
+
 type IngredientRow = {
   product_id: string | null;
   ingredient_name: string | null;
@@ -294,6 +307,42 @@ export async function listNutritionLabelSheets(): Promise<NutritionLabelSheet[]>
   }
 
   return typedSheets.filter((sheet) => sheet.active !== false).map((sheet) => buildNutritionLabel(sheet, nutritionByProductId));
+}
+
+export async function listNutritionSnapshots(technicalSheetId: string): Promise<NutritionSnapshotSummary[]> {
+  const { supabase, establishmentId } = await getContext();
+
+  if (!technicalSheetId) return [];
+
+  const { data, error } = await supabase
+    .from("technical_sheet_nutrition_snapshots")
+    .select("id,technical_sheet_id,created_at,status,serving_weight_g,total_recipe_weight_g,portions,per_serving,created_by")
+    .eq("establishment_id", establishmentId)
+    .eq("technical_sheet_id", technicalSheetId)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (error) {
+    if (isMissingNutritionTableError(error)) {
+      return [];
+    }
+
+    console.error("Erro ao carregar snapshots nutricionais:", error);
+    throw new Error("Não foi possível carregar o histórico de snapshots nutricionais.");
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id),
+    technicalSheetId: String(row.technical_sheet_id),
+    createdAt: String(row.created_at),
+    status: ["complete", "partial", "pending"].includes(String(row.status)) ? row.status : "pending",
+    servingWeightG: toNumber(row.serving_weight_g),
+    totalRecipeWeightG: toNumber(row.total_recipe_weight_g),
+    portions: toNumber(row.portions),
+    caloriesKcal: toNumber(row.per_serving?.calories_kcal),
+    sodiumMg: toNumber(row.per_serving?.sodium_mg),
+    createdBy: row.created_by ? String(row.created_by) : null,
+  }));
 }
 
 export async function saveNutritionSnapshot(sheet: NutritionLabelSheet) {

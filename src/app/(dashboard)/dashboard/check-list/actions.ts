@@ -375,6 +375,42 @@ export async function cancelChecklistRun(runId: string, notes?: string) {
   await updateChecklistRunStatus(runId, "cancelled", notes);
 }
 
+export async function resumeChecklistRun(runId: string, notes?: string) {
+  const { db, establishmentId } = await getContext();
+  const resumeNote = notes?.trim() || null;
+
+  const { data: run, error: runError } = await db
+    .from("kitchen_checklist_runs")
+    .select("id, establishment_id, status, notes")
+    .eq("id", runId)
+    .eq("establishment_id", establishmentId)
+    .single();
+
+  if (runError || !run) {
+    throw new Error(runError?.message ?? "Checklist não encontrada.");
+  }
+
+  if (run.status !== "blocked") {
+    throw new Error("Somente Check-Lists bloqueadas podem ser retomadas.");
+  }
+
+  const previousNotes = String(run.notes ?? "").trim();
+  const nextNotes = [previousNotes, resumeNote ? `Retomada: ${resumeNote}` : "Retomada da execução."].filter(Boolean).join("\n");
+
+  const { error } = await db
+    .from("kitchen_checklist_runs")
+    .update({
+      status: "in_progress",
+      notes: nextNotes || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", runId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(CHECKLIST_PATH);
+}
+
 export async function completeChecklistRun(runId: string, notes?: string) {
   const { db, userId, establishmentId } = await getContext();
 

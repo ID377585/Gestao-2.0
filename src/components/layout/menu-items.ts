@@ -144,6 +144,11 @@ export const menuSections: MenuSectionConfig[] = [
         icon: ClipboardList,
       },
       {
+        label: "Cadastrar Nutrientes",
+        href: "/engenharia/tabela-nutricional/produtos",
+        icon: ClipboardList,
+      },
+      {
         label: "Lista Rápida",
         href: "/dashboard/lista-rapida",
         icon: ClipboardList,

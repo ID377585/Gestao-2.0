@@ -200,12 +200,15 @@ export default async function EmpresasPage({
       const status = String(subscription?.status ?? "not_configured");
       if (status === "active" || status === "trialing") acc.ok += 1;
       else if (status === "past_due") acc.attention += 1;
-      else if (status === "blocked" || status === "canceled") acc.restricted += 1;
+      else if (status === "blocked") acc.blocked += 1;
+      else if (status === "canceled") acc.canceled += 1;
       else acc.notConfigured += 1;
       return acc;
     },
-    { ok: 0, attention: 0, restricted: 0, notConfigured: 0 }
+    { ok: 0, attention: 0, blocked: 0, canceled: 0, notConfigured: 0 }
   );
+
+  const restrictedCount = statusCounts.blocked + statusCounts.canceled;
 
   const filteredTenants = activeTenants.filter((tenant) => {
     const tenantName = getTenantName(tenant).toLowerCase();
@@ -326,7 +329,8 @@ export default async function EmpresasPage({
 
       <CompanyRiskAlerts
         attentionCount={statusCounts.attention}
-        restrictedCount={statusCounts.restricted}
+        blockedCount={statusCounts.blocked}
+        canceledCount={statusCounts.canceled}
         notConfiguredCount={statusCounts.notConfigured}
       />
 
@@ -388,7 +392,7 @@ export default async function EmpresasPage({
             {[
               { label: "Operando", value: statusCounts.ok, className: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300" },
               { label: "Atenção", value: statusCounts.attention, className: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300" },
-              { label: "Restritas", value: statusCounts.restricted, className: "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300" },
+              { label: "Restritas", value: restrictedCount, className: "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300" },
               { label: "Não configuradas", value: statusCounts.notConfigured, className: "border-gray-200 bg-gray-50 text-gray-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" },
             ].map((item) => (
               <div key={item.label} className={`rounded-xl border p-4 ${item.className}`}>

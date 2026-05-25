@@ -643,7 +643,11 @@ export default async function EmpresasPage({
                         Usuários
                       </Link>
                     </div>
-                    <CompanyRowActions establishmentId={establishmentId} isCurrent={isCurrent} />
+                    <CompanyRowActions
+                      establishmentId={establishmentId}
+                      isCurrent={isCurrent}
+                      companyName={tenantName}
+                    />
                   </div>
                 </div>
               );

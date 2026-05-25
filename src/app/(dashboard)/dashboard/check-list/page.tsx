@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 import {
+  blockChecklistRun,
+  cancelChecklistRun,
   completeChecklistRun,
   createChecklistRun,
   getChecklistDashboard,
@@ -74,6 +76,9 @@ function badgeClass(status: string) {
   if (status === "not_ok") return "bg-red-600 text-white";
   if (status === "corrected") return "bg-blue-600 text-white";
   if (status === "not_applicable") return "bg-slate-500 text-white";
+  if (status === "blocked") return "bg-orange-600 text-white";
+  if (status === "cancelled") return "bg-slate-700 text-white";
+  if (status === "completed") return "bg-emerald-700 text-white";
   return "bg-yellow-500 text-white";
 }
 
@@ -99,6 +104,22 @@ async function updateItemAction(formData: FormData) {
 async function completeRunAction(formData: FormData) {
   "use server";
   await completeChecklistRun(
+    String(formData.get("run_id") ?? ""),
+    String(formData.get("notes") ?? "") || undefined,
+  );
+}
+
+async function blockRunAction(formData: FormData) {
+  "use server";
+  await blockChecklistRun(
+    String(formData.get("run_id") ?? ""),
+    String(formData.get("notes") ?? "") || undefined,
+  );
+}
+
+async function cancelRunAction(formData: FormData) {
+  "use server";
+  await cancelChecklistRun(
     String(formData.get("run_id") ?? ""),
     String(formData.get("notes") ?? "") || undefined,
   );
@@ -173,14 +194,35 @@ export default async function CheckListPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Concluir execução</CardTitle>
-              <CardDescription>Todos os itens precisam estar diferentes de pendente.</CardDescription>
+              <CardTitle>Controle da execução</CardTitle>
+              <CardDescription>
+                Conclua a checklist quando todos os itens estiverem conferidos. Para bloquear ou cancelar,
+                informe um motivo para auditoria.
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <form action={completeRunAction} className="space-y-3">
+            <CardContent className="grid gap-4 lg:grid-cols-3">
+              <form action={completeRunAction} className="space-y-3 rounded-md border p-3">
                 <input type="hidden" name="run_id" value={activeRun.id} />
-                <Textarea name="notes" placeholder="Observação final do turno" />
+                <Label>Observação final</Label>
+                <Textarea name="notes" placeholder="Resumo final do turno" />
                 <Button type="submit" disabled={pendingCount > 0}>Concluir Check-List</Button>
+                {pendingCount > 0 ? (
+                  <p className="text-xs text-muted-foreground">Ainda existem {pendingCount} item(ns) pendente(s).</p>
+                ) : null}
+              </form>
+
+              <form action={blockRunAction} className="space-y-3 rounded-md border p-3">
+                <input type="hidden" name="run_id" value={activeRun.id} />
+                <Label>Motivo do bloqueio</Label>
+                <Textarea name="notes" required placeholder="Ex.: câmara fria em manutenção, falta de responsável, auditoria em andamento" />
+                <Button type="submit" variant="secondary">Bloquear execução</Button>
+              </form>
+
+              <form action={cancelRunAction} className="space-y-3 rounded-md border p-3">
+                <input type="hidden" name="run_id" value={activeRun.id} />
+                <Label>Motivo do cancelamento</Label>
+                <Textarea name="notes" required placeholder="Ex.: checklist aberta no turno errado ou por engano" />
+                <Button type="submit" variant="destructive">Cancelar execução</Button>
               </form>
             </CardContent>
           </Card>
@@ -263,8 +305,9 @@ export default async function CheckListPage() {
               <div>
                 <div className="font-medium">{shiftLabels[run.shift]} · {formatDateTime(run.opened_at)}</div>
                 <div className="text-muted-foreground">Concluída em {formatDateTime(run.completed_at)}</div>
+                {run.notes ? <div className="mt-1 text-muted-foreground">Obs.: {run.notes}</div> : null}
               </div>
-              <Badge variant={run.status === "completed" ? "default" : "secondary"}>{run.status}</Badge>
+              <Badge className={badgeClass(run.status)}>{run.status}</Badge>
             </div>
           ))}
         </CardContent>

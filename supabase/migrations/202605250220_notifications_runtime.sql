@@ -93,7 +93,7 @@ begin
     perform cron.schedule(
       'operational-notification-checks',
       '*/15 * * * *',
-      $$ select public.run_operational_notification_checks(); $$
+      'select public.run_operational_notification_checks();'
     );
   else
     raise notice 'pg_cron is not enabled. Enable Supabase Cron or call public.run_operational_notification_checks() from the app/API.';

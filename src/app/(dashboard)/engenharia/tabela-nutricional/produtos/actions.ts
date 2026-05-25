@@ -61,6 +61,18 @@ async function getContext() {
   return { supabase, establishmentId, userId: user.id };
 }
 
+function isMissingNutritionTableError(error: unknown) {
+  const code = String((error as any)?.code ?? "");
+  const message = String((error as any)?.message ?? "").toLowerCase();
+
+  return (
+    code === "42P01" ||
+    message.includes("product_nutrition_facts") ||
+    message.includes("does not exist") ||
+    message.includes("schema cache")
+  );
+}
+
 function toNumber(value: unknown) {
   const n = Number(value ?? 0);
   return Number.isFinite(n) && n >= 0 ? n : 0;
@@ -107,12 +119,16 @@ export async function listProductsForNutritionEditor(): Promise<ProductNutrition
       .in("product_id", productIds);
 
     if (nutritionError) {
-      console.error("Erro ao carregar dados nutricionais dos produtos:", nutritionError);
-      throw new Error("Não foi possível carregar os dados nutricionais.");
-    }
-
-    for (const row of nutritionFacts ?? []) {
-      nutritionByProductId.set(String((row as any).product_id), row);
+      if (isMissingNutritionTableError(nutritionError)) {
+        console.warn("Tabela product_nutrition_facts ainda não existe. Produtos serão exibidos como pendentes até aplicar a migration.");
+      } else {
+        console.error("Erro ao carregar dados nutricionais dos produtos:", nutritionError);
+        throw new Error("Não foi possível carregar os dados nutricionais.");
+      }
+    } else {
+      for (const row of nutritionFacts ?? []) {
+        nutritionByProductId.set(String((row as any).product_id), row);
+      }
     }
   }
 
@@ -172,6 +188,10 @@ export async function saveProductNutrition(input: ProductNutritionInput) {
     );
 
   if (error) {
+    if (isMissingNutritionTableError(error)) {
+      throw new Error("A migration da Tabela Nutricional ainda não foi aplicada no Supabase.");
+    }
+
     console.error("Erro ao salvar dados nutricionais:", error);
     throw new Error("Não foi possível salvar os dados nutricionais do produto.");
   }

@@ -4,9 +4,11 @@ import {
   CheckCircle2,
   CircleSlash,
   Factory,
+  Info,
   Search,
   ShieldCheck,
   Users,
+  XCircle,
 } from "lucide-react";
 import { getCurrentTenant, listCurrentUserTenants } from "@/lib/tenant/get-current-tenant";
 import { getBillingPlan } from "@/lib/billing/plans";
@@ -151,6 +153,7 @@ export default async function EmpresasPage({
   const planFilter = getQueryValue(resolvedSearchParams?.plan).trim();
   const statusFilter = getQueryValue(resolvedSearchParams?.status).trim();
   const created = getQueryValue(resolvedSearchParams?.created).trim() === "1";
+  const hasFilters = Boolean(q || planFilter || statusFilter);
 
   const activeSubscriptionCount = activeTenants.filter((tenant) => {
     const subscription = tenant.establishment_id
@@ -285,61 +288,76 @@ export default async function EmpresasPage({
       </section>
 
       {canCreateCompany ? (
-        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-              Cadastrar nova empresa
-            </h2>
-            <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
-              A nova empresa será vinculada ao seu usuário como administrador, com permissões padrão e assinatura inicial.
-            </p>
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                Cadastrar nova empresa
+              </h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                A nova empresa será vinculada ao seu usuário como administrador, com permissões padrão e assinatura inicial.
+              </p>
+            </div>
+
+            <form action={createCompanyFromAdminPageAction} className="grid gap-4 md:grid-cols-[1fr_220px_auto] md:items-end">
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-slate-300" htmlFor="company-name">
+                  Nome da empresa
+                </label>
+                <input
+                  id="company-name"
+                  name="name"
+                  type="text"
+                  required
+                  maxLength={120}
+                  className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-blue-950"
+                  placeholder="Ex.: Santino"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-slate-300" htmlFor="plan-slug">
+                  Plano inicial
+                </label>
+                <select
+                  id="plan-slug"
+                  name="plan_slug"
+                  defaultValue="starter"
+                  className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-blue-950"
+                >
+                  <option value="starter">Starter</option>
+                  <option value="growth">Growth</option>
+                  <option value="enterprise">Enterprise</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-3 md:items-end">
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
+                  <input name="select_as_active" type="checkbox" className="h-4 w-4 rounded border-gray-300" />
+                  Ativar após criar
+                </label>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                >
+                  Criar empresa
+                </button>
+              </div>
+            </form>
           </div>
 
-          <form action={createCompanyFromAdminPageAction} className="grid gap-4 md:grid-cols-[1fr_220px_auto] md:items-end">
-            <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-slate-300" htmlFor="company-name">
-                Nome da empresa
-              </label>
-              <input
-                id="company-name"
-                name="name"
-                type="text"
-                required
-                maxLength={120}
-                className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-blue-950"
-                placeholder="Ex.: Santino"
-              />
+          <aside className="rounded-2xl border border-blue-100 bg-blue-50 p-5 text-sm text-blue-900 dark:border-blue-950 dark:bg-blue-950/30 dark:text-blue-200">
+            <div className="flex items-center gap-2 font-semibold">
+              <Info className="h-4 w-4" />
+              O que será preparado
             </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-slate-300" htmlFor="plan-slug">
-                Plano inicial
-              </label>
-              <select
-                id="plan-slug"
-                name="plan_slug"
-                defaultValue="starter"
-                className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-blue-950"
-              >
-                <option value="starter">Starter</option>
-                <option value="growth">Growth</option>
-                <option value="enterprise">Enterprise</option>
-              </select>
-            </div>
-
-            <div className="flex flex-col gap-3 md:items-end">
-              <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
-                <input name="select_as_active" type="checkbox" className="h-4 w-4 rounded border-gray-300" />
-                Ativar após criar
-              </label>
-              <button
-                type="submit"
-                className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
-              >
-                Criar empresa
-              </button>
-            </div>
-          </form>
+            <ul className="mt-3 space-y-2">
+              <li>Vínculo do usuário atual como administrador.</li>
+              <li>Permissões iniciais para a nova empresa.</li>
+              <li>Assinatura inicial conforme o plano selecionado.</li>
+              <li>Atualização das páginas de usuários e assinatura após a criação.</li>
+            </ul>
+          </aside>
         </section>
       ) : (
         <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
@@ -415,6 +433,21 @@ export default async function EmpresasPage({
                 Filtrar
               </button>
             </form>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-2 text-xs text-gray-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              Exibindo {filteredTenants.length} de {activeTenants.length} empresas ativas.
+            </p>
+            {hasFilters ? (
+              <Link
+                href="/dashboard/admin/empresas"
+                className="inline-flex w-fit items-center gap-1 font-medium text-blue-700 hover:underline dark:text-blue-300"
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Limpar filtros
+              </Link>
+            ) : null}
           </div>
         </div>
 

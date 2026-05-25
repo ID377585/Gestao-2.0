@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   listProductsForNutritionEditor,
   saveProductNutrition,
+  saveProductNutritionBatch,
   type ProductNutritionEditorItem,
 } from "./actions";
 import type { NutritionFacts } from "../actions";
@@ -40,6 +41,30 @@ const EMPTY_NUTRITION: NutritionFacts = {
   sodium_mg: 0,
 };
 
+const CSV_TO_FIELD: Record<string, keyof NutritionFacts> = {
+  valor_energetico_kcal_100g: "calories_kcal",
+  calorias_kcal_100g: "calories_kcal",
+  calories_kcal: "calories_kcal",
+  carboidratos_g_100g: "carbohydrates_g",
+  carbohydrates_g: "carbohydrates_g",
+  acucares_totais_g_100g: "total_sugars_g",
+  total_sugars_g: "total_sugars_g",
+  acucares_adicionados_g_100g: "added_sugars_g",
+  added_sugars_g: "added_sugars_g",
+  proteinas_g_100g: "proteins_g",
+  proteins_g: "proteins_g",
+  gorduras_totais_g_100g: "total_fat_g",
+  total_fat_g: "total_fat_g",
+  gorduras_saturadas_g_100g: "saturated_fat_g",
+  saturated_fat_g: "saturated_fat_g",
+  gorduras_trans_g_100g: "trans_fat_g",
+  trans_fat_g: "trans_fat_g",
+  fibra_alimentar_g_100g: "dietary_fiber_g",
+  dietary_fiber_g: "dietary_fiber_g",
+  sodio_mg_100g: "sodium_mg",
+  sodium_mg: "sodium_mg",
+};
+
 function formatDate(value: string | null) {
   if (!value) return "Nunca atualizado";
   const date = new Date(value);
@@ -59,6 +84,10 @@ function normalizeSearch(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function normalizeHeader(value: string) {
+  return normalizeSearch(value).replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
 function toFormState(product: ProductNutritionEditorItem | null) {
@@ -88,6 +117,84 @@ function downloadCsv(filename: string, rows: unknown[][]) {
   URL.revokeObjectURL(url);
 }
 
+function parseCsvLine(line: string, delimiter: string) {
+  const cells: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const nextChar = line[index + 1];
+
+    if (char === '"' && inQuotes && nextChar === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === delimiter && !inQuotes) {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  cells.push(current.trim());
+  return cells;
+}
+
+function parsePtNumber(value: string) {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function parseNutritionCsv(text: string) {
+  const cleanText = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = cleanText.split("\n").filter((line) => line.trim());
+
+  if (lines.length < 2) return [];
+
+  const delimiter = lines[0].includes(";") ? ";" : ",";
+  const headers = parseCsvLine(lines[0], delimiter).map(normalizeHeader);
+  const productIdIndex = headers.indexOf("product_id");
+
+  if (productIdIndex < 0) {
+    throw new Error("CSV sem coluna product_id.");
+  }
+
+  return lines.slice(1).map((line) => {
+    const cells = parseCsvLine(line, delimiter);
+    const nutrition = { ...EMPTY_NUTRITION };
+
+    headers.forEach((header, index) => {
+      const key = CSV_TO_FIELD[header];
+      if (!key) return;
+      nutrition[key] = parsePtNumber(cells[index] ?? "");
+    });
+
+    const sourceIndex = headers.indexOf("fonte") >= 0 ? headers.indexOf("fonte") : headers.indexOf("source");
+    const notesIndex = headers.indexOf("observacoes") >= 0 ? headers.indexOf("observacoes") : headers.indexOf("notes");
+
+    return {
+      productId: cells[productIdIndex]?.trim() ?? "",
+      ...nutrition,
+      source: sourceIndex >= 0 ? cells[sourceIndex] ?? "" : "",
+      notes: notesIndex >= 0 ? cells[notesIndex] ?? "" : "",
+    };
+  }).filter((row) => row.productId);
+}
+
 export default function ProdutosTabelaNutricionalPage() {
   const [products, setProducts] = useState<ProductNutritionEditorItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -97,6 +204,7 @@ export default function ProdutosTabelaNutricionalPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isPending, startTransition] = useTransition();
+  const [isImporting, startImportTransition] = useTransition();
   const [form, setForm] = useState(() => toFormState(null));
 
   async function loadProducts() {
@@ -212,6 +320,36 @@ export default function ProdutosTabelaNutricionalPage() {
     downloadCsv(`produtos-nutricao-${suffix}.csv`, rows);
   }
 
+  async function handleImportCsv(file: File | null) {
+    if (!file) return;
+
+    try {
+      setError("");
+      setSuccess("");
+      const text = await file.text();
+      const rows = parseNutritionCsv(text);
+
+      if (rows.length === 0) {
+        setError("Nenhuma linha válida encontrada no CSV.");
+        return;
+      }
+
+      startImportTransition(async () => {
+        try {
+          const result = await saveProductNutritionBatch(rows);
+          setSuccess(`${result.importedCount} produto(s) importado(s) com sucesso.`);
+          await loadProducts();
+        } catch (err) {
+          console.error(err);
+          setError((err as Error)?.message || "Não foi possível importar o CSV.");
+        }
+      });
+    } catch (err) {
+      console.error(err);
+      setError((err as Error)?.message || "Não foi possível ler o CSV.");
+    }
+  }
+
   function handleSave() {
     if (!selectedProduct) return;
 
@@ -252,6 +390,20 @@ export default function ProdutosTabelaNutricionalPage() {
             </div>
 
             <div className="flex flex-wrap gap-3">
+              <label className="cursor-pointer rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-100">
+                {isImporting ? "Importando..." : "Importar CSV"}
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  disabled={isImporting}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    event.target.value = "";
+                    handleImportCsv(file);
+                  }}
+                />
+              </label>
               <button
                 type="button"
                 onClick={handleExportCsv}
@@ -311,7 +463,7 @@ export default function ProdutosTabelaNutricionalPage() {
               </div>
 
               <div className="rounded-2xl border border-white/60 bg-white/70 p-4 text-xs text-slate-600 shadow-sm">
-                O botão <strong>Exportar CSV</strong> baixa os produtos do filtro atual. Use “Pendentes” para gerar uma lista de itens que precisam de dados nutricionais.
+                Exporte os produtos do filtro atual, preencha os valores e use <strong>Importar CSV</strong> para atualizar até 500 produtos por vez.
               </div>
 
               <input

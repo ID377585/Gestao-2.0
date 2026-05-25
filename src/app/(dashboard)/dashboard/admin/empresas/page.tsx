@@ -16,6 +16,7 @@ import { getCurrentTenant, listCurrentUserTenants } from "@/lib/tenant/get-curre
 import { getBillingPlan } from "@/lib/billing/plans";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
 import type { TenantMembershipRole } from "@/lib/tenant/types";
+import { CompanyOperationsGuide } from "./CompanyOperationsGuide";
 import { CompanyRowActions } from "./CompanyRowActions";
 import { createCompanyFromAdminPageAction } from "./actions";
 
@@ -321,6 +322,8 @@ export default async function EmpresasPage({
           </div>
         </div>
       </section>
+
+      <CompanyOperationsGuide />
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">

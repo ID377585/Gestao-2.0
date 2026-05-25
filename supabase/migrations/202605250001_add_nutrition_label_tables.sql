@@ -1,3 +1,5 @@
+begin;
+
 create table if not exists public.product_nutrition_facts (
   id uuid primary key default gen_random_uuid(),
   establishment_id uuid not null references public.establishments(id) on delete cascade,
@@ -41,15 +43,21 @@ create index if not exists product_nutrition_facts_product_idx
 
 alter table public.product_nutrition_facts enable row level security;
 
+drop policy if exists "product_nutrition_facts_select_members" on public.product_nutrition_facts;
+drop policy if exists "product_nutrition_facts_insert_members" on public.product_nutrition_facts;
+drop policy if exists "product_nutrition_facts_update_members" on public.product_nutrition_facts;
+drop policy if exists "product_nutrition_facts_delete_members" on public.product_nutrition_facts;
+
 create policy "product_nutrition_facts_select_members"
   on public.product_nutrition_facts
   for select
   using (
     exists (
       select 1
-      from public.memberships m
-      where m.establishment_id = product_nutrition_facts.establishment_id
-        and m.user_id = auth.uid()
+      from public.establishment_memberships em
+      where em.establishment_id = product_nutrition_facts.establishment_id
+        and em.user_id = auth.uid()
+        and em.is_active = true
     )
   );
 
@@ -59,9 +67,10 @@ create policy "product_nutrition_facts_insert_members"
   with check (
     exists (
       select 1
-      from public.memberships m
-      where m.establishment_id = product_nutrition_facts.establishment_id
-        and m.user_id = auth.uid()
+      from public.establishment_memberships em
+      where em.establishment_id = product_nutrition_facts.establishment_id
+        and em.user_id = auth.uid()
+        and em.is_active = true
     )
   );
 
@@ -71,17 +80,19 @@ create policy "product_nutrition_facts_update_members"
   using (
     exists (
       select 1
-      from public.memberships m
-      where m.establishment_id = product_nutrition_facts.establishment_id
-        and m.user_id = auth.uid()
+      from public.establishment_memberships em
+      where em.establishment_id = product_nutrition_facts.establishment_id
+        and em.user_id = auth.uid()
+        and em.is_active = true
     )
   )
   with check (
     exists (
       select 1
-      from public.memberships m
-      where m.establishment_id = product_nutrition_facts.establishment_id
-        and m.user_id = auth.uid()
+      from public.establishment_memberships em
+      where em.establishment_id = product_nutrition_facts.establishment_id
+        and em.user_id = auth.uid()
+        and em.is_active = true
     )
   );
 
@@ -91,9 +102,10 @@ create policy "product_nutrition_facts_delete_members"
   using (
     exists (
       select 1
-      from public.memberships m
-      where m.establishment_id = product_nutrition_facts.establishment_id
-        and m.user_id = auth.uid()
+      from public.establishment_memberships em
+      where em.establishment_id = product_nutrition_facts.establishment_id
+        and em.user_id = auth.uid()
+        and em.is_active = true
     )
   );
 
@@ -121,15 +133,19 @@ create index if not exists technical_sheet_nutrition_snapshots_sheet_idx
 
 alter table public.technical_sheet_nutrition_snapshots enable row level security;
 
+drop policy if exists "technical_sheet_nutrition_snapshots_select_members" on public.technical_sheet_nutrition_snapshots;
+drop policy if exists "technical_sheet_nutrition_snapshots_insert_members" on public.technical_sheet_nutrition_snapshots;
+
 create policy "technical_sheet_nutrition_snapshots_select_members"
   on public.technical_sheet_nutrition_snapshots
   for select
   using (
     exists (
       select 1
-      from public.memberships m
-      where m.establishment_id = technical_sheet_nutrition_snapshots.establishment_id
-        and m.user_id = auth.uid()
+      from public.establishment_memberships em
+      where em.establishment_id = technical_sheet_nutrition_snapshots.establishment_id
+        and em.user_id = auth.uid()
+        and em.is_active = true
     )
   );
 
@@ -139,8 +155,11 @@ create policy "technical_sheet_nutrition_snapshots_insert_members"
   with check (
     exists (
       select 1
-      from public.memberships m
-      where m.establishment_id = technical_sheet_nutrition_snapshots.establishment_id
-        and m.user_id = auth.uid()
+      from public.establishment_memberships em
+      where em.establishment_id = technical_sheet_nutrition_snapshots.establishment_id
+        and em.user_id = auth.uid()
+        and em.is_active = true
     )
   );
+
+commit;

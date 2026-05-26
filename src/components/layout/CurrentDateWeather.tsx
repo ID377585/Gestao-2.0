@@ -100,15 +100,18 @@ export function CurrentDateWeather() {
   const weatherLabel = weather?.temperatureC !== null && weather?.temperatureC !== undefined
     ? `${weather.temperatureC}ºC ${weather.emoji}`
     : weather?.emoji ?? "🌡️";
+  const fullTitle = weather?.locationLabel
+    ? `${dateLabel} — ${weatherLabel} • ${weather.condition} • ${weather.locationLabel}`
+    : `${dateLabel} — ${weatherLabel} • ${weather?.condition ?? "Data e clima"}`;
 
   return (
     <div
-      className="hidden items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm lg:flex dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-      title={weather?.locationLabel ? `${weather.condition} • ${weather.locationLabel}` : weather?.condition ?? "Data e clima"}
+      className="hidden max-w-[380px] items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm xl:flex dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+      title={fullTitle}
     >
-      <span className="whitespace-nowrap">{dateLabel}</span>
-      <span className="mx-2 text-slate-300 dark:text-slate-600">—</span>
-      <span className="whitespace-nowrap">{weatherLabel}</span>
+      <span className="truncate">{dateLabel}</span>
+      <span className="mx-2 shrink-0 text-slate-300 dark:text-slate-600">—</span>
+      <span className="shrink-0 whitespace-nowrap">{weatherLabel}</span>
     </div>
   );
 }

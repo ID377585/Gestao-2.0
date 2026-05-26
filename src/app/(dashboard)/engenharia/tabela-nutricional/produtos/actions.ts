@@ -70,11 +70,18 @@ function isMissingNutritionTableError(error: unknown) {
   const code = String((error as any)?.code ?? "");
   const message = String((error as any)?.message ?? "").toLowerCase();
 
+  return code === "42P01" || message.includes("relation") && message.includes("product_nutrition_facts") && message.includes("does not exist");
+}
+
+function isColumnOrSchemaError(error: unknown) {
+  const code = String((error as any)?.code ?? "");
+  const message = String((error as any)?.message ?? "").toLowerCase();
+
   return (
-    code === "42P01" ||
-    message.includes("product_nutrition_facts") ||
-    message.includes("does not exist") ||
-    message.includes("schema cache")
+    code === "42703" ||
+    message.includes("column") ||
+    message.includes("schema cache") ||
+    message.includes("could not find")
   );
 }
 
@@ -83,7 +90,7 @@ function getFriendlySupabaseError(error: unknown, fallback: string) {
   const message = String((error as any)?.message ?? "").toLowerCase();
 
   if (isMissingNutritionTableError(error)) {
-    return "A migration da Tabela Nutricional ainda não foi aplicada no Supabase.";
+    return "A tabela product_nutrition_facts não existe no Supabase. Aplique a migration da Tabela Nutricional.";
   }
 
   if (code === "42501" || message.includes("permission denied") || message.includes("row-level security")) {
@@ -98,8 +105,8 @@ function getFriendlySupabaseError(error: unknown, fallback: string) {
     return "A tabela nutricional precisa da chave única por estabelecimento/produto. Reaplique a migration da Tabela Nutricional no Supabase.";
   }
 
-  if (code === "42703" || message.includes("column") || message.includes("schema cache")) {
-    return "A estrutura da tabela nutricional no Supabase está diferente do esperado. Reaplique a migration da Tabela Nutricional.";
+  if (isColumnOrSchemaError(error)) {
+    return "A estrutura da tabela nutricional no Supabase está diferente do esperado. Atualize a migration ou recarregue o schema cache do Supabase.";
   }
 
   return fallback;
@@ -229,20 +236,32 @@ export async function saveProductNutrition(input: ProductNutritionInput): Promis
     await assertProductsBelongToEstablishment(supabase, establishmentId, [input.productId]);
 
     const nutrition = normalizeNutrition(input);
-    const payload = {
+    const basePayload = {
       establishment_id: establishmentId,
       product_id: input.productId,
       serving_basis: "100g",
       ...nutrition,
       source: input.source?.trim() || null,
       notes: input.notes?.trim() || null,
-      created_by: userId,
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase
+    const payloadWithCreatedBy = {
+      ...basePayload,
+      created_by: userId,
+    };
+
+    let { error } = await supabase
       .from("product_nutrition_facts")
-      .upsert(payload, { onConflict: "establishment_id,product_id" });
+      .upsert(payloadWithCreatedBy, { onConflict: "establishment_id,product_id" });
+
+    if (error && isColumnOrSchemaError(error)) {
+      console.warn("Salvamento de nutrição falhou com coluna opcional. Tentando novamente sem created_by.", error);
+      const retry = await supabase
+        .from("product_nutrition_facts")
+        .upsert(basePayload, { onConflict: "establishment_id,product_id" });
+      error = retry.error;
+    }
 
     if (error) {
       console.error("Erro ao salvar dados nutricionais:", error);
@@ -301,11 +320,11 @@ export async function saveProductNutritionBatch(inputs: ProductNutritionInput[])
 
   if (error) {
     if (isMissingNutritionTableError(error)) {
-      throw new Error("A migration da Tabela Nutricional ainda não foi aplicada no Supabase.");
+      throw new Error("A tabela product_nutrition_facts não existe no Supabase. Aplique a migration da Tabela Nutricional.");
     }
 
     console.error("Erro ao importar dados nutricionais:", error);
-    throw new Error("Não foi possível importar os dados nutricionais.");
+    throw new Error(getFriendlySupabaseError(error, "Não foi possível importar os dados nutricionais."));
   }
 
   revalidatePath("/engenharia/tabela-nutricional");

@@ -78,7 +78,14 @@ function getErrorMessage(error: unknown) {
 function isMissingNutritionTableError(error: unknown) {
   const code = getErrorCode(error);
   const message = getErrorMessage(error).toLowerCase();
-  return code === "42P01" || (message.includes("relation") && message.includes("product_nutrition_facts") && message.includes("does not exist"));
+  const table = message.includes("product_nutrition_facts");
+
+  return (
+    code === "42P01" ||
+    (table && message.includes("does not exist")) ||
+    (table && message.includes("schema cache")) ||
+    (table && message.includes("could not find"))
+  );
 }
 
 function isColumnOrSchemaError(error: unknown) {

@@ -118,12 +118,12 @@ export function CurrentDateWeather() {
 
   return (
     <div
-      className="hidden max-w-[380px] items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm lg:flex dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+      className="flex max-w-[380px] items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm sm:px-3 sm:py-2 sm:text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
       title={fullTitle}
     >
-      <span className="truncate 2xl:hidden">{compactDateLabel}</span>
+      <span className="hidden truncate sm:inline 2xl:hidden">{compactDateLabel}</span>
       <span className="hidden truncate 2xl:inline">{dateLabel}</span>
-      <span className="mx-2 shrink-0 text-slate-300 dark:text-slate-600">—</span>
+      <span className="hidden mx-2 shrink-0 text-slate-300 sm:inline dark:text-slate-600">—</span>
       <span className="shrink-0 whitespace-nowrap">{weatherLabel}</span>
     </div>
   );

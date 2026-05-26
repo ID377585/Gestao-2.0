@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  listProductsForNutritionEditor,
+  listProductsForNutritionEditorSafe,
   saveProductNutrition,
   saveProductNutritionBatch,
   type ProductNutritionEditorItem,
@@ -214,10 +214,14 @@ export default function ProdutosTabelaNutricionalPage() {
     try {
       setLoading(true);
       setError("");
-      const data = await listProductsForNutritionEditor();
-      setProducts(data);
+      const result = await listProductsForNutritionEditorSafe();
+      setProducts(result.items);
+      if (result.error) {
+        setError(result.error);
+      }
     } catch (err) {
       console.error(err);
+      setProducts([]);
       setError((err as Error)?.message || "Não foi possível carregar os produtos.");
     } finally {
       setLoading(false);

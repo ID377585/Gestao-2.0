@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listCurrentUserTenantsForUser } from "@/lib/tenant/get-current-tenant";
@@ -37,7 +38,12 @@ function getWeatherCondition(code: number | null | undefined) {
   return "Tempo atual";
 }
 
-async function fetchWeatherByCoordinates(latitude: number, longitude: number, source: WeatherPayload["source"], locationLabel: string | null): Promise<WeatherPayload> {
+async function fetchWeatherByCoordinates(
+  latitude: number,
+  longitude: number,
+  source: WeatherPayload["source"],
+  locationLabel: string | null,
+): Promise<WeatherPayload> {
   const url = new URL("https://api.open-meteo.com/v1/forecast");
   url.searchParams.set("latitude", String(latitude));
   url.searchParams.set("longitude", String(longitude));
@@ -105,13 +111,15 @@ async function getCompanyLocationLabel() {
   if (userError || !user) return null;
 
   const tenants = await listCurrentUserTenantsForUser(supabase, user.id);
-  const cookieStore = await import("next/headers").then((mod) => mod.cookies());
+  const cookieStore = await cookies();
   const selectedEstablishmentId = cookieStore.get(TENANT_COOKIE_NAME)?.value ?? null;
   const membership = selectedEstablishmentId
     ? tenants.find((tenant) => tenant.establishment_id === selectedEstablishmentId) ?? null
     : tenants[0] ?? null;
 
-  if (!membership?.establishment_id) return membership?.display_name ?? membership?.establishment_name ?? null;
+  if (!membership?.establishment_id) {
+    return membership?.display_name ?? membership?.establishment_name ?? null;
+  }
 
   try {
     const { data } = await supabase

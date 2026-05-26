@@ -316,3 +316,10 @@ export const flatMenuItems: MenuItem[] = menuSections.flatMap((section) =>
     section: section.key,
   })),
 );
+
+export const principalMenuItems: MenuSubItem[] = menuSections
+  .filter((section) => section.key !== "administracao")
+  .flatMap((section) => section.items);
+
+export const administracaoMenuItems: MenuSubItem[] =
+  menuSections.find((section) => section.key === "administracao")?.items ?? [];

@@ -17,6 +17,11 @@ type FormState = {
   productId: string;
   dishType: DishType;
   manualSalePrice: string;
+  restaurant1Name: string;
+  restaurant2Name: string;
+  restaurant3Name: string;
+  restaurant4Name: string;
+  restaurant5Name: string;
   restaurant1Price: string;
   restaurant2Price: string;
   restaurant3Price: string;
@@ -29,6 +34,11 @@ const EMPTY_FORM: FormState = {
   productId: "",
   dishType: "Prato Principal",
   manualSalePrice: "",
+  restaurant1Name: "",
+  restaurant2Name: "",
+  restaurant3Name: "",
+  restaurant4Name: "",
+  restaurant5Name: "",
   restaurant1Price: "",
   restaurant2Price: "",
   restaurant3Price: "",
@@ -66,11 +76,24 @@ function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function getRestaurantName(item: SalesPriceBenchmark, number: 1 | 2 | 3 | 4 | 5) {
+  return item[`restaurant${number}Name` as keyof SalesPriceBenchmark] as string | null;
+}
+
+function getRestaurantPrice(item: SalesPriceBenchmark, number: 1 | 2 | 3 | 4 | 5) {
+  return item[`restaurant${number}Price` as keyof SalesPriceBenchmark] as number | null;
+}
+
 function benchmarkToForm(item: SalesPriceBenchmark): FormState {
   return {
     productId: item.productId,
     dishType: item.dishType,
     manualSalePrice: toInputValue(item.manualSalePrice),
+    restaurant1Name: item.restaurant1Name ?? "",
+    restaurant2Name: item.restaurant2Name ?? "",
+    restaurant3Name: item.restaurant3Name ?? "",
+    restaurant4Name: item.restaurant4Name ?? "",
+    restaurant5Name: item.restaurant5Name ?? "",
     restaurant1Price: toInputValue(item.restaurant1Price),
     restaurant2Price: toInputValue(item.restaurant2Price),
     restaurant3Price: toInputValue(item.restaurant3Price),
@@ -95,11 +118,10 @@ function computeCompetitorAverage(form: FormState) {
 }
 
 function roundSuggestedAboveAverage(average: number) {
-  const floorValue = Math.floor(average);
-  let suggested = roundMoney(floorValue + 0.9);
+  let suggested = Math.ceil(average);
 
   if (suggested <= average) {
-    suggested = roundMoney(floorValue + 1.9);
+    suggested += 1;
   }
 
   return suggested;
@@ -163,7 +185,17 @@ export default function PrecoVendaMedioPage() {
     const q = normalizeSearch(search);
     if (!q) return benchmarks;
     return benchmarks.filter((item) =>
-      normalizeSearch([item.productName, item.brand, item.category, item.dishType].filter(Boolean).join(" ")).includes(q),
+      normalizeSearch([
+        item.productName,
+        item.brand,
+        item.category,
+        item.dishType,
+        item.restaurant1Name,
+        item.restaurant2Name,
+        item.restaurant3Name,
+        item.restaurant4Name,
+        item.restaurant5Name,
+      ].filter(Boolean).join(" ")).includes(q),
     );
   }, [benchmarks, search]);
 
@@ -199,6 +231,11 @@ export default function PrecoVendaMedioPage() {
         productId: form.productId,
         dishType: form.dishType,
         manualSalePrice: form.manualSalePrice ? Number(form.manualSalePrice) : null,
+        restaurant1Name: form.restaurant1Name,
+        restaurant2Name: form.restaurant2Name,
+        restaurant3Name: form.restaurant3Name,
+        restaurant4Name: form.restaurant4Name,
+        restaurant5Name: form.restaurant5Name,
         restaurant1Price: form.restaurant1Price ? Number(form.restaurant1Price) : null,
         restaurant2Price: form.restaurant2Price ? Number(form.restaurant2Price) : null,
         restaurant3Price: form.restaurant3Price ? Number(form.restaurant3Price) : null,
@@ -244,12 +281,12 @@ export default function PrecoVendaMedioPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50 to-sky-100 p-6 text-slate-950">
-      <div className="mx-auto max-w-[1600px] space-y-6">
+      <div className="mx-auto max-w-[1700px] space-y-6">
         <header className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-700">Engenharia</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight">Preço Venda Médio</h1>
           <p className="mt-2 max-w-4xl text-sm text-slate-600">
-            Compare o preço atual do catálogo com preços anotados da concorrência. O preço sugerido é puxado automaticamente do cadastro do produto, então quando o catálogo mudar, esta tela acompanha a atualização.
+            Compare o preço atual do catálogo com preços anotados da concorrência. O preço sugerido é arredondado para um número inteiro acima da média dos concorrentes.
           </p>
         </header>
 
@@ -272,7 +309,7 @@ export default function PrecoVendaMedioPage() {
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black">Cadastro da comparação</h2>
-              <p className="text-xs text-slate-500">Todos os campos principais ficam na mesma linha. Use a rolagem lateral se a tela for menor.</p>
+              <p className="text-xs text-slate-500">Digite o nome de cada concorrente e o preço encontrado. Os nomes ficam salvos junto com a comparação.</p>
             </div>
           </div>
 
@@ -325,19 +362,26 @@ export default function PrecoVendaMedioPage() {
               </label>
 
               {RESTAURANT_FIELDS.map((number) => {
-                const key = `restaurant${number}Price` as keyof FormState;
+                const nameKey = `restaurant${number}Name` as keyof FormState;
+                const priceKey = `restaurant${number}Price` as keyof FormState;
                 return (
-                  <label key={number} className="w-[145px] shrink-0">
-                    <span className="text-xs font-bold text-slate-700">Restaurante {number}</span>
+                  <div key={number} className="w-[190px] shrink-0 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <input
+                      value={form[nameKey]}
+                      onChange={(event) => updateForm(nameKey, event.target.value as never)}
+                      placeholder={`Nome restaurante ${number}`}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none ring-emerald-500 transition focus:ring-2"
+                    />
                     <input
                       type="number"
                       min="0"
                       step="0.01"
-                      value={form[key]}
-                      onChange={(event) => updateForm(key, event.target.value as never)}
-                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
+                      value={form[priceKey]}
+                      onChange={(event) => updateForm(priceKey, event.target.value as never)}
+                      placeholder="Preço"
+                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
                     />
-                  </label>
+                  </div>
                 );
               })}
 
@@ -402,7 +446,7 @@ export default function PrecoVendaMedioPage() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar prato, marca, categoria..."
+              placeholder="Buscar prato, restaurante, marca, categoria..."
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none ring-emerald-500 transition focus:ring-2 md:w-80"
             />
           </div>
@@ -413,18 +457,16 @@ export default function PrecoVendaMedioPage() {
             <p className="mt-6 rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">Nenhuma comparação registrada ainda.</p>
           ) : (
             <div className="mt-6 overflow-x-auto">
-              <table className="min-w-[1650px] text-left text-sm">
+              <table className="min-w-[1750px] text-left text-sm">
                 <thead className="text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="sticky left-0 z-10 bg-white px-3 py-3">Prato</th>
                     <th className="px-3 py-3">Tipo</th>
                     <th className="px-3 py-3">Catálogo</th>
                     <th className="px-3 py-3">Nosso preço definido</th>
-                    <th className="px-3 py-3">Restaurante 1</th>
-                    <th className="px-3 py-3">Restaurante 2</th>
-                    <th className="px-3 py-3">Restaurante 3</th>
-                    <th className="px-3 py-3">Restaurante 4</th>
-                    <th className="px-3 py-3">Restaurante 5</th>
+                    {RESTAURANT_FIELDS.map((number) => (
+                      <th key={number} className="px-3 py-3">Concorrente {number}</th>
+                    ))}
                     <th className="px-3 py-3">Média concorrência</th>
                     <th className="px-3 py-3">Preço médio sugerido</th>
                     <th className="px-3 py-3">%</th>
@@ -444,11 +486,16 @@ export default function PrecoVendaMedioPage() {
                       <td className="px-3 py-4">{item.dishType}</td>
                       <td className="px-3 py-4 font-semibold">{formatCurrency(item.catalogSuggestedPrice)}</td>
                       <td className="px-3 py-4 font-semibold text-slate-900">{formatCurrency(item.manualSalePrice)}</td>
-                      <td className="px-3 py-4">{formatCurrency(item.restaurant1Price)}</td>
-                      <td className="px-3 py-4">{formatCurrency(item.restaurant2Price)}</td>
-                      <td className="px-3 py-4">{formatCurrency(item.restaurant3Price)}</td>
-                      <td className="px-3 py-4">{formatCurrency(item.restaurant4Price)}</td>
-                      <td className="px-3 py-4">{formatCurrency(item.restaurant5Price)}</td>
+                      {RESTAURANT_FIELDS.map((number) => {
+                        const name = getRestaurantName(item, number);
+                        const price = getRestaurantPrice(item, number);
+                        return (
+                          <td key={number} className="px-3 py-4">
+                            <div className="font-bold text-slate-800">{name || `Concorrente ${number}`}</div>
+                            <div className="text-slate-600">{formatCurrency(price)}</div>
+                          </td>
+                        );
+                      })}
                       <td className="px-3 py-4 font-semibold text-blue-800">{formatCurrency(item.competitorAveragePrice)}</td>
                       <td className="px-3 py-4 font-black text-emerald-700">{formatCurrency(item.suggestedAveragePrice)}</td>
                       <td className={`px-3 py-4 font-bold ${(item.percentageVsSuggested ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>

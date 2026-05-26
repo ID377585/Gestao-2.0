@@ -373,12 +373,18 @@ export default function ProdutosTabelaNutricionalPage() {
       try {
         setError("");
         setSuccess("");
-        await saveProductNutrition({
+        const result = await saveProductNutrition({
           productId: selectedProduct.productId,
           ...form.nutrition,
           source: form.source,
           notes: form.notes,
         });
+
+        if (!result.ok) {
+          setError(result.error || "Não foi possível salvar os dados nutricionais.");
+          return;
+        }
+
         setSuccess("Dados nutricionais salvos com sucesso.");
         await loadProducts();
       } catch (err) {

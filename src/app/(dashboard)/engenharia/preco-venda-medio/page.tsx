@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
+  deleteSalesPriceBenchmark,
   loadSalesPriceBenchmarks,
   saveSalesPriceBenchmark,
   type DishType,
@@ -93,14 +94,24 @@ function computeCompetitorAverage(form: FormState) {
   return prices.length > 0 ? roundMoney(prices.reduce((sum, price) => sum + price, 0) / prices.length) : null;
 }
 
-function computeSuggestedAverage(catalogSuggestedPrice: number, competitorAverage: number | null) {
-  if (competitorAverage !== null) return roundMoney((catalogSuggestedPrice + competitorAverage) / 2);
-  return catalogSuggestedPrice > 0 ? roundMoney(catalogSuggestedPrice) : null;
+function roundSuggestedAboveAverage(average: number) {
+  const floorValue = Math.floor(average);
+  let suggested = roundMoney(floorValue + 0.9);
+
+  if (suggested <= average) {
+    suggested = roundMoney(floorValue + 1.9);
+  }
+
+  return suggested;
 }
 
-function computePercentageVsSuggested(catalogSuggestedPrice: number, competitorAverage: number | null) {
-  if (competitorAverage === null || catalogSuggestedPrice <= 0) return null;
-  return roundMoney(((competitorAverage - catalogSuggestedPrice) / catalogSuggestedPrice) * 100);
+function computeSuggestedAverage(competitorAverage: number | null) {
+  return competitorAverage !== null ? roundSuggestedAboveAverage(competitorAverage) : null;
+}
+
+function computePercentageIncrease(competitorAverage: number | null, suggestedAverage: number | null) {
+  if (competitorAverage === null || suggestedAverage === null || competitorAverage <= 0) return null;
+  return roundMoney(((suggestedAverage - competitorAverage) / competitorAverage) * 100);
 }
 
 export default function PrecoVendaMedioPage() {
@@ -140,12 +151,12 @@ export default function PrecoVendaMedioPage() {
   const catalogSuggestedPrice = selectedProduct?.suggestedPrice ?? 0;
   const formCompetitorAverage = useMemo(() => computeCompetitorAverage(form), [form]);
   const formSuggestedAverage = useMemo(
-    () => computeSuggestedAverage(catalogSuggestedPrice, formCompetitorAverage),
-    [catalogSuggestedPrice, formCompetitorAverage],
+    () => computeSuggestedAverage(formCompetitorAverage),
+    [formCompetitorAverage],
   );
   const formPercentageVsSuggested = useMemo(
-    () => computePercentageVsSuggested(catalogSuggestedPrice, formCompetitorAverage),
-    [catalogSuggestedPrice, formCompetitorAverage],
+    () => computePercentageIncrease(formCompetitorAverage, formSuggestedAverage),
+    [formCompetitorAverage, formSuggestedAverage],
   );
 
   const filteredBenchmarks = useMemo(() => {
@@ -207,6 +218,30 @@ export default function PrecoVendaMedioPage() {
     });
   }
 
+  function handleDelete(item: SalesPriceBenchmark) {
+    const confirmed = window.confirm(`Excluir a comparação de ${item.productName}?`);
+    if (!confirmed) return;
+
+    setStatus("");
+    setError("");
+
+    startTransition(async () => {
+      const result = await deleteSalesPriceBenchmark(item.productId);
+
+      if (!result.ok) {
+        setError(result.error || "Não foi possível excluir.");
+        return;
+      }
+
+      if (form.productId === item.productId) {
+        setForm(EMPTY_FORM);
+      }
+
+      setStatus("Comparação excluída com sucesso.");
+      await loadData();
+    });
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50 to-sky-100 p-6 text-slate-950">
       <div className="mx-auto max-w-[1600px] space-y-6">
@@ -228,7 +263,7 @@ export default function PrecoVendaMedioPage() {
             <p className="mt-2 text-3xl font-black">{metrics.withCompetitors}</p>
           </div>
           <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-blue-900 shadow-sm">
-            <p className="text-xs">Média % vs catálogo</p>
+            <p className="text-xs">Aumento médio sugerido</p>
             <p className="mt-2 text-3xl font-black">{formatPercent(metrics.averageGap)}</p>
           </div>
         </section>
@@ -306,6 +341,11 @@ export default function PrecoVendaMedioPage() {
                 );
               })}
 
+              <div className="w-[190px] shrink-0 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                <p className="text-[11px] font-bold text-blue-800">Média concorrência</p>
+                <p className="mt-1 text-lg font-black text-blue-900">{formatCurrency(formCompetitorAverage)}</p>
+              </div>
+
               <div className="w-[190px] shrink-0 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
                 <p className="text-[11px] font-bold text-emerald-800">Preço médio sugerido</p>
                 <p className="mt-1 text-lg font-black text-emerald-900">{formatCurrency(formSuggestedAverage)}</p>
@@ -357,7 +397,7 @@ export default function PrecoVendaMedioPage() {
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-xl font-black">Comparações registradas</h2>
-              <p className="mt-1 text-sm text-slate-500">Clique em uma linha para editar os valores anotados.</p>
+              <p className="mt-1 text-sm text-slate-500">Use Editar para carregar os valores no formulário ou Excluir para remover a comparação.</p>
             </div>
             <input
               value={search}
@@ -373,7 +413,7 @@ export default function PrecoVendaMedioPage() {
             <p className="mt-6 rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">Nenhuma comparação registrada ainda.</p>
           ) : (
             <div className="mt-6 overflow-x-auto">
-              <table className="min-w-[1500px] text-left text-sm">
+              <table className="min-w-[1650px] text-left text-sm">
                 <thead className="text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="sticky left-0 z-10 bg-white px-3 py-3">Prato</th>
@@ -388,16 +428,16 @@ export default function PrecoVendaMedioPage() {
                     <th className="px-3 py-3">Média concorrência</th>
                     <th className="px-3 py-3">Preço médio sugerido</th>
                     <th className="px-3 py-3">%</th>
+                    <th className="px-3 py-3">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredBenchmarks.map((item) => (
                     <tr
                       key={item.id ?? item.productId}
-                      onClick={() => editBenchmark(item)}
-                      className="cursor-pointer border-t border-slate-100 transition hover:bg-emerald-50/70"
+                      className="border-t border-slate-100 transition hover:bg-emerald-50/70"
                     >
-                      <td className="sticky left-0 z-10 bg-white px-3 py-4 font-bold text-slate-900 group-hover:bg-emerald-50">
+                      <td className="sticky left-0 z-10 bg-white px-3 py-4 font-bold text-slate-900">
                         {item.productName}
                         <div className="text-xs font-medium text-slate-500">{item.brand || item.category || "Sem categoria"}</div>
                       </td>
@@ -413,6 +453,25 @@ export default function PrecoVendaMedioPage() {
                       <td className="px-3 py-4 font-black text-emerald-700">{formatCurrency(item.suggestedAveragePrice)}</td>
                       <td className={`px-3 py-4 font-bold ${(item.percentageVsSuggested ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                         {formatPercent(item.percentageVsSuggested)}
+                      </td>
+                      <td className="px-3 py-4">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => editBenchmark(item)}
+                            className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800 transition hover:bg-blue-100"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(item)}
+                            disabled={isPending}
+                            className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Excluir
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

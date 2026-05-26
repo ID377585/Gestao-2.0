@@ -268,14 +268,29 @@ export const menuSections: MenuSectionConfig[] = [
         icon: Receipt,
       },
       {
-        label: "Notas processadas",
-        href: "/dashboard/fiscal/notas-processadas",
-        icon: FileText,
+        label: "Auditoria Fiscal",
+        href: "/dashboard/fiscal/auditoria",
+        icon: AlertTriangle,
       },
       {
-        label: "Empresas",
-        href: "/dashboard/fiscal/empresas",
+        label: "Divergências Fiscais",
+        href: "/dashboard/fiscal/divergencias",
+        icon: ArrowLeftRight,
+      },
+      {
+        label: "Vínculos Fiscais",
+        href: "/dashboard/fiscal/vinculos",
+        icon: Tag,
+      },
+      {
+        label: "Dados da Empresa",
+        href: "/dashboard/fiscal/empresa",
         icon: Building2,
+      },
+      {
+        label: "Certificado A1",
+        href: "/dashboard/fiscal/certificado",
+        icon: FileText,
       },
     ],
   },
@@ -285,6 +300,11 @@ export const menuSections: MenuSectionConfig[] = [
     icon: BadgeDollarSign,
     items: [
       {
+        label: "DRE",
+        href: "/financeiro/dre",
+        icon: BarChart3,
+      },
+      {
         label: "Dashboard",
         href: "/financeiro",
         icon: BarChart3,
@@ -293,6 +313,61 @@ export const menuSections: MenuSectionConfig[] = [
         label: "Contas a Pagar",
         href: "/financeiro/contas-a-pagar",
         icon: Receipt,
+      },
+      {
+        label: "Contas a Receber",
+        href: "/financeiro/contas-a-receber",
+        icon: BadgeDollarSign,
+      },
+      {
+        label: "Fluxo de Caixa",
+        href: "/financeiro/fluxo-de-caixa",
+        icon: BarChart3,
+      },
+      {
+        label: "Dashboard Bancário",
+        href: "/financeiro/dashboard-bancario",
+        icon: Building2,
+      },
+      {
+        label: "Contas Bancárias",
+        href: "/financeiro/contas-bancarias",
+        icon: Building2,
+      },
+      {
+        label: "Conciliação Bancária",
+        href: "/financeiro/conciliacao-bancaria",
+        icon: ArrowLeftRight,
+      },
+      {
+        label: "Plano de Contas",
+        href: "/financeiro/plano-de-contas",
+        icon: FileText,
+      },
+      {
+        label: "Centros de Custo",
+        href: "/financeiro/centros-de-custo",
+        icon: Building2,
+      },
+      {
+        label: "Relatórios",
+        href: "/financeiro/relatorios",
+        icon: FileText,
+      },
+      {
+        label: "Auditoria Financeira",
+        href: "/financeiro/auditoria",
+        icon: FileText,
+      },
+      {
+        label: "Auditoria",
+        href: "/compras/auditoria",
+        icon: History,
+      },
+      {
+        label: "Controladoria",
+        href: "/dashboard/controladoria",
+        icon: BadgeDollarSign,
       },
     ],
   },
@@ -306,20 +381,51 @@ export const menuSections: MenuSectionConfig[] = [
         href: "/dashboard/admin/usuarios",
         icon: Users,
       },
+      {
+        label: "Empresas",
+        href: "/dashboard/admin/empresas",
+        icon: Building2,
+      },
+      {
+        label: "Assinatura",
+        href: "/dashboard/admin/assinatura",
+        icon: BadgeDollarSign,
+      },
     ],
   },
 ];
 
-export const flatMenuItems: MenuItem[] = menuSections.flatMap((section) =>
+export const menuSectionOrder = menuSections.map(({ key, label, icon }) => ({
+  key,
+  label,
+  icon,
+}));
+
+export const menuItemsBySection = menuSections;
+
+export const menuItems: MenuItem[] = menuSections.flatMap((section) =>
   section.items.map((item) => ({
     ...item,
     section: section.key,
-  })),
+  }))
 );
 
-export const principalMenuItems: MenuSubItem[] = menuSections
-  .filter((section) => section.key !== "administracao")
-  .flatMap((section) => section.items);
+export const flatMenuItems = menuItems;
 
-export const administracaoMenuItems: MenuSubItem[] =
-  menuSections.find((section) => section.key === "administracao")?.items ?? [];
+export const principalMenuItems: MenuItem[] = menuSections
+  .filter((section) => section.key !== "administracao")
+  .flatMap((section) =>
+    section.items.map((item) => ({
+      ...item,
+      section: section.key,
+    }))
+  );
+
+export const administracaoMenuItems: MenuItem[] = menuSections
+  .filter((section) => section.key === "administracao")
+  .flatMap((section) =>
+    section.items.map((item) => ({
+      ...item,
+      section: section.key,
+    }))
+  );

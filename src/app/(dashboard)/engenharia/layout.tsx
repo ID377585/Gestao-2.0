@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 export default function EngenhariaLayout({ children }: { children: ReactNode }) {
   return (
     <div>
-      <div className="no-print sticky top-0 z-50 border-b border-emerald-200 bg-emerald-50 px-4 py-3 text-slate-950 shadow-md">
+      <div className="no-print relative z-0 border-b border-emerald-200 bg-emerald-50 px-4 py-3 text-slate-950 shadow-sm">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-emerald-700">

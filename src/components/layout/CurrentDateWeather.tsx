@@ -30,7 +30,8 @@ async function fetchWeather(latitude?: number, longitude?: number) {
     params.set("lon", String(longitude));
   }
 
-  const response = await fetch(`/api/weather/current${params.size ? `?${params}` : ""}`, {
+  const queryString = params.toString();
+  const response = await fetch(`/api/weather/current${queryString ? `?${queryString}` : ""}`, {
     cache: "no-store",
   });
 

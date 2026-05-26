@@ -1,28 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Bell,
-  HelpCircle,
-  LogOut,
-  RefreshCw,
-  Settings,
-  User as UserIcon,
-} from "lucide-react";
+import { Bell, HelpCircle, LogOut, RefreshCw, Settings, User as UserIcon } from "lucide-react";
 
 import {
   DropdownMenu,
-  DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { supabase } from "@/lib/supabase";
 import NotificationsModal from "@/components/modals/NotificationsModal";
 import { ProfileModal } from "@/components/modals/ProfileModal";
 import { SettingsModal } from "@/components/modals/SettingsModal";
@@ -34,8 +24,8 @@ import {
   SubscriptionStatusBadge,
   type SubscriptionStatusBadgeData,
 } from "@/components/billing/SubscriptionStatusBadge";
-
 import { clearSession } from "@/lib/auth/session";
+import { supabase } from "@/lib/supabase";
 import {
   archiveNotification,
   archiveReadNotifications,
@@ -59,7 +49,7 @@ type TopbarUser = {
   id: string;
   email: string;
   name: string;
-  role?: string;
+  role?: string | null;
   avatar?: string | null;
   sector?: string | null;
   establishmentId?: string | null;
@@ -69,6 +59,18 @@ type TopbarUser = {
   subscription?: SubscriptionStatusBadgeData;
   isActive?: boolean;
   lastSignInAt?: string | null;
+};
+
+const FALLBACK_USER: TopbarUser = {
+  id: "",
+  email: "",
+  name: "Usuário",
+  role: null,
+  avatar: null,
+  sector: null,
+  establishmentId: null,
+  establishmentName: null,
+  lastSignInAt: null,
 };
 
 function formatDate(value?: AppNotification["createdAt"]) {
@@ -155,20 +157,16 @@ function canRunNotificationChecks(role?: string | null) {
 export function Topbar({ className }: TopbarProps) {
   const [user, setUser] = useState<TopbarUser | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
-
   const [showPerfil, setShowPerfil] = useState(false);
   const [showConfiguracoes, setShowConfiguracoes] = useState(false);
   const [showAjuda, setShowAjuda] = useState(false);
   const [showNotificacoesModal, setShowNotificacoesModal] = useState(false);
-
   const [notificationsMenuOpen, setNotificationsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-
   const [notificacoes, setNotificacoes] = useState<AppNotification[]>([]);
   const [settings, setSettings] = useState<UserSettings>(getUserSettings());
   const [checkingNotifications, setCheckingNotifications] = useState(false);
   const [notificationCheckMessage, setNotificationCheckMessage] = useState<string | null>(null);
-
   const previousIdsRef = useRef<string[]>([]);
 
   const fetchCurrentUser = useCallback(async () => {
@@ -178,9 +176,7 @@ export function Topbar({ className }: TopbarProps) {
       const response = await fetch("/api/user/me", {
         method: "GET",
         cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       });
 
       if (!response.ok) {
@@ -230,10 +226,7 @@ export function Topbar({ className }: TopbarProps) {
 
       const currentIds = items.map((item) => item.id);
       const previousIds = previousIdsRef.current;
-
-      const newNotifications = items.filter(
-        (item) => !previousIds.includes(item.id)
-      );
+      const newNotifications = items.filter((item) => !previousIds.includes(item.id));
 
       if (previousIds.length > 0 && settings.soundNotifications && newNotifications.length > 0) {
         const hasCritical = newNotifications.some((item) => item.priority === "critical");
@@ -246,13 +239,11 @@ export function Topbar({ className }: TopbarProps) {
         "Notification" in window &&
         Notification.permission === "granted"
       ) {
-        if ("Notification" in window && Notification.permission === "granted") {
-          newNotifications.forEach((item) => {
-            new Notification(item.title ?? "Notificação", {
-              body: item.message ?? "",
-            });
+        newNotifications.forEach((item) => {
+          new Notification(item.title ?? "Notificação", {
+            body: item.message ?? "",
           });
-        }
+        });
       }
 
       previousIdsRef.current = currentIds;
@@ -264,6 +255,12 @@ export function Topbar({ className }: TopbarProps) {
   const notificacoesNaoLidas = notificacoes.filter((n) => !n.read).length;
   const podeVerificarAlertas = canRunNotificationChecks(user?.role);
 
+  const openAfterDropdownClose = (openModal: () => void) => {
+    setUserMenuOpen(false);
+    setNotificationsMenuOpen(false);
+    setTimeout(openModal, 80);
+  };
+
   const handleRunNotificationChecks = async () => {
     if (!podeVerificarAlertas || checkingNotifications) return;
 
@@ -273,15 +270,10 @@ export function Topbar({ className }: TopbarProps) {
 
       const response = await fetch("/api/admin/notifications/run-checks", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       });
 
-      const data = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        result?: unknown;
-      };
+      const data = (await response.json().catch(() => ({}))) as { error?: string };
 
       if (!response.ok) {
         throw new Error(data.error ?? "Não foi possível verificar os alertas.");
@@ -298,7 +290,6 @@ export function Topbar({ className }: TopbarProps) {
 
   const handleMarkAllAsRead = async () => {
     if (!userNotificationId) return;
-
     try {
       await markAllNotificationsAsRead(userNotificationId);
     } catch (error) {
@@ -324,37 +315,11 @@ export function Topbar({ className }: TopbarProps) {
 
   const handleArchiveReadNotifications = async () => {
     if (!userNotificationId) return;
-
     try {
       await archiveReadNotifications(userNotificationId);
     } catch (error) {
       console.error("Erro ao arquivar notificações lidas:", error);
     }
-  };
-
-  const openAfterDropdownClose = (openModal: () => void) => {
-    setUserMenuOpen(false);
-    setNotificationsMenuOpen(false);
-
-    setTimeout(() => {
-      openModal();
-    }, 80);
-  };
-
-  const handleOpenPerfil = () => {
-    openAfterDropdownClose(() => setShowPerfil(true));
-  };
-
-  const handleOpenConfiguracoes = () => {
-    openAfterDropdownClose(() => setShowConfiguracoes(true));
-  };
-
-  const handleOpenAjuda = () => {
-    openAfterDropdownClose(() => setShowAjuda(true));
-  };
-
-  const handleOpenTodasNotificacoes = () => {
-    openAfterDropdownClose(() => setShowNotificacoesModal(true));
   };
 
   const handleLogout = async () => {
@@ -369,12 +334,11 @@ export function Topbar({ className }: TopbarProps) {
 
   const dropdownBaseClasses =
     "z-50 rounded-md border border-gray-200 bg-white text-gray-900 shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100";
+  const profileUser = user ?? FALLBACK_USER;
 
   return (
     <>
-      <header
-        className={`border-b border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-950 ${className ?? ""}`}
-      >
+      <header className={`border-b border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-950 ${className ?? ""}`}>
         <div className="flex h-16 items-center justify-between gap-3 px-4 md:px-6">
           <div className="flex items-center gap-2 md:gap-3 md:hidden">
             <Sidebar />
@@ -387,11 +351,8 @@ export function Topbar({ className }: TopbarProps) {
 
           <div className="flex items-center gap-2">
             <CurrentDateWeather />
-            <DropdownMenu
-              open={notificationsMenuOpen}
-              onOpenChange={setNotificationsMenuOpen}
-              modal={false}
-            >
+
+            <DropdownMenu open={notificationsMenuOpen} onOpenChange={setNotificationsMenuOpen} modal={false}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -415,6 +376,7 @@ export function Topbar({ className }: TopbarProps) {
                   <Badge variant="secondary">{notificacoesNaoLidas}</Badge>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+
                 <div className="max-h-80 overflow-auto py-1">
                   {notificacoes.length === 0 ? (
                     <div className="px-3 py-6 text-center text-sm text-gray-500 dark:text-slate-400">
@@ -450,6 +412,7 @@ export function Topbar({ className }: TopbarProps) {
                     ))
                   )}
                 </div>
+
                 <DropdownMenuSeparator />
                 {podeVerificarAlertas ? (
                   <>
@@ -485,7 +448,7 @@ export function Topbar({ className }: TopbarProps) {
                   className="cursor-pointer"
                   onClick={(event) => {
                     event.preventDefault();
-                    handleOpenTodasNotificacoes();
+                    openAfterDropdownClose(() => setShowNotificacoesModal(true));
                   }}
                 >
                   Ver todas
@@ -501,9 +464,7 @@ export function Topbar({ className }: TopbarProps) {
                 >
                   <Avatar className="h-9 w-9">
                     <AvatarImage src={user?.avatar ?? undefined} alt={user?.name ?? "Usuário"} />
-                    <AvatarFallback>
-                      {loadingUser ? "..." : getInitials(user?.name ?? user?.email)}
-                    </AvatarFallback>
+                    <AvatarFallback>{loadingUser ? "..." : getInitials(user?.name ?? user?.email)}</AvatarFallback>
                   </Avatar>
                 </button>
               </DropdownMenuTrigger>
@@ -518,15 +479,15 @@ export function Topbar({ className }: TopbarProps) {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="cursor-pointer" onClick={handleOpenPerfil}>
+                <DropdownMenuItem className="cursor-pointer" onClick={() => openAfterDropdownClose(() => setShowPerfil(true))}>
                   <UserIcon className="mr-2 h-4 w-4" />
                   Perfil
                 </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer" onClick={handleOpenConfiguracoes}>
+                <DropdownMenuItem className="cursor-pointer" onClick={() => openAfterDropdownClose(() => setShowConfiguracoes(true))}>
                   <Settings className="mr-2 h-4 w-4" />
                   Configurações
                 </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer" onClick={handleOpenAjuda}>
+                <DropdownMenuItem className="cursor-pointer" onClick={() => openAfterDropdownClose(() => setShowAjuda(true))}>
                   <HelpCircle className="mr-2 h-4 w-4" />
                   Ajuda
                 </DropdownMenuItem>
@@ -541,11 +502,10 @@ export function Topbar({ className }: TopbarProps) {
         </div>
       </header>
 
-      <ProfileModal open={showPerfil} onClose={() => setShowPerfil(false)} user={user} />
+      <ProfileModal open={showPerfil} onClose={() => setShowPerfil(false)} user={profileUser} />
       <SettingsModal
         open={showConfiguracoes}
         onClose={() => setShowConfiguracoes(false)}
-        settings={settings}
         onSettingsChange={setSettings}
       />
       <HelpModal open={showAjuda} onClose={() => setShowAjuda(false)} />

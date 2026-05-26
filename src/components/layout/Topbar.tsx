@@ -29,6 +29,7 @@ import { SettingsModal } from "@/components/modals/SettingsModal";
 import { HelpModal } from "@/components/modals/HelpModal";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TenantSummary } from "@/components/tenant/TenantSummary";
+import { CurrentDateWeather } from "@/components/layout/CurrentDateWeather";
 import {
   SubscriptionStatusBadge,
   type SubscriptionStatusBadgeData,
@@ -385,6 +386,7 @@ export function Topbar({ className }: TopbarProps) {
           </div>
 
           <div className="flex items-center gap-2">
+            <CurrentDateWeather />
             <DropdownMenu
               open={notificationsMenuOpen}
               onOpenChange={setNotificationsMenuOpen}
@@ -407,213 +409,129 @@ export function Topbar({ className }: TopbarProps) {
                 </button>
               </DropdownMenuTrigger>
 
-              <DropdownMenuContent
-                align="end"
-                sideOffset={8}
-                className={`w-80 ${dropdownBaseClasses}`}
-              >
-                <DropdownMenuLabel className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-                    Notificações
-                  </span>
-
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 px-2 text-xs"
-                    onClick={handleMarkAllAsRead}
-                    disabled={notificacoesNaoLidas === 0}
-                  >
-                    Marcar todas
-                  </Button>
+              <DropdownMenuContent align="end" className={`w-80 ${dropdownBaseClasses}`}>
+                <DropdownMenuLabel className="flex items-center justify-between gap-2">
+                  <span>Notificações</span>
+                  <Badge variant="secondary">{notificacoesNaoLidas}</Badge>
                 </DropdownMenuLabel>
-
-                {podeVerificarAlertas ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <div className="space-y-2 p-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="w-full justify-center"
-                        onClick={handleRunNotificationChecks}
-                        disabled={checkingNotifications}
-                      >
-                        <RefreshCw
-                          className={`h-4 w-4 ${checkingNotifications ? "animate-spin" : ""}`}
-                        />
-                        {checkingNotifications ? "Verificando..." : "Verificar alertas agora"}
-                      </Button>
-
-                      {notificationCheckMessage ? (
-                        <p className="text-center text-[11px] text-gray-500 dark:text-slate-400">
-                          {notificationCheckMessage}
-                        </p>
-                      ) : null}
-                    </div>
-                  </>
-                ) : null}
-
                 <DropdownMenuSeparator />
-
-                {notificacoes.length === 0 ? (
-                  <div className="px-3 py-6 text-center text-sm text-gray-600 dark:text-slate-400">
-                    Nenhuma notificação
-                  </div>
-                ) : (
-                  <div className="max-h-80 overflow-auto">
-                    {notificacoes.slice(0, 5).map((n) => (
+                <div className="max-h-80 overflow-auto py-1">
+                  {notificacoes.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-sm text-gray-500 dark:text-slate-400">
+                      Nenhuma notificação no momento.
+                    </div>
+                  ) : (
+                    notificacoes.slice(0, 6).map((n) => (
                       <DropdownMenuItem
                         key={n.id}
-                        className="flex cursor-pointer flex-col items-start gap-1 py-3 focus:bg-gray-50 dark:focus:bg-slate-800"
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          if (!n.read) {
-                            void handleMarkAsRead(n.id);
-                          }
-
+                        className="flex cursor-pointer flex-col items-start gap-1 whitespace-normal px-3 py-2"
+                        onClick={() => {
                           if (n.href) {
+                            void markNotificationAsRead(n.id);
                             window.location.assign(n.href);
                           }
                         }}
                       >
-                        <div className="flex w-full items-center justify-between gap-3">
-                          <span className="text-sm font-medium text-gray-900 dark:text-slate-100">
+                        <div className="flex w-full items-center justify-between gap-2">
+                          <span className="line-clamp-1 text-sm font-medium text-gray-900 dark:text-slate-100">
                             {n.title}
                           </span>
-                          {!n.read && (
-                            <span className="h-2 w-2 rounded-full bg-blue-600" />
-                          )}
-                        </div>
-                        <span className="text-xs text-gray-700 dark:text-slate-300">
-                          {n.message}
-                        </span>
-                        <div className="flex items-center gap-2 pt-1">
-                          <span className="text-[11px] text-gray-500 dark:text-slate-400">
-                            {formatDate(n.createdAt)}
-                          </span>
-                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${getPriorityClass(n.priority)}`}>
+                          <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${getPriorityClass(n.priority)}`}>
                             {getPriorityLabel(n.priority)}
                           </span>
                         </div>
+                        <span className="line-clamp-2 text-xs text-gray-500 dark:text-slate-400">
+                          {n.message}
+                        </span>
+                        <span className="text-[10px] text-gray-400 dark:text-slate-500">
+                          {formatDate(n.createdAt)}
+                        </span>
                       </DropdownMenuItem>
-                    ))}
-                  </div>
-                )}
-
-                <DropdownMenuSeparator />
-
-                <div className="p-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={handleOpenTodasNotificacoes}
-                  >
-                    Ver todas
-                  </Button>
+                    ))
+                  )}
                 </div>
+                <DropdownMenuSeparator />
+                {podeVerificarAlertas ? (
+                  <>
+                    <DropdownMenuItem
+                      className="cursor-pointer"
+                      disabled={checkingNotifications}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void handleRunNotificationChecks();
+                      }}
+                    >
+                      <RefreshCw className={`mr-2 h-4 w-4 ${checkingNotifications ? "animate-spin" : ""}`} />
+                      {checkingNotifications ? "Verificando..." : "Verificar alertas agora"}
+                    </DropdownMenuItem>
+                    {notificationCheckMessage ? (
+                      <div className="px-3 pb-2 text-xs text-gray-500 dark:text-slate-400">
+                        {notificationCheckMessage}
+                      </div>
+                    ) : null}
+                    <DropdownMenuSeparator />
+                  </>
+                ) : null}
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void handleMarkAllAsRead();
+                  }}
+                >
+                  Marcar todas como lidas
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    handleOpenTodasNotificacoes();
+                  }}
+                >
+                  Ver todas
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu
-              open={userMenuOpen}
-              onOpenChange={setUserMenuOpen}
-              modal={false}
-            >
+            <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen} modal={false}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-gray-300 dark:focus:ring-slate-600"
-                  aria-label="Menu do usuário"
+                  className="flex items-center gap-2 rounded-md p-1.5 text-left hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-300 dark:hover:bg-slate-800 dark:focus:ring-slate-600"
                 >
-                  <Avatar className="h-10 w-10">
-                    <AvatarImage
-                      src={user?.avatar ?? undefined}
-                      alt={user?.name ?? "Usuário"}
-                    />
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={user?.avatar ?? undefined} alt={user?.name ?? "Usuário"} />
                     <AvatarFallback>
-                      {getInitials(user?.name ?? "U")}
+                      {loadingUser ? "..." : getInitials(user?.name ?? user?.email)}
                     </AvatarFallback>
                   </Avatar>
                 </button>
               </DropdownMenuTrigger>
-
-              <DropdownMenuContent
-                align="end"
-                sideOffset={8}
-                className={`w-72 ${dropdownBaseClasses}`}
-              >
-                <DropdownMenuLabel className="font-normal">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-                      {loadingUser ? "Carregando..." : user?.name ?? "Usuário"}
+              <DropdownMenuContent align="end" className={`w-64 ${dropdownBaseClasses}`}>
+                <DropdownMenuLabel>
+                  <div className="flex flex-col">
+                    <span className="line-clamp-1 text-sm font-semibold">{user?.name ?? "Usuário"}</span>
+                    <span className="line-clamp-1 text-xs text-gray-500 dark:text-slate-400">{user?.email}</span>
+                    <span className="mt-1 text-[11px] text-gray-500 dark:text-slate-400">
+                      {getRoleLabel(user?.role)}
                     </span>
-                    <span className="text-xs text-gray-600 dark:text-slate-400">
-                      {user?.email ?? ""}
-                    </span>
-
-                    <div className="mt-1 flex flex-wrap gap-2">
-                      <Badge variant="secondary" className="w-fit">
-                        {getRoleLabel(user?.role)}
-                      </Badge>
-
-                      {user?.sector ? (
-                        <Badge variant="outline" className="w-fit">
-                          {user.sector}
-                        </Badge>
-                      ) : null}
-                    </div>
                   </div>
                 </DropdownMenuLabel>
-
                 <DropdownMenuSeparator />
-
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    handleOpenPerfil();
-                  }}
-                  className="focus:bg-gray-50 dark:focus:bg-slate-800"
-                >
+                <DropdownMenuItem className="cursor-pointer" onClick={handleOpenPerfil}>
                   <UserIcon className="mr-2 h-4 w-4" />
                   Perfil
                 </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    handleOpenConfiguracoes();
-                  }}
-                  className="focus:bg-gray-50 dark:focus:bg-slate-800"
-                >
+                <DropdownMenuItem className="cursor-pointer" onClick={handleOpenConfiguracoes}>
                   <Settings className="mr-2 h-4 w-4" />
                   Configurações
                 </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    handleOpenAjuda();
-                  }}
-                  className="focus:bg-gray-50 dark:focus:bg-slate-800"
-                >
+                <DropdownMenuItem className="cursor-pointer" onClick={handleOpenAjuda}>
                   <HelpCircle className="mr-2 h-4 w-4" />
                   Ajuda
                 </DropdownMenuItem>
-
                 <DropdownMenuSeparator />
-
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void handleLogout();
-                  }}
-                  className="text-red-600 focus:bg-gray-50 focus:text-red-600 dark:text-red-400 dark:focus:bg-slate-800 dark:focus:text-red-400"
-                >
+                <DropdownMenuItem className="cursor-pointer text-red-600 focus:text-red-600" onClick={handleLogout}>
                   <LogOut className="mr-2 h-4 w-4" />
                   Sair
                 </DropdownMenuItem>
@@ -623,6 +541,14 @@ export function Topbar({ className }: TopbarProps) {
         </div>
       </header>
 
+      <ProfileModal open={showPerfil} onClose={() => setShowPerfil(false)} user={user} />
+      <SettingsModal
+        open={showConfiguracoes}
+        onClose={() => setShowConfiguracoes(false)}
+        settings={settings}
+        onSettingsChange={setSettings}
+      />
+      <HelpModal open={showAjuda} onClose={() => setShowAjuda(false)} />
       <NotificationsModal
         open={showNotificacoesModal}
         onClose={() => setShowNotificacoesModal(false)}
@@ -632,28 +558,6 @@ export function Topbar({ className }: TopbarProps) {
         onArchive={handleArchiveNotification}
         onArchiveRead={handleArchiveReadNotifications}
       />
-
-      <ProfileModal
-        open={showPerfil}
-        onClose={() => setShowPerfil(false)}
-        user={{
-          name: user?.name ?? "Usuário",
-          email: user?.email ?? "",
-          role: user?.role,
-          sector: user?.sector ?? null,
-          establishmentId: user?.establishmentId ?? null,
-          establishmentName: user?.establishmentName ?? null,
-          lastSignInAt: user?.lastSignInAt ?? null,
-        }}
-      />
-
-      <SettingsModal
-        open={showConfiguracoes}
-        onClose={() => setShowConfiguracoes(false)}
-        onSettingsChange={(nextSettings) => setSettings(nextSettings)}
-      />
-
-      <HelpModal open={showAjuda} onClose={() => setShowAjuda(false)} />
     </>
   );
 }

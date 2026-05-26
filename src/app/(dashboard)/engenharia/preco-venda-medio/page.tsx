@@ -10,6 +10,7 @@ import {
 } from "./actions";
 
 const DISH_TYPES: DishType[] = ["Entrada", "Prato Principal", "Sobremesa"];
+const RESTAURANT_FIELDS = [1, 2, 3, 4, 5] as const;
 
 type FormState = {
   productId: string;
@@ -54,6 +55,16 @@ function normalizeSearch(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
+function toNullableNumber(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
 function benchmarkToForm(item: SalesPriceBenchmark): FormState {
   return {
     productId: item.productId,
@@ -66,6 +77,30 @@ function benchmarkToForm(item: SalesPriceBenchmark): FormState {
     restaurant5Price: toInputValue(item.restaurant5Price),
     notes: item.notes ?? "",
   };
+}
+
+function computeCompetitorAverage(form: FormState) {
+  const prices = [
+    form.restaurant1Price,
+    form.restaurant2Price,
+    form.restaurant3Price,
+    form.restaurant4Price,
+    form.restaurant5Price,
+  ]
+    .map(toNullableNumber)
+    .filter((value): value is number => value !== null && value > 0);
+
+  return prices.length > 0 ? roundMoney(prices.reduce((sum, price) => sum + price, 0) / prices.length) : null;
+}
+
+function computeSuggestedAverage(catalogSuggestedPrice: number, competitorAverage: number | null) {
+  if (competitorAverage !== null) return roundMoney((catalogSuggestedPrice + competitorAverage) / 2);
+  return catalogSuggestedPrice > 0 ? roundMoney(catalogSuggestedPrice) : null;
+}
+
+function computePercentageVsSuggested(catalogSuggestedPrice: number, competitorAverage: number | null) {
+  if (competitorAverage === null || catalogSuggestedPrice <= 0) return null;
+  return roundMoney(((competitorAverage - catalogSuggestedPrice) / catalogSuggestedPrice) * 100);
 }
 
 export default function PrecoVendaMedioPage() {
@@ -101,6 +136,17 @@ export default function PrecoVendaMedioPage() {
   const selectedProduct = useMemo(() => {
     return products.find((product) => product.id === form.productId) ?? null;
   }, [products, form.productId]);
+
+  const catalogSuggestedPrice = selectedProduct?.suggestedPrice ?? 0;
+  const formCompetitorAverage = useMemo(() => computeCompetitorAverage(form), [form]);
+  const formSuggestedAverage = useMemo(
+    () => computeSuggestedAverage(catalogSuggestedPrice, formCompetitorAverage),
+    [catalogSuggestedPrice, formCompetitorAverage],
+  );
+  const formPercentageVsSuggested = useMemo(
+    () => computePercentageVsSuggested(catalogSuggestedPrice, formCompetitorAverage),
+    [catalogSuggestedPrice, formCompetitorAverage],
+  );
 
   const filteredBenchmarks = useMemo(() => {
     const q = normalizeSearch(search);
@@ -163,7 +209,7 @@ export default function PrecoVendaMedioPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50 to-sky-100 p-6 text-slate-950">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto max-w-[1600px] space-y-6">
         <header className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-700">Engenharia</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight">Preço Venda Médio</h1>
@@ -188,81 +234,102 @@ export default function PrecoVendaMedioPage() {
         </section>
 
         <section className="rounded-3xl border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
-          <div className="grid gap-4 lg:grid-cols-3">
-            <label className="lg:col-span-2">
-              <span className="text-xs font-bold text-slate-700">Nome do prato</span>
-              <select
-                value={form.productId}
-                onChange={(event) => updateForm("productId", event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
-              >
-                <option value="">Selecione um produto do catálogo</option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name} {product.brand ? `• ${product.brand}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              <span className="text-xs font-bold text-slate-700">Tipo</span>
-              <select
-                value={form.dishType}
-                onChange={(event) => updateForm("dishType", event.target.value as DishType)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
-              >
-                {DISH_TYPES.map((type) => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
-            </label>
-
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-bold text-slate-600">Preço venda sugerido do catálogo</p>
-              <p className="mt-2 text-2xl font-black">{formatCurrency(selectedProduct?.suggestedPrice ?? 0)}</p>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-black">Cadastro da comparação</h2>
+              <p className="text-xs text-slate-500">Todos os campos principais ficam na mesma linha. Use a rolagem lateral se a tela for menor.</p>
             </div>
-
-            <label>
-              <span className="text-xs font-bold text-slate-700">Preço Venda definido</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.manualSalePrice}
-                onChange={(event) => updateForm("manualSalePrice", event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
-              />
-            </label>
-
-            {[1, 2, 3, 4, 5].map((number) => {
-              const key = `restaurant${number}Price` as keyof FormState;
-              return (
-                <label key={number}>
-                  <span className="text-xs font-bold text-slate-700">Restaurante {number}</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form[key]}
-                    onChange={(event) => updateForm(key, event.target.value as never)}
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
-                  />
-                </label>
-              );
-            })}
-
-            <label className="lg:col-span-3">
-              <span className="text-xs font-bold text-slate-700">Observações</span>
-              <textarea
-                rows={3}
-                value={form.notes}
-                onChange={(event) => updateForm("notes", event.target.value)}
-                placeholder="Ex.: restaurante referência, bairro, porção semelhante, data da cotação..."
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none ring-emerald-500 transition focus:ring-2"
-              />
-            </label>
           </div>
+
+          <div className="overflow-x-auto pb-2">
+            <div className="flex min-w-max items-end gap-3">
+              <label className="w-[320px] shrink-0">
+                <span className="text-xs font-bold text-slate-700">Nome do prato</span>
+                <select
+                  value={form.productId}
+                  onChange={(event) => updateForm("productId", event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
+                >
+                  <option value="">Selecione um produto do catálogo</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name} {product.brand ? `• ${product.brand}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="w-[180px] shrink-0">
+                <span className="text-xs font-bold text-slate-700">Tipo</span>
+                <select
+                  value={form.dishType}
+                  onChange={(event) => updateForm("dishType", event.target.value as DishType)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
+                >
+                  {DISH_TYPES.map((type) => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="w-[190px] shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-[11px] font-bold text-slate-600">Preço venda sugerido</p>
+                <p className="mt-1 text-lg font-black">{formatCurrency(catalogSuggestedPrice)}</p>
+              </div>
+
+              <label className="w-[160px] shrink-0">
+                <span className="text-xs font-bold text-slate-700">Preço Venda</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.manualSalePrice}
+                  onChange={(event) => updateForm("manualSalePrice", event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
+                />
+              </label>
+
+              {RESTAURANT_FIELDS.map((number) => {
+                const key = `restaurant${number}Price` as keyof FormState;
+                return (
+                  <label key={number} className="w-[145px] shrink-0">
+                    <span className="text-xs font-bold text-slate-700">Restaurante {number}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form[key]}
+                      onChange={(event) => updateForm(key, event.target.value as never)}
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
+                    />
+                  </label>
+                );
+              })}
+
+              <div className="w-[190px] shrink-0 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                <p className="text-[11px] font-bold text-emerald-800">Preço médio sugerido</p>
+                <p className="mt-1 text-lg font-black text-emerald-900">{formatCurrency(formSuggestedAverage)}</p>
+              </div>
+
+              <div className="w-[110px] shrink-0 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                <p className="text-[11px] font-bold text-blue-800">%</p>
+                <p className={`mt-1 text-lg font-black ${(formPercentageVsSuggested ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                  {formatPercent(formPercentageVsSuggested)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <label className="mt-4 block">
+            <span className="text-xs font-bold text-slate-700">Observações</span>
+            <textarea
+              rows={3}
+              value={form.notes}
+              onChange={(event) => updateForm("notes", event.target.value)}
+              placeholder="Ex.: restaurante referência, bairro, porção semelhante, data da cotação..."
+              className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none ring-emerald-500 transition focus:ring-2"
+            />
+          </label>
 
           {error ? <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
           {status ? <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{status}</p> : null}
@@ -306,13 +373,18 @@ export default function PrecoVendaMedioPage() {
             <p className="mt-6 rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">Nenhuma comparação registrada ainda.</p>
           ) : (
             <div className="mt-6 overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
+              <table className="min-w-[1500px] text-left text-sm">
                 <thead className="text-xs uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-3 py-3">Prato</th>
+                    <th className="sticky left-0 z-10 bg-white px-3 py-3">Prato</th>
                     <th className="px-3 py-3">Tipo</th>
                     <th className="px-3 py-3">Catálogo</th>
-                    <th className="px-3 py-3">Preço definido</th>
+                    <th className="px-3 py-3">Nosso preço definido</th>
+                    <th className="px-3 py-3">Restaurante 1</th>
+                    <th className="px-3 py-3">Restaurante 2</th>
+                    <th className="px-3 py-3">Restaurante 3</th>
+                    <th className="px-3 py-3">Restaurante 4</th>
+                    <th className="px-3 py-3">Restaurante 5</th>
                     <th className="px-3 py-3">Média concorrência</th>
                     <th className="px-3 py-3">Preço médio sugerido</th>
                     <th className="px-3 py-3">%</th>
@@ -325,14 +397,19 @@ export default function PrecoVendaMedioPage() {
                       onClick={() => editBenchmark(item)}
                       className="cursor-pointer border-t border-slate-100 transition hover:bg-emerald-50/70"
                     >
-                      <td className="px-3 py-4 font-bold text-slate-900">
+                      <td className="sticky left-0 z-10 bg-white px-3 py-4 font-bold text-slate-900 group-hover:bg-emerald-50">
                         {item.productName}
                         <div className="text-xs font-medium text-slate-500">{item.brand || item.category || "Sem categoria"}</div>
                       </td>
                       <td className="px-3 py-4">{item.dishType}</td>
                       <td className="px-3 py-4 font-semibold">{formatCurrency(item.catalogSuggestedPrice)}</td>
-                      <td className="px-3 py-4">{formatCurrency(item.manualSalePrice)}</td>
-                      <td className="px-3 py-4">{formatCurrency(item.competitorAveragePrice)}</td>
+                      <td className="px-3 py-4 font-semibold text-slate-900">{formatCurrency(item.manualSalePrice)}</td>
+                      <td className="px-3 py-4">{formatCurrency(item.restaurant1Price)}</td>
+                      <td className="px-3 py-4">{formatCurrency(item.restaurant2Price)}</td>
+                      <td className="px-3 py-4">{formatCurrency(item.restaurant3Price)}</td>
+                      <td className="px-3 py-4">{formatCurrency(item.restaurant4Price)}</td>
+                      <td className="px-3 py-4">{formatCurrency(item.restaurant5Price)}</td>
+                      <td className="px-3 py-4 font-semibold text-blue-800">{formatCurrency(item.competitorAveragePrice)}</td>
                       <td className="px-3 py-4 font-black text-emerald-700">{formatCurrency(item.suggestedAveragePrice)}</td>
                       <td className={`px-3 py-4 font-bold ${(item.percentageVsSuggested ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                         {formatPercent(item.percentageVsSuggested)}

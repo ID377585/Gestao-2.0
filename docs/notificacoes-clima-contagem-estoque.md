@@ -2,13 +2,16 @@
 
 Este guia descreve os recursos adicionados ao topo do sistema e ao módulo de notificações.
 
+Última atualização operacional: ajustes de exibição permanente no Topbar e verificação de deploy.
+
 ## Data e clima no topo
 
 O `Topbar` exibe, entre o status do plano e o sino de notificações, um bloco com data e clima.
 
 Exemplos:
 
-- Tela grande: `Ter: 26/05 — 29ºC ☀️`
+- Tela pequena: `29ºC ☀️`
+- Tela média/grande: `Ter: 26/05 — 29ºC ☀️`
 - Tela muito grande: `Terça-feira: 26 de Maio 2026 — 29ºC ☀️`
 
 ### Como o clima é buscado

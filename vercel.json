@@ -17,10 +17,6 @@
     {
       "path": "/api/fiscal/sync",
       "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/notifications/stock-count-reminders",
-      "schedule": "*/10 * * * *"
     }
   ]
 }

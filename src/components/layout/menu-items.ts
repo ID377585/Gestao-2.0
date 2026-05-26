@@ -149,6 +149,11 @@ export const menuSections: MenuSectionConfig[] = [
         icon: ClipboardList,
       },
       {
+        label: "Preço Venda Médio",
+        href: "/engenharia/preco-venda-medio",
+        icon: BadgeDollarSign,
+      },
+      {
         label: "Lista Rápida",
         href: "/dashboard/lista-rapida",
         icon: ClipboardList,

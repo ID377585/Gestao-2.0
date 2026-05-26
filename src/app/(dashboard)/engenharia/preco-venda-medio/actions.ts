@@ -134,16 +134,23 @@ function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function roundSuggestedAboveAverage(average: number) {
+  const floorValue = Math.floor(average);
+  let suggested = roundMoney(floorValue + 0.9);
+
+  if (suggested <= average) {
+    suggested = roundMoney(floorValue + 1.9);
+  }
+
+  return suggested;
+}
+
 function computeBenchmark(row: Omit<SalesPriceBenchmark, "competitorAveragePrice" | "suggestedAveragePrice" | "percentageVsSuggested">): SalesPriceBenchmark {
   const prices = getCompetitorPrices(row);
   const competitorAveragePrice = prices.length > 0 ? roundMoney(prices.reduce((sum, price) => sum + price, 0) / prices.length) : null;
-  const suggestedAveragePrice = competitorAveragePrice !== null
-    ? roundMoney((competitorAveragePrice + row.catalogSuggestedPrice) / 2)
-    : row.catalogSuggestedPrice > 0
-      ? roundMoney(row.catalogSuggestedPrice)
-      : null;
-  const percentageVsSuggested = competitorAveragePrice !== null && row.catalogSuggestedPrice > 0
-    ? roundMoney(((competitorAveragePrice - row.catalogSuggestedPrice) / row.catalogSuggestedPrice) * 100)
+  const suggestedAveragePrice = competitorAveragePrice !== null ? roundSuggestedAboveAverage(competitorAveragePrice) : null;
+  const percentageVsSuggested = competitorAveragePrice !== null && suggestedAveragePrice !== null && competitorAveragePrice > 0
+    ? roundMoney(((suggestedAveragePrice - competitorAveragePrice) / competitorAveragePrice) * 100)
     : null;
 
   return {
@@ -296,5 +303,26 @@ export async function saveSalesPriceBenchmark(input: SalesPriceBenchmarkInput): 
   } catch (error) {
     console.error("Erro ao salvar Preço Venda Médio:", error);
     return { ok: false, error: error instanceof Error ? error.message : "Não foi possível salvar o Preço Venda Médio." };
+  }
+}
+
+export async function deleteSalesPriceBenchmark(productId: string): Promise<SaveBenchmarkResult> {
+  try {
+    const { supabase, establishmentId } = await getContext();
+    if (!productId) return { ok: false, error: "Registro não informado para exclusão." };
+
+    const { error } = await supabase
+      .from("sales_price_benchmarks")
+      .delete()
+      .eq("establishment_id", establishmentId)
+      .eq("product_id", productId);
+
+    if (error) return { ok: false, error: friendlyError(error, "Não foi possível excluir o registro de Preço Venda Médio.") };
+
+    revalidatePath("/engenharia/preco-venda-medio");
+    return { ok: true };
+  } catch (error) {
+    console.error("Erro ao excluir Preço Venda Médio:", error);
+    return { ok: false, error: error instanceof Error ? error.message : "Não foi possível excluir o registro de Preço Venda Médio." };
   }
 }

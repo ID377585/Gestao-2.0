@@ -130,11 +130,7 @@ function computeCompetitorAverage(form: FormState) {
 
 function roundSuggestedAboveAverage(average: number) {
   let suggested = Math.ceil(average);
-
-  if (suggested <= average) {
-    suggested += 1;
-  }
-
+  if (suggested <= average) suggested += 1;
   return suggested;
 }
 
@@ -183,10 +179,7 @@ export default function PrecoVendaMedioPage() {
 
   const catalogSuggestedPrice = selectedProduct?.suggestedPrice ?? 0;
   const formCompetitorAverage = useMemo(() => computeCompetitorAverage(form), [form]);
-  const formSuggestedAverage = useMemo(
-    () => computeSuggestedAverage(formCompetitorAverage),
-    [formCompetitorAverage],
-  );
+  const formSuggestedAverage = useMemo(() => computeSuggestedAverage(formCompetitorAverage), [formCompetitorAverage]);
   const formPercentageVsSuggested = useMemo(
     () => computePercentageIncrease(formCompetitorAverage, formSuggestedAverage),
     [formCompetitorAverage, formSuggestedAverage],
@@ -212,13 +205,9 @@ export default function PrecoVendaMedioPage() {
 
   const metrics = useMemo(() => {
     const withCompetitors = benchmarks.filter((item) => item.competitorAveragePrice !== null);
-    const averageGap = withCompetitors.length
-      ? withCompetitors.reduce((sum, item) => sum + Number(item.percentageVsSuggested ?? 0), 0) / withCompetitors.length
-      : 0;
     return {
       total: benchmarks.length,
       withCompetitors: withCompetitors.length,
-      averageGap,
     };
   }, [benchmarks]);
 
@@ -236,7 +225,6 @@ export default function PrecoVendaMedioPage() {
   function handleSave() {
     setStatus("");
     setError("");
-
     const namesToKeep = keepRestaurantNames(form);
 
     startTransition(async () => {
@@ -283,10 +271,7 @@ export default function PrecoVendaMedioPage() {
         return;
       }
 
-      if (form.productId === item.productId) {
-        setForm(keepRestaurantNames(form));
-      }
-
+      if (form.productId === item.productId) setForm(keepRestaurantNames(form));
       setStatus("Comparação excluída com sucesso.");
       await loadData();
     });
@@ -314,22 +299,30 @@ export default function PrecoVendaMedioPage() {
             background: #fff !important;
           }
 
+          body * {
+            visibility: hidden !important;
+          }
+
+          .benchmark-print-area,
+          .benchmark-print-area * {
+            visibility: visible !important;
+          }
+
           .benchmark-screen-area {
             display: none !important;
           }
 
           .benchmark-print-area {
             display: block !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
             color: #000 !important;
             font-family: Arial, Helvetica, sans-serif !important;
             width: 100% !important;
           }
 
           .benchmark-print-title {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 12px;
             margin-bottom: 6px;
           }
 
@@ -343,14 +336,6 @@ export default function PrecoVendaMedioPage() {
           .benchmark-print-title p {
             font-size: 7px;
             margin: 2px 0 0;
-          }
-
-          .benchmark-print-summary {
-            display: flex;
-            gap: 8px;
-            font-size: 7px;
-            font-weight: 700;
-            white-space: nowrap;
           }
 
           .benchmark-print-table {
@@ -450,7 +435,7 @@ export default function PrecoVendaMedioPage() {
                     <option value="">Selecione um produto do catálogo</option>
                     {products.map((product) => (
                       <option key={product.id} value={product.id}>
-                        {product.name} {product.brand ? `• ${product.brand}` : ""}
+                        {product.name} {product.brand ? ` • ${product.brand}` : ""}
                       </option>
                     ))}
                   </select>
@@ -470,7 +455,7 @@ export default function PrecoVendaMedioPage() {
                 </label>
 
                 <div className="w-[190px] shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-[11px] font-bold text-slate-600">Preço venda sugerido</p>
+                  <p className="text-[11px] font-bold text-slate-600">Preço de custo</p>
                   <p className="mt-1 text-lg font-black">{formatCurrency(catalogSuggestedPrice)}</p>
                 </div>
 
@@ -597,7 +582,7 @@ export default function PrecoVendaMedioPage() {
                     <tr>
                       <th className="sticky left-0 z-10 bg-white px-3 py-3">Prato</th>
                       <th className="px-3 py-3">Tipo</th>
-                      <th className="px-3 py-3">Catálogo</th>
+                      <th className="px-3 py-3">Preço de custo</th>
                       <th className="px-3 py-3">Nosso preço definido</th>
                       {RESTAURANT_FIELDS.map((number) => (
                         <th key={number} className="px-3 py-3">Concorrente {number}</th>
@@ -610,10 +595,7 @@ export default function PrecoVendaMedioPage() {
                   </thead>
                   <tbody>
                     {filteredBenchmarks.map((item) => (
-                      <tr
-                        key={item.id ?? item.productId}
-                        className="border-t border-slate-100 transition hover:bg-emerald-50/70"
-                      >
+                      <tr key={item.id ?? item.productId} className="border-t border-slate-100 transition hover:bg-emerald-50/70">
                         <td className="sticky left-0 z-10 bg-white px-3 py-4 font-bold text-slate-900">
                           {item.productName}
                           <div className="text-xs font-medium text-slate-500">{item.brand || item.category || "Sem categoria"}</div>
@@ -667,16 +649,8 @@ export default function PrecoVendaMedioPage() {
 
       <div className="benchmark-print-area">
         <div className="benchmark-print-title">
-          <div>
-            <h1>Gestify - Preço Venda Médio</h1>
-            <p>Comparativo de preços da concorrência para análise de cardápio e posicionamento de venda.</p>
-          </div>
-          <div className="benchmark-print-summary">
-            <span>Registros: {filteredBenchmarks.length}</span>
-            <span>Com concorrentes: {metrics.withCompetitors}</span>
-            <span>Aumento médio: {formatPercent(metrics.averageGap)}</span>
-            <span>Impresso em: {new Date().toLocaleDateString("pt-BR")}</span>
-          </div>
+          <h1>Preço Venda Médio</h1>
+          <p>Comparativo de preços da concorrência para análise de cardápio e posicionamento de venda.</p>
         </div>
 
         <table className="benchmark-print-table">
@@ -684,7 +658,7 @@ export default function PrecoVendaMedioPage() {
             <tr>
               <th className="benchmark-print-col-prato">Prato</th>
               <th className="benchmark-print-col-tipo">Tipo</th>
-              <th className="benchmark-print-col-money">Catálogo</th>
+              <th className="benchmark-print-col-money">Preço de custo</th>
               <th className="benchmark-print-col-money">Nosso preço</th>
               {RESTAURANT_FIELDS.map((number) => (
                 <th key={number} className="benchmark-print-col-competitor">Conc. {number}</th>

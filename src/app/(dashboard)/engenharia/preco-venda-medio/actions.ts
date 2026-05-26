@@ -175,6 +175,14 @@ function computeBenchmark(row: Omit<SalesPriceBenchmark, "competitorAveragePrice
   };
 }
 
+function omitPayloadKeys<T extends Record<string, any>>(payload: T, keys: string[]) {
+  const next = { ...payload };
+  keys.forEach((key) => {
+    delete next[key];
+  });
+  return next;
+}
+
 async function fetchProducts(supabase: ReturnType<typeof createSupabaseAdminClient>, establishmentId: string): Promise<any[]> {
   const attempts = [
     { select: "id,name,brand,category,price,standard_cost", active: true },
@@ -203,11 +211,14 @@ async function fetchBenchmarks(supabase: ReturnType<typeof createSupabaseAdminCl
   const fullSelect = "id,product_id,dish_type,manual_sale_price,restaurant_1_name,restaurant_2_name,restaurant_3_name,restaurant_4_name,restaurant_5_name,restaurant_1_price,restaurant_2_price,restaurant_3_price,restaurant_4_price,restaurant_5_price,notes,updated_at";
   const fallbackSelect = "id,product_id,dish_type,manual_sale_price,restaurant_1_price,restaurant_2_price,restaurant_3_price,restaurant_4_price,restaurant_5_price,notes,updated_at";
 
-  let { data, error } = await supabase
+  const firstQuery = await supabase
     .from("sales_price_benchmarks")
     .select(fullSelect)
     .eq("establishment_id", establishmentId)
     .order("updated_at", { ascending: false });
+
+  let data: any[] | null = firstQuery.data as any[] | null;
+  let error: unknown = firstQuery.error;
 
   if (error && isColumnOrSchemaError(error)) {
     const retry = await supabase
@@ -215,7 +226,7 @@ async function fetchBenchmarks(supabase: ReturnType<typeof createSupabaseAdminCl
       .select(fallbackSelect)
       .eq("establishment_id", establishmentId)
       .order("updated_at", { ascending: false });
-    data = retry.data;
+    data = retry.data as any[] | null;
     error = retry.error;
   }
 
@@ -327,7 +338,14 @@ export async function saveSalesPriceBenchmark(input: SalesPriceBenchmarkInput): 
       .upsert(payload, { onConflict: "establishment_id,product_id" });
 
     if (error && isColumnOrSchemaError(error)) {
-      const { restaurant_1_name, restaurant_2_name, restaurant_3_name, restaurant_4_name, restaurant_5_name, created_by, ...fallbackPayload } = payload;
+      const fallbackPayload = omitPayloadKeys(payload, [
+        "restaurant_1_name",
+        "restaurant_2_name",
+        "restaurant_3_name",
+        "restaurant_4_name",
+        "restaurant_5_name",
+        "created_by",
+      ]);
       const retry = await supabase
         .from("sales_price_benchmarks")
         .upsert(fallbackPayload, { onConflict: "establishment_id,product_id" });

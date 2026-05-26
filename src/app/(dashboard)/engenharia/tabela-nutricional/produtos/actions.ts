@@ -26,6 +26,11 @@ export type ProductNutritionInput = NutritionFacts & {
   notes?: string | null;
 };
 
+export type SaveProductNutritionResult = {
+  ok: boolean;
+  error?: string;
+};
+
 const ZERO_NUTRITION: NutritionFacts = {
   calories_kcal: 0,
   carbohydrates_g: 0,
@@ -73,6 +78,33 @@ function isMissingNutritionTableError(error: unknown) {
   );
 }
 
+function getFriendlySupabaseError(error: unknown, fallback: string) {
+  const code = String((error as any)?.code ?? "");
+  const message = String((error as any)?.message ?? "").toLowerCase();
+
+  if (isMissingNutritionTableError(error)) {
+    return "A migration da Tabela Nutricional ainda não foi aplicada no Supabase.";
+  }
+
+  if (code === "42501" || message.includes("permission denied") || message.includes("row-level security")) {
+    return "Sem permissão para salvar os dados nutricionais neste estabelecimento.";
+  }
+
+  if (code === "23503" || message.includes("foreign key")) {
+    return "Não foi possível salvar porque o produto ou usuário relacionado não foi encontrado no banco.";
+  }
+
+  if (code === "42P10" || message.includes("no unique") || message.includes("on conflict")) {
+    return "A tabela nutricional precisa da chave única por estabelecimento/produto. Reaplique a migration da Tabela Nutricional no Supabase.";
+  }
+
+  if (code === "42703" || message.includes("column") || message.includes("schema cache")) {
+    return "A estrutura da tabela nutricional no Supabase está diferente do esperado. Reaplique a migration da Tabela Nutricional.";
+  }
+
+  return fallback;
+}
+
 function toNumber(value: unknown) {
   const n = Number(value ?? 0);
   return Number.isFinite(n) && n >= 0 ? n : 0;
@@ -94,7 +126,7 @@ function normalizeNutrition(input: Partial<NutritionFacts>): NutritionFacts {
 }
 
 async function assertProductsBelongToEstablishment(
-  supabase: Awaited<ReturnType<typeof createSupabaseAdminClient>>,
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
   establishmentId: string,
   productIds: string[],
 ) {
@@ -186,44 +218,50 @@ export async function listProductsForNutritionEditor(): Promise<ProductNutrition
   });
 }
 
-export async function saveProductNutrition(input: ProductNutritionInput) {
-  const { supabase, establishmentId, userId } = await getContext();
+export async function saveProductNutrition(input: ProductNutritionInput): Promise<SaveProductNutritionResult> {
+  try {
+    const { supabase, establishmentId, userId } = await getContext();
 
-  if (!input.productId) {
-    throw new Error("Produto não informado.");
-  }
-
-  await assertProductsBelongToEstablishment(supabase, establishmentId, [input.productId]);
-
-  const nutrition = normalizeNutrition(input);
-
-  const { error } = await supabase
-    .from("product_nutrition_facts")
-    .upsert(
-      {
-        establishment_id: establishmentId,
-        product_id: input.productId,
-        serving_basis: "100g",
-        ...nutrition,
-        source: input.source?.trim() || null,
-        notes: input.notes?.trim() || null,
-        created_by: userId,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "establishment_id,product_id" },
-    );
-
-  if (error) {
-    if (isMissingNutritionTableError(error)) {
-      throw new Error("A migration da Tabela Nutricional ainda não foi aplicada no Supabase.");
+    if (!input.productId) {
+      return { ok: false, error: "Produto não informado." };
     }
 
-    console.error("Erro ao salvar dados nutricionais:", error);
-    throw new Error("Não foi possível salvar os dados nutricionais do produto.");
-  }
+    await assertProductsBelongToEstablishment(supabase, establishmentId, [input.productId]);
 
-  revalidatePath("/engenharia/tabela-nutricional");
-  revalidatePath("/engenharia/tabela-nutricional/produtos");
+    const nutrition = normalizeNutrition(input);
+    const payload = {
+      establishment_id: establishmentId,
+      product_id: input.productId,
+      serving_basis: "100g",
+      ...nutrition,
+      source: input.source?.trim() || null,
+      notes: input.notes?.trim() || null,
+      created_by: userId,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from("product_nutrition_facts")
+      .upsert(payload, { onConflict: "establishment_id,product_id" });
+
+    if (error) {
+      console.error("Erro ao salvar dados nutricionais:", error);
+      return {
+        ok: false,
+        error: getFriendlySupabaseError(error, "Não foi possível salvar os dados nutricionais do produto."),
+      };
+    }
+
+    revalidatePath("/engenharia/tabela-nutricional");
+    revalidatePath("/engenharia/tabela-nutricional/produtos");
+    return { ok: true };
+  } catch (error) {
+    console.error("Erro inesperado ao salvar dados nutricionais:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Não foi possível salvar os dados nutricionais do produto.",
+    };
+  }
 }
 
 export async function saveProductNutritionBatch(inputs: ProductNutritionInput[]) {

@@ -10,16 +10,27 @@ type WeatherData = {
   locationLabel: string | null;
 };
 
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 function formatDateLabel(date: Date) {
   const weekday = new Intl.DateTimeFormat("pt-BR", { weekday: "long" }).format(date);
   const day = new Intl.DateTimeFormat("pt-BR", { day: "2-digit" }).format(date);
   const month = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(date);
   const year = new Intl.DateTimeFormat("pt-BR", { year: "numeric" }).format(date);
 
-  const formattedWeekday = weekday.charAt(0).toUpperCase() + weekday.slice(1);
-  const formattedMonth = month.charAt(0).toUpperCase() + month.slice(1);
+  return `${capitalize(weekday)}: ${day} de ${capitalize(month)} ${year}`;
+}
 
-  return `${formattedWeekday}: ${day} de ${formattedMonth} ${year}`;
+function formatCompactDateLabel(date: Date) {
+  const weekday = new Intl.DateTimeFormat("pt-BR", { weekday: "short" }).format(date).replace(".", "");
+  const dayMonth = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+  }).format(date);
+
+  return `${capitalize(weekday)}: ${dayMonth}`;
 }
 
 async function fetchWeather(latitude?: number, longitude?: number) {
@@ -97,6 +108,7 @@ export function CurrentDateWeather() {
   }, []);
 
   const dateLabel = useMemo(() => formatDateLabel(now), [now]);
+  const compactDateLabel = useMemo(() => formatCompactDateLabel(now), [now]);
   const weatherLabel = weather?.temperatureC !== null && weather?.temperatureC !== undefined
     ? `${weather.temperatureC}ºC ${weather.emoji}`
     : weather?.emoji ?? "🌡️";
@@ -106,10 +118,11 @@ export function CurrentDateWeather() {
 
   return (
     <div
-      className="hidden max-w-[380px] items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm xl:flex dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+      className="hidden max-w-[380px] items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm lg:flex dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
       title={fullTitle}
     >
-      <span className="truncate">{dateLabel}</span>
+      <span className="truncate 2xl:hidden">{compactDateLabel}</span>
+      <span className="hidden truncate 2xl:inline">{dateLabel}</span>
       <span className="mx-2 shrink-0 text-slate-300 dark:text-slate-600">—</span>
       <span className="shrink-0 whitespace-nowrap">{weatherLabel}</span>
     </div>

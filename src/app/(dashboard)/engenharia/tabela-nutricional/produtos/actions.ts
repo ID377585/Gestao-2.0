@@ -26,6 +26,11 @@ export type ProductNutritionInput = NutritionFacts & {
   notes?: string | null;
 };
 
+export type ProductNutritionEditorResult = {
+  items: ProductNutritionEditorItem[];
+  error?: string;
+};
+
 export type SaveProductNutritionResult = {
   ok: boolean;
   error?: string;
@@ -70,7 +75,7 @@ function isMissingNutritionTableError(error: unknown) {
   const code = String((error as any)?.code ?? "");
   const message = String((error as any)?.message ?? "").toLowerCase();
 
-  return code === "42P01" || message.includes("relation") && message.includes("product_nutrition_facts") && message.includes("does not exist");
+  return code === "42P01" || (message.includes("relation") && message.includes("product_nutrition_facts") && message.includes("does not exist"));
 }
 
 function isColumnOrSchemaError(error: unknown) {
@@ -94,7 +99,7 @@ function getFriendlySupabaseError(error: unknown, fallback: string) {
   }
 
   if (code === "42501" || message.includes("permission denied") || message.includes("row-level security")) {
-    return "Sem permissão para salvar os dados nutricionais neste estabelecimento.";
+    return "Sem permissão para acessar ou salvar os dados nutricionais neste estabelecimento.";
   }
 
   if (code === "23503" || message.includes("foreign key")) {
@@ -106,7 +111,7 @@ function getFriendlySupabaseError(error: unknown, fallback: string) {
   }
 
   if (isColumnOrSchemaError(error)) {
-    return "A estrutura da tabela nutricional no Supabase está diferente do esperado. Atualize a migration ou recarregue o schema cache do Supabase.";
+    return "A estrutura da tabela/produtos no Supabase está diferente do esperado. Atualize a migration ou recarregue o schema cache do Supabase.";
   }
 
   return fallback;
@@ -150,7 +155,7 @@ async function assertProductsBelongToEstablishment(
 
   if (error) {
     console.error("Erro ao validar produtos para nutrição:", error);
-    throw new Error("Não foi possível validar os produtos informados.");
+    throw new Error(getFriendlySupabaseError(error, "Não foi possível validar os produtos informados."));
   }
 
   const allowedIds = new Set(
@@ -166,22 +171,44 @@ async function assertProductsBelongToEstablishment(
   }
 }
 
-export async function listProductsForNutritionEditor(): Promise<ProductNutritionEditorItem[]> {
-  const { supabase, establishmentId } = await getContext();
+async function fetchProductsForNutritionEditor(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  establishmentId: string,
+) {
+  const fullSelect = "id,name,brand,category,sector_category,default_unit_label,allergens";
+  const fallbackSelect = "id,name,brand,category";
 
-  const { data: products, error: productsError } = await supabase
+  let { data, error } = await supabase
     .from("products")
-    .select("id,name,brand,category,sector_category,default_unit_label,allergens")
+    .select(fullSelect)
     .eq("establishment_id", establishmentId)
     .eq("is_active", true)
     .order("name", { ascending: true });
 
-  if (productsError) {
-    console.error("Erro ao carregar produtos para nutrição:", productsError);
-    throw new Error("Não foi possível carregar os produtos.");
+  if (error && isColumnOrSchemaError(error)) {
+    console.warn("Consulta de produtos para nutrição falhou com colunas opcionais. Tentando consulta mínima.", error);
+    const retry = await supabase
+      .from("products")
+      .select(fallbackSelect)
+      .eq("establishment_id", establishmentId)
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+    data = retry.data;
+    error = retry.error;
   }
 
-  const productIds = (products ?? []).map((product: any) => String(product.id));
+  if (error) {
+    console.error("Erro ao carregar produtos para nutrição:", error);
+    throw new Error(getFriendlySupabaseError(error, "Não foi possível carregar os produtos."));
+  }
+
+  return data ?? [];
+}
+
+async function buildProductNutritionEditorItems(): Promise<ProductNutritionEditorItem[]> {
+  const { supabase, establishmentId } = await getContext();
+  const products = await fetchProductsForNutritionEditor(supabase, establishmentId);
+  const productIds = products.map((product: any) => String(product.id));
   const nutritionByProductId = new Map<string, any>();
 
   if (productIds.length > 0) {
@@ -196,7 +223,7 @@ export async function listProductsForNutritionEditor(): Promise<ProductNutrition
         console.warn("Tabela product_nutrition_facts ainda não existe. Produtos serão exibidos como pendentes até aplicar a migration.");
       } else {
         console.error("Erro ao carregar dados nutricionais dos produtos:", nutritionError);
-        throw new Error("Não foi possível carregar os dados nutricionais.");
+        throw new Error(getFriendlySupabaseError(nutritionError, "Não foi possível carregar os dados nutricionais."));
       }
     } else {
       for (const row of nutritionFacts ?? []) {
@@ -205,7 +232,7 @@ export async function listProductsForNutritionEditor(): Promise<ProductNutrition
     }
   }
 
-  return (products ?? []).map((product: any) => {
+  return products.map((product: any) => {
     const nutrition = nutritionByProductId.get(String(product.id));
 
     return {
@@ -223,6 +250,23 @@ export async function listProductsForNutritionEditor(): Promise<ProductNutrition
       updatedAt: nutrition?.updated_at ?? null,
     };
   });
+}
+
+export async function listProductsForNutritionEditor(): Promise<ProductNutritionEditorItem[]> {
+  return buildProductNutritionEditorItems();
+}
+
+export async function listProductsForNutritionEditorSafe(): Promise<ProductNutritionEditorResult> {
+  try {
+    const items = await buildProductNutritionEditorItems();
+    return { items };
+  } catch (error) {
+    console.error("Erro inesperado ao carregar editor nutricional:", error);
+    return {
+      items: [],
+      error: error instanceof Error ? error.message : "Não foi possível carregar os produtos para nutrição.",
+    };
+  }
 }
 
 export async function saveProductNutrition(input: ProductNutritionInput): Promise<SaveProductNutritionResult> {

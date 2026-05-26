@@ -174,16 +174,19 @@ async function assertProductsBelongToEstablishment(
 async function fetchProductsForNutritionEditor(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   establishmentId: string,
-) {
+): Promise<any[]> {
   const fullSelect = "id,name,brand,category,sector_category,default_unit_label,allergens";
   const fallbackSelect = "id,name,brand,category";
 
-  let { data, error } = await supabase
+  const firstQuery = await supabase
     .from("products")
     .select(fullSelect)
     .eq("establishment_id", establishmentId)
     .eq("is_active", true)
     .order("name", { ascending: true });
+
+  let data: any[] | null = firstQuery.data as any[] | null;
+  let error: unknown = firstQuery.error;
 
   if (error && isColumnOrSchemaError(error)) {
     console.warn("Consulta de produtos para nutrição falhou com colunas opcionais. Tentando consulta mínima.", error);
@@ -193,7 +196,7 @@ async function fetchProductsForNutritionEditor(
       .eq("establishment_id", establishmentId)
       .eq("is_active", true)
       .order("name", { ascending: true });
-    data = retry.data;
+    data = retry.data as any[] | null;
     error = retry.error;
   }
 

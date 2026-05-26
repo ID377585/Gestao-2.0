@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,6 +10,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import type { AppNotification } from "@/lib/notifications";
+import { getStockCountCountdown } from "@/lib/stock-count-notifications";
 
 type NotificationsModalProps = {
   open: boolean;
@@ -66,6 +68,8 @@ function getPriorityClass(priority?: AppNotification["priority"]) {
 
 function getTypeLabel(type?: AppNotification["type"]) {
   switch (type) {
+    case "stock_count_reminder":
+      return "Contagem de Estoque";
     case "stock_idle":
       return "Estoque parado";
     case "low_stock":
@@ -99,6 +103,8 @@ function getPayloadRows(notification: AppNotification) {
     customer_name: "Cliente",
     due_date: "Vencimento",
     status: "Status",
+    reminder_time: "Horário",
+    stock_count_date: "Data da contagem",
   };
 
   return Object.entries(source)
@@ -119,6 +125,18 @@ export default function NotificationsModal({
   const unreadCount = notifications.filter((item) => !item.read).length;
   const readCount = notifications.filter((item) => item.read).length;
   const criticalCount = notifications.filter((item) => item.priority === "critical").length;
+  const [stockCountdown, setStockCountdown] = useState(() => getStockCountCountdown());
+
+  useEffect(() => {
+    if (!open) return;
+
+    setStockCountdown(getStockCountCountdown());
+    const intervalId = window.setInterval(() => {
+      setStockCountdown(getStockCountCountdown());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={(v) => (!v ? onClose() : undefined)}>
@@ -131,6 +149,22 @@ export default function NotificationsModal({
             Acompanhe alertas operacionais, financeiros, estoque e planos.
           </DialogDescription>
         </DialogHeader>
+
+        {stockCountdown.enabled ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
+            <div className="text-xs font-bold uppercase tracking-[0.18em]">
+              Contagem de Estoque
+            </div>
+            <div className="mt-1 text-2xl font-black tabular-nums">
+              {stockCountdown.label}
+            </div>
+            <p className="mt-1 text-sm">
+              {stockCountdown.isLastDayOfMonth
+                ? "Hoje é o último dia do mês. Efetue a contagem de estoque nos períodos programados: 06:00, 15:00 e 21:00."
+                : "Contagem regressiva para o último dia do mês. A contagem deve ser realizada no último dia."}
+            </p>
+          </div>
+        ) : null}
 
         <div className="grid gap-2 sm:grid-cols-3">
           <div className="rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/50">

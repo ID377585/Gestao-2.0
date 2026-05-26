@@ -23,6 +23,11 @@ export type SalesPriceBenchmark = {
   dishType: DishType;
   catalogSuggestedPrice: number;
   manualSalePrice: number | null;
+  restaurant1Name: string | null;
+  restaurant2Name: string | null;
+  restaurant3Name: string | null;
+  restaurant4Name: string | null;
+  restaurant5Name: string | null;
   restaurant1Price: number | null;
   restaurant2Price: number | null;
   restaurant3Price: number | null;
@@ -39,6 +44,11 @@ export type SalesPriceBenchmarkInput = {
   productId: string;
   dishType: DishType;
   manualSalePrice?: number | null;
+  restaurant1Name?: string | null;
+  restaurant2Name?: string | null;
+  restaurant3Name?: string | null;
+  restaurant4Name?: string | null;
+  restaurant5Name?: string | null;
   restaurant1Price?: number | null;
   restaurant2Price?: number | null;
   restaurant3Price?: number | null;
@@ -120,6 +130,11 @@ function toNullableNumber(value: unknown) {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+function toNullableText(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text ? text : null;
+}
+
 function getProductSuggestedPrice(product: any) {
   return toNumber(product.price ?? product.sale_price ?? product.suggested_sale_price ?? product.standard_cost ?? 0);
 }
@@ -135,11 +150,10 @@ function roundMoney(value: number) {
 }
 
 function roundSuggestedAboveAverage(average: number) {
-  const floorValue = Math.floor(average);
-  let suggested = roundMoney(floorValue + 0.9);
+  let suggested = Math.ceil(average);
 
   if (suggested <= average) {
-    suggested = roundMoney(floorValue + 1.9);
+    suggested += 1;
   }
 
   return suggested;
@@ -186,11 +200,24 @@ async function fetchProducts(supabase: ReturnType<typeof createSupabaseAdminClie
 }
 
 async function fetchBenchmarks(supabase: ReturnType<typeof createSupabaseAdminClient>, establishmentId: string) {
-  const { data, error } = await supabase
+  const fullSelect = "id,product_id,dish_type,manual_sale_price,restaurant_1_name,restaurant_2_name,restaurant_3_name,restaurant_4_name,restaurant_5_name,restaurant_1_price,restaurant_2_price,restaurant_3_price,restaurant_4_price,restaurant_5_price,notes,updated_at";
+  const fallbackSelect = "id,product_id,dish_type,manual_sale_price,restaurant_1_price,restaurant_2_price,restaurant_3_price,restaurant_4_price,restaurant_5_price,notes,updated_at";
+
+  let { data, error } = await supabase
     .from("sales_price_benchmarks")
-    .select("id,product_id,dish_type,manual_sale_price,restaurant_1_price,restaurant_2_price,restaurant_3_price,restaurant_4_price,restaurant_5_price,notes,updated_at")
+    .select(fullSelect)
     .eq("establishment_id", establishmentId)
     .order("updated_at", { ascending: false });
+
+  if (error && isColumnOrSchemaError(error)) {
+    const retry = await supabase
+      .from("sales_price_benchmarks")
+      .select(fallbackSelect)
+      .eq("establishment_id", establishmentId)
+      .order("updated_at", { ascending: false });
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     if (isMissingBenchmarkTable(error)) return { rows: [] as any[], tableMissing: true };
@@ -237,6 +264,11 @@ export async function loadSalesPriceBenchmarks(): Promise<SalesPriceBenchmarkPay
         dishType: (row.dish_type || "Prato Principal") as DishType,
         catalogSuggestedPrice: product?.suggestedPrice ?? 0,
         manualSalePrice: toNullableNumber(row.manual_sale_price),
+        restaurant1Name: toNullableText(row.restaurant_1_name),
+        restaurant2Name: toNullableText(row.restaurant_2_name),
+        restaurant3Name: toNullableText(row.restaurant_3_name),
+        restaurant4Name: toNullableText(row.restaurant_4_name),
+        restaurant5Name: toNullableText(row.restaurant_5_name),
         restaurant1Price: toNullableNumber(row.restaurant_1_price),
         restaurant2Price: toNullableNumber(row.restaurant_2_price),
         restaurant3Price: toNullableNumber(row.restaurant_3_price),
@@ -275,6 +307,11 @@ export async function saveSalesPriceBenchmark(input: SalesPriceBenchmarkInput): 
       product_id: input.productId,
       dish_type: input.dishType || "Prato Principal",
       manual_sale_price: toNullableNumber(input.manualSalePrice),
+      restaurant_1_name: toNullableText(input.restaurant1Name),
+      restaurant_2_name: toNullableText(input.restaurant2Name),
+      restaurant_3_name: toNullableText(input.restaurant3Name),
+      restaurant_4_name: toNullableText(input.restaurant4Name),
+      restaurant_5_name: toNullableText(input.restaurant5Name),
       restaurant_1_price: toNullableNumber(input.restaurant1Price),
       restaurant_2_price: toNullableNumber(input.restaurant2Price),
       restaurant_3_price: toNullableNumber(input.restaurant3Price),
@@ -290,9 +327,10 @@ export async function saveSalesPriceBenchmark(input: SalesPriceBenchmarkInput): 
       .upsert(payload, { onConflict: "establishment_id,product_id" });
 
     if (error && isColumnOrSchemaError(error)) {
+      const { restaurant_1_name, restaurant_2_name, restaurant_3_name, restaurant_4_name, restaurant_5_name, created_by, ...fallbackPayload } = payload;
       const retry = await supabase
         .from("sales_price_benchmarks")
-        .upsert({ ...payload, created_by: undefined }, { onConflict: "establishment_id,product_id" });
+        .upsert(fallbackPayload, { onConflict: "establishment_id,product_id" });
       error = retry.error;
     }
 

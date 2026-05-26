@@ -47,6 +47,17 @@ const EMPTY_FORM: FormState = {
   notes: "",
 };
 
+function keepRestaurantNames(form: FormState): FormState {
+  return {
+    ...EMPTY_FORM,
+    restaurant1Name: form.restaurant1Name,
+    restaurant2Name: form.restaurant2Name,
+    restaurant3Name: form.restaurant3Name,
+    restaurant4Name: form.restaurant4Name,
+    restaurant5Name: form.restaurant5Name,
+  };
+}
+
 function formatCurrency(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return "R$ 0,00";
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value));
@@ -226,6 +237,8 @@ export default function PrecoVendaMedioPage() {
     setStatus("");
     setError("");
 
+    const namesToKeep = keepRestaurantNames(form);
+
     startTransition(async () => {
       const result = await saveSalesPriceBenchmark({
         productId: form.productId,
@@ -250,7 +263,7 @@ export default function PrecoVendaMedioPage() {
       }
 
       setStatus("Preço Venda Médio salvo com sucesso.");
-      setForm(EMPTY_FORM);
+      setForm(namesToKeep);
       await loadData();
     });
   }
@@ -271,7 +284,7 @@ export default function PrecoVendaMedioPage() {
       }
 
       if (form.productId === item.productId) {
-        setForm(EMPTY_FORM);
+        setForm(keepRestaurantNames(form));
       }
 
       setStatus("Comparação excluída com sucesso.");
@@ -406,7 +419,7 @@ export default function PrecoVendaMedioPage() {
             </p>
           </header>
 
-          <section className="grid gap-4 md:grid-cols-3">
+          <section className="grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-lg">
               <p className="text-xs text-slate-300">Pratos monitorados</p>
               <p className="mt-2 text-3xl font-black">{metrics.total}</p>
@@ -415,17 +428,13 @@ export default function PrecoVendaMedioPage() {
               <p className="text-xs">Com concorrentes</p>
               <p className="mt-2 text-3xl font-black">{metrics.withCompetitors}</p>
             </div>
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-blue-900 shadow-sm">
-              <p className="text-xs">Aumento médio sugerido</p>
-              <p className="mt-2 text-3xl font-black">{formatPercent(metrics.averageGap)}</p>
-            </div>
           </section>
 
           <section className="rounded-3xl border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-black">Cadastro da comparação</h2>
-                <p className="text-xs text-slate-500">Digite o nome de cada concorrente e o preço encontrado. Os nomes ficam salvos junto com a comparação.</p>
+                <p className="text-xs text-slate-500">Digite o nome de cada concorrente e o preço encontrado. Os nomes ficam salvos junto com a comparação e permanecem após salvar.</p>
               </div>
             </div>
 
@@ -548,7 +557,7 @@ export default function PrecoVendaMedioPage() {
                 onClick={() => setForm(EMPTY_FORM)}
                 className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
               >
-                Limpar
+                Limpar tudo
               </button>
             </div>
           </section>

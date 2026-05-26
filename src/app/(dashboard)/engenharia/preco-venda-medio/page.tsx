@@ -279,255 +279,441 @@ export default function PrecoVendaMedioPage() {
     });
   }
 
+  function handlePrint() {
+    window.print();
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50 to-sky-100 p-6 text-slate-950">
-      <div className="mx-auto max-w-[1700px] space-y-6">
-        <header className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
-          <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-700">Engenharia</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight">Preço Venda Médio</h1>
-          <p className="mt-2 max-w-4xl text-sm text-slate-600">
-            Compare o preço atual do catálogo com preços anotados da concorrência. O preço sugerido é arredondado para um número inteiro acima da média dos concorrentes.
-          </p>
-        </header>
+    <>
+      <style>{`
+        .benchmark-print-area {
+          display: none;
+        }
 
-        <section className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-lg">
-            <p className="text-xs text-slate-300">Pratos monitorados</p>
-            <p className="mt-2 text-3xl font-black">{metrics.total}</p>
-          </div>
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-900 shadow-sm">
-            <p className="text-xs">Com concorrentes</p>
-            <p className="mt-2 text-3xl font-black">{metrics.withCompetitors}</p>
-          </div>
-          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-blue-900 shadow-sm">
-            <p className="text-xs">Aumento médio sugerido</p>
-            <p className="mt-2 text-3xl font-black">{formatPercent(metrics.averageGap)}</p>
-          </div>
-        </section>
+        @media print {
+          @page {
+            size: A4 landscape;
+            margin: 5mm;
+          }
 
-        <section className="rounded-3xl border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-black">Cadastro da comparação</h2>
-              <p className="text-xs text-slate-500">Digite o nome de cada concorrente e o preço encontrado. Os nomes ficam salvos junto com a comparação.</p>
+          html,
+          body {
+            background: #fff !important;
+          }
+
+          .benchmark-screen-area {
+            display: none !important;
+          }
+
+          .benchmark-print-area {
+            display: block !important;
+            color: #000 !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            width: 100% !important;
+          }
+
+          .benchmark-print-title {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 6px;
+          }
+
+          .benchmark-print-title h1 {
+            font-size: 13px;
+            line-height: 1.1;
+            margin: 0;
+            font-weight: 800;
+          }
+
+          .benchmark-print-title p {
+            font-size: 7px;
+            margin: 2px 0 0;
+          }
+
+          .benchmark-print-summary {
+            display: flex;
+            gap: 8px;
+            font-size: 7px;
+            font-weight: 700;
+            white-space: nowrap;
+          }
+
+          .benchmark-print-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            font-size: 6.5px;
+            line-height: 1.1;
+          }
+
+          .benchmark-print-table th,
+          .benchmark-print-table td {
+            border: 0.5px solid #333;
+            padding: 2px 2px;
+            vertical-align: top;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+          }
+
+          .benchmark-print-table th {
+            background: #e8e8e8 !important;
+            font-weight: 800;
+            text-transform: uppercase;
+          }
+
+          .benchmark-print-col-prato {
+            width: 13%;
+          }
+
+          .benchmark-print-col-tipo {
+            width: 6%;
+          }
+
+          .benchmark-print-col-money {
+            width: 7%;
+          }
+
+          .benchmark-print-col-competitor {
+            width: 8%;
+          }
+
+          .benchmark-print-col-percent {
+            width: 4.5%;
+          }
+
+          .benchmark-print-restaurant-name {
+            display: block;
+            font-weight: 800;
+            margin-bottom: 1px;
+          }
+
+          .benchmark-print-muted {
+            color: #333 !important;
+            font-size: 6px;
+          }
+        }
+      `}</style>
+
+      <div className="benchmark-screen-area min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50 to-sky-100 p-6 text-slate-950">
+        <div className="mx-auto max-w-[1700px] space-y-6">
+          <header className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+            <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-700">Engenharia</p>
+            <h1 className="mt-2 text-3xl font-black tracking-tight">Preço Venda Médio</h1>
+            <p className="mt-2 max-w-4xl text-sm text-slate-600">
+              Compare o preço atual do catálogo com preços anotados da concorrência. O preço sugerido é arredondado para um número inteiro acima da média dos concorrentes.
+            </p>
+          </header>
+
+          <section className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-lg">
+              <p className="text-xs text-slate-300">Pratos monitorados</p>
+              <p className="mt-2 text-3xl font-black">{metrics.total}</p>
             </div>
-          </div>
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-900 shadow-sm">
+              <p className="text-xs">Com concorrentes</p>
+              <p className="mt-2 text-3xl font-black">{metrics.withCompetitors}</p>
+            </div>
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-blue-900 shadow-sm">
+              <p className="text-xs">Aumento médio sugerido</p>
+              <p className="mt-2 text-3xl font-black">{formatPercent(metrics.averageGap)}</p>
+            </div>
+          </section>
 
-          <div className="overflow-x-auto pb-2">
-            <div className="flex min-w-max items-end gap-3">
-              <label className="w-[320px] shrink-0">
-                <span className="text-xs font-bold text-slate-700">Nome do prato</span>
-                <select
-                  value={form.productId}
-                  onChange={(event) => updateForm("productId", event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
-                >
-                  <option value="">Selecione um produto do catálogo</option>
-                  {products.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.name} {product.brand ? `• ${product.brand}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="w-[180px] shrink-0">
-                <span className="text-xs font-bold text-slate-700">Tipo</span>
-                <select
-                  value={form.dishType}
-                  onChange={(event) => updateForm("dishType", event.target.value as DishType)}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
-                >
-                  {DISH_TYPES.map((type) => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </label>
-
-              <div className="w-[190px] shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-[11px] font-bold text-slate-600">Preço venda sugerido</p>
-                <p className="mt-1 text-lg font-black">{formatCurrency(catalogSuggestedPrice)}</p>
-              </div>
-
-              <label className="w-[160px] shrink-0">
-                <span className="text-xs font-bold text-slate-700">Preço Venda</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.manualSalePrice}
-                  onChange={(event) => updateForm("manualSalePrice", event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
-                />
-              </label>
-
-              {RESTAURANT_FIELDS.map((number) => {
-                const nameKey = `restaurant${number}Name` as keyof FormState;
-                const priceKey = `restaurant${number}Price` as keyof FormState;
-                return (
-                  <div key={number} className="w-[190px] shrink-0 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                    <input
-                      value={form[nameKey]}
-                      onChange={(event) => updateForm(nameKey, event.target.value as never)}
-                      placeholder={`Nome restaurante ${number}`}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none ring-emerald-500 transition focus:ring-2"
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={form[priceKey]}
-                      onChange={(event) => updateForm(priceKey, event.target.value as never)}
-                      placeholder="Preço"
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
-                    />
-                  </div>
-                );
-              })}
-
-              <div className="w-[190px] shrink-0 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
-                <p className="text-[11px] font-bold text-blue-800">Média concorrência</p>
-                <p className="mt-1 text-lg font-black text-blue-900">{formatCurrency(formCompetitorAverage)}</p>
-              </div>
-
-              <div className="w-[190px] shrink-0 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                <p className="text-[11px] font-bold text-emerald-800">Preço médio sugerido</p>
-                <p className="mt-1 text-lg font-black text-emerald-900">{formatCurrency(formSuggestedAverage)}</p>
-              </div>
-
-              <div className="w-[110px] shrink-0 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
-                <p className="text-[11px] font-bold text-blue-800">%</p>
-                <p className={`mt-1 text-lg font-black ${(formPercentageVsSuggested ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
-                  {formatPercent(formPercentageVsSuggested)}
-                </p>
+          <section className="rounded-3xl border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-black">Cadastro da comparação</h2>
+                <p className="text-xs text-slate-500">Digite o nome de cada concorrente e o preço encontrado. Os nomes ficam salvos junto com a comparação.</p>
               </div>
             </div>
-          </div>
 
-          <label className="mt-4 block">
-            <span className="text-xs font-bold text-slate-700">Observações</span>
-            <textarea
-              rows={3}
-              value={form.notes}
-              onChange={(event) => updateForm("notes", event.target.value)}
-              placeholder="Ex.: restaurante referência, bairro, porção semelhante, data da cotação..."
-              className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none ring-emerald-500 transition focus:ring-2"
-            />
-          </label>
-
-          {error ? <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
-          {status ? <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{status}</p> : null}
-
-          <div className="mt-5 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isPending}
-              className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-900/20 transition hover:-translate-y-0.5 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isPending ? "Salvando..." : "Salvar comparação"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setForm(EMPTY_FORM)}
-              className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            >
-              Limpar
-            </button>
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-xl font-black">Comparações registradas</h2>
-              <p className="mt-1 text-sm text-slate-500">Use Editar para carregar os valores no formulário ou Excluir para remover a comparação.</p>
-            </div>
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar prato, restaurante, marca, categoria..."
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none ring-emerald-500 transition focus:ring-2 md:w-80"
-            />
-          </div>
-
-          {loading ? (
-            <p className="mt-6 rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">Carregando...</p>
-          ) : filteredBenchmarks.length === 0 ? (
-            <p className="mt-6 rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">Nenhuma comparação registrada ainda.</p>
-          ) : (
-            <div className="mt-6 overflow-x-auto">
-              <table className="min-w-[1750px] text-left text-sm">
-                <thead className="text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="sticky left-0 z-10 bg-white px-3 py-3">Prato</th>
-                    <th className="px-3 py-3">Tipo</th>
-                    <th className="px-3 py-3">Catálogo</th>
-                    <th className="px-3 py-3">Nosso preço definido</th>
-                    {RESTAURANT_FIELDS.map((number) => (
-                      <th key={number} className="px-3 py-3">Concorrente {number}</th>
+            <div className="overflow-x-auto pb-2">
+              <div className="flex min-w-max items-end gap-3">
+                <label className="w-[320px] shrink-0">
+                  <span className="text-xs font-bold text-slate-700">Nome do prato</span>
+                  <select
+                    value={form.productId}
+                    onChange={(event) => updateForm("productId", event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
+                  >
+                    <option value="">Selecione um produto do catálogo</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name} {product.brand ? `• ${product.brand}` : ""}
+                      </option>
                     ))}
-                    <th className="px-3 py-3">Média concorrência</th>
-                    <th className="px-3 py-3">Preço médio sugerido</th>
-                    <th className="px-3 py-3">%</th>
-                    <th className="px-3 py-3">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBenchmarks.map((item) => (
-                    <tr
-                      key={item.id ?? item.productId}
-                      className="border-t border-slate-100 transition hover:bg-emerald-50/70"
-                    >
-                      <td className="sticky left-0 z-10 bg-white px-3 py-4 font-bold text-slate-900">
-                        {item.productName}
-                        <div className="text-xs font-medium text-slate-500">{item.brand || item.category || "Sem categoria"}</div>
-                      </td>
-                      <td className="px-3 py-4">{item.dishType}</td>
-                      <td className="px-3 py-4 font-semibold">{formatCurrency(item.catalogSuggestedPrice)}</td>
-                      <td className="px-3 py-4 font-semibold text-slate-900">{formatCurrency(item.manualSalePrice)}</td>
-                      {RESTAURANT_FIELDS.map((number) => {
-                        const name = getRestaurantName(item, number);
-                        const price = getRestaurantPrice(item, number);
-                        return (
-                          <td key={number} className="px-3 py-4">
-                            <div className="font-bold text-slate-800">{name || `Concorrente ${number}`}</div>
-                            <div className="text-slate-600">{formatCurrency(price)}</div>
-                          </td>
-                        );
-                      })}
-                      <td className="px-3 py-4 font-semibold text-blue-800">{formatCurrency(item.competitorAveragePrice)}</td>
-                      <td className="px-3 py-4 font-black text-emerald-700">{formatCurrency(item.suggestedAveragePrice)}</td>
-                      <td className={`px-3 py-4 font-bold ${(item.percentageVsSuggested ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
-                        {formatPercent(item.percentageVsSuggested)}
-                      </td>
-                      <td className="px-3 py-4">
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => editBenchmark(item)}
-                            className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800 transition hover:bg-blue-100"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(item)}
-                            disabled={isPending}
-                            className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            Excluir
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </select>
+                </label>
+
+                <label className="w-[180px] shrink-0">
+                  <span className="text-xs font-bold text-slate-700">Tipo</span>
+                  <select
+                    value={form.dishType}
+                    onChange={(event) => updateForm("dishType", event.target.value as DishType)}
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
+                  >
+                    {DISH_TYPES.map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="w-[190px] shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-[11px] font-bold text-slate-600">Preço venda sugerido</p>
+                  <p className="mt-1 text-lg font-black">{formatCurrency(catalogSuggestedPrice)}</p>
+                </div>
+
+                <label className="w-[160px] shrink-0">
+                  <span className="text-xs font-bold text-slate-700">Preço Venda</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.manualSalePrice}
+                    onChange={(event) => updateForm("manualSalePrice", event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
+                  />
+                </label>
+
+                {RESTAURANT_FIELDS.map((number) => {
+                  const nameKey = `restaurant${number}Name` as keyof FormState;
+                  const priceKey = `restaurant${number}Price` as keyof FormState;
+                  return (
+                    <div key={number} className="w-[190px] shrink-0 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                      <input
+                        value={form[nameKey]}
+                        onChange={(event) => updateForm(nameKey, event.target.value as never)}
+                        placeholder={`Nome restaurante ${number}`}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none ring-emerald-500 transition focus:ring-2"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form[priceKey]}
+                        onChange={(event) => updateForm(priceKey, event.target.value as never)}
+                        placeholder="Preço"
+                        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2"
+                      />
+                    </div>
+                  );
+                })}
+
+                <div className="w-[190px] shrink-0 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                  <p className="text-[11px] font-bold text-blue-800">Média concorrência</p>
+                  <p className="mt-1 text-lg font-black text-blue-900">{formatCurrency(formCompetitorAverage)}</p>
+                </div>
+
+                <div className="w-[190px] shrink-0 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <p className="text-[11px] font-bold text-emerald-800">Preço médio sugerido</p>
+                  <p className="mt-1 text-lg font-black text-emerald-900">{formatCurrency(formSuggestedAverage)}</p>
+                </div>
+
+                <div className="w-[110px] shrink-0 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                  <p className="text-[11px] font-bold text-blue-800">%</p>
+                  <p className={`mt-1 text-lg font-black ${(formPercentageVsSuggested ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                    {formatPercent(formPercentageVsSuggested)}
+                  </p>
+                </div>
+              </div>
             </div>
-          )}
-        </section>
+
+            <label className="mt-4 block">
+              <span className="text-xs font-bold text-slate-700">Observações</span>
+              <textarea
+                rows={3}
+                value={form.notes}
+                onChange={(event) => updateForm("notes", event.target.value)}
+                placeholder="Ex.: restaurante referência, bairro, porção semelhante, data da cotação..."
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none ring-emerald-500 transition focus:ring-2"
+              />
+            </label>
+
+            {error ? <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
+            {status ? <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{status}</p> : null}
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isPending}
+                className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-900/20 transition hover:-translate-y-0.5 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isPending ? "Salvando..." : "Salvar comparação"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm(EMPTY_FORM)}
+                className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
+              >
+                Limpar
+              </button>
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-xl font-black">Comparações registradas</h2>
+                <p className="mt-1 text-sm text-slate-500">Use Editar para carregar os valores no formulário ou Excluir para remover a comparação.</p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Buscar prato, restaurante, marca, categoria..."
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none ring-emerald-500 transition focus:ring-2 md:w-80"
+                />
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  disabled={filteredBenchmarks.length === 0}
+                  className="rounded-2xl border border-slate-200 bg-slate-950 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Imprimir comparações
+                </button>
+              </div>
+            </div>
+
+            {loading ? (
+              <p className="mt-6 rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">Carregando...</p>
+            ) : filteredBenchmarks.length === 0 ? (
+              <p className="mt-6 rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">Nenhuma comparação registrada ainda.</p>
+            ) : (
+              <div className="mt-6 overflow-x-auto">
+                <table className="min-w-[1750px] text-left text-sm">
+                  <thead className="text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="sticky left-0 z-10 bg-white px-3 py-3">Prato</th>
+                      <th className="px-3 py-3">Tipo</th>
+                      <th className="px-3 py-3">Catálogo</th>
+                      <th className="px-3 py-3">Nosso preço definido</th>
+                      {RESTAURANT_FIELDS.map((number) => (
+                        <th key={number} className="px-3 py-3">Concorrente {number}</th>
+                      ))}
+                      <th className="px-3 py-3">Média concorrência</th>
+                      <th className="px-3 py-3">Preço médio sugerido</th>
+                      <th className="px-3 py-3">%</th>
+                      <th className="px-3 py-3">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredBenchmarks.map((item) => (
+                      <tr
+                        key={item.id ?? item.productId}
+                        className="border-t border-slate-100 transition hover:bg-emerald-50/70"
+                      >
+                        <td className="sticky left-0 z-10 bg-white px-3 py-4 font-bold text-slate-900">
+                          {item.productName}
+                          <div className="text-xs font-medium text-slate-500">{item.brand || item.category || "Sem categoria"}</div>
+                        </td>
+                        <td className="px-3 py-4">{item.dishType}</td>
+                        <td className="px-3 py-4 font-semibold">{formatCurrency(item.catalogSuggestedPrice)}</td>
+                        <td className="px-3 py-4 font-semibold text-slate-900">{formatCurrency(item.manualSalePrice)}</td>
+                        {RESTAURANT_FIELDS.map((number) => {
+                          const name = getRestaurantName(item, number);
+                          const price = getRestaurantPrice(item, number);
+                          return (
+                            <td key={number} className="px-3 py-4">
+                              <div className="font-bold text-slate-800">{name || `Concorrente ${number}`}</div>
+                              <div className="text-slate-600">{formatCurrency(price)}</div>
+                            </td>
+                          );
+                        })}
+                        <td className="px-3 py-4 font-semibold text-blue-800">{formatCurrency(item.competitorAveragePrice)}</td>
+                        <td className="px-3 py-4 font-black text-emerald-700">{formatCurrency(item.suggestedAveragePrice)}</td>
+                        <td className={`px-3 py-4 font-bold ${(item.percentageVsSuggested ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                          {formatPercent(item.percentageVsSuggested)}
+                        </td>
+                        <td className="px-3 py-4">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => editBenchmark(item)}
+                              className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800 transition hover:bg-blue-100"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(item)}
+                              disabled={isPending}
+                              className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Excluir
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
       </div>
-    </div>
+
+      <div className="benchmark-print-area">
+        <div className="benchmark-print-title">
+          <div>
+            <h1>Gestify - Preço Venda Médio</h1>
+            <p>Comparativo de preços da concorrência para análise de cardápio e posicionamento de venda.</p>
+          </div>
+          <div className="benchmark-print-summary">
+            <span>Registros: {filteredBenchmarks.length}</span>
+            <span>Com concorrentes: {metrics.withCompetitors}</span>
+            <span>Aumento médio: {formatPercent(metrics.averageGap)}</span>
+            <span>Impresso em: {new Date().toLocaleDateString("pt-BR")}</span>
+          </div>
+        </div>
+
+        <table className="benchmark-print-table">
+          <thead>
+            <tr>
+              <th className="benchmark-print-col-prato">Prato</th>
+              <th className="benchmark-print-col-tipo">Tipo</th>
+              <th className="benchmark-print-col-money">Catálogo</th>
+              <th className="benchmark-print-col-money">Nosso preço</th>
+              {RESTAURANT_FIELDS.map((number) => (
+                <th key={number} className="benchmark-print-col-competitor">Conc. {number}</th>
+              ))}
+              <th className="benchmark-print-col-money">Média conc.</th>
+              <th className="benchmark-print-col-money">Preço sugerido</th>
+              <th className="benchmark-print-col-percent">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredBenchmarks.map((item) => (
+              <tr key={`print-${item.id ?? item.productId}`}>
+                <td>
+                  <strong>{item.productName}</strong>
+                  <br />
+                  <span className="benchmark-print-muted">{item.brand || item.category || "Sem categoria"}</span>
+                </td>
+                <td>{item.dishType}</td>
+                <td>{formatCurrency(item.catalogSuggestedPrice)}</td>
+                <td>{formatCurrency(item.manualSalePrice)}</td>
+                {RESTAURANT_FIELDS.map((number) => {
+                  const name = getRestaurantName(item, number);
+                  const price = getRestaurantPrice(item, number);
+                  return (
+                    <td key={`print-${item.id ?? item.productId}-${number}`}>
+                      <span className="benchmark-print-restaurant-name">{name || `Conc. ${number}`}</span>
+                      {formatCurrency(price)}
+                    </td>
+                  );
+                })}
+                <td>{formatCurrency(item.competitorAveragePrice)}</td>
+                <td>{formatCurrency(item.suggestedAveragePrice)}</td>
+                <td>{formatPercent(item.percentageVsSuggested)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

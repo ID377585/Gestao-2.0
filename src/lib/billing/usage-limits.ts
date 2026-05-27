@@ -4,7 +4,12 @@ import type { BillingPlan } from "@/lib/billing/plans";
 import { listCurrentUserTenants } from "@/lib/tenant/get-current-tenant";
 
 export type PlanUsageMetric = {
-  key: "users" | "establishments" | "products";
+  key:
+    | "users"
+    | "establishments"
+    | "products"
+    | "orders"
+    | "technicalSheets";
   label: string;
   used: number;
   limit: number | null;
@@ -90,7 +95,13 @@ export async function getCompanyPlanUsage(params: {
   establishmentId: string;
   plan: BillingPlan | null;
 }): Promise<CompanyPlanUsage> {
-  const [usersCount, tenants, productsCount] = await Promise.all([
+  const [
+    usersCount,
+    tenants,
+    productsCount,
+    ordersCount,
+    technicalSheetsCount,
+  ] = await Promise.all([
     safeCount({
       table: "memberships",
       establishmentId: params.establishmentId,
@@ -99,6 +110,16 @@ export async function getCompanyPlanUsage(params: {
     listCurrentUserTenants(),
     safeCount({
       table: "products",
+      establishmentId: params.establishmentId,
+      applyEstablishmentFilter: true,
+    }),
+    safeCount({
+      table: "orders",
+      establishmentId: params.establishmentId,
+      applyEstablishmentFilter: true,
+    }),
+    safeCount({
+      table: "technical_sheets",
       establishmentId: params.establishmentId,
       applyEstablishmentFilter: true,
     }),
@@ -127,6 +148,18 @@ export async function getCompanyPlanUsage(params: {
         label: "Produtos/insumos",
         used: productsCount,
         limit: params.plan?.limits.products ?? null,
+      }),
+      buildMetric({
+        key: "orders",
+        label: "Pedidos",
+        used: ordersCount,
+        limit: params.plan?.limits.orders ?? null,
+      }),
+      buildMetric({
+        key: "technicalSheets",
+        label: "Fichas técnicas",
+        used: technicalSheetsCount,
+        limit: params.plan?.limits.technicalSheets ?? null,
       }),
     ],
   };

@@ -56,7 +56,7 @@ async function getProductDefaultUnit(params: {
 }) {
   const { data, error } = await params.supabase
     .from("products")
-    .select("default_unit_label")
+    .select("id, default_unit_label")
     .eq("id", params.productId)
     .eq("establishment_id", params.establishmentId)
     .maybeSingle();
@@ -64,6 +64,10 @@ async function getProductDefaultUnit(params: {
   if (error) {
     console.error("[products.getProductDefaultUnit] error", error);
     throw new Error("Não foi possível consultar a unidade padrão do produto.");
+  }
+
+  if (!(data as any)?.id) {
+    throw new Error("Produto inválido para a empresa ativa.");
   }
 
   return normalizeStockUnit((data as any)?.default_unit_label);
@@ -75,13 +79,12 @@ async function ensureStockBalanceForProduct(params: {
   productId: string;
   unitLabel?: string | null;
 }) {
-  const unit_label =
-    normalizeStockUnit(params.unitLabel) ||
-    (await getProductDefaultUnit({
-      supabase: params.supabase,
-      establishmentId: params.establishmentId,
-      productId: params.productId,
-    }));
+  const defaultUnit = await getProductDefaultUnit({
+    supabase: params.supabase,
+    establishmentId: params.establishmentId,
+    productId: params.productId,
+  });
+  const unit_label = normalizeStockUnit(params.unitLabel ?? defaultUnit);
 
   const { data: rows, error: existingError } = await params.supabase
     .from("stock_balances")
@@ -131,7 +134,9 @@ async function ensureStockBalanceForProduct(params: {
       .update({
         unit_label,
       })
-      .eq("id", onlyRow.id);
+      .eq("id", onlyRow.id)
+      .eq("establishment_id", params.establishmentId)
+      .eq("product_id", params.productId);
 
     if (updateSingleError) {
       console.error(
@@ -183,7 +188,9 @@ async function ensureStockBalanceForProduct(params: {
       max_qty: mergedMax,
       location: mergedLocation,
     })
-    .eq("id", keeper.id);
+    .eq("id", keeper.id)
+    .eq("establishment_id", params.establishmentId)
+    .eq("product_id", params.productId);
 
   if (keeperError) {
     console.error(
@@ -199,6 +206,8 @@ async function ensureStockBalanceForProduct(params: {
     const { error: deleteError } = await params.supabase
       .from("stock_balances")
       .delete()
+      .eq("establishment_id", params.establishmentId)
+      .eq("product_id", params.productId)
       .in("id", duplicateIds);
 
     if (deleteError) {
@@ -485,12 +494,10 @@ function revalidateProductAndStockPages() {
 export async function createProduct(formData: FormData) {
   const { establishmentId, userId } = await getMembershipIds();
   const supabase = await createSupabaseServerClient();
-
   const name = String(formData.get("name") ?? "").trim();
   const product_type = (formData.get("product_type") as ProductType) ?? "INSU";
   const default_unit_label =
     normalizeUnit(formData.get("default_unit_label")) ?? "UN";
-
   const skuRaw = formData.get("sku");
   const brandRaw = formData.get("brand");
   const categoryRaw = formData.get("category");
@@ -521,6 +528,7 @@ export async function createProduct(formData: FormData) {
   const price = parseNumber(priceRaw, 5);
   const conversion_factor = parseNumber(conversionRaw, 4);
   const shelf_life_days = parseIntSafe(shelfLifeRaw);
+  const resolvedCost = price ?? 0;
 
   let sku =
     skuRaw && String(skuRaw).trim().length > 0 ? String(skuRaw).trim() : null;
@@ -552,25 +560,25 @@ export async function createProduct(formData: FormData) {
   const abc_curve = normalizeProductAbcCurve(abcCurveRaw);
 
   const insertData: any = {
-    establishment_id: establishmentId,
-    name,
-    sku,
-    brand,
-    product_type,
-    default_unit_label,
-    package_qty: package_qty ?? null,
-    qty_per_package,
-    category,
-    sector_category: normalizedSectorCategory,
-    abc_curve,
-    shelf_life_days,
-    conversion_factor: conversion_factor ?? 1,
-    price: price ?? 0,
-    standard_cost: null,
-    allergens,
-    is_active: true,
-    ...(userId ? { created_by: userId } : {}),
-  };
+  establishment_id: establishmentId,
+  name,
+  sku,
+  brand,
+  product_type,
+  default_unit_label,
+  package_qty: package_qty ?? null,
+  qty_per_package,
+  category,
+  sector_category: normalizedSectorCategory,
+  abc_curve,
+  shelf_life_days,
+  conversion_factor: conversion_factor ?? 1,
+  price: resolvedCost,
+  standard_cost: resolvedCost,
+  allergens,
+  is_active: true,
+  ...(userId ? { created_by: userId } : {}),
+};
 
   let { data, error } = await supabase
     .from("products")
@@ -713,29 +721,37 @@ export async function updateProduct(formData: FormData) {
     normalizeProductSectorCategory(sector_category);
   const abc_curve = normalizeProductAbcCurve(abcCurveRaw);
 
-  const updateData: any = {
-    name,
-    sku,
-    brand,
-    product_type,
-    default_unit_label,
-    package_qty: package_qty ?? null,
-    qty_per_package,
-    category,
-    sector_category: normalizedSectorCategory,
-    abc_curve,
-    shelf_life_days,
-    price: price ?? 0,
-    conversion_factor: conversion_factor ?? 1,
-    allergens,
-    is_active,
-    ...(userId
-      ? {
-          updated_by: userId,
-          updated_at: new Date().toISOString(),
-        }
-      : {}),
-  };
+  const resolvedCost = price ?? 0;
+
+const updateData: any = {
+  name,
+  sku,
+  brand,
+  product_type,
+  default_unit_label,
+  package_qty: package_qty ?? null,
+  qty_per_package,
+  category,
+  sector_category: normalizedSectorCategory,
+  abc_curve,
+  shelf_life_days,
+
+  // Mantém o campo que a tela de Produtos já usa.
+  price: resolvedCost,
+
+  // Mantém sincronizado o campo que a Ficha Técnica usa.
+  standard_cost: resolvedCost,
+
+  conversion_factor: conversion_factor ?? 1,
+  allergens,
+  is_active,
+  ...(userId
+    ? {
+        updated_by: userId,
+        updated_at: new Date().toISOString(),
+      }
+    : {}),
+};
 
   let { data, error } = await supabase
     .from("products")

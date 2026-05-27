@@ -1602,33 +1602,48 @@ export default function FichasTecnicasPage() {
       const productsData = await productsRes.json();
 
       const normalized = Array.isArray(productsData)
-        ? productsData.map((p: any) => ({
-            id: String(p.id),
-            name: String(p.name ?? ""),
-            sku: p.sku ? String(p.sku) : null,
-            price:
-              p.price !== null && p.price !== undefined ? Number(p.price) : 0,
-            standard_cost:
-              p.standard_cost !== null && p.standard_cost !== undefined
-                ? Number(p.standard_cost)
-                : null,
-            default_unit_label: p.default_unit_label ?? "UN",
-            sector_category: p.sector_category ?? p.category ?? "",
-            category: p.category ?? null,
-            package_qty:
-              p.package_qty !== null && p.package_qty !== undefined
-                ? parsePtBrNumber(p.package_qty, 1)
-                : 1,
-            qty_per_package: p.qty_per_package
-              ? String(p.qty_per_package)
-              : null,
-            alternate_names: Array.isArray(p.alternate_names)
-              ? p.alternate_names
-              : p.alternate_names ?? null,
-            allergens: normalizeAllergenList(p.allergens),
-            aliases: Array.isArray(p.aliases) ? p.aliases : p.aliases ?? null,
-          }))
-        : [];
+  ? productsData.map((p: any) => {
+      const rawPrice =
+        p.price !== null && p.price !== undefined ? Number(p.price) : null;
+
+      const rawStandardCost =
+        p.standard_cost !== null && p.standard_cost !== undefined
+          ? Number(p.standard_cost)
+          : null;
+
+      const catalogCost =
+        rawPrice !== null && Number.isFinite(rawPrice) && rawPrice > 0
+          ? rawPrice
+          : rawStandardCost !== null &&
+              Number.isFinite(rawStandardCost) &&
+              rawStandardCost > 0
+            ? rawStandardCost
+            : null;
+
+      return {
+        id: String(p.id),
+        name: String(p.name ?? ""),
+        sku: p.sku ? String(p.sku) : null,
+        price: rawPrice ?? 0,
+        standard_cost: catalogCost,
+        default_unit_label: p.default_unit_label ?? "UN",
+        sector_category: p.sector_category ?? p.category ?? "",
+        category: p.category ?? null,
+        package_qty:
+          p.package_qty !== null && p.package_qty !== undefined
+            ? parsePtBrNumber(p.package_qty, 1)
+            : 1,
+        qty_per_package: p.qty_per_package
+          ? String(p.qty_per_package)
+          : null,
+        alternate_names: Array.isArray(p.alternate_names)
+          ? p.alternate_names
+          : p.alternate_names ?? null,
+        allergens: normalizeAllergenList(p.allergens),
+        aliases: Array.isArray(p.aliases) ? p.aliases : p.aliases ?? null,
+      };
+    })
+  : [];
 
       setProducts(normalized);
       return normalized;

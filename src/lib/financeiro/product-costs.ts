@@ -3,13 +3,15 @@ import { listLatestRealProductCosts } from "@/lib/financeiro/real-product-costs"
 
 export type ProductCostSource =
   | "goods_receipt"
+  | "product.standard_cost"
+  | "product.price"
+  | "product.cost_price"
+  | "product.current_cost"
+  | "product.last_cost"
+  | "product.purchase_cost"
+  | "product.unit_cost"
   | "product.average_cost"
   | "product.avg_cost"
-  | "product.unit_cost"
-  | "product.cost_price"
-  | "product.last_cost"
-  | "product.current_cost"
-  | "product.purchase_cost"
   | "product.custo_medio"
   | "product.custo_unitario"
   | "product.custo_atual"
@@ -34,22 +36,24 @@ function toNumberOrNull(value: unknown) {
 
 function pickUnitCost(product: Record<string, unknown>) {
   const candidates: Array<{
-    field: string;
-    source: ProductCostSource;
-  }> = [
-    { field: "average_cost", source: "product.average_cost" },
-    { field: "avg_cost", source: "product.avg_cost" },
-    { field: "unit_cost", source: "product.unit_cost" },
-    { field: "cost_price", source: "product.cost_price" },
-    { field: "last_cost", source: "product.last_cost" },
-    { field: "current_cost", source: "product.current_cost" },
-    { field: "purchase_cost", source: "product.purchase_cost" },
-    { field: "custo_medio", source: "product.custo_medio" },
-    { field: "custo_unitario", source: "product.custo_unitario" },
-    { field: "custo_atual", source: "product.custo_atual" },
-    { field: "preco_custo", source: "product.preco_custo" },
-    { field: "preco_de_custo", source: "product.preco_de_custo" },
-  ];
+  field: string;
+  source: ProductCostSource;
+}> = [
+  { field: "standard_cost", source: "product.standard_cost" },
+  { field: "price", source: "product.price" },
+  { field: "cost_price", source: "product.cost_price" },
+  { field: "current_cost", source: "product.current_cost" },
+  { field: "last_cost", source: "product.last_cost" },
+  { field: "purchase_cost", source: "product.purchase_cost" },
+  { field: "unit_cost", source: "product.unit_cost" },
+  { field: "average_cost", source: "product.average_cost" },
+  { field: "avg_cost", source: "product.avg_cost" },
+  { field: "custo_medio", source: "product.custo_medio" },
+  { field: "custo_unitario", source: "product.custo_unitario" },
+  { field: "custo_atual", source: "product.custo_atual" },
+  { field: "preco_custo", source: "product.preco_custo" },
+  { field: "preco_de_custo", source: "product.preco_de_custo" },
+];
 
   for (const candidate of candidates) {
     const value = toNumberOrNull(product[candidate.field]);

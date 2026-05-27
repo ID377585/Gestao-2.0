@@ -7,6 +7,8 @@ export type BillingPlan = {
     users: number | null;
     establishments: number | null;
     products: number | null;
+    orders: number | null;
+    technicalSheets: number | null;
   };
 };
 
@@ -21,6 +23,8 @@ export const BILLING_PLANS: BillingPlan[] = [
       users: 5,
       establishments: 1,
       products: 500,
+      orders: 1000,
+      technicalSheets: 150,
     },
   },
   {
@@ -33,6 +37,8 @@ export const BILLING_PLANS: BillingPlan[] = [
       users: 20,
       establishments: 3,
       products: 5000,
+      orders: 10000,
+      technicalSheets: 1000,
     },
   },
   {
@@ -45,6 +51,8 @@ export const BILLING_PLANS: BillingPlan[] = [
       users: null,
       establishments: null,
       products: null,
+      orders: null,
+      technicalSheets: null,
     },
   },
 ];

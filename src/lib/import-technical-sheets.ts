@@ -1,5 +1,6 @@
 import pdfParse from "pdf-parse";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { assertBillingLimitAvailable } from "@/lib/billing/limits";
 
 type ParsedIngredient = {
   ingredient_name: string;
@@ -481,6 +482,19 @@ export async function processImportJob(params: {
   }
 
   for (const page of validPages) {
+    try {
+      await assertBillingLimitAvailable({
+        supabaseAdmin,
+        establishmentId,
+        kind: "technicalSheets",
+      });
+    } catch (limitError: any) {
+      errors.push(
+        `Página ${page.pageNumber}: ${limitError?.message || "Limite de fichas técnicas atingido."}`
+      );
+      break;
+    }
+
     const sheetPayload = {
       establishment_id: establishmentId,
       created_by: job.created_by || null,

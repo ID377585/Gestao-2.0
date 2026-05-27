@@ -3,7 +3,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getBillingPlan } from "@/lib/billing/plans";
 import { getCompanySubscriptionStatusWithClient } from "@/lib/billing/subscription-status";
 
-export type BillingLimitKind = "users" | "establishments" | "products";
+export type BillingLimitKind =
+  | "users"
+  | "establishments"
+  | "products"
+  | "orders"
+  | "technicalSheets";
 
 export type BillingLimitCheck = {
   kind: BillingLimitKind;
@@ -50,6 +55,42 @@ async function countActiveProducts(params: {
   return count ?? 0;
 }
 
+async function countOrders(params: {
+  supabaseAdmin: SupabaseClient<any, any, any>;
+  establishmentId: string;
+}) {
+  const { count, error } = await params.supabaseAdmin
+    .from("orders")
+    .select("*", { count: "exact", head: true })
+    .eq("establishment_id", params.establishmentId);
+
+  if (error) {
+    console.error("Erro ao contar pedidos do plano:", error);
+    throw new Error("Não foi possível validar o limite de pedidos do plano.");
+  }
+
+  return count ?? 0;
+}
+
+async function countTechnicalSheets(params: {
+  supabaseAdmin: SupabaseClient<any, any, any>;
+  establishmentId: string;
+}) {
+  const { count, error } = await params.supabaseAdmin
+    .from("technical_sheets")
+    .select("*", { count: "exact", head: true })
+    .eq("establishment_id", params.establishmentId);
+
+  if (error) {
+    console.error("Erro ao contar fichas técnicas do plano:", error);
+    throw new Error(
+      "Não foi possível validar o limite de fichas técnicas do plano."
+    );
+  }
+
+  return count ?? 0;
+}
+
 async function countUserEstablishments(params: {
   supabaseAdmin: SupabaseClient<any, any, any>;
   userId: string;
@@ -83,7 +124,11 @@ export async function getBillingLimitCheck(params: {
   const current =
     params.kind === "users"
       ? await countActiveUsers(params)
-      : await countActiveProducts(params);
+      : params.kind === "products"
+        ? await countActiveProducts(params)
+        : params.kind === "orders"
+          ? await countOrders(params)
+          : await countTechnicalSheets(params);
 
   return {
     kind: params.kind,
@@ -103,7 +148,14 @@ export async function assertBillingLimitAvailable(params: {
   const check = await getBillingLimitCheck(params);
 
   if (!check.allowed) {
-    const label = check.kind === "users" ? "usuários" : "produtos";
+    const label =
+      check.kind === "users"
+        ? "usuários"
+        : check.kind === "products"
+          ? "produtos"
+          : check.kind === "orders"
+            ? "pedidos"
+            : "fichas técnicas";
     throw new Error(
       `Limite de ${label} atingido no plano ${check.planName}. Uso atual: ${check.current}/${check.limit}.`
     );

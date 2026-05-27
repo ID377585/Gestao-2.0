@@ -8,6 +8,7 @@ import {
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { Buffer } from "node:buffer";
 import { formatAllergenList } from "@/lib/allergens";
+import { assertBillingLimitAvailable } from "@/lib/billing/limits";
 
 const TECHNICAL_SHEET_BUCKET = "technical-sheet-images";
 
@@ -165,6 +166,22 @@ function sanitizeFileName(fileName: string) {
     .replace(/[^a-zA-Z0-9._-]/g, "-")
     .replace(/-+/g, "-")
     .toLowerCase();
+}
+
+function normalizeTenantStoragePath(
+  path: string | null | undefined,
+  establishmentId: string,
+  label = "Arquivo",
+) {
+  const normalizedPath = String(path ?? "").trim();
+
+  if (!normalizedPath) return null;
+
+  if (!normalizedPath.startsWith(`${establishmentId}/`)) {
+    throw new Error(`${label} inválido para a empresa ativa.`);
+  }
+
+  return normalizedPath;
 }
 
 function toNumber(value: unknown, fallback = 0) {
@@ -978,9 +995,22 @@ async function duplicateTechnicalSheetImage(
   }
 
   try {
+    const safeSourceImagePath = normalizeTenantStoragePath(
+      sourceImagePath,
+      establishmentId,
+      "Imagem da ficha",
+    );
+
+    if (!safeSourceImagePath) {
+      return {
+        imageUrl: null,
+        imagePath: null,
+      };
+    }
+
     const { data: fileData, error: downloadError } = await supabase.storage
       .from(TECHNICAL_SHEET_BUCKET)
-      .download(sourceImagePath);
+      .download(safeSourceImagePath);
 
     if (downloadError || !fileData) {
       console.error("Erro ao baixar imagem para duplicação:", downloadError);
@@ -991,7 +1021,7 @@ async function duplicateTechnicalSheetImage(
     }
 
     const originalFileName =
-      sourceImagePath.split("/").pop() || `imagem-${Date.now()}.jpg`;
+      safeSourceImagePath.split("/").pop() || `imagem-${Date.now()}.jpg`;
 
     const duplicatedPath = `${establishmentId}/${userId}/${Date.now()}-copy-${sanitizeFileName(
       originalFileName
@@ -1093,13 +1123,19 @@ const filePath = `${establishmentId}/${userId}/${Date.now()}-${
 }
 
 export async function deleteTechnicalSheetImageAction(imagePath: string) {
-  const { supabase } = await getContext();
+  const { supabase, establishmentId } = await getContext();
 
-  if (!imagePath?.trim()) return;
+  const safeImagePath = normalizeTenantStoragePath(
+    imagePath,
+    establishmentId,
+    "Imagem da ficha",
+  );
+
+  if (!safeImagePath) return;
 
   const { error } = await supabase.storage
     .from(TECHNICAL_SHEET_BUCKET)
-    .remove([imagePath]);
+    .remove([safeImagePath]);
 
   if (error) {
     console.error("Erro ao excluir imagem da ficha técnica:", error);
@@ -1204,6 +1240,17 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
     establishmentId,
     input.ingredients,
   );
+  const imagePath = normalizeTenantStoragePath(
+    input.image_path,
+    establishmentId,
+    "Imagem da ficha",
+  );
+
+  await assertBillingLimitAvailable({
+    supabaseAdmin: supabase,
+    establishmentId,
+    kind: "technicalSheets",
+  });
 
   const { data: sheet, error: sheetError } = await supabase
     .from("technical_sheets")
@@ -1220,7 +1267,7 @@ export async function createTechnicalSheet(input: TechnicalSheetInput) {
       cost_per_portion: input.cost_per_portion,
       preparation_method: input.preparation_method?.trim() || null,
       image_url: input.image_url?.trim() || null,
-      image_path: input.image_path?.trim() || null,
+      image_path: imagePath,
       difficulty_level: input.difficulty_level?.trim() || null,
       temperature_celsius: input.temperature_celsius ?? null,
       cooking_time_minutes: input.cooking_time_minutes ?? null,
@@ -1308,7 +1355,11 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
   }
 
   const currentImagePath = (current as any).image_path as string | null;
-  const newImagePath = input.image_path?.trim() || null;
+  const newImagePath = normalizeTenantStoragePath(
+    input.image_path,
+    establishmentId,
+    "Imagem da ficha",
+  );
   const catalogAllergens = await resolveCatalogAllergensForIngredients(
     supabase,
     establishmentId,
@@ -1357,7 +1408,11 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
     throw new Error("Não foi possível atualizar a ficha técnica.");
   }
 
-  if (currentImagePath && currentImagePath !== newImagePath) {
+  if (
+    currentImagePath &&
+    currentImagePath !== newImagePath &&
+    currentImagePath.startsWith(`${establishmentId}/`)
+  ) {
     const { error: removeOldImageError } = await supabase.storage
       .from(TECHNICAL_SHEET_BUCKET)
       .remove([currentImagePath]);
@@ -1538,6 +1593,12 @@ export async function duplicateTechnicalSheetAction(technicalSheetId: string) {
 
   const duplicatedName = `${String((source as any).name ?? "Ficha técnica").trim()} - Cópia`;
 
+  await assertBillingLimitAvailable({
+    supabaseAdmin: supabase,
+    establishmentId,
+    kind: "technicalSheets",
+  });
+
   const { data: createdSheet, error: createdSheetError } = await supabase
     .from("technical_sheets")
     .insert({
@@ -1684,7 +1745,7 @@ export async function deleteTechnicalSheet(id: string) {
   }
 
   const imagePath = (current as any)?.image_path as string | null;
-  if (imagePath) {
+  if (imagePath && imagePath.startsWith(`${establishmentId}/`)) {
     const { error: removeImageError } = await supabase.storage
       .from(TECHNICAL_SHEET_BUCKET)
       .remove([imagePath]);
@@ -2719,6 +2780,12 @@ export async function importTechnicalSheetsFromPdfAction(
           }
         }
 
+        await assertBillingLimitAvailable({
+          supabaseAdmin: supabase,
+          establishmentId,
+          kind: "technicalSheets",
+        });
+
         const { data: sheet, error: sheetError } = await supabase
           .from("technical_sheets")
           .insert({
@@ -2793,7 +2860,11 @@ export async function importTechnicalSheetsFromPdfAction(
           if (ingredientsError) {
             console.error("[importPDF] erro ao criar ingredientes", ingredientsError);
 
-            await supabase.from("technical_sheets").delete().eq("id", sheet.id);
+            await supabase
+              .from("technical_sheets")
+              .delete()
+              .eq("id", sheet.id)
+              .eq("establishment_id", establishmentId);
 
             ignoredPages.push({
               page: recipe.source_page_number ?? 0,

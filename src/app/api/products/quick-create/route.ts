@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  getSupabaseAdminClient,
+} from "@/lib/supabase/server";
+import { assertBillingLimitAvailable } from "@/lib/billing/limits";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 import {
   isProductSectorConstraintError,
@@ -49,6 +53,19 @@ export async function POST(req: NextRequest) {
 
     if (!name) {
       return NextResponse.json({ error: "Nome do produto é obrigatório." }, { status: 400 });
+    }
+
+    try {
+      await assertBillingLimitAvailable({
+        supabaseAdmin: getSupabaseAdminClient(),
+        establishmentId,
+        kind: "products",
+      });
+    } catch (limitError: any) {
+      return NextResponse.json(
+        { error: limitError?.message ?? "Limite de produtos do plano atingido." },
+        { status: 403 }
+      );
     }
 
     const insertPayload = {

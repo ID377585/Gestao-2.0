@@ -139,6 +139,11 @@ export const menuSections: MenuSectionConfig[] = [
         icon: FileText,
       },
       {
+        label: "Lista de Produção",
+        href: "/engenharia/lista-producao",
+        icon: ClipboardList,
+      },
+      {
         label: "Tabela Nutricional",
         href: "/engenharia/tabela-nutricional",
         icon: ClipboardList,

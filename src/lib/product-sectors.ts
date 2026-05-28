@@ -5,6 +5,16 @@ export const PRODUCT_SECTOR_CATEGORIES = [
   "Produção",
   "Massaria",
   "Burrataria",
+  "Peixaria",
+  "Bar",
+  "Cozinha",
+  "Boqueta",
+  "Praça Quente",
+  "Chapa",
+  "Garde",
+  "Garde Manger",
+  "Fritadeira",
+  "Praça Fria",
   "Secos",
   "Embalagens",
   "Hortifruti",
@@ -43,8 +53,6 @@ export function normalizeProductSectorCategory(
 ): ProductSectorCategory | null {
   const key = normalizeKey(value);
   if (!key) return null;
-
-  if (key === "peixaria") return null;
 
   return SECTOR_BY_KEY.get(key) ?? null;
 }

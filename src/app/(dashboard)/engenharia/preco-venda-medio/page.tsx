@@ -225,6 +225,20 @@ export default function PrecoVendaMedioPage() {
     [filteredBenchmarks],
   );
 
+  const printGeneratedAt = useMemo(
+    () =>
+      new Date().toLocaleString("pt-BR", {
+        dateStyle: "short",
+        timeStyle: "short",
+      }),
+    [],
+  );
+
+  const printCompetitorsCount = useMemo(
+    () => printCompetitorHeaders.filter((name) => !name.startsWith("Conc.")).length,
+    [printCompetitorHeaders],
+  );
+
   const metrics = useMemo(() => {
     const withCompetitors = benchmarks.filter((item) => item.competitorAveragePrice !== null);
     return {
@@ -313,7 +327,7 @@ export default function PrecoVendaMedioPage() {
         @media print {
           @page {
             size: A4 portrait;
-            margin: 5mm;
+            margin: 8mm;
           }
 
           html,
@@ -339,55 +353,149 @@ export default function PrecoVendaMedioPage() {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            color: #000 !important;
+            color: #0f172a !important;
             font-family: Arial, Helvetica, sans-serif !important;
             width: 100% !important;
             max-width: 100% !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
 
-          .benchmark-print-title {
-            margin-bottom: 5px;
+          .benchmark-print-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+            padding: 8px 10px;
+            border: 1px solid #d1fae5;
+            border-radius: 8px;
+            background: #ecfdf5 !important;
           }
 
           .benchmark-print-title h1 {
-            font-size: 12px;
-            line-height: 1.05;
+            font-size: 14px;
+            line-height: 1.1;
             margin: 0;
-            font-weight: 800;
+            font-weight: 900;
+            color: #064e3b !important;
           }
 
           .benchmark-print-title p {
-            font-size: 6px;
-            margin: 2px 0 0;
+            font-size: 6.8px;
+            line-height: 1.25;
+            margin: 3px 0 0;
+            color: #334155 !important;
+          }
+
+          .benchmark-print-meta {
+            min-width: 120px;
+            text-align: right;
+            font-size: 6.4px;
+            line-height: 1.35;
+            color: #475569 !important;
+          }
+
+          .benchmark-print-meta strong {
+            display: block;
+            font-size: 8px;
+            color: #064e3b !important;
+          }
+
+          .benchmark-print-summary {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+          }
+
+          .benchmark-print-summary-card {
+            flex: 1;
+            padding: 5px 7px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background: #f8fafc !important;
+          }
+
+          .benchmark-print-summary-card span {
+            display: block;
+            font-size: 5.8px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #64748b !important;
+            font-weight: 800;
+          }
+
+          .benchmark-print-summary-card strong {
+            display: block;
+            margin-top: 1px;
+            font-size: 9px;
+            color: #0f172a !important;
           }
 
           .benchmark-print-table {
             width: 100%;
             max-width: 100%;
-            border-collapse: collapse;
+            border-collapse: separate;
+            border-spacing: 0;
             table-layout: auto;
-            font-size: 5.4px;
-            line-height: 1;
+            font-size: 5.8px;
+            line-height: 1.15;
+            border: 1px solid #cbd5e1;
+            border-radius: 7px;
+            overflow: hidden;
           }
 
-          .benchmark-print-table th,
-          .benchmark-print-table td {
-            border: 0.5px solid #333;
-            padding: 1.5px 2px;
-            vertical-align: top;
-            word-break: normal;
-            overflow-wrap: break-word;
+          .benchmark-print-table thead {
+            display: table-header-group;
+          }
+
+          .benchmark-print-table tr {
+            break-inside: avoid;
+            page-break-inside: avoid;
           }
 
           .benchmark-print-table th {
-            background: #e8e8e8 !important;
-            font-weight: 800;
+            background: #0f766e !important;
+            color: #fff !important;
+            font-weight: 900;
             text-transform: uppercase;
             white-space: normal;
+            border-right: 1px solid #115e59;
+            border-bottom: 1px solid #115e59;
+            padding: 4px 3px;
+            vertical-align: middle;
+            text-align: center;
+          }
+
+          .benchmark-print-table th:last-child,
+          .benchmark-print-table td:last-child {
+            border-right: 0;
+          }
+
+          .benchmark-print-table td {
+            border-right: 1px solid #e2e8f0;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 3px 3px;
+            vertical-align: top;
+            word-break: normal;
+            overflow-wrap: break-word;
+            color: #0f172a !important;
+          }
+
+          .benchmark-print-table tbody tr:nth-child(even) td {
+            background: #f8fafc !important;
+          }
+
+          .benchmark-print-table tbody tr:nth-child(odd) td {
+            background: #ffffff !important;
+          }
+
+          .benchmark-print-table tbody tr:last-child td {
+            border-bottom: 0;
           }
 
           .benchmark-print-col-prato {
-            width: 17%;
+            width: 18%;
           }
 
           .benchmark-print-col-tipo {
@@ -399,22 +507,48 @@ export default function PrecoVendaMedioPage() {
           }
 
           .benchmark-print-col-competitor {
-            width: 6.5%;
+            width: 6.3%;
           }
 
           .benchmark-print-col-percent {
             width: 4%;
           }
 
+          .benchmark-print-product {
+            font-weight: 900;
+            color: #0f172a !important;
+          }
+
+          .benchmark-print-muted {
+            color: #64748b !important;
+            font-size: 5px;
+            font-weight: 700;
+          }
+
           .benchmark-print-money,
           .benchmark-print-percent {
             white-space: nowrap;
             text-align: right;
+            font-variant-numeric: tabular-nums;
           }
 
-          .benchmark-print-muted {
-            color: #333 !important;
-            font-size: 5px;
+          .benchmark-print-total {
+            color: #047857 !important;
+            font-weight: 900;
+          }
+
+          .benchmark-print-average {
+            color: #1d4ed8 !important;
+            font-weight: 900;
+          }
+
+          .benchmark-print-footer {
+            margin-top: 7px;
+            padding-top: 4px;
+            border-top: 1px solid #e2e8f0;
+            font-size: 5.8px;
+            color: #64748b !important;
+            text-align: right;
           }
         }
       `}</style>
@@ -675,9 +809,38 @@ export default function PrecoVendaMedioPage() {
       </div>
 
       <div className="benchmark-print-area">
-        <div className="benchmark-print-title">
-          <h1>Preço Venda Médio</h1>
-          <p>Comparativo de preços da concorrência para análise de cardápio e posicionamento de venda.</p>
+        <div className="benchmark-print-header">
+          <div className="benchmark-print-title">
+            <h1>Preço Venda Médio</h1>
+            <p>
+              Comparativo de preços da concorrência para análise de cardápio,
+              posicionamento de venda e definição de preço sugerido.
+            </p>
+          </div>
+
+          <div className="benchmark-print-meta">
+            <strong>Relatório</strong>
+            Gerado em {printGeneratedAt}
+            <br />
+            {filteredBenchmarks.length} comparação(ões)
+          </div>
+        </div>
+
+        <div className="benchmark-print-summary">
+          <div className="benchmark-print-summary-card">
+            <span>Pratos listados</span>
+            <strong>{filteredBenchmarks.length}</strong>
+          </div>
+
+          <div className="benchmark-print-summary-card">
+            <span>Concorrentes</span>
+            <strong>{printCompetitorsCount}</strong>
+          </div>
+
+          <div className="benchmark-print-summary-card">
+            <span>Tipo de análise</span>
+            <strong>Preço médio</strong>
+          </div>
         </div>
 
         <table className="benchmark-print-table">
@@ -713,13 +876,20 @@ export default function PrecoVendaMedioPage() {
             {filteredBenchmarks.map((item) => (
               <tr key={`print-${item.id ?? item.productId}`}>
                 <td>
-                  <strong>{item.productName}</strong>
-                  <br />
+                  <div className="benchmark-print-product">{item.productName}</div>
                   <span className="benchmark-print-muted">{item.brand || item.category || "Sem categoria"}</span>
                 </td>
+
                 <td>{item.dishType}</td>
-                <td className="benchmark-print-money">{formatCurrency(item.catalogSuggestedPrice)}</td>
-                <td className="benchmark-print-money">{formatCurrency(item.manualSalePrice)}</td>
+
+                <td className="benchmark-print-money">
+                  {formatCurrency(item.catalogSuggestedPrice)}
+                </td>
+
+                <td className="benchmark-print-money benchmark-print-total">
+                  {formatCurrency(item.manualSalePrice)}
+                </td>
+
                 {RESTAURANT_FIELDS.map((number) => {
                   const price = getRestaurantPrice(item, number);
 
@@ -729,13 +899,26 @@ export default function PrecoVendaMedioPage() {
                     </td>
                   );
                 })}
-                <td className="benchmark-print-money">{formatCurrency(item.competitorAveragePrice)}</td>
-                <td className="benchmark-print-money">{formatCurrency(item.suggestedAveragePrice)}</td>
-                <td className="benchmark-print-percent">{formatPercent(item.percentageVsSuggested)}</td>
+
+                <td className="benchmark-print-money benchmark-print-average">
+                  {formatCurrency(item.competitorAveragePrice)}
+                </td>
+
+                <td className="benchmark-print-money benchmark-print-total">
+                  {formatCurrency(item.suggestedAveragePrice)}
+                </td>
+
+                <td className="benchmark-print-percent">
+                  {formatPercent(item.percentageVsSuggested)}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+
+        <div className="benchmark-print-footer">
+          Relatório gerado pelo módulo Engenharia &gt; Preço Venda Médio.
+        </div>
       </div>
     </>
   );

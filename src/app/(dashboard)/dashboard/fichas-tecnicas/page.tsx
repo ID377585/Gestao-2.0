@@ -212,6 +212,12 @@ const SECTOR_OPTIONS = [
   "Peixaria",
   "Bar",
   "Cozinha",
+  "Boqueta",
+  "Praça Quente",
+  "Chapa",
+  "Garde Manger",
+  "Fritadeira",
+  "Praça Fria",
 ];
 
 const MARGEM_DESEJAVEL_PERCENT = 25;

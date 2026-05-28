@@ -37,7 +37,8 @@ export async function GET() {
         qty_per_package,
         aliases,
         alternate_names,
-        allergens
+        allergens,
+        is_active
       `)
       .eq("establishment_id", establishmentId)
       .eq("is_active", true)

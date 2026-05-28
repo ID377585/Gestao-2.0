@@ -224,6 +224,156 @@ function normalizeProductLookupName(value: unknown) {
     .trim();
 }
 
+function buildTechnicalSheetSku(technicalSheetId: string) {
+  const cleanId = String(technicalSheetId ?? "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase();
+
+  return `FT-${cleanId.slice(0, 8)}`;
+}
+
+function normalizeProductUnitFromTechnicalSheet(value: string | null | undefined) {
+  const unit = normalizeUnit(value, "KG");
+
+  if (unit === "G" || unit === "KG" || unit === "L" || unit === "ML" || unit === "UN") {
+    return unit;
+  }
+
+  return "KG";
+}
+
+function getTechnicalSheetFinalWeight(input: TechnicalSheetInput) {
+  const candidates = [
+    input.correction_factor_grams,
+    input.portion_weight,
+  ];
+
+  for (const candidate of candidates) {
+    const value = toNumber(candidate, 0);
+
+    if (value > 0) {
+      return Number(value.toFixed(3));
+    }
+  }
+
+  return 1;
+}
+
+function getTechnicalSheetTotalCost(input: TechnicalSheetInput) {
+  const totalCost = toNumber(input.total_cost, 0);
+
+  if (totalCost > 0) {
+    return Number(totalCost.toFixed(5));
+  }
+
+  return 0;
+}
+
+function isMissingProductLinkColumnError(error: unknown) {
+  const message =
+    error instanceof Error ? error.message : String((error as any)?.message ?? error ?? "");
+
+  return (
+    message.includes("linked_product_id") ||
+    message.includes("is_linked_to_product") ||
+    message.includes("schema cache") ||
+    message.includes("column")
+  );
+}
+
+async function syncLinkedProductFromTechnicalSheet(params: {
+  supabase: Awaited<ReturnType<typeof createSupabaseAdminClient>>;
+  establishmentId: string;
+  technicalSheetId: string;
+  input: TechnicalSheetInput;
+  currentSheet?: any;
+}) {
+  const technicalSheetId = String(params.technicalSheetId ?? "").trim();
+
+  if (!technicalSheetId) {
+    return;
+  }
+
+  const expectedSku = buildTechnicalSheetSku(technicalSheetId);
+  const linkedProductId = params.currentSheet?.linked_product_id
+    ? String(params.currentSheet.linked_product_id)
+    : null;
+
+  let productId = linkedProductId;
+
+  if (!productId) {
+    const { data: productBySku, error: productBySkuError } = await params.supabase
+      .from("products")
+      .select("id")
+      .eq("establishment_id", params.establishmentId)
+      .eq("sku", expectedSku)
+      .maybeSingle();
+
+    if (productBySkuError) {
+      console.error(
+        "[technical-sheet.sync-product] erro ao buscar produto por SKU:",
+        productBySkuError
+      );
+    }
+
+    productId = productBySku?.id ? String(productBySku.id) : null;
+  }
+
+  if (!productId) {
+    return;
+  }
+
+  const finalWeight = getTechnicalSheetFinalWeight(params.input);
+  const totalCost = getTechnicalSheetTotalCost(params.input);
+  const unitLabel = normalizeProductUnitFromTechnicalSheet(
+    params.input.portion_weight_unit
+  );
+
+  const productPayload: Record<string, any> = {
+    name: params.input.name.trim(),
+    package_qty: finalWeight,
+    default_unit_label: unitLabel,
+    price: totalCost,
+    standard_cost: totalCost,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error: productUpdateError } = await params.supabase
+    .from("products")
+    .update(productPayload)
+    .eq("id", productId)
+    .eq("establishment_id", params.establishmentId);
+
+  if (productUpdateError) {
+    console.error(
+      "[technical-sheet.sync-product] erro ao atualizar produto vinculado:",
+      productUpdateError
+    );
+
+    throw new Error(
+      "A ficha foi salva, mas não foi possível atualizar o produto vinculado no catálogo."
+    );
+  }
+
+  try {
+    await params.supabase
+      .from("technical_sheets")
+      .update({
+        linked_product_id: productId,
+        is_linked_to_product: true,
+      })
+      .eq("id", technicalSheetId)
+      .eq("establishment_id", params.establishmentId);
+  } catch (linkUpdateError) {
+    if (!isMissingProductLinkColumnError(linkUpdateError)) {
+      console.error(
+        "[technical-sheet.sync-product] erro ao marcar vínculo da ficha:",
+        linkUpdateError
+      );
+    }
+  }
+}
+
 async function resolveCatalogAllergensForIngredients(
   supabase: Awaited<ReturnType<typeof createSupabaseAdminClient>>,
   establishmentId: string,
@@ -1179,9 +1329,11 @@ export async function listTechnicalSheets() {
       source_file_name,
       source_page_number,
       video_url,
-      created_at,
-      updated_at,
-      ingredients:technical_sheet_ingredients (
+        linked_product_id,
+        is_linked_to_product,
+        created_at,
+        updated_at,
+        ingredients:technical_sheet_ingredients (
         id,
         technical_sheet_id,
         product_id,
@@ -1341,10 +1493,10 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
   }
 
   const { data: current, error: currentError } = await supabase
-    .from("technical_sheets")
-    .select("id, establishment_id, image_path")
-    .eq("id", input.id)
-    .single();
+  .from("technical_sheets")
+  .select("id, establishment_id, image_path, linked_product_id, is_linked_to_product")
+  .eq("id", input.id)
+  .single();
 
   if (currentError || !current) {
     throw new Error("Ficha técnica não encontrada.");
@@ -1494,7 +1646,17 @@ export async function updateTechnicalSheet(input: TechnicalSheetInput) {
 
   await saveScales(supabase, input.id, input.scales);
 
-  revalidatePath("/dashboard/fichas-tecnicas");
+await syncLinkedProductFromTechnicalSheet({
+  supabase,
+  establishmentId,
+  technicalSheetId: input.id,
+  input,
+  currentSheet: current,
+});
+
+revalidatePath("/dashboard/fichas-tecnicas");
+revalidatePath("/dashboard/produtos");
+revalidatePath("/dashboard/estoque");
 }
 
 export async function duplicateTechnicalSheetAction(technicalSheetId: string) {

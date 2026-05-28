@@ -72,7 +72,11 @@ export async function createTechnicalSheetWithOptionalProductLink(
 
   const { membership } = await getActiveMembershipOrRedirect();
   const establishmentId = String((membership as any)?.establishment_id ?? "").trim();
-  const userId = String((membership as any)?.user_id ?? "").trim();
+  const userId = String(
+  (membership as any)?.user_id ??
+    (membership as any)?.userId ??
+    ""
+  ).trim();
 
   if (!establishmentId) {
     throw new Error("Ficha criada, mas o estabelecimento não foi encontrado para atrelar ao produto.");

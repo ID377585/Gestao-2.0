@@ -95,6 +95,23 @@ function getRestaurantPrice(item: SalesPriceBenchmark, number: 1 | 2 | 3 | 4 | 5
   return item[`restaurant${number}Price` as keyof SalesPriceBenchmark] as number | null;
 }
 
+function getPrintRestaurantHeader(items: SalesPriceBenchmark[], number: 1 | 2 | 3 | 4 | 5) {
+  const counts = new Map<string, number>();
+
+  items.forEach((item) => {
+    const name = getRestaurantName(item, number)?.trim();
+    if (!name) return;
+
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  });
+
+  const mostUsed = Array.from(counts.entries()).sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR"),
+  )[0];
+
+  return mostUsed?.[0] || `Conc. ${number}`;
+}
+
 function benchmarkToForm(item: SalesPriceBenchmark): FormState {
   return {
     productId: item.productId,
@@ -203,6 +220,11 @@ export default function PrecoVendaMedioPage() {
     );
   }, [benchmarks, search]);
 
+  const printCompetitorHeaders = useMemo(
+    () => RESTAURANT_FIELDS.map((number) => getPrintRestaurantHeader(filteredBenchmarks, number)),
+    [filteredBenchmarks],
+  );
+
   const metrics = useMemo(() => {
     const withCompetitors = benchmarks.filter((item) => item.competitorAveragePrice !== null);
     return {
@@ -290,7 +312,7 @@ export default function PrecoVendaMedioPage() {
 
         @media print {
           @page {
-            size: A4 landscape;
+            size: A4 portrait;
             margin: 5mm;
           }
 
@@ -320,49 +342,52 @@ export default function PrecoVendaMedioPage() {
             color: #000 !important;
             font-family: Arial, Helvetica, sans-serif !important;
             width: 100% !important;
+            max-width: 100% !important;
           }
 
           .benchmark-print-title {
-            margin-bottom: 6px;
+            margin-bottom: 5px;
           }
 
           .benchmark-print-title h1 {
-            font-size: 13px;
-            line-height: 1.1;
+            font-size: 12px;
+            line-height: 1.05;
             margin: 0;
             font-weight: 800;
           }
 
           .benchmark-print-title p {
-            font-size: 7px;
+            font-size: 6px;
             margin: 2px 0 0;
           }
 
           .benchmark-print-table {
             width: 100%;
+            max-width: 100%;
             border-collapse: collapse;
-            table-layout: fixed;
-            font-size: 6.5px;
-            line-height: 1.1;
+            table-layout: auto;
+            font-size: 5.4px;
+            line-height: 1;
           }
 
           .benchmark-print-table th,
           .benchmark-print-table td {
             border: 0.5px solid #333;
-            padding: 2px 2px;
+            padding: 1.5px 2px;
             vertical-align: top;
-            word-break: break-word;
-            overflow-wrap: anywhere;
+            word-break: normal;
+            overflow-wrap: break-word;
           }
 
           .benchmark-print-table th {
             background: #e8e8e8 !important;
             font-weight: 800;
             text-transform: uppercase;
+            white-space: normal;
           }
 
           .benchmark-print-col-prato {
-            width: 13%;
+            width: 17%;
           }
 
           .benchmark-print-col-tipo {
@@ -374,22 +399,22 @@ export default function PrecoVendaMedioPage() {
           }
 
           .benchmark-print-col-competitor {
-            width: 8%;
+            width: 6.5%;
           }
 
           .benchmark-print-col-percent {
-            width: 4.5%;
+            width: 4%;
           }
 
-          .benchmark-print-restaurant-name {
-            display: block;
-            font-weight: 800;
-            margin-bottom: 1px;
+          .benchmark-print-money,
+          .benchmark-print-percent {
+            white-space: nowrap;
+            text-align: right;
           }
 
           .benchmark-print-muted {
             color: #333 !important;
-            font-size: 6px;
+            font-size: 5px;
           }
         }
       `}</style>
@@ -474,6 +499,7 @@ export default function PrecoVendaMedioPage() {
                 {RESTAURANT_FIELDS.map((number) => {
                   const nameKey = `restaurant${number}Name` as keyof FormState;
                   const priceKey = `restaurant${number}Price` as keyof FormState;
+
                   return (
                     <div key={number} className="w-[190px] shrink-0 rounded-2xl border border-slate-200 bg-slate-50 p-3">
                       <input
@@ -606,6 +632,7 @@ export default function PrecoVendaMedioPage() {
                         {RESTAURANT_FIELDS.map((number) => {
                           const name = getRestaurantName(item, number);
                           const price = getRestaurantPrice(item, number);
+
                           return (
                             <td key={number} className="px-3 py-4">
                               <div className="font-bold text-slate-800">{name || `Concorrente ${number}`}</div>
@@ -654,20 +681,34 @@ export default function PrecoVendaMedioPage() {
         </div>
 
         <table className="benchmark-print-table">
+          <colgroup>
+            <col className="benchmark-print-col-prato" />
+            <col className="benchmark-print-col-tipo" />
+            <col className="benchmark-print-col-money" />
+            <col className="benchmark-print-col-money" />
+            {RESTAURANT_FIELDS.map((number) => (
+              <col key={`print-col-${number}`} className="benchmark-print-col-competitor" />
+            ))}
+            <col className="benchmark-print-col-money" />
+            <col className="benchmark-print-col-money" />
+            <col className="benchmark-print-col-percent" />
+          </colgroup>
+
           <thead>
             <tr>
-              <th className="benchmark-print-col-prato">Prato</th>
-              <th className="benchmark-print-col-tipo">Tipo</th>
-              <th className="benchmark-print-col-money">Preço de custo</th>
-              <th className="benchmark-print-col-money">Nosso preço</th>
-              {RESTAURANT_FIELDS.map((number) => (
-                <th key={number} className="benchmark-print-col-competitor">Conc. {number}</th>
+              <th>Prato</th>
+              <th>Tipo</th>
+              <th>Preço de custo</th>
+              <th>Nosso preço</th>
+              {RESTAURANT_FIELDS.map((number, index) => (
+                <th key={number}>{printCompetitorHeaders[index]}</th>
               ))}
-              <th className="benchmark-print-col-money">Média conc.</th>
-              <th className="benchmark-print-col-money">Preço sugerido</th>
-              <th className="benchmark-print-col-percent">%</th>
+              <th>Média conc.</th>
+              <th>Preço sugerido</th>
+              <th>%</th>
             </tr>
           </thead>
+
           <tbody>
             {filteredBenchmarks.map((item) => (
               <tr key={`print-${item.id ?? item.productId}`}>
@@ -677,21 +718,20 @@ export default function PrecoVendaMedioPage() {
                   <span className="benchmark-print-muted">{item.brand || item.category || "Sem categoria"}</span>
                 </td>
                 <td>{item.dishType}</td>
-                <td>{formatCurrency(item.catalogSuggestedPrice)}</td>
-                <td>{formatCurrency(item.manualSalePrice)}</td>
+                <td className="benchmark-print-money">{formatCurrency(item.catalogSuggestedPrice)}</td>
+                <td className="benchmark-print-money">{formatCurrency(item.manualSalePrice)}</td>
                 {RESTAURANT_FIELDS.map((number) => {
-                  const name = getRestaurantName(item, number);
                   const price = getRestaurantPrice(item, number);
+
                   return (
-                    <td key={`print-${item.id ?? item.productId}-${number}`}>
-                      <span className="benchmark-print-restaurant-name">{name || `Conc. ${number}`}</span>
+                    <td key={`print-${item.id ?? item.productId}-${number}`} className="benchmark-print-money">
                       {formatCurrency(price)}
                     </td>
                   );
                 })}
-                <td>{formatCurrency(item.competitorAveragePrice)}</td>
-                <td>{formatCurrency(item.suggestedAveragePrice)}</td>
-                <td>{formatPercent(item.percentageVsSuggested)}</td>
+                <td className="benchmark-print-money">{formatCurrency(item.competitorAveragePrice)}</td>
+                <td className="benchmark-print-money">{formatCurrency(item.suggestedAveragePrice)}</td>
+                <td className="benchmark-print-percent">{formatPercent(item.percentageVsSuggested)}</td>
               </tr>
             ))}
           </tbody>

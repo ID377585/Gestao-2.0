@@ -5,28 +5,30 @@ import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { linkTechnicalSheetToProduct } from "@/lib/technical-sheets/link-to-product";
 
-function getFormString(formData: FormData, key: string) {
-  return String(formData.get(key) ?? "").trim();
-}
-
 export async function linkTechnicalSheetToProductAction(formData: FormData) {
-  const technicalSheetId = getFormString(formData, "technical_sheet_id");
+  const technicalSheetId = String(
+    formData.get("technical_sheet_id") ?? ""
+  ).trim();
 
   if (!technicalSheetId) {
-    throw new Error("Informe a ficha técnica que deseja atrelar ao produto.");
+    throw new Error("Ficha técnica não informada para atrelamento.");
   }
 
   const { membership } = await getActiveMembershipOrRedirect();
-  const establishmentId = String((membership as any)?.establishment_id ?? "").trim();
-  const userId = String((membership as any)?.user_id ?? "").trim() || null;
+
+  const establishmentId = String(
+    (membership as any)?.establishment_id ?? ""
+  ).trim();
+
+  const userId = String((membership as any)?.user_id ?? "").trim();
 
   if (!establishmentId) {
-    throw new Error("Estabelecimento não encontrado para atrelar ficha técnica.");
+    throw new Error("Estabelecimento não encontrado para atrelar a ficha.");
   }
 
   const supabase = createSupabaseAdminClient();
 
-  await linkTechnicalSheetToProduct({
+  const result = await linkTechnicalSheetToProduct({
     supabase,
     establishmentId,
     technicalSheetId,
@@ -37,5 +39,5 @@ export async function linkTechnicalSheetToProductAction(formData: FormData) {
   revalidatePath("/dashboard/produtos");
   revalidatePath("/dashboard/estoque");
 
-  return { ok: true };
+  return result;
 }

@@ -2140,7 +2140,12 @@ export default function FichasTecnicasPage() {
       try {
         await updateTechnicalSheet(payload);
 
-        if (atrelarEdicaoFichaTecnica && fichaEditando.id) {
+        const deveSincronizarProduto =
+          atrelarEdicaoFichaTecnica ||
+          fichaEditando.isLinkedToProduct ||
+          Boolean(fichaEditando.linkedProductId);
+
+        if (deveSincronizarProduto && fichaEditando.id) {
           const formData = new FormData();
           formData.set("technical_sheet_id", fichaEditando.id);
           await linkTechnicalSheetToProductAction(formData);

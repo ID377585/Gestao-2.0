@@ -32,24 +32,34 @@ type FormState = {
   notes: string;
 };
 
+type OpportunityItem = {
+  productName: string;
+  action: string;
+  badge: string;
+  priority: number;
+};
+
 type PrintExecutiveSummary = {
   avgManualPrice: number | null;
   avgCompetitorPrice: number | null;
   avgSuggestedPrice: number | null;
   avgMarginPercent: number | null;
   avgPositionPercent: number | null;
+  marketCoveragePercent: number;
   securityScore: number;
   opportunityCount: number;
+  missingQuoteCount: number;
+  quotedItemsCount: number;
+  totalItemsCount: number;
   premiumCount: number;
   alignedCount: number;
   belowMarketCount: number;
-  topOpportunities: {
-    productName: string;
-    action: string;
-    badge: string;
-  }[];
+  topPriceOpportunities: OpportunityItem[];
+  missingQuoteItems: OpportunityItem[];
   marketStatusLabel: string;
   marketStatusTone: "green" | "yellow" | "red";
+  securityLabel: string;
+  securityTone: "green" | "yellow" | "red";
   insight: string;
 };
 
@@ -201,7 +211,7 @@ const REPORT_STYLES = `
 
   .preco-report-summary {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 10px;
     margin-bottom: 12px;
   }
@@ -234,6 +244,14 @@ const REPORT_STYLES = `
     color: #0f172a;
     font-size: 20px;
     font-weight: 900;
+  }
+
+  .preco-report-summary-card small {
+    display: block;
+    margin-top: 3px;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 700;
   }
 
   .preco-report-table-wrapper {
@@ -304,6 +322,13 @@ const REPORT_STYLES = `
     font-variant-numeric: tabular-nums;
   }
 
+  .preco-report-no-quote {
+    color: #94a3b8;
+    font-weight: 800;
+    text-align: right;
+    white-space: nowrap;
+  }
+
   .preco-report-money-main {
     color: #047857;
     font-weight: 900;
@@ -346,7 +371,7 @@ const REPORT_STYLES = `
 
   .preco-report-grid {
     display: grid;
-    grid-template-columns: 1.1fr 0.9fr;
+    grid-template-columns: 1.05fr 0.95fr;
     gap: 10px;
   }
 
@@ -398,7 +423,7 @@ const REPORT_STYLES = `
 
   .preco-report-bar-row {
     display: grid;
-    grid-template-columns: 112px 1fr 90px;
+    grid-template-columns: 112px 1fr 100px;
     align-items: center;
     gap: 8px;
     font-size: 11px;
@@ -446,7 +471,7 @@ const REPORT_STYLES = `
 
   .preco-report-opportunity-row {
     display: grid;
-    grid-template-columns: 1fr 86px;
+    grid-template-columns: 1fr 92px;
     align-items: center;
     gap: 8px;
     padding: 7px 0;
@@ -475,6 +500,17 @@ const REPORT_STYLES = `
     text-align: right;
     color: #047857;
     font-weight: 900;
+  }
+
+  .preco-report-missing-action {
+    color: #b45309;
+  }
+
+  .preco-report-two-panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 10px;
   }
 
   .preco-report-mini-summary {
@@ -599,6 +635,7 @@ const REPORT_STYLES = `
     }
 
     .preco-report-summary {
+      grid-template-columns: repeat(4, 1fr) !important;
       gap: 5px !important;
       margin-bottom: 7px !important;
       break-inside: avoid !important;
@@ -617,6 +654,11 @@ const REPORT_STYLES = `
 
     .preco-report-summary-card strong {
       font-size: 9px !important;
+      margin-top: 1px !important;
+    }
+
+    .preco-report-summary-card small {
+      font-size: 5px !important;
       margin-top: 1px !important;
     }
 
@@ -645,6 +687,10 @@ const REPORT_STYLES = `
     }
 
     .preco-report-muted {
+      font-size: 4.8px !important;
+    }
+
+    .preco-report-no-quote {
       font-size: 4.8px !important;
     }
 
@@ -693,7 +739,7 @@ const REPORT_STYLES = `
     }
 
     .preco-report-bar-row {
-      grid-template-columns: 58px 1fr 48px !important;
+      grid-template-columns: 58px 1fr 52px !important;
       gap: 5px !important;
       font-size: 5.5px !important;
     }
@@ -708,6 +754,11 @@ const REPORT_STYLES = `
       border-radius: 7px !important;
       font-size: 5.7px !important;
       line-height: 1.25 !important;
+    }
+
+    .preco-report-two-panels {
+      gap: 6px !important;
+      margin-top: 6px !important;
     }
 
     .preco-report-opportunity-row {
@@ -776,6 +827,22 @@ function formatCurrency(value: number | null | undefined) {
   }).format(Number(value));
 }
 
+function formatOptionalCurrency(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value)) || Number(value) <= 0) {
+    return "Sem base";
+  }
+
+  return formatCurrency(value);
+}
+
+function formatCompetitorCurrency(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value)) || Number(value) <= 0) {
+    return "Sem cotação";
+  }
+
+  return formatCurrency(value);
+}
+
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return "-";
 
@@ -834,6 +901,16 @@ function getRestaurantName(item: SalesPriceBenchmark, number: RestaurantNumber) 
 
 function getRestaurantPrice(item: SalesPriceBenchmark, number: RestaurantNumber) {
   return (item[`restaurant${number}Price` as keyof SalesPriceBenchmark] as number | null | undefined) ?? null;
+}
+
+function getValidCompetitorPrices(item: SalesPriceBenchmark) {
+  return RESTAURANT_FIELDS.map((number) => getRestaurantPrice(item, number)).filter(
+    (value): value is number => value !== null && value !== undefined && Number.isFinite(value) && value > 0,
+  );
+}
+
+function hasCompetitorQuote(item: SalesPriceBenchmark) {
+  return getValidCompetitorPrices(item).length > 0;
 }
 
 function getPrintRestaurantHeader(items: SalesPriceBenchmark[], number: RestaurantNumber) {
@@ -920,13 +997,14 @@ function computePricePositionPercent(
   return roundMoney(((manualPrice - competitorAverage) / competitorAverage) * 100);
 }
 
-function getOpportunityAction(item: SalesPriceBenchmark) {
+function getOpportunityAction(item: SalesPriceBenchmark): OpportunityItem {
   const manual = item.manualSalePrice;
   const competitorAverage = item.competitorAveragePrice;
   const suggested = item.suggestedAveragePrice;
 
-  if (!competitorAverage || competitorAverage <= 0 || !suggested) {
+  if (!hasCompetitorQuote(item) || !competitorAverage || competitorAverage <= 0 || !suggested || suggested <= 0) {
     return {
+      productName: item.productName,
       action: "Coletar preço",
       badge: "Base insuficiente",
       priority: 4,
@@ -935,6 +1013,7 @@ function getOpportunityAction(item: SalesPriceBenchmark) {
 
   if (!manual || manual <= 0) {
     return {
+      productName: item.productName,
       action: "Definir preço",
       badge: "Sem preço",
       priority: 1,
@@ -945,6 +1024,7 @@ function getOpportunityAction(item: SalesPriceBenchmark) {
 
   if (manual < suggested) {
     return {
+      productName: item.productName,
       action: "Aumentar",
       badge: "Subvalorizado",
       priority: 1,
@@ -953,6 +1033,7 @@ function getOpportunityAction(item: SalesPriceBenchmark) {
 
   if (position >= 12) {
     return {
+      productName: item.productName,
       action: "Revisar",
       badge: "Acima do mercado",
       priority: 2,
@@ -961,6 +1042,7 @@ function getOpportunityAction(item: SalesPriceBenchmark) {
 
   if (position >= -5 && position <= 8) {
     return {
+      productName: item.productName,
       action: "Manter",
       badge: "Competitivo",
       priority: 3,
@@ -968,6 +1050,7 @@ function getOpportunityAction(item: SalesPriceBenchmark) {
   }
 
   return {
+    productName: item.productName,
     action: "Reposicionar",
     badge: "Atenção",
     priority: 2,
@@ -975,15 +1058,20 @@ function getOpportunityAction(item: SalesPriceBenchmark) {
 }
 
 function buildPrintExecutiveSummary(items: SalesPriceBenchmark[]): PrintExecutiveSummary {
+  const totalItemsCount = items.length;
+
   const withManual = items
     .map((item) => item.manualSalePrice)
     .filter((value): value is number => value !== null && value !== undefined && value > 0);
 
-  const withCompetitorAverage = items
+  const quotedItems = items.filter(hasCompetitorQuote);
+  const missingQuoteItemsRaw = items.filter((item) => !hasCompetitorQuote(item));
+
+  const withCompetitorAverage = quotedItems
     .map((item) => item.competitorAveragePrice)
     .filter((value): value is number => value !== null && value !== undefined && value > 0);
 
-  const withSuggested = items
+  const withSuggested = quotedItems
     .map((item) => item.suggestedAveragePrice)
     .filter((value): value is number => value !== null && value !== undefined && value > 0);
 
@@ -991,7 +1079,7 @@ function buildPrintExecutiveSummary(items: SalesPriceBenchmark[]): PrintExecutiv
     .map((item) => computeMarginPercent(item.manualSalePrice, item.catalogSuggestedPrice))
     .filter((value): value is number => value !== null);
 
-  const positions = items
+  const positions = quotedItems
     .map((item) => computePricePositionPercent(item.manualSalePrice, item.competitorAveragePrice))
     .filter((value): value is number => value !== null);
 
@@ -1001,7 +1089,11 @@ function buildPrintExecutiveSummary(items: SalesPriceBenchmark[]): PrintExecutiv
   const avgMarginPercent = average(margins);
   const avgPositionPercent = average(positions);
 
-  const opportunityCount = items.filter((item) => {
+  const quotedItemsCount = quotedItems.length;
+  const missingQuoteCount = missingQuoteItemsRaw.length;
+  const marketCoveragePercent = totalItemsCount > 0 ? roundMoney((quotedItemsCount / totalItemsCount) * 100) : 0;
+
+  const opportunityCount = quotedItems.filter((item) => {
     if (!item.suggestedAveragePrice || !item.manualSalePrice) return false;
 
     return item.manualSalePrice < item.suggestedAveragePrice;
@@ -1011,52 +1103,54 @@ function buildPrintExecutiveSummary(items: SalesPriceBenchmark[]): PrintExecutiv
   const alignedCount = positions.filter((value) => value >= -5 && value <= 8).length;
   const belowMarketCount = positions.filter((value) => value < -5).length;
 
-  const securityScore = clamp(
-    Math.round(
-      72 +
-        (avgMarginPercent !== null ? Math.min(avgMarginPercent, 80) * 0.12 : 0) -
-        Math.abs(avgPositionPercent ?? 0) * 0.9 +
-        Math.min(withCompetitorAverage.length, 10) * 1.2,
-    ),
-    45,
-    96,
-  );
+  const alignmentPenalty = Math.min(Math.abs(avgPositionPercent ?? 0) * 0.7, 20);
+  const marginBoost = avgMarginPercent !== null ? Math.min(avgMarginPercent, 80) * 0.12 : 0;
+
+  const securityScore = clamp(Math.round(marketCoveragePercent * 0.8 + marginBoost - alignmentPenalty), 0, 100);
+
+  let securityLabel = "Alta";
+  let securityTone: PrintExecutiveSummary["securityTone"] = "green";
+
+  if (marketCoveragePercent < 40 || securityScore < 45) {
+    securityLabel = "Baixa";
+    securityTone = "red";
+  } else if (marketCoveragePercent < 70 || securityScore < 70) {
+    securityLabel = "Média";
+    securityTone = "yellow";
+  }
 
   let marketStatusLabel = "Competitivo";
   let marketStatusTone: PrintExecutiveSummary["marketStatusTone"] = "green";
 
-  if ((avgPositionPercent ?? 0) > 12) {
+  if (quotedItemsCount === 0) {
+    marketStatusLabel = "Sem base de mercado";
+    marketStatusTone = "red";
+  } else if ((avgPositionPercent ?? 0) > 12) {
     marketStatusLabel = "Acima da média";
     marketStatusTone = "yellow";
   } else if ((avgPositionPercent ?? 0) < -8) {
     marketStatusLabel = "Abaixo do mercado";
     marketStatusTone = "red";
-  } else if (withCompetitorAverage.length === 0) {
-    marketStatusLabel = "Base insuficiente";
-    marketStatusTone = "yellow";
   }
 
-  const topOpportunities = items
-    .map((item) => {
-      const opportunity = getOpportunityAction(item);
+  const allActions = items
+    .map(getOpportunityAction)
+    .sort((a, b) => a.priority - b.priority || a.productName.localeCompare(b.productName, "pt-BR"));
 
-      return {
-        productName: item.productName,
-        action: opportunity.action,
-        badge: opportunity.badge,
-        priority: opportunity.priority,
-      };
-    })
-    .sort((a, b) => a.priority - b.priority || a.productName.localeCompare(b.productName, "pt-BR"))
-    .slice(0, 3)
-    .map(({ productName, action, badge }) => ({ productName, action, badge }));
+  const topPriceOpportunities = allActions.filter((item) => item.action !== "Coletar preço");
+
+  const missingQuoteItems = missingQuoteItemsRaw
+    .map(getOpportunityAction)
+    .sort((a, b) => a.productName.localeCompare(b.productName, "pt-BR"));
 
   const insight =
-    withCompetitorAverage.length === 0
-      ? "Inclua preços de concorrentes para gerar leitura estratégica de posicionamento, segurança e oportunidade."
-      : opportunityCount > 0
-        ? `Há ${opportunityCount} item(ns) com espaço para reajuste ou reposicionamento sem perder a referência da média de mercado.`
-        : "Os preços analisados estão próximos da média de mercado, com boa leitura de competitividade para tomada de decisão.";
+    totalItemsCount === 0
+      ? "Nenhum prato foi encontrado para análise."
+      : missingQuoteCount > 0
+        ? `A análise tem cobertura de ${formatPercent(marketCoveragePercent)}: ${missingQuoteCount} item(ns) ainda precisam de cotação para aumentar a segurança da decisão.`
+        : opportunityCount > 0
+          ? `Há ${opportunityCount} item(ns) com espaço para reajuste ou reposicionamento com base na média de mercado.`
+          : "Os preços analisados estão próximos da média de mercado, com boa leitura de competitividade para tomada de decisão.";
 
   return {
     avgManualPrice,
@@ -1064,14 +1158,21 @@ function buildPrintExecutiveSummary(items: SalesPriceBenchmark[]): PrintExecutiv
     avgSuggestedPrice,
     avgMarginPercent,
     avgPositionPercent,
+    marketCoveragePercent,
     securityScore,
     opportunityCount,
+    missingQuoteCount,
+    quotedItemsCount,
+    totalItemsCount,
     premiumCount,
     alignedCount,
     belowMarketCount,
-    topOpportunities,
+    topPriceOpportunities,
+    missingQuoteItems,
     marketStatusLabel,
     marketStatusTone,
+    securityLabel,
+    securityTone,
     insight,
   };
 }
@@ -1092,9 +1193,14 @@ function buildReportHtml(params: {
 
   const rows = items
     .map((item) => {
-      const competitors = RESTAURANT_FIELDS.map(
-        (number) => `<td class="preco-report-money">${escapeHtml(formatCurrency(getRestaurantPrice(item, number)))}</td>`,
-      ).join("");
+      const competitors = RESTAURANT_FIELDS.map((number) => {
+        const price = getRestaurantPrice(item, number);
+        const hasPrice = price !== null && price !== undefined && price > 0;
+
+        return hasPrice
+          ? `<td class="preco-report-money">${escapeHtml(formatCurrency(price))}</td>`
+          : `<td class="preco-report-no-quote">Sem cotação</td>`;
+      }).join("");
 
       return `
         <tr>
@@ -1106,17 +1212,17 @@ function buildReportHtml(params: {
           <td class="preco-report-money">${escapeHtml(formatCurrency(item.catalogSuggestedPrice))}</td>
           <td class="preco-report-money preco-report-money-main">${escapeHtml(formatCurrency(item.manualSalePrice))}</td>
           ${competitors}
-          <td class="preco-report-money preco-report-money-average">${escapeHtml(formatCurrency(item.competitorAveragePrice))}</td>
-          <td class="preco-report-money preco-report-money-main">${escapeHtml(formatCurrency(item.suggestedAveragePrice))}</td>
+          <td class="preco-report-money preco-report-money-average">${escapeHtml(formatOptionalCurrency(item.competitorAveragePrice))}</td>
+          <td class="preco-report-money preco-report-money-main">${escapeHtml(formatOptionalCurrency(item.suggestedAveragePrice))}</td>
           <td class="preco-report-percent">${escapeHtml(formatPercent(item.percentageVsSuggested))}</td>
         </tr>
       `;
     })
     .join("");
 
-  const opportunities =
-    executiveSummary.topOpportunities.length > 0
-      ? executiveSummary.topOpportunities
+  const priceOpportunities =
+    executiveSummary.topPriceOpportunities.length > 0
+      ? executiveSummary.topPriceOpportunities
           .map(
             (item) => `
               <div class="preco-report-opportunity-row">
@@ -1132,10 +1238,35 @@ function buildReportHtml(params: {
       : `
         <div class="preco-report-opportunity-row">
           <div>
-            <div class="preco-report-opportunity-name">Sem dados suficientes</div>
-            <span class="preco-report-opportunity-badge">Inclua preços de concorrentes</span>
+            <div class="preco-report-opportunity-name">Nenhum reajuste prioritário</div>
+            <span class="preco-report-opportunity-badge">Preços com base estão controlados</span>
           </div>
-          <div class="preco-report-opportunity-action">Analisar</div>
+          <div class="preco-report-opportunity-action">Manter</div>
+        </div>
+      `;
+
+  const missingQuoteRows =
+    executiveSummary.missingQuoteItems.length > 0
+      ? executiveSummary.missingQuoteItems
+          .map(
+            (item) => `
+              <div class="preco-report-opportunity-row">
+                <div>
+                  <div class="preco-report-opportunity-name">${escapeHtml(item.productName)}</div>
+                  <span class="preco-report-opportunity-badge">${escapeHtml(item.badge)}</span>
+                </div>
+                <div class="preco-report-opportunity-action preco-report-missing-action">${escapeHtml(item.action)}</div>
+              </div>
+            `,
+          )
+          .join("")
+      : `
+        <div class="preco-report-opportunity-row">
+          <div>
+            <div class="preco-report-opportunity-name">Todas as cotações completas</div>
+            <span class="preco-report-opportunity-badge">Não há pratos pendentes</span>
+          </div>
+          <div class="preco-report-opportunity-action">OK</div>
         </div>
       `;
 
@@ -1255,16 +1386,25 @@ function buildReportHtml(params: {
             <div class="preco-report-summary-card">
               <span>Pratos listados</span>
               <strong>${items.length}</strong>
+              <small>Total analisado</small>
             </div>
 
             <div class="preco-report-summary-card">
               <span>Concorrentes</span>
               <strong>${competitorsCount}</strong>
+              <small>Com nome preenchido</small>
             </div>
 
             <div class="preco-report-summary-card">
-              <span>Tipo de análise</span>
-              <strong>Preço médio</strong>
+              <span>Cobertura mercado</span>
+              <strong>${escapeHtml(formatPercent(executiveSummary.marketCoveragePercent))}</strong>
+              <small>${executiveSummary.quotedItemsCount} de ${executiveSummary.totalItemsCount} prato(s)</small>
+            </div>
+
+            <div class="preco-report-summary-card">
+              <span>Sem cotação</span>
+              <strong>${executiveSummary.missingQuoteCount}</strong>
+              <small>Prato(s) pendente(s)</small>
             </div>
           </div>
 
@@ -1307,13 +1447,13 @@ function buildReportHtml(params: {
             <div class="preco-report-kpi-card">
               <span>Segurança de preço</span>
               <strong>${executiveSummary.securityScore}%</strong>
-              <small>Confiança para decisão</small>
+              <small>${escapeHtml(executiveSummary.securityLabel)} - considera cobertura de mercado</small>
             </div>
 
             <div class="preco-report-kpi-card">
-              <span>Potencial</span>
+              <span>Potencial reajuste</span>
               <strong>${executiveSummary.opportunityCount}</strong>
-              <small>Item(ns) com oportunidade</small>
+              <small>Item(ns) com base para aumentar</small>
             </div>
           </div>
 
@@ -1340,7 +1480,7 @@ function buildReportHtml(params: {
                   <div class="preco-report-bar-track">
                     <div class="preco-report-bar-fill preco-report-bar-fill-blue" style="width: ${competitorWidth}%"></div>
                   </div>
-                  <strong>${escapeHtml(formatCurrency(executiveSummary.avgCompetitorPrice))}</strong>
+                  <strong>${escapeHtml(formatOptionalCurrency(executiveSummary.avgCompetitorPrice))}</strong>
                 </div>
 
                 <div class="preco-report-bar-row">
@@ -1348,23 +1488,12 @@ function buildReportHtml(params: {
                   <div class="preco-report-bar-track">
                     <div class="preco-report-bar-fill preco-report-bar-fill-emerald" style="width: ${suggestedWidth}%"></div>
                   </div>
-                  <strong>${escapeHtml(formatCurrency(executiveSummary.avgSuggestedPrice))}</strong>
+                  <strong>${escapeHtml(formatOptionalCurrency(executiveSummary.avgSuggestedPrice))}</strong>
                 </div>
               </div>
 
               <div class="preco-report-insight">
                 Resumo executivo: ${escapeHtml(executiveSummary.insight)}
-              </div>
-            </div>
-
-            <div class="preco-report-panel">
-              <div class="preco-report-panel-title">
-                <span>Top oportunidades</span>
-                <span class="preco-report-status preco-report-status-green">Ação sugerida</span>
-              </div>
-
-              <div class="preco-report-opportunities">
-                ${opportunities}
               </div>
 
               <div class="preco-report-mini-summary">
@@ -1381,6 +1510,37 @@ function buildReportHtml(params: {
                 <div>
                   <span>Abaixo</span>
                   <strong>${executiveSummary.belowMarketCount}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="preco-report-panel">
+              <div class="preco-report-panel-title">
+                <span>Resumo de ações</span>
+                <span class="preco-report-status preco-report-status-${executiveSummary.securityTone}">
+                  ${escapeHtml(executiveSummary.securityLabel)}
+                </span>
+              </div>
+
+              <div class="preco-report-two-panels">
+                <div>
+                  <div class="preco-report-panel-title">
+                    <span>Oportunidades de reajuste</span>
+                  </div>
+
+                  <div class="preco-report-opportunities">
+                    ${priceOpportunities}
+                  </div>
+                </div>
+
+                <div>
+                  <div class="preco-report-panel-title">
+                    <span>Itens sem cotação</span>
+                  </div>
+
+                  <div class="preco-report-opportunities">
+                    ${missingQuoteRows}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1414,7 +1574,6 @@ function openPrintableReport(html: string) {
   link.href = url;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
-  link.download = "preco-venda-medio-relatorio.html";
 
   document.body.appendChild(link);
   link.click();
@@ -1487,16 +1646,27 @@ function ReportView({
         <div className="preco-report-summary-card">
           <span>Pratos listados</span>
           <strong>{items.length}</strong>
+          <small>Total analisado</small>
         </div>
 
         <div className="preco-report-summary-card">
           <span>Concorrentes</span>
           <strong>{competitorsCount}</strong>
+          <small>Com nome preenchido</small>
         </div>
 
         <div className="preco-report-summary-card">
-          <span>Tipo de análise</span>
-          <strong>Preço médio</strong>
+          <span>Cobertura mercado</span>
+          <strong>{formatPercent(executiveSummary.marketCoveragePercent)}</strong>
+          <small>
+            {executiveSummary.quotedItemsCount} de {executiveSummary.totalItemsCount} prato(s)
+          </small>
+        </div>
+
+        <div className="preco-report-summary-card">
+          <span>Sem cotação</span>
+          <strong>{executiveSummary.missingQuoteCount}</strong>
+          <small>Prato(s) pendente(s)</small>
         </div>
       </div>
 
@@ -1535,18 +1705,27 @@ function ReportView({
                   {formatCurrency(item.manualSalePrice)}
                 </td>
 
-                {RESTAURANT_FIELDS.map((number) => (
-                  <td key={number} className="preco-report-money">
-                    {formatCurrency(getRestaurantPrice(item, number))}
-                  </td>
-                ))}
+                {RESTAURANT_FIELDS.map((number) => {
+                  const price = getRestaurantPrice(item, number);
+                  const hasPrice = price !== null && price !== undefined && price > 0;
+
+                  return hasPrice ? (
+                    <td key={number} className="preco-report-money">
+                      {formatCurrency(price)}
+                    </td>
+                  ) : (
+                    <td key={number} className="preco-report-no-quote">
+                      Sem cotação
+                    </td>
+                  );
+                })}
 
                 <td className="preco-report-money preco-report-money-average">
-                  {formatCurrency(item.competitorAveragePrice)}
+                  {formatOptionalCurrency(item.competitorAveragePrice)}
                 </td>
 
                 <td className="preco-report-money preco-report-money-main">
-                  {formatCurrency(item.suggestedAveragePrice)}
+                  {formatOptionalCurrency(item.suggestedAveragePrice)}
                 </td>
 
                 <td className="preco-report-percent">{formatPercent(item.percentageVsSuggested)}</td>
@@ -1572,13 +1751,13 @@ function ReportView({
         <div className="preco-report-kpi-card">
           <span>Segurança de preço</span>
           <strong>{executiveSummary.securityScore}%</strong>
-          <small>Confiança para decisão</small>
+          <small>{executiveSummary.securityLabel} - considera cobertura de mercado</small>
         </div>
 
         <div className="preco-report-kpi-card">
-          <span>Potencial</span>
+          <span>Potencial reajuste</span>
           <strong>{executiveSummary.opportunityCount}</strong>
-          <small>Item(ns) com oportunidade</small>
+          <small>Item(ns) com base para aumentar</small>
         </div>
       </div>
 
@@ -1613,7 +1792,7 @@ function ReportView({
                 />
               </div>
 
-              <strong>{formatCurrency(executiveSummary.avgCompetitorPrice)}</strong>
+              <strong>{formatOptionalCurrency(executiveSummary.avgCompetitorPrice)}</strong>
             </div>
 
             <div className="preco-report-bar-row">
@@ -1626,42 +1805,11 @@ function ReportView({
                 />
               </div>
 
-              <strong>{formatCurrency(executiveSummary.avgSuggestedPrice)}</strong>
+              <strong>{formatOptionalCurrency(executiveSummary.avgSuggestedPrice)}</strong>
             </div>
           </div>
 
           <div className="preco-report-insight">Resumo executivo: {executiveSummary.insight}</div>
-        </div>
-
-        <div className="preco-report-panel">
-          <div className="preco-report-panel-title">
-            <span>Top oportunidades</span>
-            <span className="preco-report-status preco-report-status-green">Ação sugerida</span>
-          </div>
-
-          <div className="preco-report-opportunities">
-            {executiveSummary.topOpportunities.length > 0 ? (
-              executiveSummary.topOpportunities.map((item) => (
-                <div key={`${item.productName}-${item.action}`} className="preco-report-opportunity-row">
-                  <div>
-                    <div className="preco-report-opportunity-name">{item.productName}</div>
-                    <span className="preco-report-opportunity-badge">{item.badge}</span>
-                  </div>
-
-                  <div className="preco-report-opportunity-action">{item.action}</div>
-                </div>
-              ))
-            ) : (
-              <div className="preco-report-opportunity-row">
-                <div>
-                  <div className="preco-report-opportunity-name">Sem dados suficientes</div>
-                  <span className="preco-report-opportunity-badge">Inclua preços de concorrentes</span>
-                </div>
-
-                <div className="preco-report-opportunity-action">Analisar</div>
-              </div>
-            )}
-          </div>
 
           <div className="preco-report-mini-summary">
             <div>
@@ -1677,6 +1825,78 @@ function ReportView({
             <div>
               <span>Abaixo</span>
               <strong>{executiveSummary.belowMarketCount}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="preco-report-panel">
+          <div className="preco-report-panel-title">
+            <span>Resumo de ações</span>
+
+            <span className={`preco-report-status preco-report-status-${executiveSummary.securityTone}`}>
+              {executiveSummary.securityLabel}
+            </span>
+          </div>
+
+          <div className="preco-report-two-panels">
+            <div>
+              <div className="preco-report-panel-title">
+                <span>Oportunidades de reajuste</span>
+              </div>
+
+              <div className="preco-report-opportunities">
+                {executiveSummary.topPriceOpportunities.length > 0 ? (
+                  executiveSummary.topPriceOpportunities.map((item) => (
+                    <div key={`${item.productName}-${item.action}`} className="preco-report-opportunity-row">
+                      <div>
+                        <div className="preco-report-opportunity-name">{item.productName}</div>
+                        <span className="preco-report-opportunity-badge">{item.badge}</span>
+                      </div>
+
+                      <div className="preco-report-opportunity-action">{item.action}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="preco-report-opportunity-row">
+                    <div>
+                      <div className="preco-report-opportunity-name">Nenhum reajuste prioritário</div>
+                      <span className="preco-report-opportunity-badge">Preços com base estão controlados</span>
+                    </div>
+
+                    <div className="preco-report-opportunity-action">Manter</div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <div className="preco-report-panel-title">
+                <span>Itens sem cotação</span>
+              </div>
+
+              <div className="preco-report-opportunities">
+                {executiveSummary.missingQuoteItems.length > 0 ? (
+                  executiveSummary.missingQuoteItems.map((item) => (
+                    <div key={`${item.productName}-${item.action}`} className="preco-report-opportunity-row">
+                      <div>
+                        <div className="preco-report-opportunity-name">{item.productName}</div>
+                        <span className="preco-report-opportunity-badge">{item.badge}</span>
+                      </div>
+
+                      <div className="preco-report-opportunity-action preco-report-missing-action">{item.action}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="preco-report-opportunity-row">
+                    <div>
+                      <div className="preco-report-opportunity-name">Todas as cotações completas</div>
+                      <span className="preco-report-opportunity-badge">Não há pratos pendentes</span>
+                    </div>
+
+                    <div className="preco-report-opportunity-action">OK</div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1790,7 +2010,7 @@ export default function PrecoVendaMedioPage() {
   }, [printExecutiveSummary]);
 
   const metrics = useMemo(() => {
-    const withCompetitors = benchmarks.filter((item) => item.competitorAveragePrice !== null);
+    const withCompetitors = benchmarks.filter(hasCompetitorQuote);
 
     return {
       total: benchmarks.length,
@@ -1915,7 +2135,7 @@ export default function PrecoVendaMedioPage() {
             <div>
               <div className="preco-report-toolbar-title">Pré-visualização do relatório</div>
               <div className="preco-report-toolbar-subtitle">
-                Clique em “Imprimir / Salvar PDF”. Será aberta uma página de impressão independente.
+                Agora o relatório separa reajuste, itens sem cotação e cobertura de mercado.
               </div>
             </div>
 
@@ -1977,7 +2197,7 @@ export default function PrecoVendaMedioPage() {
             </div>
 
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-900 shadow-sm">
-              <p className="text-xs">Com concorrentes</p>
+              <p className="text-xs">Com cotação de mercado</p>
               <p className="mt-2 text-3xl font-black">{metrics.withCompetitors}</p>
             </div>
           </section>
@@ -2216,21 +2436,24 @@ export default function PrecoVendaMedioPage() {
                         {RESTAURANT_FIELDS.map((number) => {
                           const name = getRestaurantName(item, number);
                           const price = getRestaurantPrice(item, number);
+                          const hasPrice = price !== null && price !== undefined && price > 0;
 
                           return (
                             <td key={number} className="px-3 py-4">
                               <div className="font-bold text-slate-800">{name || `Concorrente ${number}`}</div>
-                              <div className="text-slate-600">{formatCurrency(price)}</div>
+                              <div className={hasPrice ? "text-slate-600" : "font-semibold text-slate-400"}>
+                                {formatCompetitorCurrency(price)}
+                              </div>
                             </td>
                           );
                         })}
 
                         <td className="px-3 py-4 font-semibold text-blue-800">
-                          {formatCurrency(item.competitorAveragePrice)}
+                          {formatOptionalCurrency(item.competitorAveragePrice)}
                         </td>
 
                         <td className="px-3 py-4 font-black text-emerald-700">
-                          {formatCurrency(item.suggestedAveragePrice)}
+                          {formatOptionalCurrency(item.suggestedAveragePrice)}
                         </td>
 
                         <td

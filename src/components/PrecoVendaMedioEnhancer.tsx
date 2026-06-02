@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 
+const STORAGE_PREFIX = "preco-venda-medio:";
+
 function parseNumber(value: string) {
   const normalized = value
     .replace(/[^\d,.-]/g, "")
@@ -12,31 +14,34 @@ function parseNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function formatPercent(value: number | null) {
-  if (value === null || !Number.isFinite(value)) return "-";
-
-  return `${value.toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}%`;
-}
-
-function formatMarkup(value: number | null) {
-  if (value === null || !Number.isFinite(value)) return "-";
-
-  return `${value.toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}x`;
-}
-
-function formatDifference(value: number | null) {
+function formatNumber(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "-";
 
   return value.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function formatMoney(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "-";
+
+  return value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatPercent(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "-";
+  return `${formatNumber(value)}%`;
+}
+
+function formatMarkup(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "-";
+  return `${formatNumber(value)}x`;
 }
 
 function setReactInputValue(input: HTMLInputElement, value: string) {
@@ -62,6 +67,19 @@ function getButtonByText(root: Element, text: string) {
   return Array.from(root.querySelectorAll("button")).find((button) => button.textContent?.trim() === text) as
     | HTMLButtonElement
     | undefined;
+}
+
+function normalizeKey(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function storageKey(productName: string) {
+  return `${STORAGE_PREFIX}${normalizeKey(productName)}`;
 }
 
 function getCostValue(row: Element) {
@@ -137,7 +155,6 @@ function getLowestCompetitorPrice(row: Element) {
     .filter((price) => price > 0);
 
   if (competitorPrices.length === 0) return null;
-
   return Math.min(...competitorPrices);
 }
 
@@ -155,6 +172,53 @@ function getDefinedPriceInput(row: Element) {
   );
 }
 
+function getProductName(row: Element) {
+  const firstSelect = row.querySelector("select") as HTMLSelectElement | null;
+  const selectedText = firstSelect?.selectedOptions?.[0]?.textContent?.trim() ?? "";
+  return selectedText || "produto-sem-nome";
+}
+
+function getFormSnapshot(row: Element) {
+  const cost = getCostValue(row);
+  const x = parseNumber(getXInput(row)?.value ?? "");
+  const salePrice = parseNumber(findLabel(row, "Preço Venda")?.querySelector("input")?.value ?? "");
+  const definedPrice = parseNumber(getDefinedPriceInput(row)?.value ?? "");
+  const lowestCompetitorPrice = getLowestCompetitorPrice(row);
+  const competitorMarkup = cost > 0 && lowestCompetitorPrice ? lowestCompetitorPrice / cost : null;
+  const difference = competitorMarkup !== null && x > 0 ? competitorMarkup - x : null;
+  const percent = definedPrice > 0 && lowestCompetitorPrice ? ((definedPrice - lowestCompetitorPrice) / lowestCompetitorPrice) * 100 : null;
+
+  return {
+    productName: getProductName(row),
+    cost,
+    x,
+    salePrice,
+    definedPrice,
+    percent,
+    competitorMarkup,
+    difference,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function saveFormSnapshot(row: Element) {
+  try {
+    const snapshot = getFormSnapshot(row);
+    localStorage.setItem(storageKey(snapshot.productName), JSON.stringify(snapshot));
+  } catch {
+    // Ignora indisponibilidade de localStorage.
+  }
+}
+
+function loadSnapshot(productName: string) {
+  try {
+    const raw = localStorage.getItem(storageKey(productName));
+    return raw ? (JSON.parse(raw) as ReturnType<typeof getFormSnapshot>) : null;
+  } catch {
+    return null;
+  }
+}
+
 function updateDifferenceCard(row: Element, competitorMarkup: number | null) {
   const card = ensureDifferenceCard(row);
   const value = card?.querySelector('[data-markup-difference-value="true"]') as HTMLParagraphElement | null;
@@ -170,7 +234,7 @@ function updateDifferenceCard(row: Element, competitorMarkup: number | null) {
   }
 
   const difference = competitorMarkup - ourMarkup;
-  value.textContent = formatDifference(difference);
+  value.textContent = formatNumber(difference);
   value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
   value.classList.add(difference >= 0 ? "text-emerald-700" : "text-red-700");
 }
@@ -293,6 +357,7 @@ function ensureDefinedPriceField(row: Element, screen: Element) {
   const syncDefinedPriceToSavedField = () => {
     const definedValue = definedInput?.value.trim() ?? "";
     if (!definedValue) return;
+    saveFormSnapshot(row);
     setReactInputValue(saleInput, definedValue);
   };
 
@@ -320,6 +385,70 @@ function bindPercentCalculation(row: Element) {
   updatePercentCard(row);
 }
 
+function cell(text: string, tone: "default" | "green" | "red" = "default") {
+  const td = document.createElement("td");
+  td.className = tone === "green" ? "px-4 py-4 font-black text-emerald-700" : tone === "red" ? "px-4 py-4 font-black text-red-700" : "px-4 py-4 font-bold text-slate-900";
+  td.textContent = text;
+  return td;
+}
+
+function header(text: string) {
+  const th = document.createElement("th");
+  th.className = "px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-slate-500";
+  th.textContent = text;
+  return th;
+}
+
+function findHeaderIndex(headers: HTMLTableCellElement[], title: string) {
+  return headers.findIndex((headerCell) => headerCell.textContent?.trim().toLowerCase() === title.toLowerCase());
+}
+
+function enhanceRegisteredTable(screen: Element) {
+  const table = Array.from(screen.querySelectorAll("table")).find((table) =>
+    Array.from(table.querySelectorAll("th")).some((th) => th.textContent?.trim().toLowerCase() === "nosso preço definido"),
+  ) as HTMLTableElement | undefined;
+
+  if (!table || table.dataset.extraBenchmarkColumns === "true") return;
+
+  const headerRow = table.querySelector("thead tr");
+  const bodyRows = Array.from(table.querySelectorAll("tbody tr"));
+  if (!headerRow || bodyRows.length === 0) return;
+
+  const headers = Array.from(headerRow.querySelectorAll("th"));
+  const definedIndex = findHeaderIndex(headers, "Nosso Preço Definido");
+  const actionsIndex = findHeaderIndex(headers, "Ações");
+
+  if (definedIndex < 0 || actionsIndex < 0) return;
+
+  headerRow.children[definedIndex].insertAdjacentElement("afterend", header("Preço Venda"));
+  headerRow.children[definedIndex].insertAdjacentElement("afterend", header("X"));
+  headerRow.children[actionsIndex + 2]?.insertAdjacentElement("beforebegin", header("Markup menor concorrente"));
+  headerRow.children[actionsIndex + 2]?.insertAdjacentElement("beforebegin", header("Diferença de"));
+
+  bodyRows.forEach((tr) => {
+    const cells = Array.from(tr.children) as HTMLElement[];
+    const productName = cells[0]?.textContent?.split("\n")?.[0]?.trim() ?? "";
+    const snapshot = loadSnapshot(productName);
+    const cost = parseNumber(cells[2]?.textContent ?? "");
+    const defined = parseNumber(cells[3]?.textContent ?? "");
+    const c1 = parseNumber(cells[4]?.textContent ?? "");
+    const c2 = parseNumber(cells[5]?.textContent ?? "");
+    const c3 = parseNumber(cells[6]?.textContent ?? "");
+    const lowest = Math.min(...[c1, c2, c3].filter((value) => value > 0));
+    const x = snapshot?.x && snapshot.x > 0 ? snapshot.x : cost > 0 && defined > 0 ? defined / cost : null;
+    const salePrice = snapshot?.salePrice && snapshot.salePrice > 0 ? snapshot.salePrice : x && cost > 0 ? cost * x : null;
+    const competitorMarkup = cost > 0 && Number.isFinite(lowest) ? lowest / cost : null;
+    const difference = competitorMarkup !== null && x !== null ? competitorMarkup - x : null;
+
+    tr.children[definedIndex].insertAdjacentElement("afterend", cell(formatMoney(salePrice)));
+    tr.children[definedIndex].insertAdjacentElement("afterend", cell(formatMarkup(x)));
+    tr.children[actionsIndex + 2]?.insertAdjacentElement("beforebegin", cell(formatMarkup(competitorMarkup), "green"));
+    tr.children[actionsIndex + 2]?.insertAdjacentElement("beforebegin", cell(formatNumber(difference), difference !== null && difference >= 0 ? "green" : "red"));
+  });
+
+  table.dataset.extraBenchmarkColumns = "true";
+}
+
 function runEnhancer() {
   try {
     if (!window.location.pathname.includes("/engenharia/preco-venda-medio")) return;
@@ -333,6 +462,7 @@ function runEnhancer() {
     bindPercentCalculation(row);
     updateMarkupCard(row);
     hideSuggestedPriceCard(row);
+    enhanceRegisteredTable(screen);
   } catch (error) {
     console.error("Erro ao aplicar melhorias no Preço Venda Médio:", error);
   }

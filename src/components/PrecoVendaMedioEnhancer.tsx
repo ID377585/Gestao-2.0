@@ -37,6 +37,41 @@ function getCostValue(container: ParentNode) {
   return parseCurrency(costValue);
 }
 
+function getButtonByText(root: ParentNode, text: string) {
+  return Array.from(root.querySelectorAll("button")).find((button) => button.textContent?.trim() === text) as
+    | HTMLButtonElement
+    | undefined;
+}
+
+function bindDefinedPriceInput(definedPriceInput: HTMLInputElement, manualPriceInput: HTMLInputElement, screen: Element) {
+  const syncDefinedPriceToReactState = () => {
+    const definedPrice = definedPriceInput.value.trim();
+
+    if (!definedPrice) return;
+
+    setReactInputValue(manualPriceInput, definedPrice);
+  };
+
+  if (definedPriceInput.dataset.definedPriceBound !== "true") {
+    definedPriceInput.dataset.definedPriceBound = "true";
+    definedPriceInput.addEventListener("input", () => {
+      definedPriceInput.dataset.userEditedDefinedPrice = "true";
+    });
+    definedPriceInput.addEventListener("change", () => {
+      definedPriceInput.dataset.userEditedDefinedPrice = "true";
+    });
+  }
+
+  const saveButton = getButtonByText(screen, "Salvar comparação");
+
+  if (saveButton && saveButton.dataset.definedPriceSaveBound !== "true") {
+    saveButton.dataset.definedPriceSaveBound = "true";
+    saveButton.addEventListener("pointerdown", syncDefinedPriceToReactState, true);
+    saveButton.addEventListener("mousedown", syncDefinedPriceToReactState, true);
+    saveButton.addEventListener("click", syncDefinedPriceToReactState, true);
+  }
+}
+
 function bindXInput(xInput: HTMLInputElement, comparisonFormRow: Element, manualPriceInput: HTMLInputElement) {
   const calculateSalePrice = () => {
     const factor = Number(xInput.value ?? "");
@@ -89,9 +124,28 @@ function applyEnhancements() {
     xInput = xLabel.querySelector<HTMLInputElement>("[data-preco-x-input]");
   }
 
-  if (!xInput) return;
+  let definedPriceInput = comparisonFormRow.querySelector<HTMLInputElement>("[data-defined-price-input]");
+
+  if (!definedPriceInput) {
+    const definedPriceLabel = document.createElement("label");
+    definedPriceLabel.className = "w-[145px] shrink-0";
+    definedPriceLabel.setAttribute("data-defined-price-field", "true");
+    definedPriceLabel.style.display = "block";
+    definedPriceLabel.style.visibility = "visible";
+    definedPriceLabel.style.opacity = "1";
+    definedPriceLabel.innerHTML = `
+      <span class="text-xs font-bold text-slate-700">Nosso preço definido</span>
+      <input data-defined-price-input="true" type="number" min="0" step="0.01" placeholder="Definido" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none ring-emerald-500 transition focus:ring-2" />
+    `;
+
+    manualPriceLabel.insertAdjacentElement("afterend", definedPriceLabel);
+    definedPriceInput = definedPriceLabel.querySelector<HTMLInputElement>("[data-defined-price-input]");
+  }
+
+  if (!xInput || !definedPriceInput) return;
 
   bindXInput(xInput, comparisonFormRow, manualPriceInput);
+  bindDefinedPriceInput(definedPriceInput, manualPriceInput, screen);
 }
 
 export function PrecoVendaMedioEnhancer() {

@@ -40,6 +40,12 @@ function getCardTitle(root: Element, title: string) {
     | undefined;
 }
 
+function getButtonByText(root: Element, text: string) {
+  return Array.from(root.querySelectorAll("button")).find((button) => button.textContent?.trim() === text) as
+    | HTMLButtonElement
+    | undefined;
+}
+
 function getCostValue(row: Element) {
   const costTitle = getCardTitle(row, "Preço de custo");
   const costText = costTitle?.parentElement?.querySelector("p:last-child")?.textContent ?? "";
@@ -144,6 +150,49 @@ function ensureXField(row: Element) {
   xInput.addEventListener("change", calculateSalePrice);
 }
 
+function ensureDefinedPriceField(row: Element, screen: Element) {
+  const saleLabel = findLabel(row, "Preço Venda");
+  const saleInput = saleLabel?.querySelector("input") as HTMLInputElement | null;
+
+  if (!saleLabel || !saleInput) return;
+
+  let definedInput = row.querySelector<HTMLInputElement>('[data-defined-price-input="true"]');
+
+  if (!definedInput) {
+    const label = document.createElement("label");
+    label.className = "w-[135px] shrink-0";
+    label.setAttribute("data-defined-price-field", "true");
+    label.innerHTML = `
+      <span class="text-xs font-bold text-slate-700">Nosso preço definido</span>
+      <input data-defined-price-input="true" type="number" min="0" step="0.01" placeholder="Definido" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold outline-none ring-emerald-500 transition focus:ring-2" />
+    `;
+    saleLabel.insertAdjacentElement("afterend", label);
+    definedInput = label.querySelector<HTMLInputElement>('[data-defined-price-input="true"]');
+  }
+
+  if (!definedInput) return;
+
+  if (definedInput.dataset.definedBound !== "true") {
+    definedInput.dataset.definedBound = "true";
+    definedInput.addEventListener("input", () => updatePercentCard(row));
+    definedInput.addEventListener("change", () => updatePercentCard(row));
+  }
+
+  const syncDefinedPriceToSavedField = () => {
+    const definedValue = definedInput?.value.trim() ?? "";
+    if (!definedValue) return;
+    setReactInputValue(saleInput, definedValue);
+  };
+
+  const saveButton = getButtonByText(screen, "Salvar comparação");
+  if (saveButton && saveButton.dataset.definedPriceSaveBound !== "true") {
+    saveButton.dataset.definedPriceSaveBound = "true";
+    saveButton.addEventListener("pointerdown", syncDefinedPriceToSavedField, true);
+    saveButton.addEventListener("mousedown", syncDefinedPriceToSavedField, true);
+    saveButton.addEventListener("click", syncDefinedPriceToSavedField, true);
+  }
+}
+
 function bindPercentCalculation(row: Element) {
   const definedInput = getDefinedPriceInput(row);
   const inputs = [...(definedInput ? [definedInput] : []), ...getCompetitorPriceInputs(row)];
@@ -163,10 +212,12 @@ function runEnhancer() {
   try {
     if (!window.location.pathname.includes("/engenharia/preco-venda-medio")) return;
 
-    const row = document.querySelector(".benchmark-screen-area .flex.min-w-max.items-end");
-    if (!row) return;
+    const screen = document.querySelector(".benchmark-screen-area");
+    const row = screen?.querySelector(".flex.min-w-max.items-end");
+    if (!screen || !row) return;
 
     ensureXField(row);
+    ensureDefinedPriceField(row, screen);
     bindPercentCalculation(row);
   } catch (error) {
     console.error("Erro ao aplicar melhorias no Preço Venda Médio:", error);

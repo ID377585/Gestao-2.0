@@ -111,6 +111,27 @@
   }
 }
 
+/* Preço Venda Médio: exibe somente os concorrentes 1, 2 e 3. */
+.benchmark-screen-area .flex.min-w-max.items-end > div:nth-of-type(4),
+.benchmark-screen-area .flex.min-w-max.items-end > div:nth-of-type(5) {
+  display: none !important;
+}
+
+.benchmark-screen-area table.min-w-\[1750px\] {
+  min-width: 1450px !important;
+}
+
+.benchmark-screen-area table.min-w-\[1750px\] th:nth-child(8),
+.benchmark-screen-area table.min-w-\[1750px\] th:nth-child(9),
+.benchmark-screen-area table.min-w-\[1750px\] td:nth-child(8),
+.benchmark-screen-area table.min-w-\[1750px\] td:nth-child(9),
+.preco-report-table th:nth-child(8),
+.preco-report-table th:nth-child(9),
+.preco-report-table td:nth-child(8),
+.preco-report-table td:nth-child(9) {
+  display: none !important;
+}
+
 /* Scrollbar discreta (webkits) */
 ::-webkit-scrollbar {
   width: 10px;

@@ -73,6 +73,13 @@ function renameMarkupCard(row: Element) {
   }
 }
 
+function hideSuggestedPriceCard(row: Element) {
+  const title = Array.from(row.querySelectorAll("p")).find((element) => element.textContent?.trim() === "Preço médio sugerido");
+  const card = title?.parentElement as HTMLElement | null;
+
+  if (card) card.style.display = "none";
+}
+
 function getCompetitorPriceInputs(row: Element) {
   const cards = Array.from(row.querySelectorAll("div")).filter((card) => {
     const inputs = card.querySelectorAll("input");
@@ -110,6 +117,7 @@ function updatePercentCard(row: Element) {
     value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
     value.classList.add("text-blue-900");
     renameMarkupCard(row);
+    hideSuggestedPriceCard(row);
     return;
   }
 
@@ -120,6 +128,7 @@ function updatePercentCard(row: Element) {
   value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
   value.classList.add(result <= 0 ? "text-emerald-700" : "text-red-700");
   renameMarkupCard(row);
+  hideSuggestedPriceCard(row);
 }
 
 function ensureXField(row: Element) {
@@ -231,6 +240,7 @@ function runEnhancer() {
     ensureDefinedPriceField(row, screen);
     bindPercentCalculation(row);
     renameMarkupCard(row);
+    hideSuggestedPriceCard(row);
   } catch (error) {
     console.error("Erro ao aplicar melhorias no Preço Venda Médio:", error);
   }

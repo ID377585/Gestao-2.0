@@ -31,6 +31,14 @@ function getCostValue(row: Element) {
   return parseNumber(costText);
 }
 
+function renameAverageCard(row: Element) {
+  const averageTitle = Array.from(row.querySelectorAll("p")).find(
+    (element) => element.textContent?.trim() === "Média concorrência",
+  );
+
+  if (averageTitle) averageTitle.textContent = "%";
+}
+
 function ensureXField(row: Element) {
   const saleLabel = findLabel(row, "Preço Venda");
   const saleInput = saleLabel?.querySelector("input") as HTMLInputElement | null;
@@ -76,8 +84,9 @@ function runEnhancer() {
     if (!row) return;
 
     ensureXField(row);
+    renameAverageCard(row);
   } catch (error) {
-    console.error("Erro ao aplicar coluna X no Preço Venda Médio:", error);
+    console.error("Erro ao aplicar melhorias no Preço Venda Médio:", error);
   }
 }
 

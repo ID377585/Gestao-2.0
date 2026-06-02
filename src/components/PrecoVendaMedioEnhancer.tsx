@@ -30,6 +30,15 @@ function formatMarkup(value: number | null) {
   })}x`;
 }
 
+function formatDifference(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "-";
+
+  return value.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function setReactInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
   setter?.call(input, value);
@@ -83,7 +92,26 @@ function getMarkupCard(row: Element) {
   const card = title?.parentElement as HTMLElement | null;
   const value = card?.querySelector("p:last-child") as HTMLParagraphElement | null;
 
-  return { title, value };
+  return { title, value, card };
+}
+
+function ensureDifferenceCard(row: Element) {
+  const existingCard = row.querySelector<HTMLElement>('[data-markup-difference-card="true"]');
+  if (existingCard) return existingCard;
+
+  const { card: markupCard } = getMarkupCard(row);
+  if (!markupCard) return null;
+
+  const card = document.createElement("div");
+  card.className = markupCard.className;
+  card.setAttribute("data-markup-difference-card", "true");
+  card.innerHTML = `
+    <p class="text-xs font-bold text-blue-800">Diferença de</p>
+    <p data-markup-difference-value="true" class="mt-2 text-xl font-black text-blue-900">-</p>
+  `;
+
+  markupCard.insertAdjacentElement("afterend", card);
+  return card;
 }
 
 function hideSuggestedPriceCard(row: Element) {
@@ -113,6 +141,10 @@ function getLowestCompetitorPrice(row: Element) {
   return Math.min(...competitorPrices);
 }
 
+function getXInput(row: Element) {
+  return row.querySelector<HTMLInputElement>('[data-preco-x-input="true"]');
+}
+
 function getDefinedPriceInput(row: Element) {
   const definedPriceLabel = findLabel(row, "Nosso preço definido");
   const salePriceLabel = findLabel(row, "Preço Venda");
@@ -121,6 +153,26 @@ function getDefinedPriceInput(row: Element) {
     (definedPriceLabel?.querySelector("input") as HTMLInputElement | null) ||
     (salePriceLabel?.querySelector("input") as HTMLInputElement | null)
   );
+}
+
+function updateDifferenceCard(row: Element, competitorMarkup: number | null) {
+  const card = ensureDifferenceCard(row);
+  const value = card?.querySelector('[data-markup-difference-value="true"]') as HTMLParagraphElement | null;
+  if (!value) return;
+
+  const ourMarkup = parseNumber(getXInput(row)?.value ?? "");
+
+  if (competitorMarkup === null || competitorMarkup <= 0 || ourMarkup <= 0) {
+    value.textContent = "-";
+    value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
+    value.classList.add("text-blue-900");
+    return;
+  }
+
+  const difference = competitorMarkup - ourMarkup;
+  value.textContent = formatDifference(difference);
+  value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
+  value.classList.add(difference >= 0 ? "text-emerald-700" : "text-red-700");
 }
 
 function updateMarkupCard(row: Element) {
@@ -134,10 +186,13 @@ function updateMarkupCard(row: Element) {
 
   if (cost <= 0 || lowestCompetitorPrice === null || lowestCompetitorPrice <= 0) {
     value.textContent = "-";
+    updateDifferenceCard(row, null);
     return;
   }
 
-  value.textContent = formatMarkup(lowestCompetitorPrice / cost);
+  const competitorMarkup = lowestCompetitorPrice / cost;
+  value.textContent = formatMarkup(competitorMarkup);
+  updateDifferenceCard(row, competitorMarkup);
 }
 
 function updatePercentCard(row: Element) {
@@ -174,7 +229,7 @@ function ensureXField(row: Element) {
 
   if (!saleLabel || !saleInput) return;
 
-  let xInput = row.querySelector<HTMLInputElement>('[data-preco-x-input="true"]');
+  let xInput = getXInput(row);
 
   if (!xInput) {
     const label = document.createElement("label");
@@ -252,7 +307,7 @@ function ensureDefinedPriceField(row: Element, screen: Element) {
 
 function bindPercentCalculation(row: Element) {
   const definedInput = getDefinedPriceInput(row);
-  const inputs = [...(definedInput ? [definedInput] : []), ...getCompetitorPriceInputs(row)];
+  const inputs = [...(definedInput ? [definedInput] : []), ...getCompetitorPriceInputs(row), ...(getXInput(row) ? [getXInput(row)!] : [])];
 
   inputs.forEach((input) => {
     if (input.dataset.percentCalcBound === "true") return;

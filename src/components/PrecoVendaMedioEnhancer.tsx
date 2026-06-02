@@ -13,6 +13,15 @@ function parseCurrency(value: string) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function formatRatioAsPercent(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "-";
+
+  return `${value.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
 function setReactInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
 
@@ -43,24 +52,92 @@ function getButtonByText(root: ParentNode, text: string) {
     | undefined;
 }
 
-function bindDefinedPriceInput(definedPriceInput: HTMLInputElement, manualPriceInput: HTMLInputElement, screen: Element) {
+function getVisibleCompetitorPriceInputs(comparisonFormRow: Element) {
+  return Array.from(comparisonFormRow.querySelectorAll("div input + input"))
+    .filter((input) => {
+      const element = input as HTMLInputElement;
+      const card = element.closest("div");
+      return card ? window.getComputedStyle(card).display !== "none" : true;
+    })
+    .slice(0, 3) as HTMLInputElement[];
+}
+
+function getPercentCard(comparisonFormRow: Element) {
+  const title = Array.from(comparisonFormRow.querySelectorAll("p")).find((element) => {
+    const text = element.textContent?.trim();
+    return text === "Média concorrência" || text === "%";
+  }) as HTMLParagraphElement | undefined;
+
+  const card = title?.parentElement as HTMLElement | null;
+  const value = card?.querySelector("p:last-child") as HTMLParagraphElement | null;
+
+  return { title, value };
+}
+
+function calculateDefinedPriceVsLowestCompetitor(comparisonFormRow: Element, definedPriceInput: HTMLInputElement) {
+  const definedPrice = parseCurrency(definedPriceInput.value);
+  const competitorPrices = getVisibleCompetitorPriceInputs(comparisonFormRow)
+    .map((input) => parseCurrency(input.value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  if (definedPrice <= 0 || competitorPrices.length === 0) return null;
+
+  const lowestCompetitorPrice = Math.min(...competitorPrices);
+
+  if (lowestCompetitorPrice <= 0) return null;
+
+  return definedPrice / lowestCompetitorPrice - 1;
+}
+
+function updatePercentCard(comparisonFormRow: Element, definedPriceInput: HTMLInputElement) {
+  const { title, value } = getPercentCard(comparisonFormRow);
+  if (!title || !value) return;
+
+  title.textContent = "%";
+
+  const percent = calculateDefinedPriceVsLowestCompetitor(comparisonFormRow, definedPriceInput);
+  value.textContent = formatRatioAsPercent(percent);
+
+  value.classList.remove("text-blue-900");
+  value.classList.add((percent ?? 0) <= 0 ? "text-emerald-700" : "text-red-700");
+}
+
+function bindDefinedPriceInput(
+  definedPriceInput: HTMLInputElement,
+  manualPriceInput: HTMLInputElement,
+  screen: Element,
+  comparisonFormRow: Element,
+) {
+  const updatePercent = () => updatePercentCard(comparisonFormRow, definedPriceInput);
+
   const syncDefinedPriceToReactState = () => {
     const definedPrice = definedPriceInput.value.trim();
 
     if (!definedPrice) return;
 
     setReactInputValue(manualPriceInput, definedPrice);
+    updatePercent();
   };
 
   if (definedPriceInput.dataset.definedPriceBound !== "true") {
     definedPriceInput.dataset.definedPriceBound = "true";
     definedPriceInput.addEventListener("input", () => {
       definedPriceInput.dataset.userEditedDefinedPrice = "true";
+      updatePercent();
     });
     definedPriceInput.addEventListener("change", () => {
       definedPriceInput.dataset.userEditedDefinedPrice = "true";
+      updatePercent();
     });
   }
+
+  getVisibleCompetitorPriceInputs(comparisonFormRow).forEach((input) => {
+    if (input.dataset.percentBound === "true") return;
+
+    input.dataset.percentBound = "true";
+    input.addEventListener("input", updatePercent);
+    input.addEventListener("change", updatePercent);
+  });
 
   const saveButton = getButtonByText(screen, "Salvar comparação");
 
@@ -70,6 +147,8 @@ function bindDefinedPriceInput(definedPriceInput: HTMLInputElement, manualPriceI
     saveButton.addEventListener("mousedown", syncDefinedPriceToReactState, true);
     saveButton.addEventListener("click", syncDefinedPriceToReactState, true);
   }
+
+  updatePercent();
 }
 
 function bindXInput(xInput: HTMLInputElement, comparisonFormRow: Element, manualPriceInput: HTMLInputElement) {
@@ -145,7 +224,7 @@ function applyEnhancements() {
   if (!xInput || !definedPriceInput) return;
 
   bindXInput(xInput, comparisonFormRow, manualPriceInput);
-  bindDefinedPriceInput(definedPriceInput, manualPriceInput, screen);
+  bindDefinedPriceInput(definedPriceInput, manualPriceInput, screen, comparisonFormRow);
 }
 
 export function PrecoVendaMedioEnhancer() {

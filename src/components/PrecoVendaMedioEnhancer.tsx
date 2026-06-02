@@ -12,6 +12,15 @@ function parseNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function formatPercent(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "-";
+
+  return `${value.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
 function setReactInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
   setter?.call(input, value);
@@ -31,12 +40,77 @@ function getCostValue(row: Element) {
   return parseNumber(costText);
 }
 
-function renameAverageCard(row: Element) {
-  const averageTitle = Array.from(row.querySelectorAll("p")).find(
-    (element) => element.textContent?.trim() === "Média concorrência",
-  );
+function getPercentCard(row: Element) {
+  const title = Array.from(row.querySelectorAll("p")).find((element) => {
+    const text = element.textContent?.trim();
+    return text === "Média concorrência" || text === "%";
+  }) as HTMLParagraphElement | undefined;
 
-  if (averageTitle) averageTitle.textContent = "%";
+  const card = title?.parentElement as HTMLElement | null;
+  const value = card?.querySelector("p:last-child") as HTMLParagraphElement | null;
+
+  return { title, value };
+}
+
+function getCompetitorPriceInputs(row: Element) {
+  return Array.from(row.querySelectorAll("div input + input"))
+    .filter((input) => {
+      const inputElement = input as HTMLInputElement;
+      const card = inputElement.closest("div");
+
+      return card ? window.getComputedStyle(card).display !== "none" : true;
+    })
+    .slice(0, 3) as HTMLInputElement[];
+}
+
+function getDefinedPriceInput(row: Element) {
+  const definedPriceLabel = findLabel(row, "Nosso preço definido");
+  const salePriceLabel = findLabel(row, "Preço Venda");
+
+  return (
+    (definedPriceLabel?.querySelector("input") as HTMLInputElement | null) ||
+    (salePriceLabel?.querySelector("input") as HTMLInputElement | null)
+  );
+}
+
+function updatePercentCard(row: Element) {
+  const { title, value } = getPercentCard(row);
+  if (!title || !value) return;
+
+  title.textContent = "%";
+
+  const definedPriceInput = getDefinedPriceInput(row);
+  const definedPrice = parseNumber(definedPriceInput?.value ?? "");
+  const competitorPrices = getCompetitorPriceInputs(row)
+    .map((input) => parseNumber(input.value))
+    .filter((price) => price > 0);
+
+  if (definedPrice <= 0 || competitorPrices.length === 0) {
+    value.textContent = "-";
+    return;
+  }
+
+  const lowestCompetitorPrice = Math.min(...competitorPrices);
+  const result = definedPrice / lowestCompetitorPrice - 1;
+
+  value.textContent = formatPercent(result);
+  value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
+  value.classList.add(result <= 0 ? "text-emerald-700" : "text-red-700");
+}
+
+function bindPercentCalculation(row: Element) {
+  const definedPriceInput = getDefinedPriceInput(row);
+  const competitorInputs = getCompetitorPriceInputs(row);
+
+  [...(definedPriceInput ? [definedPriceInput] : []), ...competitorInputs].forEach((input) => {
+    if (input.dataset.percentCalcBound === "true") return;
+
+    input.dataset.percentCalcBound = "true";
+    input.addEventListener("input", () => updatePercentCard(row));
+    input.addEventListener("change", () => updatePercentCard(row));
+  });
+
+  updatePercentCard(row);
 }
 
 function ensureXField(row: Element) {
@@ -70,6 +144,7 @@ function ensureXField(row: Element) {
 
     const result = Math.round(cost * factor * 100) / 100;
     setReactInputValue(saleInput, String(result));
+    window.setTimeout(() => updatePercentCard(row), 0);
   };
 
   xInput.addEventListener("input", calculate);
@@ -84,7 +159,7 @@ function runEnhancer() {
     if (!row) return;
 
     ensureXField(row);
-    renameAverageCard(row);
+    bindPercentCalculation(row);
   } catch (error) {
     console.error("Erro ao aplicar melhorias no Preço Venda Médio:", error);
   }

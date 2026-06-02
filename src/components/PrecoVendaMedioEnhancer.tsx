@@ -34,8 +34,14 @@ function findLabel(root: Element, text: string) {
   ) as HTMLLabelElement | undefined;
 }
 
+function getCardTitle(root: Element, title: string) {
+  return Array.from(root.querySelectorAll("p")).find((element) => element.textContent?.trim() === title) as
+    | HTMLParagraphElement
+    | undefined;
+}
+
 function getCostValue(row: Element) {
-  const costTitle = Array.from(row.querySelectorAll("p")).find((element) => element.textContent?.trim() === "Preço de custo");
+  const costTitle = getCardTitle(row, "Preço de custo");
   const costText = costTitle?.parentElement?.querySelector("p:last-child")?.textContent ?? "";
   return parseNumber(costText);
 }
@@ -53,14 +59,13 @@ function getPercentCard(row: Element) {
 }
 
 function getCompetitorPriceInputs(row: Element) {
-  return Array.from(row.querySelectorAll("div input + input"))
-    .filter((input) => {
-      const inputElement = input as HTMLInputElement;
-      const card = inputElement.closest("div");
+  const cards = Array.from(row.querySelectorAll("div")).filter((card) => {
+    const inputs = card.querySelectorAll("input");
+    if (inputs.length !== 2) return false;
+    return window.getComputedStyle(card).display !== "none";
+  });
 
-      return card ? window.getComputedStyle(card).display !== "none" : true;
-    })
-    .slice(0, 3) as HTMLInputElement[];
+  return cards.slice(0, 3).map((card) => card.querySelectorAll("input")[1] as HTMLInputElement);
 }
 
 function getDefinedPriceInput(row: Element) {
@@ -87,6 +92,8 @@ function updatePercentCard(row: Element) {
 
   if (definedPrice <= 0 || competitorPrices.length === 0) {
     value.textContent = "-";
+    value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
+    value.classList.add("text-blue-900");
     return;
   }
 
@@ -96,21 +103,6 @@ function updatePercentCard(row: Element) {
   value.textContent = formatPercent(result);
   value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
   value.classList.add(result <= 0 ? "text-emerald-700" : "text-red-700");
-}
-
-function bindPercentCalculation(row: Element) {
-  const definedPriceInput = getDefinedPriceInput(row);
-  const competitorInputs = getCompetitorPriceInputs(row);
-
-  [...(definedPriceInput ? [definedPriceInput] : []), ...competitorInputs].forEach((input) => {
-    if (input.dataset.percentCalcBound === "true") return;
-
-    input.dataset.percentCalcBound = "true";
-    input.addEventListener("input", () => updatePercentCard(row));
-    input.addEventListener("change", () => updatePercentCard(row));
-  });
-
-  updatePercentCard(row);
 }
 
 function ensureXField(row: Element) {
@@ -136,7 +128,8 @@ function ensureXField(row: Element) {
   if (!xInput || xInput.dataset.bound === "true") return;
 
   xInput.dataset.bound = "true";
-  const calculate = () => {
+
+  const calculateSalePrice = () => {
     const cost = getCostValue(row);
     const factor = parseNumber(xInput.value);
 
@@ -144,11 +137,26 @@ function ensureXField(row: Element) {
 
     const result = Math.round(cost * factor * 100) / 100;
     setReactInputValue(saleInput, String(result));
-    window.setTimeout(() => updatePercentCard(row), 0);
+    updatePercentCard(row);
   };
 
-  xInput.addEventListener("input", calculate);
-  xInput.addEventListener("change", calculate);
+  xInput.addEventListener("input", calculateSalePrice);
+  xInput.addEventListener("change", calculateSalePrice);
+}
+
+function bindPercentCalculation(row: Element) {
+  const definedInput = getDefinedPriceInput(row);
+  const inputs = [...(definedInput ? [definedInput] : []), ...getCompetitorPriceInputs(row)];
+
+  inputs.forEach((input) => {
+    if (input.dataset.percentCalcBound === "true") return;
+
+    input.dataset.percentCalcBound = "true";
+    input.addEventListener("input", () => updatePercentCard(row));
+    input.addEventListener("change", () => updatePercentCard(row));
+  });
+
+  updatePercentCard(row);
 }
 
 function runEnhancer() {
@@ -172,13 +180,9 @@ export function PrecoVendaMedioEnhancer() {
     const interval = window.setInterval(runEnhancer, 500);
     const timeout = window.setTimeout(() => window.clearInterval(interval), 15000);
 
-    const observer = new MutationObserver(runEnhancer);
-    observer.observe(document.body, { childList: true, subtree: true });
-
     return () => {
       window.clearInterval(interval);
       window.clearTimeout(timeout);
-      observer.disconnect();
     };
   }, []);
 

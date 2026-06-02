@@ -21,6 +21,15 @@ function formatPercent(value: number | null) {
   })}%`;
 }
 
+function formatMarkup(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "-";
+
+  return `${value.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}x`;
+}
+
 function setReactInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
   setter?.call(input, value);
@@ -64,13 +73,17 @@ function getPercentCard(row: Element) {
   return { title, value };
 }
 
-function renameMarkupCard(row: Element) {
-  const percentTitles = Array.from(row.querySelectorAll("p")).filter((element) => element.textContent?.trim() === "%") as HTMLParagraphElement[];
-  const markupTitle = percentTitles[percentTitles.length - 1];
+function getMarkupCard(row: Element) {
+  const explicitTitle = Array.from(row.querySelectorAll("p")).find(
+    (element) => element.textContent?.trim() === "Markup menor concorrente",
+  ) as HTMLParagraphElement | undefined;
 
-  if (markupTitle && percentTitles.length > 1) {
-    markupTitle.textContent = "Markup menor concorrente";
-  }
+  const percentTitles = Array.from(row.querySelectorAll("p")).filter((element) => element.textContent?.trim() === "%") as HTMLParagraphElement[];
+  const title = explicitTitle ?? percentTitles[percentTitles.length - 1];
+  const card = title?.parentElement as HTMLElement | null;
+  const value = card?.querySelector("p:last-child") as HTMLParagraphElement | null;
+
+  return { title, value };
 }
 
 function hideSuggestedPriceCard(row: Element) {
@@ -90,6 +103,16 @@ function getCompetitorPriceInputs(row: Element) {
   return cards.slice(0, 3).map((card) => card.querySelectorAll("input")[1] as HTMLInputElement);
 }
 
+function getLowestCompetitorPrice(row: Element) {
+  const competitorPrices = getCompetitorPriceInputs(row)
+    .map((input) => parseNumber(input.value))
+    .filter((price) => price > 0);
+
+  if (competitorPrices.length === 0) return null;
+
+  return Math.min(...competitorPrices);
+}
+
 function getDefinedPriceInput(row: Element) {
   const definedPriceLabel = findLabel(row, "Nosso preço definido");
   const salePriceLabel = findLabel(row, "Preço Venda");
@@ -100,6 +123,23 @@ function getDefinedPriceInput(row: Element) {
   );
 }
 
+function updateMarkupCard(row: Element) {
+  const { title, value } = getMarkupCard(row);
+  if (!title || !value) return;
+
+  title.textContent = "Markup menor concorrente";
+
+  const cost = getCostValue(row);
+  const lowestCompetitorPrice = getLowestCompetitorPrice(row);
+
+  if (cost <= 0 || lowestCompetitorPrice === null || lowestCompetitorPrice <= 0) {
+    value.textContent = "-";
+    return;
+  }
+
+  value.textContent = formatMarkup(lowestCompetitorPrice / cost);
+}
+
 function updatePercentCard(row: Element) {
   const { title, value } = getPercentCard(row);
   if (!title || !value) return;
@@ -108,26 +148,23 @@ function updatePercentCard(row: Element) {
 
   const definedPriceInput = getDefinedPriceInput(row);
   const definedPrice = parseNumber(definedPriceInput?.value ?? "");
-  const competitorPrices = getCompetitorPriceInputs(row)
-    .map((input) => parseNumber(input.value))
-    .filter((price) => price > 0);
+  const lowestCompetitorPrice = getLowestCompetitorPrice(row);
 
-  if (definedPrice <= 0 || competitorPrices.length === 0) {
+  if (definedPrice <= 0 || lowestCompetitorPrice === null || lowestCompetitorPrice <= 0) {
     value.textContent = "-";
     value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
     value.classList.add("text-blue-900");
-    renameMarkupCard(row);
+    updateMarkupCard(row);
     hideSuggestedPriceCard(row);
     return;
   }
 
-  const lowestCompetitorPrice = Math.min(...competitorPrices);
   const result = ((definedPrice - lowestCompetitorPrice) / lowestCompetitorPrice) * 100;
 
   value.textContent = formatPercent(result);
   value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
   value.classList.add(result <= 0 ? "text-emerald-700" : "text-red-700");
-  renameMarkupCard(row);
+  updateMarkupCard(row);
   hideSuggestedPriceCard(row);
 }
 
@@ -239,7 +276,7 @@ function runEnhancer() {
     ensureXField(row);
     ensureDefinedPriceField(row, screen);
     bindPercentCalculation(row);
-    renameMarkupCard(row);
+    updateMarkupCard(row);
     hideSuggestedPriceCard(row);
   } catch (error) {
     console.error("Erro ao aplicar melhorias no Preço Venda Médio:", error);

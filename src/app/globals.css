@@ -132,32 +132,85 @@
   display: none !important;
 }
 
-.preco-x-field {
-  width: 110px;
+/* Preço Venda Médio: campos mais compactos no cadastro da comparação. */
+.benchmark-screen-area .flex.min-w-max.items-end {
+  gap: 0.5rem !important;
+}
+
+.benchmark-screen-area .flex.min-w-max.items-end > label.w-\[320px\] {
+  width: 280px !important;
+}
+
+.benchmark-screen-area .flex.min-w-max.items-end > label.w-\[180px\] {
+  width: 150px !important;
+}
+
+.benchmark-screen-area .flex.min-w-max.items-end > div.w-\[190px\]:nth-of-type(1) {
+  width: 120px !important;
+  padding: 0.65rem 0.75rem !important;
+}
+
+.benchmark-screen-area .flex.min-w-max.items-end > label.w-\[160px\] {
+  width: 115px !important;
+}
+
+.benchmark-screen-area .flex.min-w-max.items-end > div.w-\[190px\] {
+  width: 130px !important;
+  padding: 0.65rem !important;
+}
+
+.benchmark-screen-area .flex.min-w-max.items-end > div.w-\[190px\]:has(p.text-blue-800),
+.benchmark-screen-area .flex.min-w-max.items-end > div.w-\[190px\]:has(p.text-emerald-800) {
+  width: 135px !important;
+  padding: 0.65rem 0.75rem !important;
+}
+
+.benchmark-screen-area .flex.min-w-max.items-end > div.w-\[110px\] {
+  width: 70px !important;
+  padding: 0.65rem 0.75rem !important;
+}
+
+.benchmark-screen-area .flex.min-w-max.items-end input,
+.benchmark-screen-area .flex.min-w-max.items-end select {
+  padding-left: 0.7rem !important;
+  padding-right: 0.7rem !important;
+}
+
+.benchmark-screen-area .flex.min-w-max.items-end > div.w-\[190px\] input {
+  padding-left: 0.65rem !important;
+  padding-right: 0.65rem !important;
+}
+
+.preco-x-field,
+.benchmark-screen-area [data-preco-x-field="true"] {
+  width: 70px !important;
   flex-shrink: 0;
 }
 
-.preco-x-field span {
+.preco-x-field span,
+.benchmark-screen-area [data-preco-x-field="true"] span {
   font-size: 0.75rem;
   line-height: 1rem;
   font-weight: 700;
   color: rgb(51 65 85);
 }
 
-.preco-x-field input {
+.preco-x-field input,
+.benchmark-screen-area [data-preco-x-field="true"] input {
   margin-top: 0.5rem;
   width: 100%;
   border-radius: 1rem;
   border: 1px solid rgb(226 232 240);
   background: #ffffff;
-  padding: 0.75rem 1rem;
+  padding: 0.75rem 0.7rem !important;
   font-size: 0.875rem;
   line-height: 1.25rem;
   font-weight: 700;
   outline: none;
 }
 
-.preco-x-field input:focus {
+.preco-x-field input:focus,
+.benchmark-screen-area [data-preco-x-field="true"] input:focus {
   box-shadow: 0 0 0 2px rgb(16 185 129);
 }
 

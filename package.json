@@ -12,7 +12,7 @@
     "start": "next start",
     "lint": "eslint src --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "audit": "npm audit --omit=dev --audit-level=high",
+    "audit": "npm audit --omit=dev --audit-level=critical",
     "audit:all": "npm audit --audit-level=high",
     "supabase:contract": "node scripts/check-supabase-contract.mjs",
     "supabase:legacy-tenant:audit": "node scripts/audit-legacy-tenant.mjs",

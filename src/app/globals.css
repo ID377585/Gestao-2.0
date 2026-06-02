@@ -112,8 +112,8 @@
 }
 
 /* Preço Venda Médio: exibe somente os concorrentes 1, 2 e 3. */
-.benchmark-screen-area .flex.min-w-max.items-end > div:nth-of-type(4),
-.benchmark-screen-area .flex.min-w-max.items-end > div:nth-of-type(5) {
+.benchmark-screen-area .flex.min-w-max.items-end > div:nth-of-type(5),
+.benchmark-screen-area .flex.min-w-max.items-end > div:nth-of-type(6) {
   display: none !important;
 }
 
@@ -130,6 +130,35 @@
 .preco-report-table td:nth-child(8),
 .preco-report-table td:nth-child(9) {
   display: none !important;
+}
+
+.preco-x-field {
+  width: 110px;
+  flex-shrink: 0;
+}
+
+.preco-x-field span {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 700;
+  color: rgb(51 65 85);
+}
+
+.preco-x-field input {
+  margin-top: 0.5rem;
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid rgb(226 232 240);
+  background: #ffffff;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 700;
+  outline: none;
+}
+
+.preco-x-field input:focus {
+  box-shadow: 0 0 0 2px rgb(16 185 129);
 }
 
 /* Scrollbar discreta (webkits) */

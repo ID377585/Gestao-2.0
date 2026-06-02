@@ -104,7 +104,7 @@ function updatePercentCard(row: Element) {
   }
 
   const lowestCompetitorPrice = Math.min(...competitorPrices);
-  const result = definedPrice / lowestCompetitorPrice - 1;
+  const result = ((definedPrice - lowestCompetitorPrice) / lowestCompetitorPrice) * 100;
 
   value.textContent = formatPercent(result);
   value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");

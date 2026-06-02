@@ -64,6 +64,15 @@ function getPercentCard(row: Element) {
   return { title, value };
 }
 
+function renameMarkupCard(row: Element) {
+  const percentTitles = Array.from(row.querySelectorAll("p")).filter((element) => element.textContent?.trim() === "%") as HTMLParagraphElement[];
+  const markupTitle = percentTitles[percentTitles.length - 1];
+
+  if (markupTitle && percentTitles.length > 1) {
+    markupTitle.textContent = "Markup menor concorrente";
+  }
+}
+
 function getCompetitorPriceInputs(row: Element) {
   const cards = Array.from(row.querySelectorAll("div")).filter((card) => {
     const inputs = card.querySelectorAll("input");
@@ -100,6 +109,7 @@ function updatePercentCard(row: Element) {
     value.textContent = "-";
     value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
     value.classList.add("text-blue-900");
+    renameMarkupCard(row);
     return;
   }
 
@@ -109,6 +119,7 @@ function updatePercentCard(row: Element) {
   value.textContent = formatPercent(result);
   value.classList.remove("text-blue-900", "text-emerald-700", "text-red-700");
   value.classList.add(result <= 0 ? "text-emerald-700" : "text-red-700");
+  renameMarkupCard(row);
 }
 
 function ensureXField(row: Element) {
@@ -219,6 +230,7 @@ function runEnhancer() {
     ensureXField(row);
     ensureDefinedPriceField(row, screen);
     bindPercentCalculation(row);
+    renameMarkupCard(row);
   } catch (error) {
     console.error("Erro ao aplicar melhorias no Preço Venda Médio:", error);
   }

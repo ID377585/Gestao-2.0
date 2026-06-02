@@ -139,8 +139,8 @@ function getProductSuggestedPrice(product: any) {
   return toNumber(product.price ?? product.sale_price ?? product.suggested_sale_price ?? product.standard_cost ?? 0);
 }
 
-function getCompetitorPrices(row: Pick<SalesPriceBenchmark, "restaurant1Price" | "restaurant2Price" | "restaurant3Price" | "restaurant4Price" | "restaurant5Price">) {
-  return [row.restaurant1Price, row.restaurant2Price, row.restaurant3Price, row.restaurant4Price, row.restaurant5Price]
+function getCompetitorPrices(row: Pick<SalesPriceBenchmark, "restaurant1Price" | "restaurant2Price" | "restaurant3Price">) {
+  return [row.restaurant1Price, row.restaurant2Price, row.restaurant3Price]
     .map((value) => toNullableNumber(value))
     .filter((value): value is number => value !== null && value > 0);
 }
@@ -321,13 +321,13 @@ export async function saveSalesPriceBenchmark(input: SalesPriceBenchmarkInput): 
       restaurant_1_name: toNullableText(input.restaurant1Name),
       restaurant_2_name: toNullableText(input.restaurant2Name),
       restaurant_3_name: toNullableText(input.restaurant3Name),
-      restaurant_4_name: toNullableText(input.restaurant4Name),
-      restaurant_5_name: toNullableText(input.restaurant5Name),
+      restaurant_4_name: null,
+      restaurant_5_name: null,
       restaurant_1_price: toNullableNumber(input.restaurant1Price),
       restaurant_2_price: toNullableNumber(input.restaurant2Price),
       restaurant_3_price: toNullableNumber(input.restaurant3Price),
-      restaurant_4_price: toNullableNumber(input.restaurant4Price),
-      restaurant_5_price: toNullableNumber(input.restaurant5Price),
+      restaurant_4_price: null,
+      restaurant_5_price: null,
       notes: input.notes?.trim() || null,
       created_by: userId,
       updated_at: new Date().toISOString(),

@@ -29,26 +29,30 @@ function normalizeSettings(input?: Partial<UserSettings> | null): UserSettings {
   };
 }
 
-async function loadFromUserNotificationPreferences(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string) {
+async function loadFromUserNotificationPreferences(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  userId: string
+): Promise<Partial<UserSettings> | null> {
   const { data, error } = await supabase
     .from("user_notification_preferences")
-    .select("email_notifications, browser_notifications, sound_notifications, dark_mode")
+    .select("email_notifications, browser_notifications, dark_mode")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (error) throw error;
-
   if (!data) return null;
 
-  return normalizeSettings({
+  return {
     emailNotifications: data.email_notifications,
     browserNotifications: data.browser_notifications,
-    soundNotifications: data.sound_notifications,
     darkMode: data.dark_mode,
-  });
+  };
 }
 
-async function loadFromNotificationPreferences(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string) {
+async function loadFromNotificationPreferences(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  userId: string
+): Promise<Partial<UserSettings> | null> {
   const { data, error } = await supabase
     .from("notification_preferences")
     .select("sound_enabled, browser_push_enabled")
@@ -56,13 +60,12 @@ async function loadFromNotificationPreferences(supabase: Awaited<ReturnType<type
     .maybeSingle();
 
   if (error) throw error;
-
   if (!data) return null;
 
-  return normalizeSettings({
+  return {
     browserNotifications: data.browser_push_enabled,
     soundNotifications: data.sound_enabled,
-  });
+  };
 }
 
 export async function GET() {
@@ -81,21 +84,31 @@ export async function GET() {
       );
     }
 
-    try {
-      const settings = await loadFromUserNotificationPreferences(supabase, user.id);
-      if (settings) return NextResponse.json(settings, { status: 200 });
-    } catch (error) {
-      console.warn("Preferências legadas indisponíveis, tentando novo schema:", error);
+    const [legacyResult, currentResult] = await Promise.allSettled([
+      loadFromUserNotificationPreferences(supabase, user.id),
+      loadFromNotificationPreferences(supabase, user.id),
+    ]);
+
+    if (legacyResult.status === "rejected") {
+      console.warn("Preferências legadas indisponíveis:", legacyResult.reason);
     }
 
-    try {
-      const settings = await loadFromNotificationPreferences(supabase, user.id);
-      if (settings) return NextResponse.json(settings, { status: 200 });
-    } catch (error) {
-      console.warn("Novo schema de preferências indisponível:", error);
+    if (currentResult.status === "rejected") {
+      console.warn("Novo schema de preferências indisponível:", currentResult.reason);
     }
 
-    return NextResponse.json(DEFAULT_USER_SETTINGS, { status: 200 });
+    const legacySettings =
+      legacyResult.status === "fulfilled" ? legacyResult.value : null;
+    const currentSettings =
+      currentResult.status === "fulfilled" ? currentResult.value : null;
+
+    return NextResponse.json(
+      normalizeSettings({
+        ...legacySettings,
+        ...currentSettings,
+      }),
+      { status: 200 }
+    );
   } catch (error: any) {
     console.error("Erro inesperado ao buscar preferências:", error);
     return NextResponse.json(
@@ -123,48 +136,44 @@ export async function PUT(request: Request) {
 
     const body = (await request.json()) as Partial<UserSettings>;
     const settings = normalizeSettings(body);
+    const updatedAt = new Date().toISOString();
 
-    const legacyPayload = {
-      user_id: user.id,
-      email_notifications: settings.emailNotifications,
-      browser_notifications: settings.browserNotifications,
-      sound_notifications: settings.soundNotifications,
-      dark_mode: settings.darkMode,
-      updated_at: new Date().toISOString(),
-    };
+    const [legacyResult, currentResult] = await Promise.all([
+      supabase
+        .from("user_notification_preferences")
+        .upsert(
+          {
+            user_id: user.id,
+            email_notifications: settings.emailNotifications,
+            browser_notifications: settings.browserNotifications,
+            dark_mode: settings.darkMode,
+            updated_at: updatedAt,
+          },
+          { onConflict: "user_id" }
+        ),
+      supabase
+        .from("notification_preferences")
+        .upsert(
+          {
+            user_id: user.id,
+            sound_enabled: settings.soundNotifications,
+            critical_sound_enabled: settings.soundNotifications,
+            browser_push_enabled: settings.browserNotifications,
+            updated_at: updatedAt,
+          },
+          { onConflict: "user_id" }
+        ),
+    ]);
 
-    let saved = false;
-
-    const legacyResult = await supabase
-      .from("user_notification_preferences")
-      .upsert(legacyPayload, { onConflict: "user_id" });
-
-    if (!legacyResult.error) {
-      saved = true;
-    } else {
-      console.warn("Erro ao salvar preferências legadas, tentando novo schema:", legacyResult.error);
+    if (legacyResult.error) {
+      console.warn("Erro ao salvar preferências legadas:", legacyResult.error);
     }
 
-    const currentResult = await supabase
-      .from("notification_preferences")
-      .upsert(
-        {
-          user_id: user.id,
-          sound_enabled: settings.soundNotifications,
-          critical_sound_enabled: settings.soundNotifications,
-          browser_push_enabled: settings.browserNotifications,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" }
-      );
-
-    if (!currentResult.error) {
-      saved = true;
-    } else {
+    if (currentResult.error) {
       console.warn("Erro ao salvar preferências no novo schema:", currentResult.error);
     }
 
-    if (!saved) {
+    if (legacyResult.error && currentResult.error) {
       return NextResponse.json(
         { error: "Erro ao salvar preferências." },
         { status: 500 }

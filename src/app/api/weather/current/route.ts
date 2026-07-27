@@ -150,8 +150,8 @@ async function fetchWeatherByCoordinates(
   const data = (await response.json()) as any;
   const current = data?.current ?? {};
   const daily = data?.daily ?? {};
-  const temperature = Number(data?.current?.temperature_2m);
-  const code = normalizeWeatherCode(data?.current?.weather_code);
+  const temperature = Number(current?.temperature_2m);
+  const code = normalizeWeatherCode(current?.weather_code);
   const precipitationValues = [
     Number(current?.precipitation),
     Number(current?.rain),
@@ -249,7 +249,6 @@ async function getCompanyLocationLabel() {
     const cityState = [profile?.cidade, profile?.uf].filter(Boolean).join(", ");
     const localizedCityState = cityState ? `${cityState}, Brasil` : "";
     if (localizedCityState.trim()) return localizedCityState;
-    if (cityState.trim()) return cityState;
 
     const address = [profile?.endereco, profile?.bairro, profile?.cidade, profile?.uf, profile?.cep]
       .filter(Boolean)

@@ -5,8 +5,13 @@
 
 begin;
 
-alter table public.profiles
-  add column if not exists avatar_url text;
+do $$
+begin
+  if to_regclass('public.profiles') is not null then
+    alter table public.profiles
+      add column if not exists avatar_url text;
+  end if;
+end $$;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (

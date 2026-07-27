@@ -664,8 +664,13 @@ using (
   )
 );
 
-revoke execute on function public.can_faturar() from public, anon, authenticated;
-grant execute on function public.can_faturar() to service_role;
+do $$
+begin
+  if to_regprocedure('public.can_faturar()') is not null then
+    revoke execute on function public.can_faturar() from public, anon, authenticated;
+    grant execute on function public.can_faturar() to service_role;
+  end if;
+end $$;
 
 notify pgrst, 'reload schema';
 

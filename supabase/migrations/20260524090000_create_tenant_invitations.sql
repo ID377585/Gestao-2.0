@@ -56,7 +56,7 @@ create policy tenant_invitations_select_admin_operacao
   for select
   to authenticated
   using (
-    public.gestify_has_establishment_role(
+    private.gestify_has_establishment_role(
       establishment_id,
       array['admin', 'operacao']
     )
@@ -67,7 +67,7 @@ create policy tenant_invitations_insert_admin_operacao
   for insert
   to authenticated
   with check (
-    public.gestify_has_establishment_role(
+    private.gestify_has_establishment_role(
       establishment_id,
       array['admin', 'operacao']
     )
@@ -78,13 +78,13 @@ create policy tenant_invitations_update_admin_operacao
   for update
   to authenticated
   using (
-    public.gestify_has_establishment_role(
+    private.gestify_has_establishment_role(
       establishment_id,
       array['admin', 'operacao']
     )
   )
   with check (
-    public.gestify_has_establishment_role(
+    private.gestify_has_establishment_role(
       establishment_id,
       array['admin', 'operacao']
     )
@@ -95,7 +95,7 @@ create policy tenant_invitations_delete_admin
   for delete
   to authenticated
   using (
-    public.gestify_has_establishment_role(
+    private.gestify_has_establishment_role(
       establishment_id,
       array['admin']
     )

@@ -25,7 +25,7 @@ begin
     select 1
     from pg_constraint
     where conname = 'technical_sheets_linked_product_id_fkey'
-      and conrelid = 'public.technical_sheets'::regclass
+      and conrelid = to_regclass('public.technical_sheets')
   ) then
     alter table public.technical_sheets
       add constraint technical_sheets_linked_product_id_fkey
@@ -43,7 +43,7 @@ begin
   if to_regclass('public.carriers') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'carriers_establishment_id_fkey'
-      and conrelid = 'public.carriers'::regclass
+      and conrelid = to_regclass('public.carriers')
   ) then
     alter table public.carriers
       add constraint carriers_establishment_id_fkey
@@ -56,7 +56,7 @@ begin
   if to_regclass('public.stock_balance_audit') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'stock_balance_audit_stock_balance_id_fkey'
-      and conrelid = 'public.stock_balance_audit'::regclass
+      and conrelid = to_regclass('public.stock_balance_audit')
   ) then
     alter table public.stock_balance_audit
       add constraint stock_balance_audit_stock_balance_id_fkey
@@ -69,7 +69,7 @@ begin
   if to_regclass('public.stock_balance_audit') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'stock_balance_audit_establishment_id_fkey'
-      and conrelid = 'public.stock_balance_audit'::regclass
+      and conrelid = to_regclass('public.stock_balance_audit')
   ) then
     alter table public.stock_balance_audit
       add constraint stock_balance_audit_establishment_id_fkey
@@ -82,7 +82,7 @@ begin
   if to_regclass('public.stock_balance_audit') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'stock_balance_audit_product_id_fkey'
-      and conrelid = 'public.stock_balance_audit'::regclass
+      and conrelid = to_regclass('public.stock_balance_audit')
   ) then
     alter table public.stock_balance_audit
       add constraint stock_balance_audit_product_id_fkey
@@ -95,7 +95,7 @@ begin
   if to_regclass('public.stock_balance_audit') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'stock_balance_audit_user_id_fkey'
-      and conrelid = 'public.stock_balance_audit'::regclass
+      and conrelid = to_regclass('public.stock_balance_audit')
   ) then
     alter table public.stock_balance_audit
       add constraint stock_balance_audit_user_id_fkey
@@ -108,7 +108,7 @@ begin
   if to_regclass('public.losses') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'losses_establishment_id_fkey'
-      and conrelid = 'public.losses'::regclass
+      and conrelid = to_regclass('public.losses')
   ) then
     alter table public.losses
       add constraint losses_establishment_id_fkey
@@ -121,7 +121,7 @@ begin
   if to_regclass('public.losses') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'losses_user_id_fkey'
-      and conrelid = 'public.losses'::regclass
+      and conrelid = to_regclass('public.losses')
   ) then
     alter table public.losses
       add constraint losses_user_id_fkey
@@ -134,7 +134,7 @@ begin
   if to_regclass('public.losses') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'losses_product_id_fkey'
-      and conrelid = 'public.losses'::regclass
+      and conrelid = to_regclass('public.losses')
   ) then
     alter table public.losses
       add constraint losses_product_id_fkey
@@ -147,7 +147,7 @@ begin
   if to_regclass('public.losses') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'losses_label_id_fkey'
-      and conrelid = 'public.losses'::regclass
+      and conrelid = to_regclass('public.losses')
   ) then
     alter table public.losses
       add constraint losses_label_id_fkey
@@ -160,7 +160,7 @@ begin
   if to_regclass('public.fiscal_certificates') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'fiscal_certificates_establishment_id_fkey'
-      and conrelid = 'public.fiscal_certificates'::regclass
+      and conrelid = to_regclass('public.fiscal_certificates')
   ) then
     alter table public.fiscal_certificates
       add constraint fiscal_certificates_establishment_id_fkey
@@ -173,7 +173,7 @@ begin
   if to_regclass('public.fiscal_company_profiles') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'fiscal_company_profiles_establishment_id_fkey'
-      and conrelid = 'public.fiscal_company_profiles'::regclass
+      and conrelid = to_regclass('public.fiscal_company_profiles')
   ) then
     alter table public.fiscal_company_profiles
       add constraint fiscal_company_profiles_establishment_id_fkey
@@ -186,7 +186,7 @@ begin
   if to_regclass('public.fiscal_nsu_control') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'fiscal_nsu_control_establishment_id_fkey'
-      and conrelid = 'public.fiscal_nsu_control'::regclass
+      and conrelid = to_regclass('public.fiscal_nsu_control')
   ) then
     alter table public.fiscal_nsu_control
       add constraint fiscal_nsu_control_establishment_id_fkey
@@ -199,7 +199,7 @@ begin
   if to_regclass('public.fiscal_nfe_inbox') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'fiscal_nfe_inbox_establishment_id_fkey'
-      and conrelid = 'public.fiscal_nfe_inbox'::regclass
+      and conrelid = to_regclass('public.fiscal_nfe_inbox')
   ) then
     alter table public.fiscal_nfe_inbox
       add constraint fiscal_nfe_inbox_establishment_id_fkey
@@ -212,7 +212,7 @@ begin
   if to_regclass('public.fiscal_nfe_inbox') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'fiscal_nfe_inbox_imported_entry_id_fkey'
-      and conrelid = 'public.fiscal_nfe_inbox'::regclass
+      and conrelid = to_regclass('public.fiscal_nfe_inbox')
   ) then
     alter table public.fiscal_nfe_inbox
       add constraint fiscal_nfe_inbox_imported_entry_id_fkey
@@ -225,7 +225,7 @@ begin
   if to_regclass('public.invoice_entry_drafts') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'invoice_entry_drafts_establishment_id_fkey'
-      and conrelid = 'public.invoice_entry_drafts'::regclass
+      and conrelid = to_regclass('public.invoice_entry_drafts')
   ) then
     alter table public.invoice_entry_drafts
       add constraint invoice_entry_drafts_establishment_id_fkey
@@ -238,7 +238,7 @@ begin
   if to_regclass('public.invoice_entry_drafts') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'invoice_entry_drafts_created_by_fkey'
-      and conrelid = 'public.invoice_entry_drafts'::regclass
+      and conrelid = to_regclass('public.invoice_entry_drafts')
   ) then
     alter table public.invoice_entry_drafts
       add constraint invoice_entry_drafts_created_by_fkey
@@ -251,7 +251,7 @@ begin
   if to_regclass('public.import_jobs') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'import_jobs_establishment_id_fkey'
-      and conrelid = 'public.import_jobs'::regclass
+      and conrelid = to_regclass('public.import_jobs')
   ) then
     alter table public.import_jobs
       add constraint import_jobs_establishment_id_fkey
@@ -264,7 +264,7 @@ begin
   if to_regclass('public.import_job_pages') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'import_job_pages_technical_sheet_id_fkey'
-      and conrelid = 'public.import_job_pages'::regclass
+      and conrelid = to_regclass('public.import_job_pages')
   ) then
     alter table public.import_job_pages
       add constraint import_job_pages_technical_sheet_id_fkey
@@ -277,7 +277,7 @@ begin
   if to_regclass('public.stock_transfer_items') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'stock_transfer_items_product_id_fkey'
-      and conrelid = 'public.stock_transfer_items'::regclass
+      and conrelid = to_regclass('public.stock_transfer_items')
   ) then
     alter table public.stock_transfer_items
       add constraint stock_transfer_items_product_id_fkey
@@ -290,7 +290,7 @@ begin
   if to_regclass('public.stock_transfers') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'stock_transfers_from_establishment_id_fkey'
-      and conrelid = 'public.stock_transfers'::regclass
+      and conrelid = to_regclass('public.stock_transfers')
   ) then
     alter table public.stock_transfers
       add constraint stock_transfers_from_establishment_id_fkey
@@ -303,7 +303,7 @@ begin
   if to_regclass('public.stock_transfers') is not null and not exists (
     select 1 from pg_constraint
     where conname = 'stock_transfers_to_establishment_id_fkey'
-      and conrelid = 'public.stock_transfers'::regclass
+      and conrelid = to_regclass('public.stock_transfers')
   ) then
     alter table public.stock_transfers
       add constraint stock_transfers_to_establishment_id_fkey

@@ -28,9 +28,21 @@ create index if not exists idx_establishment_memberships_establishment_user_acti
 create index if not exists idx_memberships_user_active_establishment_created
   on public.memberships (user_id, is_active, establishment_id, created_at desc);
 
-analyze public.establishment_memberships;
-analyze public.memberships;
-analyze public.establishments;
-analyze public.fiscal_company_profiles;
+do $$
+declare
+  table_name text;
+begin
+  foreach table_name in array array[
+    'establishment_memberships',
+    'memberships',
+    'establishments',
+    'fiscal_company_profiles'
+  ]
+  loop
+    if to_regclass(format('public.%I', table_name)) is not null then
+      execute format('analyze public.%I', table_name);
+    end if;
+  end loop;
+end $$;
 
 commit;

@@ -48,6 +48,23 @@ create table if not exists public.notification_preferences (
   unique (user_id)
 );
 
+create table if not exists public.user_notification_preferences (
+  user_id uuid primary key,
+  email_notifications boolean not null default true,
+  browser_notifications boolean not null default true,
+  dark_mode boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.user_notification_preferences
+  add column if not exists user_id uuid,
+  add column if not exists email_notifications boolean default true,
+  add column if not exists browser_notifications boolean default true,
+  add column if not exists dark_mode boolean default false,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
 create table if not exists public.notification_thresholds (
   key text primary key,
   value numeric not null,

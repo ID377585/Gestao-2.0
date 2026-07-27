@@ -11,7 +11,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { GestifyMark } from "@/components/brand/GestifyMark";
 import { TenantSummary } from "@/components/tenant/TenantSummary";
 import {
-  menuSections,
+  menuSections as defaultMenuSections,
   type MenuSectionConfig,
   type MenuSectionKey,
   type MenuSubItem,
@@ -19,12 +19,16 @@ import {
 
 interface SidebarProps {
   className?: string;
+  allowedSectionKeys?: MenuSectionKey[];
 }
 
 const SUBMENU_VIEWPORT_MARGIN = 16;
 const SUBMENU_BRIDGE_HEIGHT = 56;
 
-export function Sidebar({ className }: SidebarProps) {
+export function Sidebar({
+  className,
+  allowedSectionKeys,
+}: SidebarProps) {
   const pathname = usePathname();
 
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -45,6 +49,13 @@ export function Sidebar({ className }: SidebarProps) {
 
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(href + "/");
+
+  const menuSections = useMemo(() => {
+    if (!allowedSectionKeys) return defaultMenuSections;
+
+    const allowedKeys = new Set(allowedSectionKeys);
+    return defaultMenuSections.filter((section) => allowedKeys.has(section.key));
+  }, [allowedSectionKeys]);
 
   const currentSectionKey = useMemo(() => {
     return (

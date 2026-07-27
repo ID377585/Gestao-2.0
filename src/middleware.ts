@@ -6,6 +6,11 @@ import {
   readTermsComplianceFromMetadata,
 } from "@/lib/auth/terms-config";
 import { createClient as createSupabaseMiddlewareClient } from "@/utils/supabase/middleware";
+import { TENANT_COOKIE_NAME } from "@/lib/tenant/constants";
+import {
+  getDefaultModulePermissionsForRole,
+  getModuleKeyForPathname,
+} from "@/lib/tenant/module-routes";
 
 const DEFAULT_AUTH_REDIRECT = "/dashboard/pedidos";
 
@@ -59,6 +64,71 @@ function copyResponseCookies(source: NextResponse, target: NextResponse) {
   });
 
   return target;
+}
+
+async function userCanAccessProtectedModule(params: {
+  supabase: ReturnType<typeof createSupabaseMiddlewareClient>["supabase"];
+  userId: string;
+  pathname: string;
+  selectedEstablishmentId: string | null;
+}) {
+  const moduleKey = getModuleKeyForPathname(params.pathname);
+
+  if (!moduleKey) {
+    return true;
+  }
+
+  let membershipQuery = params.supabase
+    .from("memberships")
+    .select("establishment_id, role")
+    .eq("user_id", params.userId)
+    .eq("is_active", true);
+
+  if (params.selectedEstablishmentId) {
+    membershipQuery = membershipQuery.eq(
+      "establishment_id",
+      params.selectedEstablishmentId
+    );
+  }
+
+  const { data: membership, error: membershipError } = await membershipQuery
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (membershipError || !membership?.establishment_id) {
+    console.error("[middleware] active membership lookup failed:", {
+      message: membershipError?.message,
+      selected_establishment_id: params.selectedEstablishmentId,
+    });
+    return false;
+  }
+
+  const role = String((membership as any).role ?? "");
+  const establishmentId = String((membership as any).establishment_id);
+
+  const { data: permission, error: permissionError } = await params.supabase
+    .from("user_module_permissions")
+    .select("can_access")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", params.userId)
+    .eq("module_key", moduleKey)
+    .maybeSingle();
+
+  if (permissionError) {
+    console.error("[middleware] module permission lookup failed:", {
+      message: permissionError.message,
+      code: permissionError.code,
+      module_key: moduleKey,
+    });
+    return Boolean(getDefaultModulePermissionsForRole(role)[moduleKey]);
+  }
+
+  if (!permission) {
+    return Boolean(getDefaultModulePermissionsForRole(role)[moduleKey]);
+  }
+
+  return Boolean((permission as any).can_access);
 }
 
 function redirectWithCookies(
@@ -143,6 +213,22 @@ export async function middleware(req: NextRequest) {
       supabaseResponse,
       NextResponse.redirect(new URL(requestedRedirect, req.url))
     );
+  }
+
+  if (isProtectedRoute(pathname)) {
+    const canAccessModule = await userCanAccessProtectedModule({
+      supabase: middlewareClient.supabase,
+      userId: user.id,
+      pathname,
+      selectedEstablishmentId: req.cookies.get(TENANT_COOKIE_NAME)?.value ?? null,
+    });
+
+    if (!canAccessModule) {
+      return copyResponseCookies(
+        supabaseResponse,
+        NextResponse.redirect(new URL("/sem-acesso", req.url))
+      );
+    }
   }
 
   return supabaseResponse;

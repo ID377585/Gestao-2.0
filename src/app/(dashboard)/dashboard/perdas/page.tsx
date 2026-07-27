@@ -36,7 +36,14 @@ import {
 } from "@/components/ui/select";
 
 // ✅ Combobox pesquisável (shadcn)
-import { Check, ChevronsUpDown, RefreshCcw, Download } from "lucide-react";
+import {
+  Check,
+  ChevronsUpDown,
+  Download,
+  ImageIcon,
+  RefreshCcw,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -73,6 +80,9 @@ type LossRow = {
 
   qty: number;
   lot: string | null;
+  photo_path: string | null;
+  photo_file_name: string | null;
+  photo_mime_type: string | null;
 
   reason: string;
   reason_detail: string | null;
@@ -121,6 +131,33 @@ const LOSS_REASONS = [
   "Outro",
 ] as const;
 
+const MAX_LOSS_PHOTO_BYTES = 5 * 1024 * 1024;
+const ACCEPTED_LOSS_PHOTO_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+];
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Erro ao ler a foto."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function buildLossPhotoUrl(path: string) {
+  return `/api/losses/photo?path=${encodeURIComponent(path)}`;
+}
+
 function formatDateTimeBR(iso: string) {
   try {
     const d = new Date(iso);
@@ -131,16 +168,6 @@ function formatDateTimeBR(iso: string) {
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function formatDateBR(iso: string) {
-  try {
-    return new Date(iso).toLocaleDateString("pt-BR", {
-      timeZone: "America/Sao_Paulo",
     });
   } catch {
     return iso;
@@ -183,6 +210,9 @@ export default function PerdasPage() {
   const [reason, setReason] = useState<string>("");
   const [reasonDetail, setReasonDetail] = useState<string>("");
   const [qrcode, setQrcode] = useState<string>("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string>("");
+  const [photoError, setPhotoError] = useState<string>("");
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -199,6 +229,7 @@ export default function PerdasPage() {
      STATE: FEEDBACK (SEM ALERT)
   ========================= */
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitWarning, setSubmitWarning] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<RpcLossResult | null>(null);
 
   /* =========================
@@ -291,6 +322,43 @@ export default function PerdasPage() {
     setSku(selectedProduct.sku ?? "");
     setUnitLabel(selectedProduct.unit_label ?? "");
   }, [selectedProduct]);
+
+  useEffect(() => {
+    if (!photoFile) {
+      setPhotoPreviewUrl("");
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(photoFile);
+    setPhotoPreviewUrl(objectUrl);
+
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [photoFile]);
+
+  function handlePhotoChange(file: File | null) {
+    setPhotoError("");
+
+    if (!file) {
+      setPhotoFile(null);
+      return;
+    }
+
+    if (!ACCEPTED_LOSS_PHOTO_TYPES.includes(file.type)) {
+      setPhotoFile(null);
+      setPhotoError("Use uma foto em JPG, PNG, WEBP, HEIC ou HEIF.");
+      return;
+    }
+
+    if (file.size > MAX_LOSS_PHOTO_BYTES) {
+      setPhotoFile(null);
+      setPhotoError("A foto precisa ter no máximo 5MB.");
+      return;
+    }
+
+    setPhotoFile(file);
+  }
 
   /* =========================
      PREVIEW QR
@@ -385,6 +453,7 @@ export default function PerdasPage() {
   ========================= */
   async function handleSubmit() {
     setSubmitError(null);
+    setSubmitWarning(null);
     setLastResult(null);
 
     if (!canSubmit) {
@@ -394,6 +463,14 @@ export default function PerdasPage() {
 
     setSubmitting(true);
     try {
+      const photoPayload = photoFile
+        ? {
+            dataUrl: await fileToDataUrl(photoFile),
+            fileName: photoFile.name,
+            mimeType: photoFile.type,
+          }
+        : null;
+
       const payload = {
   product_id: selectedProductId,
   qty: qtyNumber,
@@ -407,6 +484,7 @@ export default function PerdasPage() {
       ? reasonDetail.trim()
       : null,
   qrcode: qrcode.trim() ? qrcode.trim() : null,
+  photo: photoPayload,
 };
 
       const res = await fetch("/api/losses", {
@@ -423,6 +501,7 @@ export default function PerdasPage() {
 
       const result: RpcLossResult | null = data?.result ?? null;
       setLastResult(result);
+      setSubmitWarning(data?.photoError ? String(data.photoError) : null);
 
       // Reset form
       setSelectedProductId("");
@@ -431,6 +510,8 @@ export default function PerdasPage() {
       setLot("");
       setQty("1");
       setQrcode("");
+      setPhotoFile(null);
+      setPhotoError("");
 
       // limpa preview também
       setLabelPreview(null);
@@ -442,6 +523,7 @@ export default function PerdasPage() {
     } catch (err: any) {
       console.error(err);
       setSubmitError(err?.message ?? "Erro ao registrar perda.");
+      setSubmitWarning(null);
     } finally {
       setSubmitting(false);
     }
@@ -509,6 +591,19 @@ export default function PerdasPage() {
         </Card>
       ) : null}
 
+      {submitWarning ? (
+        <Card className="border-amber-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-amber-700">
+              Atenção no anexo
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-amber-700">{submitWarning}</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* ERRO INLINE */}
       {submitError ? (
         <Card className="border-red-200">
@@ -527,10 +622,6 @@ export default function PerdasPage() {
       <Card>
         <CardHeader>
           <CardTitle>Registrar perda</CardTitle>
-          <CardDescription>
-            Se o produto tiver etiqueta/QR Code, informe o código para validar e
-            rastrear a baixa no lote/etiqueta.
-          </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-6">
@@ -699,15 +790,6 @@ export default function PerdasPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Lote</Label>
-              <Input
-                value={lot}
-                onChange={(e) => setLot(e.target.value)}
-                placeholder="Ex.: L2401"
-              />
-            </div>
-
-            <div className="space-y-2">
               <Label>Motivo *</Label>
               <Select value={reason} onValueChange={setReason}>
                 <SelectTrigger>
@@ -725,11 +807,67 @@ export default function PerdasPage() {
               {reason ? (
                 <div className="flex flex-wrap gap-2">
                   <Badge>{reason}</Badge>
-                  {reason === "Vencido" && (
-                    <Badge variant="secondary">Sugestão: informe o lote</Badge>
-                  )}
                 </div>
               ) : null}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Foto da perda</Label>
+              <Input
+                key={photoFile ? "photo-selected" : "photo-empty"}
+                type="file"
+                accept={ACCEPTED_LOSS_PHOTO_TYPES.join(",")}
+                onChange={(e) =>
+                  handlePhotoChange(e.currentTarget.files?.[0] ?? null)
+                }
+              />
+
+              {photoError ? (
+                <p className="text-xs text-red-500">{photoError}</p>
+              ) : null}
+
+              {photoFile ? (
+                <div className="flex items-center gap-3 rounded-md border p-2">
+                  {photoPreviewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={photoPreviewUrl}
+                      alt="Foto selecionada"
+                      className="h-14 w-14 rounded object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-14 w-14 items-center justify-center rounded bg-muted">
+                      <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                  )}
+
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">
+                      {photoFile.name}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatFileSize(photoFile.size)}
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      setPhotoFile(null);
+                      setPhotoError("");
+                    }}
+                    aria-label="Remover foto"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  JPG, PNG, WEBP, HEIC ou HEIF até 5MB.
+                </p>
+              )}
             </div>
           </div>
 
@@ -754,88 +892,6 @@ export default function PerdasPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>QR Code (Etiqueta)</Label>
-              <Input
-                value={qrcode}
-                onChange={(e) => setQrcode(e.target.value)}
-                placeholder="Cole ou digite o QR Code (label_code)"
-              />
-
-              {checkingLabel ? (
-                <p className="text-xs text-muted-foreground">
-                  Validando etiqueta...
-                </p>
-              ) : null}
-
-              {labelError ? (
-                <p className="text-xs text-red-500">{labelError}</p>
-              ) : null}
-
-              {labelPreview ? (
-                <Card className="mt-2 border-dashed">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">
-                      Etiqueta encontrada
-                    </CardTitle>
-                    <CardDescription>
-                      Confirme saldo e lote antes de registrar.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">
-                        Saldo disponível
-                      </span>
-                      <div className="font-medium">
-                        {labelPreview.qty_balance} {labelPreview.unit_label}
-                      </div>
-
-                      {Number.isFinite(qtyNumber) &&
-                      qtyNumber > 0 &&
-                      labelPreview.qty_balance < qtyNumber ? (
-                        <p className="mt-1 text-xs text-red-500">
-                          Saldo insuficiente para a quantidade informada.
-                        </p>
-                      ) : null}
-                    </div>
-
-                    <div>
-                      <span className="text-muted-foreground">Status</span>
-                      <div className="font-medium">{labelPreview.status}</div>
-                    </div>
-
-                    <div className="col-span-2">
-                      <span className="text-muted-foreground">Código</span>
-                      <div className="font-medium">{labelPreview.label_code}</div>
-                    </div>
-
-                    {labelPreview.batch_number ? (
-                      <div className="col-span-2">
-                        <span className="text-muted-foreground">Lote</span>
-                        <div className="font-medium">
-                          {labelPreview.batch_number}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {labelPreview.expiration_date ? (
-                      <div className="col-span-2">
-                        <span className="text-muted-foreground">Validade</span>
-                        <div className="font-medium">
-                          {formatDateBR(labelPreview.expiration_date)}
-                        </div>
-                      </div>
-                    ) : null}
-                  </CardContent>
-                </Card>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Se informar QR, o sistema valida e dá baixa também no saldo da
-                  etiqueta.
-                </p>
-              )}
-            </div>
           </div>
 
           {/* Ações */}
@@ -850,12 +906,15 @@ export default function PerdasPage() {
                 setLot("");
                 setQty("1");
                 setQrcode("");
+                setPhotoFile(null);
+                setPhotoError("");
 
                 setLabelPreview(null);
                 setLabelError(null);
                 setCheckingLabel(false);
 
                 setSubmitError(null);
+                setSubmitWarning(null);
                 setLastResult(null);
 
                 setProductOpen(false);
@@ -877,8 +936,8 @@ export default function PerdasPage() {
           {!canSubmit ? (
             <p className="text-xs text-muted-foreground">
               Obrigatórios: Produto, Qtd &gt; 0 e Motivo. Se motivo = “Outro”,
-              detalhe com pelo menos 3 caracteres. Se informar QR, precisa ser
-              válido e ter saldo.
+              detalhe com pelo menos 3 caracteres. Se anexar foto, use um
+              arquivo válido de até 5MB.
             </p>
           ) : null}
         </CardContent>
@@ -927,6 +986,7 @@ export default function PerdasPage() {
                   <TableHead className="w-[110px] text-right">Qtd</TableHead>
                   <TableHead className="w-[110px]">Unid</TableHead>
                   <TableHead className="w-[160px]">Motivo</TableHead>
+                  <TableHead className="w-[110px]">Foto</TableHead>
                   <TableHead className="w-[140px]">Lote</TableHead>
                   <TableHead className="w-[220px]">QR (label_code)</TableHead>
                 </TableRow>
@@ -936,7 +996,7 @@ export default function PerdasPage() {
                 {loadingLosses ? (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={9}
                       className="text-sm text-muted-foreground"
                     >
                       Carregando histórico...
@@ -945,7 +1005,7 @@ export default function PerdasPage() {
                 ) : losses.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={9}
                       className="text-sm text-muted-foreground"
                     >
                       Nenhum registro.
@@ -994,6 +1054,24 @@ export default function PerdasPage() {
                             </span>
                           ) : null}
                         </div>
+                      </TableCell>
+
+                      <TableCell className="align-top">
+                        {row.photo_path ? (
+                          <a
+                            href={buildLossPhotoUrl(row.photo_path)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
+                          >
+                            <ImageIcon className="h-4 w-4" />
+                            Ver
+                          </a>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">
+                            -
+                          </span>
+                        )}
                       </TableCell>
 
                       <TableCell className="align-top">

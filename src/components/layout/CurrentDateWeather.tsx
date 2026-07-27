@@ -1,13 +1,75 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudMoon,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
+  Moon,
+  Sun,
+  Thermometer,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  GESTIFY_USER_LOCATION_EVENT,
+  GESTIFY_USER_LOCATION_STORAGE_KEY,
+  isValidUserLocation,
+  type GestifyUserLocation,
+} from "@/lib/user-location";
 
 type WeatherData = {
   temperatureC: number | null;
   emoji: string;
+  iconKey?:
+    | "sun"
+    | "moon"
+    | "cloud-sun"
+    | "cloud-moon"
+    | "cloud"
+    | "fog"
+    | "drizzle"
+    | "rain"
+    | "snow"
+    | "storm"
+    | "thermometer";
   condition: string;
   source: "company" | "device" | "fallback";
   locationLabel: string | null;
+  isDay?: boolean | null;
+  observedAt?: string | null;
+};
+
+const WEATHER_ICON_BY_KEY: Record<NonNullable<WeatherData["iconKey"]>, LucideIcon> = {
+  sun: Sun,
+  moon: Moon,
+  "cloud-sun": CloudSun,
+  "cloud-moon": CloudMoon,
+  cloud: Cloud,
+  fog: CloudFog,
+  drizzle: CloudDrizzle,
+  rain: CloudRain,
+  snow: CloudSnow,
+  storm: CloudLightning,
+  thermometer: Thermometer,
+};
+
+const WEATHER_ICON_CLASS_BY_KEY: Record<NonNullable<WeatherData["iconKey"]>, string> = {
+  sun: "text-amber-500 dark:text-amber-300",
+  moon: "text-indigo-500 dark:text-indigo-300",
+  "cloud-sun": "text-amber-500 dark:text-amber-300",
+  "cloud-moon": "text-indigo-500 dark:text-indigo-300",
+  cloud: "text-slate-500 dark:text-slate-300",
+  fog: "text-slate-400 dark:text-slate-300",
+  drizzle: "text-sky-500 dark:text-sky-300",
+  rain: "text-blue-600 dark:text-blue-300",
+  snow: "text-cyan-500 dark:text-cyan-300",
+  storm: "text-violet-600 dark:text-violet-300",
+  thermometer: "text-slate-500 dark:text-slate-300",
 };
 
 function capitalize(value: string) {
@@ -50,9 +112,29 @@ async function fetchWeather(latitude?: number, longitude?: number) {
   return (await response.json()) as WeatherData;
 }
 
+function readStoredUserLocation() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(GESTIFY_USER_LOCATION_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<GestifyUserLocation>;
+    if (!isValidUserLocation(parsed)) return null;
+
+    return {
+      latitude: Number(parsed.latitude),
+      longitude: Number(parsed.longitude),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function CurrentDateWeather() {
   const [now, setNow] = useState(() => new Date());
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  const deviceCoordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNow(new Date()), 60_000);
@@ -62,59 +144,84 @@ export function CurrentDateWeather() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadCompanyWeather() {
-      try {
-        const data = await fetchWeather();
-        if (!cancelled) setWeather(data);
+    async function loadWeather() {
+      const coords = deviceCoordsRef.current ?? readStoredUserLocation();
 
-        if (data.temperatureC !== null || typeof navigator === "undefined" || !navigator.geolocation) {
-          return;
+      if (!coords) {
+        if (!cancelled) {
+          setWeather({
+            temperatureC: null,
+            emoji: "🌡️",
+            iconKey: "thermometer",
+            condition: "Localização necessária",
+            source: "fallback",
+            locationLabel: null,
+            isDay: null,
+            observedAt: null,
+          });
         }
+        return;
+      }
 
-        navigator.geolocation.getCurrentPosition(
-          async (position) => {
-            try {
-              const deviceData = await fetchWeather(position.coords.latitude, position.coords.longitude);
-              if (!cancelled) setWeather(deviceData);
-            } catch {
-              // Keep company/fallback result.
-            }
-          },
-          () => {
-            // Browser location is optional. Keep company/fallback result.
-          },
-          { maximumAge: 900_000, timeout: 4000 },
-        );
+      deviceCoordsRef.current = coords;
+
+      try {
+        const data = await fetchWeather(coords.latitude, coords.longitude);
+        if (!cancelled) setWeather(data);
       } catch {
         if (!cancelled) {
           setWeather({
             temperatureC: null,
             emoji: "🌡️",
+            iconKey: "thermometer",
             condition: "Clima indisponível",
             source: "fallback",
             locationLabel: null,
+            isDay: null,
+            observedAt: null,
           });
         }
       }
     }
 
-    void loadCompanyWeather();
-    const intervalId = window.setInterval(() => void loadCompanyWeather(), 15 * 60_000);
+    function handleLocationUpdated(event: Event) {
+      const location = (event as CustomEvent<GestifyUserLocation>).detail;
+      if (!isValidUserLocation(location)) return;
+
+      deviceCoordsRef.current = {
+        latitude: Number(location.latitude),
+        longitude: Number(location.longitude),
+      };
+      void loadWeather();
+    }
+
+    deviceCoordsRef.current = readStoredUserLocation();
+    window.addEventListener(GESTIFY_USER_LOCATION_EVENT, handleLocationUpdated);
+    void loadWeather();
+    const intervalId = window.setInterval(() => void loadWeather(), 5 * 60_000);
 
     return () => {
       cancelled = true;
+      window.removeEventListener(GESTIFY_USER_LOCATION_EVENT, handleLocationUpdated);
       window.clearInterval(intervalId);
     };
   }, []);
 
   const dateLabel = useMemo(() => formatDateLabel(now), [now]);
   const compactDateLabel = useMemo(() => formatCompactDateLabel(now), [now]);
-  const weatherLabel = weather?.temperatureC !== null && weather?.temperatureC !== undefined
-    ? `${weather.temperatureC}ºC ${weather.emoji}`
-    : weather?.emoji ?? "🌡️";
+  const iconKey = weather?.iconKey ?? "thermometer";
+  const WeatherIcon = WEATHER_ICON_BY_KEY[iconKey];
+  const weatherIconClass = WEATHER_ICON_CLASS_BY_KEY[iconKey];
+  const weatherTemperature =
+    weather?.temperatureC !== null && weather?.temperatureC !== undefined
+      ? `${weather.temperatureC}ºC`
+      : null;
+  const weatherLabel = weatherTemperature
+    ? `${weatherTemperature} ${weather?.condition ?? "Tempo atual"}`
+    : weather?.condition ?? "Clima";
   const fullTitle = weather?.locationLabel
-    ? `${dateLabel} — ${weatherLabel} • ${weather.condition} • ${weather.locationLabel}`
-    : `${dateLabel} — ${weatherLabel} • ${weather?.condition ?? "Data e clima"}`;
+    ? `${dateLabel} — ${weatherLabel} • ${weather.locationLabel}`
+    : `${dateLabel} — ${weatherLabel}`;
 
   return (
     <div
@@ -124,7 +231,16 @@ export function CurrentDateWeather() {
       <span className="hidden truncate sm:inline 2xl:hidden">{compactDateLabel}</span>
       <span className="hidden truncate 2xl:inline">{dateLabel}</span>
       <span className="hidden mx-2 shrink-0 text-slate-300 sm:inline dark:text-slate-600">—</span>
-      <span className="shrink-0 whitespace-nowrap">{weatherLabel}</span>
+      <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+        {weatherTemperature ? <span>{weatherTemperature}</span> : null}
+        <WeatherIcon
+          aria-label={weather?.condition ?? "Clima"}
+          className={`h-4 w-4 ${weatherIconClass}`}
+        />
+        <span className="hidden max-w-28 truncate md:inline">
+          {weather?.condition ?? "Clima"}
+        </span>
+      </span>
     </div>
   );
 }

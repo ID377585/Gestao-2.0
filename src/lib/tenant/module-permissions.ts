@@ -1,64 +1,20 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TenantMembershipRole } from "@/lib/tenant/types";
+import {
+  emptyTenantModulePermissionMap,
+  getDefaultModulePermissionsForRole,
+  TENANT_ACCESS_MODULE_KEYS,
+  type TenantAccessModuleKey,
+  type TenantModulePermissionMap,
+} from "@/lib/tenant/module-routes";
 
-export type TenantAccessModuleKey =
-  | "operacao"
-  | "estoque"
-  | "engenharia"
-  | "compras"
-  | "fiscal"
-  | "financeiro"
-  | "administracao";
-
-export const TENANT_ACCESS_MODULE_KEYS: TenantAccessModuleKey[] = [
-  "operacao",
-  "estoque",
-  "engenharia",
-  "compras",
-  "fiscal",
-  "financeiro",
-  "administracao",
-];
-
-export type TenantModulePermissionMap = Record<TenantAccessModuleKey, boolean>;
-
-export function emptyTenantModulePermissionMap(): TenantModulePermissionMap {
-  return TENANT_ACCESS_MODULE_KEYS.reduce((acc, key) => {
-    acc[key] = false;
-    return acc;
-  }, {} as TenantModulePermissionMap);
-}
-
-export function getDefaultModulePermissionsForRole(
-  role: TenantMembershipRole | string
-): TenantModulePermissionMap {
-  const permissions = emptyTenantModulePermissionMap();
-
-  switch (role) {
-    case "admin":
-      for (const key of TENANT_ACCESS_MODULE_KEYS) permissions[key] = true;
-      break;
-    case "operacao":
-    case "producao":
-      permissions.operacao = true;
-      permissions.engenharia = true;
-      break;
-    case "estoque":
-      permissions.estoque = true;
-      break;
-    case "fiscal":
-      permissions.fiscal = true;
-      break;
-    case "entrega":
-      permissions.operacao = true;
-      break;
-    default:
-      break;
-  }
-
-  return permissions;
-}
+export {
+  emptyTenantModulePermissionMap,
+  getDefaultModulePermissionsForRole,
+  TENANT_ACCESS_MODULE_KEYS,
+};
+export type { TenantAccessModuleKey, TenantModulePermissionMap };
 
 export async function upsertDefaultModulePermissions(params: {
   supabaseAdmin: SupabaseClient<any, any, any>;

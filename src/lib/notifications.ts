@@ -1,10 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
-
-import { getRequiredSupabasePublicEnv } from "@/lib/supabase/config";
-
-const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabase } from "@/lib/supabase";
 
 export type NotificationType = "info" | "success" | "warning" | "error";
 export type NotificationPriority = "critical" | "high" | "normal" | "info";
@@ -45,6 +39,39 @@ function normalizePriority(value: unknown): NotificationPriority {
     return raw as NotificationPriority;
   }
   return "normal";
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
+function serializeNotificationError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return String(error ?? "Erro desconhecido");
+  }
+
+  const candidate = error as {
+    message?: unknown;
+    code?: unknown;
+    details?: unknown;
+    hint?: unknown;
+    status?: unknown;
+    name?: unknown;
+  };
+
+  return {
+    name: typeof candidate.name === "string" ? candidate.name : undefined,
+    message: typeof candidate.message === "string" ? candidate.message : undefined,
+    code: typeof candidate.code === "string" ? candidate.code : undefined,
+    details: typeof candidate.details === "string" ? candidate.details : undefined,
+    hint: typeof candidate.hint === "string" ? candidate.hint : undefined,
+    status:
+      typeof candidate.status === "number" || typeof candidate.status === "string"
+        ? candidate.status
+        : undefined,
+  };
 }
 
 function normalizeNotification(row: Record<string, any>): AppNotification {
@@ -90,6 +117,10 @@ function normalizeNotification(row: Record<string, any>): AppNotification {
 }
 
 async function getUserNotificationsFromNewSchema(userId: string) {
+  if (!isUuid(userId)) {
+    throw new Error("Formato de usuário incompatível com user_id.");
+  }
+
   const { data, error } = await supabase
     .from("notifications")
     .select("*")
@@ -121,13 +152,23 @@ async function getUserNotificationsByColumn(
 }
 
 export async function getUserNotifications(userId: string) {
+  const safeUserId = String(userId ?? "").trim();
+
+  if (!safeUserId) {
+    return [];
+  }
+
   try {
-    return await getUserNotificationsFromNewSchema(userId);
+    return await getUserNotificationsFromNewSchema(safeUserId);
   } catch {
     try {
-      return await getUserNotificationsByColumn(userId, "user_id", "created_at");
+      if (!isUuid(safeUserId)) {
+        throw new Error("Formato de usuário incompatível com user_id.");
+      }
+
+      return await getUserNotificationsByColumn(safeUserId, "user_id", "created_at");
     } catch {
-      return getUserNotificationsByColumn(userId, "userId", "createdAt");
+      return getUserNotificationsByColumn(safeUserId, "userId", "createdAt");
     }
   }
 }
@@ -362,13 +403,18 @@ export function subscribeToNotifications(
 ) {
   let active = true;
   let intervalId: ReturnType<typeof setInterval> | null = null;
+  let loggedFetchError = false;
 
   async function refresh() {
     try {
       const data = await getUserNotifications(userId);
+      loggedFetchError = false;
       if (active) callback(data);
     } catch (error) {
-      console.error("Erro ao buscar notificações:", error);
+      if (!loggedFetchError) {
+        console.error("Erro ao buscar notificações:", serializeNotificationError(error));
+        loggedFetchError = true;
+      }
     }
   }
 

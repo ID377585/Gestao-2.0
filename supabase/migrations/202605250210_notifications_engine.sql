@@ -7,6 +7,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
+  "read" boolean default false,
   read_at timestamptz,
   archived_at timestamptz,
   user_id uuid,
@@ -18,6 +19,9 @@ create table if not exists public.notifications (
   action_url text,
   dedupe_key text
 );
+
+alter table public.notifications
+  add column if not exists "read" boolean default false;
 
 create unique index if not exists notifications_dedupe_key_idx
   on public.notifications (dedupe_key)

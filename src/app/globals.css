@@ -89,6 +89,21 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  @media (max-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
+
+    [data-slot="card-header"],
+    [data-slot="card-content"],
+    [data-slot="card-footer"] {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
+  }
 }
 
 /* ================================

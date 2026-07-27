@@ -34,6 +34,7 @@ import {
   markAllNotificationsAsRead,
   markNotificationAsRead,
   playNotificationSound,
+  primeNotificationSound,
   subscribeToNotifications,
   type AppNotification,
 } from "@/lib/notifications";
@@ -171,6 +172,7 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
   const [checkingNotifications, setCheckingNotifications] = useState(false);
   const [notificationCheckMessage, setNotificationCheckMessage] = useState<string | null>(null);
   const previousIdsRef = useRef<string[]>([]);
+  const soundPrimedRef = useRef(false);
 
   const fetchCurrentUser = useCallback(async () => {
     try {
@@ -215,6 +217,28 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
       subscription.unsubscribe();
     };
   }, [fetchCurrentUser]);
+
+  useEffect(() => {
+    if (!settings.soundNotifications || soundPrimedRef.current) return;
+
+    const prime = () => {
+      soundPrimedRef.current = true;
+      void primeNotificationSound();
+      window.removeEventListener("pointerdown", prime);
+      window.removeEventListener("keydown", prime);
+      window.removeEventListener("touchstart", prime);
+    };
+
+    window.addEventListener("pointerdown", prime, { passive: true });
+    window.addEventListener("keydown", prime);
+    window.addEventListener("touchstart", prime, { passive: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", prime);
+      window.removeEventListener("keydown", prime);
+      window.removeEventListener("touchstart", prime);
+    };
+  }, [settings.soundNotifications]);
 
   const userNotificationId = useMemo(() => {
     if (!user) return null;
@@ -344,8 +368,8 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
       <LocationPermissionGate />
 
       <header className={`border-b border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-950 ${className ?? ""}`}>
-        <div className="flex h-16 items-center justify-between gap-3 px-4 md:px-6">
-          <div className="flex items-center gap-2 md:gap-3 md:hidden">
+        <div className="flex h-16 items-center justify-between gap-2 px-2 sm:px-4 md:gap-3 md:px-6">
+          <div className="flex min-w-0 flex-1 items-center gap-2 md:hidden">
             <Sidebar allowedSectionKeys={allowedSectionKeys} />
           </div>
 
@@ -354,7 +378,7 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
             <SubscriptionStatusBadge subscription={user?.subscription} />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center justify-end gap-1.5 sm:gap-2">
             <CurrentDateWeather />
 
             <DropdownMenu open={notificationsMenuOpen} onOpenChange={setNotificationsMenuOpen} modal={false}>
@@ -375,7 +399,7 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
                 </button>
               </DropdownMenuTrigger>
 
-              <DropdownMenuContent align="end" className={`w-80 ${dropdownBaseClasses}`}>
+              <DropdownMenuContent align="end" className={`w-[calc(100vw-1rem)] max-w-80 sm:w-80 ${dropdownBaseClasses}`}>
                 <DropdownMenuLabel className="flex items-center justify-between gap-2">
                   <span>Notificações</span>
                   <Badge variant="secondary">{notificacoesNaoLidas}</Badge>

@@ -1,5 +1,6 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { InventoryMonthEndReminder } from "@/components/layout/InventoryMonthEndReminder";
 import {
   ensureCurrentTermsAcceptedOrRedirect,
   touchUserAuthenticatedAccess,
@@ -88,7 +89,9 @@ export default async function DashboardLayout({
         <div className="flex min-w-0 flex-1 flex-col transition-[padding-left] duration-300 ease-in-out md:pl-[var(--sidebar-w)]">
           <Topbar allowedSectionKeys={allowedSectionKeys} />
 
-          <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-20 md:p-8 md:pt-24">
+          <InventoryMonthEndReminder />
+
+          <main className="min-h-0 flex-1 overflow-y-auto px-3 pb-5 pt-4 sm:px-4 md:p-8 md:pt-24">
             {children}
           </main>
         </div>

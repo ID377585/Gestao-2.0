@@ -152,3 +152,67 @@ create index if not exists technical_sheets_linked_product_idx
 
 create index if not exists technical_sheets_establishment_linked_idx
   on public.technical_sheets(establishment_id, is_linked_to_product);
+
+create table if not exists public.technical_sheet_versions (
+  id uuid primary key default gen_random_uuid(),
+  technical_sheet_id uuid not null,
+  establishment_id uuid not null,
+  revision_number integer not null,
+  snapshot_type text not null default 'manual',
+  snapshot_payload_json jsonb not null default '{}'::jsonb,
+  change_summary text,
+  approved boolean not null default false,
+  approved_at timestamptz,
+  approved_by uuid,
+  created_by uuid not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.technical_sheet_versions
+  add column if not exists technical_sheet_id uuid,
+  add column if not exists establishment_id uuid,
+  add column if not exists revision_number integer,
+  add column if not exists snapshot_type text default 'manual',
+  add column if not exists snapshot_payload_json jsonb default '{}'::jsonb,
+  add column if not exists change_summary text,
+  add column if not exists approved boolean default false,
+  add column if not exists approved_at timestamptz,
+  add column if not exists approved_by uuid,
+  add column if not exists created_by uuid,
+  add column if not exists created_at timestamptz default now();
+
+create index if not exists technical_sheet_versions_sheet_idx
+  on public.technical_sheet_versions(technical_sheet_id, revision_number desc);
+
+create index if not exists technical_sheet_versions_establishment_idx
+  on public.technical_sheet_versions(establishment_id);
+
+create table if not exists public.technical_sheet_revision_logs (
+  id uuid primary key default gen_random_uuid(),
+  technical_sheet_id uuid not null,
+  revision_number integer not null,
+  field_name text not null,
+  action text not null,
+  old_value jsonb,
+  new_value jsonb,
+  reason text,
+  performed_by uuid not null,
+  performed_at timestamptz not null default now()
+);
+
+alter table public.technical_sheet_revision_logs
+  add column if not exists technical_sheet_id uuid,
+  add column if not exists revision_number integer,
+  add column if not exists field_name text,
+  add column if not exists action text,
+  add column if not exists old_value jsonb,
+  add column if not exists new_value jsonb,
+  add column if not exists reason text,
+  add column if not exists performed_by uuid,
+  add column if not exists performed_at timestamptz default now();
+
+create index if not exists technical_sheet_revision_logs_sheet_idx
+  on public.technical_sheet_revision_logs(technical_sheet_id, performed_at desc);
+
+alter table public.technical_sheet_versions enable row level security;
+alter table public.technical_sheet_revision_logs enable row level security;

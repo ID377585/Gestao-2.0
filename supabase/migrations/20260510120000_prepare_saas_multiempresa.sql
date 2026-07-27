@@ -13,6 +13,49 @@ alter table public.establishments
   add column if not exists is_active boolean default true,
   add column if not exists created_at timestamptz default now();
 
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_type t
+    join pg_namespace n on n.oid = t.typnamespace
+    where t.typname = 'app_role'
+      and n.nspname = 'public'
+  ) then
+    create type public.app_role as enum (
+      'admin',
+      'operacao',
+      'estoque',
+      'engenharia',
+      'compras',
+      'fiscal',
+      'financeiro',
+      'producao',
+      'entrega',
+      'cliente'
+    );
+  end if;
+end $$;
+
+create table if not exists public.establishment_memberships (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null references public.establishments(id) on delete cascade,
+  user_id uuid not null,
+  role public.app_role not null default 'admin',
+  is_active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+alter table public.establishment_memberships
+  add column if not exists establishment_id uuid,
+  add column if not exists user_id uuid,
+  add column if not exists role public.app_role default 'admin',
+  add column if not exists is_active boolean default true,
+  add column if not exists created_at timestamptz default now();
+
+create unique index if not exists establishment_memberships_establishment_user_unique
+  on public.establishment_memberships(establishment_id, user_id);
+
 create table if not exists public.memberships (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,

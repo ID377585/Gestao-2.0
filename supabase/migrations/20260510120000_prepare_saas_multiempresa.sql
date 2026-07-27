@@ -103,6 +103,75 @@ alter table public.memberships
 create unique index if not exists memberships_establishment_user_unique
   on public.memberships(establishment_id, user_id);
 
+create table if not exists public.fiscal_company_profiles (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null,
+  razao_social text not null,
+  nome_fantasia text,
+  cnpj text not null,
+  inscricao_estadual text,
+  telefone text,
+  endereco text,
+  numero text,
+  bairro text,
+  cidade text,
+  uf text,
+  cep text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.fiscal_company_profiles
+  add column if not exists establishment_id uuid,
+  add column if not exists razao_social text,
+  add column if not exists nome_fantasia text,
+  add column if not exists cnpj text,
+  add column if not exists inscricao_estadual text,
+  add column if not exists telefone text,
+  add column if not exists endereco text,
+  add column if not exists numero text,
+  add column if not exists bairro text,
+  add column if not exists cidade text,
+  add column if not exists uf text,
+  add column if not exists cep text,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+create unique index if not exists fiscal_company_profiles_establishment_unique
+  on public.fiscal_company_profiles(establishment_id);
+
+create table if not exists public.fiscal_product_mappings (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null,
+  product_id uuid not null,
+  supplier_document text,
+  xml_code text,
+  xml_ean text,
+  xml_description text,
+  xml_unit text,
+  normalized_key text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.fiscal_product_mappings
+  add column if not exists establishment_id uuid,
+  add column if not exists product_id uuid,
+  add column if not exists supplier_document text,
+  add column if not exists xml_code text,
+  add column if not exists xml_ean text,
+  add column if not exists xml_description text,
+  add column if not exists xml_unit text,
+  add column if not exists normalized_key text,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+create unique index if not exists fiscal_product_mappings_establishment_key_unique
+  on public.fiscal_product_mappings(establishment_id, normalized_key);
+
+alter table public.fiscal_company_profiles enable row level security;
+alter table public.fiscal_product_mappings enable row level security;
+
 do $$
 begin
   if not exists (

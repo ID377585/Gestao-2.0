@@ -1227,6 +1227,9 @@ export type Database = {
           label_code: string | null
           label_id: string | null
           lot: string | null
+          photo_file_name: string | null
+          photo_mime_type: string | null
+          photo_path: string | null
           product_id: string
           product_name: string
           qrcode: string | null
@@ -1246,6 +1249,9 @@ export type Database = {
           label_code?: string | null
           label_id?: string | null
           lot?: string | null
+          photo_file_name?: string | null
+          photo_mime_type?: string | null
+          photo_path?: string | null
           product_id: string
           product_name: string
           qrcode?: string | null
@@ -1265,6 +1271,9 @@ export type Database = {
           label_code?: string | null
           label_id?: string | null
           lot?: string | null
+          photo_file_name?: string | null
+          photo_mime_type?: string | null
+          photo_path?: string | null
           product_id?: string
           product_name?: string
           qrcode?: string | null

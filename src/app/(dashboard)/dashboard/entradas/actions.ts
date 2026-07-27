@@ -2,7 +2,10 @@
 
 import { markFiscalNfeAsImportedEntryAction } from "@/app/(dashboard)/dashboard/fiscal/actions";
 import { revalidatePath } from "next/cache";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseAdminClient,
+  createSupabaseServerClient,
+} from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { moveStock } from "@/lib/stock/moveStock";
 
@@ -79,8 +82,13 @@ type NormalizedInvoiceEntryItem = {
   category_snapshot: string | null;
 };
 
+type SupabaseStockClient =
+  | Awaited<ReturnType<typeof createSupabaseServerClient>>
+  | ReturnType<typeof createSupabaseAdminClient>;
+
 async function getContext() {
   const supabase = await createSupabaseServerClient();
+  const stockSupabase = createSupabaseAdminClient();
   const membershipContext = await getActiveMembershipOrRedirect();
 
   const establishmentId = String(membershipContext.establishmentId ?? "").trim();
@@ -100,7 +108,9 @@ async function getContext() {
 
   return {
     supabase,
+    stockSupabase,
     establishmentId,
+    role: membershipContext.role,
     userId: user.id,
   };
 }
@@ -237,7 +247,7 @@ async function validateAndNormalizeItems(
 }
 
 async function applyStockFromItems(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  supabase: SupabaseStockClient,
   establishmentId: string,
   items: Array<{
     product_id: string;
@@ -272,7 +282,7 @@ async function applyStockFromItems(
 }
 
 async function reverseStockFromItems(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  supabase: SupabaseStockClient,
   establishmentId: string,
   items: Array<{
     product_id: string;
@@ -612,7 +622,7 @@ export async function deleteInvoiceEntryDraft(draftId: string) {
 }
 
 export async function createInvoiceEntry(input: InvoiceEntryInput) {
-  const { supabase, establishmentId, userId } = await getContext();
+  const { supabase, stockSupabase, establishmentId, userId } = await getContext();
 
   const supplierName = normalizeText(input.supplier_name);
   const supplierDocument = normalizeText(input.supplier_document);
@@ -764,7 +774,7 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
 
     if (approvalStatus === "approved") {
       try {
-        await applyStockFromItems(supabase, establishmentId, normalizedItems);
+        await applyStockFromItems(stockSupabase, establishmentId, normalizedItems);
       } catch (stockError) {
         console.error("Erro ao aplicar estoque na entrada:", stockError);
 
@@ -818,7 +828,7 @@ export async function createInvoiceEntry(input: InvoiceEntryInput) {
 }
 
 export async function approveInvoiceEntry(entryId: string) {
-  const { supabase, establishmentId, userId } = await getContext();
+  const { supabase, stockSupabase, establishmentId, userId } = await getContext();
 
   const { data: entry, error } = await supabase
     .from("invoice_entries")
@@ -853,7 +863,7 @@ export async function approveInvoiceEntry(entryId: string) {
   const items = Array.isArray((entry as any).items) ? (entry as any).items : [];
 
   await applyStockFromItems(
-    supabase,
+    stockSupabase,
     establishmentId,
     items.map((item: any) => ({
       product_id: String(item.product_id),
@@ -885,7 +895,7 @@ export async function approveInvoiceEntry(entryId: string) {
 }
 
 export async function updateInvoiceEntry(input: InvoiceEntryInput) {
-  const { supabase, establishmentId, userId } = await getContext();
+  const { supabase, stockSupabase, establishmentId, userId } = await getContext();
 
   if (!input.id?.trim()) {
     throw new Error("ID da entrada não informado.");
@@ -1019,7 +1029,7 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
 
   if (currentApprovalStatus === "approved") {
     await reverseStockFromItems(
-      supabase,
+      stockSupabase,
       establishmentId,
       currentItems.map((item: any) => ({
         product_id: String(item.product_id),
@@ -1097,7 +1107,7 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
   }
 
   if (approvalStatus === "approved") {
-    await applyStockFromItems(supabase, establishmentId, normalizedItems);
+    await applyStockFromItems(stockSupabase, establishmentId, normalizedItems);
 
     await updateProductsStandardCostIfNeeded(
       supabase,
@@ -1123,7 +1133,8 @@ export async function updateInvoiceEntry(input: InvoiceEntryInput) {
 }
 
 export async function reverseInvoiceEntry(entryId: string) {
-  const { supabase, establishmentId, userId } = await getContext();
+  const { supabase, stockSupabase, establishmentId, role, userId } =
+    await getContext();
 
   if (!entryId?.trim()) {
     throw new Error("ID da entrada não informado.");
@@ -1136,6 +1147,7 @@ export async function reverseInvoiceEntry(entryId: string) {
       establishment_id,
       status,
       approval_status,
+      created_by,
       items:invoice_entry_items (
         id,
         product_id,
@@ -1156,11 +1168,20 @@ export async function reverseInvoiceEntry(entryId: string) {
     throw new Error("Essa entrada já foi estornada.");
   }
 
+  const createdBy = String((entry as any).created_by ?? "");
+  const canReverse = role === "admin" || createdBy === userId;
+
+  if (!canReverse) {
+    throw new Error(
+      "Apenas administradores ou o usuário que registrou a entrada podem estornar esta nota."
+    );
+  }
+
   const items = Array.isArray((entry as any).items) ? (entry as any).items : [];
 
   if (String((entry as any).approval_status) === "approved") {
     await reverseStockFromItems(
-      supabase,
+      stockSupabase,
       establishmentId,
       items.map((item: any) => ({
         product_id: String(item.product_id),

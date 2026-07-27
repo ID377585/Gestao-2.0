@@ -1,11 +1,76 @@
 // src/app/api/losses/route.ts
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseAdminClient,
+  createSupabaseServerClient,
+} from "@/lib/supabase/server";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
+
+const LOSS_PHOTO_BUCKET = "loss-photos";
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+const ALLOWED_PHOTO_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
 
 function numOrNull(v: any) {
   const n = Number(String(v).replace(",", "."));
   return Number.isFinite(n) ? n : null;
+}
+
+function sanitizeFileName(value: string) {
+  const clean = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 80);
+
+  return clean || "foto-perda";
+}
+
+function extensionForMimeType(mimeType: string) {
+  switch (mimeType) {
+    case "image/png":
+      return "png";
+    case "image/webp":
+      return "webp";
+    case "image/heic":
+      return "heic";
+    case "image/heif":
+      return "heif";
+    default:
+      return "jpg";
+  }
+}
+
+function parsePhotoInput(photo: any) {
+  const dataUrl = String(photo?.dataUrl ?? "");
+  const fileName = sanitizeFileName(String(photo?.fileName ?? "foto-perda"));
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+
+  if (!match) {
+    throw new Error("Foto inválida.");
+  }
+
+  const mimeType = match[1].toLowerCase();
+  if (!ALLOWED_PHOTO_TYPES.has(mimeType)) {
+    throw new Error("Formato da foto não suportado.");
+  }
+
+  const buffer = Buffer.from(match[2], "base64");
+  if (buffer.byteLength <= 0) {
+    throw new Error("Foto vazia.");
+  }
+
+  if (buffer.byteLength > MAX_PHOTO_BYTES) {
+    throw new Error("Foto maior que 5MB.");
+  }
+
+  return { buffer, fileName, mimeType };
 }
 
 async function getAuthAndEstablishment() {
@@ -83,7 +148,7 @@ export async function POST(req: Request) {
 
   const body = await req.json();
 
-  const { product_id, qty, lot, reason, reason_detail, qrcode } = body;
+  const { product_id, qty, lot, reason, reason_detail, qrcode, photo } = body;
   const unit_label = String(body.unit_label ?? body.unitLabel ?? "UN")
     .trim()
     .replace(/\s+/g, "")
@@ -150,5 +215,55 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({ success: true, result });
+  let photoError: string | null = null;
+
+  if (photo?.dataUrl) {
+    try {
+      const parsedPhoto = parsePhotoInput(photo);
+      const lossId = String(result.loss_id ?? "");
+
+      if (!lossId) {
+        throw new Error("Perda registrada sem identificador para anexar foto.");
+      }
+
+      const supabaseAdmin = createSupabaseAdminClient();
+      const extension = extensionForMimeType(parsedPhoto.mimeType);
+      const photoPath = `${establishment_id}/${lossId}/${Date.now()}-${parsedPhoto.fileName}.${extension}`;
+
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from(LOSS_PHOTO_BUCKET)
+        .upload(photoPath, parsedPhoto.buffer, {
+          contentType: parsedPhoto.mimeType,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { error: updateError } = await supabaseAdmin
+        .from("losses")
+        .update({
+          photo_path: photoPath,
+          photo_file_name: parsedPhoto.fileName,
+          photo_mime_type: parsedPhoto.mimeType,
+        })
+        .eq("id", lossId)
+        .eq("establishment_id", establishment_id);
+
+      if (updateError) {
+        await supabaseAdmin.storage
+          .from(LOSS_PHOTO_BUCKET)
+          .remove([photoPath])
+          .catch(() => {});
+
+        throw updateError;
+      }
+    } catch (err: any) {
+      console.error("POST /api/losses photo error:", err);
+      photoError = err?.message ?? "Perda registrada, mas a foto não foi salva.";
+    }
+  }
+
+  return NextResponse.json({ success: true, result, photoError });
 }

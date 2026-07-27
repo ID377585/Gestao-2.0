@@ -298,6 +298,40 @@ function parseAllergens(formData: FormData): string[] {
   return normalizeAllergenList(formData.getAll("allergens"));
 }
 
+function normalizeDuplicateProductName(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("pt-BR");
+}
+
+async function findActiveDuplicateProduct(params: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  establishmentId: string;
+  name: string;
+  productType: ProductType;
+  defaultUnitLabel: string;
+}) {
+  const normalizedName = normalizeDuplicateProductName(params.name);
+
+  const { data, error } = await params.supabase
+    .from("products")
+    .select("id, name")
+    .eq("establishment_id", params.establishmentId)
+    .eq("product_type", params.productType)
+    .eq("default_unit_label", params.defaultUnitLabel)
+    .eq("is_active", true)
+    .limit(50);
+
+  if (error) {
+    console.error("[products.findActiveDuplicateProduct] error", error);
+    throw new Error("Não foi possível verificar duplicidade do produto.");
+  }
+
+  return (data ?? []).find(
+    (product: any) =>
+      normalizeDuplicateProductName(String(product?.name ?? "")) ===
+      normalizedName,
+  ) as { id: string; name: string } | undefined;
+}
+
 async function generateNextSku(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   establishmentId: string,
@@ -512,6 +546,27 @@ export async function createProduct(formData: FormData) {
 
   if (!name) {
     redirectWithError("Nome do produto é obrigatório.");
+  }
+
+  try {
+    const duplicate = await findActiveDuplicateProduct({
+      supabase,
+      establishmentId,
+      name,
+      productType: product_type,
+      defaultUnitLabel: default_unit_label,
+    });
+
+    if (duplicate?.id) {
+      redirectWithError(
+        `Já existe um produto ativo com este nome, tipo e unidade: ${duplicate.name}.`,
+      );
+    }
+  } catch (duplicateError: any) {
+    if (isNextRedirectError(duplicateError)) throw duplicateError;
+    redirectWithError(
+      duplicateError?.message ?? "Não foi possível verificar duplicidade.",
+    );
   }
 
   try {

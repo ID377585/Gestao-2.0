@@ -1,6 +1,18 @@
 -- Preparacao SaaS Multiempresa
 -- Base inicial para planos, assinaturas e auditoria global por empresa.
 
+create table if not exists public.establishments (
+  id uuid primary key default gen_random_uuid(),
+  name text not null default 'Empresa',
+  is_active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+alter table public.establishments
+  add column if not exists name text default 'Empresa',
+  add column if not exists is_active boolean default true,
+  add column if not exists created_at timestamptz default now();
+
 create table if not exists public.memberships (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,

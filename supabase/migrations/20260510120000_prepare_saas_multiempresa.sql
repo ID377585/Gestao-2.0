@@ -266,6 +266,160 @@ alter table public.order_status_events
 create index if not exists order_status_events_order_id_idx
   on public.order_status_events(order_id);
 
+create table if not exists public.stock_balances (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null,
+  product_id uuid not null,
+  quantity numeric not null default 0,
+  unit_label text not null default 'UN',
+  location text,
+  min_qty numeric,
+  med_qty numeric,
+  max_qty numeric,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.stock_balances
+  add column if not exists establishment_id uuid,
+  add column if not exists product_id uuid,
+  add column if not exists quantity numeric default 0,
+  add column if not exists unit_label text default 'UN',
+  add column if not exists location text,
+  add column if not exists min_qty numeric,
+  add column if not exists med_qty numeric,
+  add column if not exists max_qty numeric,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+create unique index if not exists stock_balances_establishment_product_unit_unique
+  on public.stock_balances(establishment_id, product_id, unit_label);
+
+create table if not exists public.inventory_labels (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null,
+  product_id uuid,
+  label_code text not null,
+  qty numeric not null,
+  qty_balance numeric not null default 0,
+  used_qty numeric not null default 0,
+  unit_label text not null,
+  status text not null default 'available',
+  order_id uuid,
+  separated_at timestamptz,
+  separated_by uuid,
+  created_by uuid,
+  notes text,
+  last_action text,
+  movement_id uuid,
+  batch_number text,
+  manufacturing_date date,
+  expiration_date date,
+  storage_location text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.inventory_labels
+  add column if not exists establishment_id uuid,
+  add column if not exists product_id uuid,
+  add column if not exists label_code text,
+  add column if not exists qty numeric,
+  add column if not exists qty_balance numeric default 0,
+  add column if not exists used_qty numeric default 0,
+  add column if not exists unit_label text,
+  add column if not exists status text default 'available',
+  add column if not exists order_id uuid,
+  add column if not exists separated_at timestamptz,
+  add column if not exists separated_by uuid,
+  add column if not exists created_by uuid,
+  add column if not exists notes text,
+  add column if not exists last_action text,
+  add column if not exists movement_id uuid,
+  add column if not exists batch_number text,
+  add column if not exists manufacturing_date date,
+  add column if not exists expiration_date date,
+  add column if not exists storage_location text,
+  add column if not exists created_at timestamptz default now();
+
+create unique index if not exists inventory_labels_establishment_label_code_unique
+  on public.inventory_labels(establishment_id, label_code);
+
+create index if not exists inventory_labels_product_idx
+  on public.inventory_labels(establishment_id, product_id);
+
+create table if not exists public.inventory_movements (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null,
+  product_id uuid not null,
+  label_id uuid,
+  inventory_count_id uuid,
+  order_id uuid,
+  qty numeric not null,
+  qty_delta numeric,
+  unit_label text not null,
+  direction text not null,
+  movement_type text,
+  reason text,
+  location text,
+  notes text,
+  details jsonb,
+  created_by uuid,
+  created_at timestamptz not null default now()
+);
+
+alter table public.inventory_movements
+  add column if not exists establishment_id uuid,
+  add column if not exists product_id uuid,
+  add column if not exists label_id uuid,
+  add column if not exists inventory_count_id uuid,
+  add column if not exists order_id uuid,
+  add column if not exists qty numeric,
+  add column if not exists qty_delta numeric,
+  add column if not exists unit_label text,
+  add column if not exists direction text,
+  add column if not exists movement_type text,
+  add column if not exists reason text,
+  add column if not exists location text,
+  add column if not exists notes text,
+  add column if not exists details jsonb,
+  add column if not exists created_by uuid,
+  add column if not exists created_at timestamptz default now();
+
+create index if not exists inventory_movements_establishment_product_idx
+  on public.inventory_movements(establishment_id, product_id);
+
+create or replace function public.fn_upsert_stock_balance(
+  p_establishment_id uuid,
+  p_product_id uuid,
+  p_qty_delta numeric,
+  p_unit_label text
+)
+returns setof public.stock_balances
+language sql
+security invoker
+set search_path = public, pg_temp
+as $$
+  insert into public.stock_balances (
+    establishment_id,
+    product_id,
+    quantity,
+    unit_label,
+    updated_at
+  )
+  values (
+    p_establishment_id,
+    p_product_id,
+    coalesce(p_qty_delta, 0),
+    upper(trim(coalesce(p_unit_label, 'UN'))),
+    now()
+  )
+  on conflict (establishment_id, product_id, unit_label)
+  do update set
+    quantity = public.stock_balances.quantity + excluded.quantity,
+    updated_at = now()
+  returning *;
+$$;
+
 create table if not exists public.subscription_plans (
   id uuid primary key default gen_random_uuid(),
   slug text not null unique,

@@ -8,23 +8,41 @@ create or replace function private.gestify_shares_active_establishment(
   p_target_user_id uuid
 )
 returns boolean
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public, private, auth, pg_temp
 as $$
-  select
-    exists (
-      select 1
-      from public.memberships mine
-      join public.memberships target
-        on target.establishment_id = mine.establishment_id
-      where mine.user_id = (select auth.uid())
-        and coalesce(mine.is_active, true) = true
-        and target.user_id = p_target_user_id
-        and coalesce(target.is_active, true) = true
-    )
-    or exists (
+declare
+  v_shares_establishment boolean := false;
+begin
+  if p_target_user_id is null or (select auth.uid()) is null then
+    return false;
+  end if;
+
+  if to_regclass('public.memberships') is not null then
+    execute $sql$
+      select exists (
+        select 1
+        from public.memberships mine
+        join public.memberships target
+          on target.establishment_id = mine.establishment_id
+        where mine.user_id = auth.uid()
+          and coalesce(mine.is_active, true) = true
+          and target.user_id = $1
+          and coalesce(target.is_active, true) = true
+      )
+    $sql$
+    using p_target_user_id
+    into v_shares_establishment;
+
+    if v_shares_establishment then
+      return true;
+    end if;
+  end if;
+
+  if to_regclass('public.establishment_memberships') is not null then
+    select exists (
       select 1
       from public.establishment_memberships mine
       join public.establishment_memberships target
@@ -33,7 +51,14 @@ as $$
         and mine.is_active = true
         and target.user_id = p_target_user_id
         and target.is_active = true
-    );
+    )
+    into v_shares_establishment;
+
+    return v_shares_establishment;
+  end if;
+
+  return false;
+end;
 $$;
 
 revoke all on function private.gestify_shares_active_establishment(uuid)

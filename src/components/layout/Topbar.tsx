@@ -20,6 +20,7 @@ import { HelpModal } from "@/components/modals/HelpModal";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TenantSummary } from "@/components/tenant/TenantSummary";
 import { CurrentDateWeather } from "@/components/layout/CurrentDateWeather";
+import { LocationPermissionGate } from "@/components/layout/LocationPermissionGate";
 import {
   SubscriptionStatusBadge,
   type SubscriptionStatusBadgeData,
@@ -338,6 +339,8 @@ export function Topbar({ className }: TopbarProps) {
 
   return (
     <>
+      <LocationPermissionGate />
+
       <header className={`border-b border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-950 ${className ?? ""}`}>
         <div className="flex h-16 items-center justify-between gap-3 px-4 md:px-6">
           <div className="flex items-center gap-2 md:gap-3 md:hidden">

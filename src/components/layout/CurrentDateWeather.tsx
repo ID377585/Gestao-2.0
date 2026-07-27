@@ -15,6 +15,12 @@ import {
   Thermometer,
   type LucideIcon,
 } from "lucide-react";
+import {
+  GESTIFY_USER_LOCATION_EVENT,
+  GESTIFY_USER_LOCATION_STORAGE_KEY,
+  isValidUserLocation,
+  type GestifyUserLocation,
+} from "@/lib/user-location";
 
 type WeatherData = {
   temperatureC: number | null;
@@ -106,11 +112,29 @@ async function fetchWeather(latitude?: number, longitude?: number) {
   return (await response.json()) as WeatherData;
 }
 
+function readStoredUserLocation() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(GESTIFY_USER_LOCATION_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<GestifyUserLocation>;
+    if (!isValidUserLocation(parsed)) return null;
+
+    return {
+      latitude: Number(parsed.latitude),
+      longitude: Number(parsed.longitude),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function CurrentDateWeather() {
   const [now, setNow] = useState(() => new Date());
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const deviceCoordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
-  const geolocationAttemptedRef = useRef(false);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNow(new Date()), 60_000);
@@ -120,63 +144,30 @@ export function CurrentDateWeather() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadDeviceWeather(options: { allowPrompt?: boolean } = {}) {
-      const allowPrompt = options.allowPrompt ?? true;
-      const cachedCoords = deviceCoordsRef.current;
-
-      if (cachedCoords) {
-        try {
-          const deviceData = await fetchWeather(cachedCoords.latitude, cachedCoords.longitude);
-          if (!cancelled) setWeather(deviceData);
-          return true;
-        } catch {
-          deviceCoordsRef.current = null;
-          return false;
-        }
-      }
-
-      if (
-        !allowPrompt ||
-        typeof navigator === "undefined" ||
-        !navigator.geolocation ||
-        geolocationAttemptedRef.current
-      ) {
-        return false;
-      }
-
-      geolocationAttemptedRef.current = true;
-
-      return new Promise<boolean>((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-          async (position) => {
-            const coords = {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-            };
-            deviceCoordsRef.current = coords;
-
-            try {
-              const deviceData = await fetchWeather(coords.latitude, coords.longitude);
-              if (!cancelled) setWeather(deviceData);
-              resolve(true);
-            } catch {
-              resolve(false);
-            }
-          },
-          () => resolve(false),
-          { maximumAge: 900_000, timeout: 5000 },
-        );
-      });
-    }
-
     async function loadWeather() {
+      const coords = deviceCoordsRef.current ?? readStoredUserLocation();
+
+      if (!coords) {
+        if (!cancelled) {
+          setWeather({
+            temperatureC: null,
+            emoji: "🌡️",
+            iconKey: "thermometer",
+            condition: "Localização necessária",
+            source: "fallback",
+            locationLabel: null,
+            isDay: null,
+            observedAt: null,
+          });
+        }
+        return;
+      }
+
+      deviceCoordsRef.current = coords;
+
       try {
-        if (await loadDeviceWeather({ allowPrompt: false })) return;
-
-        const data = await fetchWeather();
+        const data = await fetchWeather(coords.latitude, coords.longitude);
         if (!cancelled) setWeather(data);
-
-        void loadDeviceWeather({ allowPrompt: true });
       } catch {
         if (!cancelled) {
           setWeather({
@@ -190,16 +181,28 @@ export function CurrentDateWeather() {
             observedAt: null,
           });
         }
-
-        void loadDeviceWeather({ allowPrompt: true });
       }
     }
 
+    function handleLocationUpdated(event: Event) {
+      const location = (event as CustomEvent<GestifyUserLocation>).detail;
+      if (!isValidUserLocation(location)) return;
+
+      deviceCoordsRef.current = {
+        latitude: Number(location.latitude),
+        longitude: Number(location.longitude),
+      };
+      void loadWeather();
+    }
+
+    deviceCoordsRef.current = readStoredUserLocation();
+    window.addEventListener(GESTIFY_USER_LOCATION_EVENT, handleLocationUpdated);
     void loadWeather();
     const intervalId = window.setInterval(() => void loadWeather(), 5 * 60_000);
 
     return () => {
       cancelled = true;
+      window.removeEventListener(GESTIFY_USER_LOCATION_EVENT, handleLocationUpdated);
       window.clearInterval(intervalId);
     };
   }, []);

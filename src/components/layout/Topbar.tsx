@@ -18,8 +18,10 @@ import { ProfileModal } from "@/components/modals/ProfileModal";
 import { SettingsModal } from "@/components/modals/SettingsModal";
 import { HelpModal } from "@/components/modals/HelpModal";
 import { Sidebar } from "@/components/layout/Sidebar";
+import type { MenuSectionKey } from "@/components/layout/menu-items";
 import { TenantSummary } from "@/components/tenant/TenantSummary";
 import { CurrentDateWeather } from "@/components/layout/CurrentDateWeather";
+import { LocationPermissionGate } from "@/components/layout/LocationPermissionGate";
 import {
   SubscriptionStatusBadge,
   type SubscriptionStatusBadgeData,
@@ -43,6 +45,7 @@ import {
 
 interface TopbarProps {
   className?: string;
+  allowedSectionKeys?: MenuSectionKey[];
 }
 
 type TopbarUser = {
@@ -154,7 +157,7 @@ function canRunNotificationChecks(role?: string | null) {
   return ["admin", "operacao", "estoque"].includes(String(role ?? ""));
 }
 
-export function Topbar({ className }: TopbarProps) {
+export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
   const [user, setUser] = useState<TopbarUser | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [showPerfil, setShowPerfil] = useState(false);
@@ -338,10 +341,12 @@ export function Topbar({ className }: TopbarProps) {
 
   return (
     <>
+      <LocationPermissionGate />
+
       <header className={`border-b border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-950 ${className ?? ""}`}>
         <div className="flex h-16 items-center justify-between gap-3 px-4 md:px-6">
           <div className="flex items-center gap-2 md:gap-3 md:hidden">
-            <Sidebar />
+            <Sidebar allowedSectionKeys={allowedSectionKeys} />
           </div>
 
           <div className="hidden min-w-0 flex-1 items-center gap-2 md:flex">

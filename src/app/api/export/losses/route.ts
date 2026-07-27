@@ -43,6 +43,7 @@ export async function GET(req: Request) {
       reason_detail,
       lot,
       qrcode,
+      photo_path,
       stock_before,
       stock_after,
       user_id
@@ -74,10 +75,13 @@ export async function GET(req: Request) {
     "Detalhe do Motivo",
     "Lote",
     "QR Code",
+    "Foto",
     "Usuário",
     "Estoque Antes",
     "Estoque Depois",
   ];
+
+  const origin = new URL(req.url).origin;
 
   const rows = ((data ?? []) as any[]).map((r: any) => [
     csvEscape(new Date(r.created_at).toLocaleString("pt-BR")),
@@ -89,6 +93,11 @@ export async function GET(req: Request) {
     csvEscape(r.reason_detail),
     csvEscape(r.lot),
     csvEscape(r.qrcode),
+    csvEscape(
+      r.photo_path
+        ? `${origin}/api/losses/photo?path=${encodeURIComponent(r.photo_path)}`
+        : ""
+    ),
     csvEscape(r.user_id),
     csvEscape(r.stock_before),
     csvEscape(r.stock_after),

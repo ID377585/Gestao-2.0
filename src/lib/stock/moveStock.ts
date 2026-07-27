@@ -78,6 +78,20 @@ export async function moveStock(
   );
 
   if (rpcError) {
+    if (movement?.id) {
+      const { error: cleanupError } = await supabase
+        .from("stock_movements")
+        .delete()
+        .eq("id", movement.id);
+
+      if (cleanupError) {
+        console.error("[moveStock] failed to cleanup stock movement after balance error:", {
+          movementId: movement.id,
+          error: cleanupError,
+        });
+      }
+    }
+
     throw new Error(rpcError.message);
   }
 

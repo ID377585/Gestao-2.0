@@ -2,7 +2,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseAdminClient,
+  createSupabaseServerClient,
+} from "@/lib/supabase/server";
 import {
   getActiveMembershipOrRedirect,
   type MembershipContext,
@@ -237,15 +240,21 @@ export async function getMyMembership() {
 
 /** cria pedido (versão simples, já usada na lista) */
 export async function createOrder(): Promise<CreateOrderResult> {
-  const supabase = await createSupabaseServerClient();
   const ctx = await getActiveMembershipOrRedirect();
+  const supabaseAdmin = createSupabaseAdminClient();
   const establishmentId = getScopeId(ctx);
+  const userId = String(ctx.user?.id ?? ctx.membership.user_id ?? "").trim();
 
-  const { data, error } = await supabase
+  if (!userId) {
+    throw new Error("Usuário não autenticado.");
+  }
+
+  const { data, error } = await supabaseAdmin
     .rpc("create_order_with_items", {
       p_establishment_id: establishmentId,
       p_notes: "Pedido criado via sistema",
       p_items: [],
+      p_user_id: userId,
     })
     .single();
 
@@ -267,9 +276,14 @@ export async function createOrderWithItems(
     items: NewOrderItemInput[];
   }
 ): Promise<CreateOrderResult> {
-  const supabase = await createSupabaseServerClient();
   const ctx = await getActiveMembershipOrRedirect();
+  const supabaseAdmin = createSupabaseAdminClient();
   const establishmentId = getScopeId(ctx);
+  const userId = String(ctx.user?.id ?? ctx.membership.user_id ?? "").trim();
+
+  if (!userId) {
+    throw new Error("Usuário não autenticado.");
+  }
 
   const safeNotes =
     (params.notes ?? "").trim() ||
@@ -310,12 +324,13 @@ export async function createOrderWithItems(
 
   const validItems = Array.from(consolidated.values());
 
-  const { data: createdOrders, error: createErr } = await supabase.rpc(
+  const { data: createdOrders, error: createErr } = await supabaseAdmin.rpc(
     "create_order_with_items",
     {
       p_establishment_id: establishmentId,
       p_notes: safeNotes,
       p_items: validItems,
+      p_user_id: userId,
     }
   );
 
@@ -763,24 +778,11 @@ export async function getOrderCollectedSummary(
     throw new Error("Pedido não encontrado ou fora do seu estabelecimento.");
   }
 
-  const { data: links, error: linksErr } = await supabase
+  const supabaseAdmin = createSupabaseAdminClient();
+
+  const { data: links, error: linksErr } = await supabaseAdmin
     .from("order_items_labels")
-    .select(
-      `
-      qty_used,
-      unit_label,
-      inventory_labels (
-        id,
-        product_id,
-        unit_label,
-        products (
-          name,
-          standard_cost,
-          default_unit_label
-        )
-      )
-    `
-    )
+    .select("label_id, qty_used, unit_label")
     .eq("order_id", orderId);
 
   if (linksErr) {
@@ -792,6 +794,62 @@ export async function getOrderCollectedSummary(
   }
 
   const rows = (links ?? []) as any[];
+  const labelIds = Array.from(
+    new Set(
+      rows
+        .map((row) => String(row.label_id ?? "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  const labelById = new Map<string, any>();
+  const productById = new Map<string, any>();
+
+  if (labelIds.length > 0) {
+    const { data: labels, error: labelsErr } = await supabaseAdmin
+      .from("inventory_labels")
+      .select("id, product_id, unit_label")
+      .in("id", labelIds);
+
+    if (labelsErr) {
+      console.error(
+        "getOrderCollectedSummary: erro ao carregar etiquetas:",
+        labelsErr
+      );
+      throw new Error("Erro ao carregar itens coletados do pedido.");
+    }
+
+    for (const label of labels ?? []) {
+      labelById.set(String(label.id), label);
+    }
+
+    const productIds = Array.from(
+      new Set(
+        (labels ?? [])
+          .map((label: any) => String(label.product_id ?? "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (productIds.length > 0) {
+      const { data: products, error: productsErr } = await supabaseAdmin
+        .from("products")
+        .select("id, name, standard_cost, default_unit_label")
+        .in("id", productIds);
+
+      if (productsErr) {
+        console.error(
+          "getOrderCollectedSummary: erro ao carregar produtos:",
+          productsErr
+        );
+        throw new Error("Erro ao carregar itens coletados do pedido.");
+      }
+
+      for (const product of products ?? []) {
+        productById.set(String(product.id), product);
+      }
+    }
+  }
 
   type GroupKey = string;
   const groups = new Map<
@@ -806,8 +864,10 @@ export async function getOrderCollectedSummary(
   >();
 
   for (const row of rows) {
-    const inv = row.inventory_labels as any;
-    const prod = inv?.products as any | undefined;
+    const inv = labelById.get(String(row.label_id ?? ""));
+    const prod = inv?.product_id
+      ? productById.get(String(inv.product_id))
+      : undefined;
 
     const productName =
       prod?.name ?? inv?.product_name ?? "(Produto não identificado)";

@@ -6,6 +6,7 @@ import {
 } from "@/lib/auth/terms-compliance.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
+import { getAllowedMenuSectionKeysForTenant } from "@/lib/tenant/module-access";
 import { redirect } from "next/navigation";
 
 type AllowedRole =
@@ -61,6 +62,8 @@ export default async function DashboardLayout({
     redirect("/sem-acesso");
   }
 
+  const allowedSectionKeys = await getAllowedMenuSectionKeysForTenant(tenant);
+
   return (
     <div className="h-[100dvh] overflow-hidden bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100 md:min-h-screen md:overflow-visible">
       <div className="flex h-full">
@@ -78,12 +81,12 @@ export default async function DashboardLayout({
           }}
         >
           <div className="flex min-h-0 flex-1 flex-col">
-            <Sidebar />
+            <Sidebar allowedSectionKeys={allowedSectionKeys} />
           </div>
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col transition-[padding-left] duration-300 ease-in-out md:pl-[var(--sidebar-w)]">
-          <Topbar />
+          <Topbar allowedSectionKeys={allowedSectionKeys} />
 
           <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-20 md:p-8 md:pt-24">
             {children}

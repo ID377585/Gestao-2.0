@@ -1,8 +1,8 @@
 "use client";
 
 import { formatPtBrDecimal } from "@/lib/number-format";
-import { useTransition } from "react";
 import { createProduct, updateProduct } from "./actions";
+import { ProductSubmitButton } from "./ProductSubmitButton";
 import {
   ALLERGEN_OPTIONS,
   normalizeAllergenList,
@@ -48,14 +48,11 @@ const STORAGE_CATEGORIES: StorageCategory[] = [
 ];
 
 export function ProductForm({ product }: ProductFormProps) {
-  const [isPending, startTransition] = useTransition();
   const isEdit = Boolean(product?.id);
 
   function handleSubmit(formData: FormData) {
-    startTransition(() => {
-      if (isEdit) updateProduct(formData);
-      else createProduct(formData);
-    });
+    if (isEdit) updateProduct(formData);
+    else createProduct(formData);
   }
 
   return (
@@ -301,17 +298,11 @@ export function ProductForm({ product }: ProductFormProps) {
         </div>
       </div>
 
-      <button
-        type="submit"
-        disabled={isPending}
-        className="w-full rounded bg-black px-4 py-2 text-white disabled:opacity-60"
-      >
-        {isPending
-          ? "Salvando..."
-          : isEdit
-            ? "Gravar alterações"
-            : "Criar produto"}
-      </button>
+      <ProductSubmitButton
+        idleLabel={isEdit ? "Gravar alterações" : "Criar produto"}
+        pendingLabel={isEdit ? "Gravando..." : "Registrando..."}
+        className="w-full"
+      />
     </form>
   );
 }

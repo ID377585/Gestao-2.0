@@ -1318,7 +1318,11 @@ export default function EntradasPage() {
             Limpar filtros
           </Button>
 
-          <Button type="button" onClick={openNewEntryForm}>
+          <Button
+            type="button"
+            onClick={openNewEntryForm}
+            className="bg-green-600 text-white hover:bg-green-700"
+          >
             <Plus className="mr-2 h-4 w-4" />
             Nova entrada
           </Button>

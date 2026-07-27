@@ -13,6 +13,12 @@ import {
 type LocationStatus = "checking" | "prompting" | "granted" | "denied" | "unavailable" | "error";
 const LOCATION_MESSAGE =
   "Por motivos de segurança e proteção aos dados do sistema, ativar a sua localização para poder usar o sistema.";
+const DEV_FALLBACK_LOCATION: GestifyUserLocation = {
+  latitude: -23.5505,
+  longitude: -46.6333,
+  accuracy: null,
+  capturedAt: new Date().toISOString(),
+};
 
 function getErrorStatus(error: GeolocationPositionError): LocationStatus {
   if (error.code === error.PERMISSION_DENIED) return "denied";
@@ -47,6 +53,32 @@ function publishLocation(position: GeolocationPosition) {
 
   window.dispatchEvent(new CustomEvent<GestifyUserLocation>(GESTIFY_USER_LOCATION_EVENT, { detail: location }));
   return location;
+}
+
+function publishLocationValue(location: GestifyUserLocation) {
+  try {
+    window.localStorage.setItem(
+      GESTIFY_USER_LOCATION_STORAGE_KEY,
+      JSON.stringify(location)
+    );
+  } catch {
+    // Storage is optional; the in-memory event still updates the active session.
+  }
+
+  window.dispatchEvent(
+    new CustomEvent<GestifyUserLocation>(GESTIFY_USER_LOCATION_EVENT, {
+      detail: location,
+    })
+  );
+  return location;
+}
+
+function canUseLocalhostFallback() {
+  if (process.env.NODE_ENV === "production" || typeof window === "undefined") {
+    return false;
+  }
+
+  return ["localhost", "127.0.0.1"].includes(window.location.hostname);
 }
 
 function readStoredLocation() {
@@ -147,6 +179,17 @@ export function LocationPermissionGate() {
 
     requestTimeoutRef.current = window.setTimeout(() => {
       if (requestId !== requestIdRef.current || latestLocationRef.current) return;
+      if (canUseLocalhostFallback()) {
+        clearRequestTimeout();
+        acceptLocation(
+          publishLocationValue({
+            ...DEV_FALLBACK_LOCATION,
+            capturedAt: new Date().toISOString(),
+          })
+        );
+        return;
+      }
+
       requestIdRef.current += 1;
       setRequesting(false);
       setStatus("prompting");

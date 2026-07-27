@@ -313,6 +313,67 @@ alter table public.stock_balances
 create unique index if not exists stock_balances_establishment_product_unit_unique
   on public.stock_balances(establishment_id, product_id, unit_label);
 
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_type t
+    join pg_namespace n on n.oid = t.typnamespace
+    where t.typname = 'inventory_status'
+      and n.nspname = 'public'
+  ) then
+    create type public.inventory_status as enum ('em_andamento', 'finalizado');
+  end if;
+end $$;
+
+alter type public.inventory_status add value if not exists 'em_andamento';
+alter type public.inventory_status add value if not exists 'finalizado';
+
+create table if not exists public.inventory_sessions (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null,
+  created_by uuid not null,
+  status public.inventory_status not null default 'em_andamento',
+  notes text,
+  started_at timestamptz not null default now(),
+  finished_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+alter table public.inventory_sessions
+  add column if not exists establishment_id uuid,
+  add column if not exists created_by uuid,
+  add column if not exists status public.inventory_status default 'em_andamento',
+  add column if not exists notes text,
+  add column if not exists started_at timestamptz default now(),
+  add column if not exists finished_at timestamptz,
+  add column if not exists created_at timestamptz default now();
+
+create index if not exists inventory_sessions_establishment_status_idx
+  on public.inventory_sessions(establishment_id, status, started_at desc);
+
+create table if not exists public.inventory_items (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null,
+  product_id uuid not null,
+  counted_quantity numeric not null default 0,
+  unit_label text not null default 'UN',
+  created_at timestamptz not null default now()
+);
+
+alter table public.inventory_items
+  add column if not exists session_id uuid,
+  add column if not exists product_id uuid,
+  add column if not exists counted_quantity numeric default 0,
+  add column if not exists unit_label text default 'UN',
+  add column if not exists created_at timestamptz default now();
+
+create index if not exists inventory_items_session_idx
+  on public.inventory_items(session_id);
+
+create index if not exists inventory_items_product_idx
+  on public.inventory_items(product_id);
+
 create table if not exists public.inventory_labels (
   id uuid primary key default gen_random_uuid(),
   establishment_id uuid not null,

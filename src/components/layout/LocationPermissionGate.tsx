@@ -78,6 +78,7 @@ export function LocationPermissionGate() {
   const watchIdRef = useRef<number | null>(null);
   const latestLocationRef = useRef<GestifyUserLocation | null>(null);
   const requestIdRef = useRef(0);
+  const requestTimeoutRef = useRef<number | null>(null);
 
   const acceptLocation = useCallback((nextLocation: GestifyUserLocation) => {
     latestLocationRef.current = nextLocation;
@@ -90,6 +91,13 @@ export function LocationPermissionGate() {
     if (watchIdRef.current !== null && typeof navigator !== "undefined" && navigator.geolocation) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
+    }
+  }, []);
+
+  const clearRequestTimeout = useCallback(() => {
+    if (requestTimeoutRef.current !== null) {
+      window.clearTimeout(requestTimeoutRef.current);
+      requestTimeoutRef.current = null;
     }
   }, []);
 
@@ -131,19 +139,28 @@ export function LocationPermissionGate() {
       return;
     }
 
+    clearRequestTimeout();
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     setRequesting(true);
     if (!latestLocationRef.current) setStatus("prompting");
     startWatching();
 
+    requestTimeoutRef.current = window.setTimeout(() => {
+      if (requestId !== requestIdRef.current || latestLocationRef.current) return;
+      setRequesting(false);
+      setStatus("prompting");
+    }, 10_000);
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
         if (requestId !== requestIdRef.current) return;
+        clearRequestTimeout();
         acceptLocation(publishLocation(position));
       },
       (error) => {
         if (requestId !== requestIdRef.current) return;
+        clearRequestTimeout();
         if (latestLocationRef.current) {
           setStatus("granted");
         } else {
@@ -154,17 +171,14 @@ export function LocationPermissionGate() {
       {
         enableHighAccuracy: false,
         maximumAge: 60_000,
-        timeout: 45_000,
+        timeout: 30_000,
       },
     );
-  }, [acceptLocation, startWatching]);
+  }, [acceptLocation, clearRequestTimeout, startWatching]);
 
   useEffect(() => {
     const storedLocation = readStoredLocation();
     if (storedLocation) acceptLocation(storedLocation);
-
-    startWatching();
-    requestLocation();
 
     let permissionStatus: PermissionStatus | null = null;
 
@@ -173,6 +187,14 @@ export function LocationPermissionGate() {
         .query({ name: "geolocation" as PermissionName })
         .then((result) => {
           permissionStatus = result;
+          if (result.state === "granted") {
+            startWatching();
+            requestLocation();
+          } else if (!storedLocation) {
+            setStatus(result.state === "denied" ? "denied" : "prompting");
+            setRequesting(false);
+          }
+
           result.onchange = () => {
             if (result.state === "denied") {
               latestLocationRef.current = null;
@@ -183,24 +205,38 @@ export function LocationPermissionGate() {
               return;
             }
 
-            requestLocation();
+            if (result.state === "granted") {
+              startWatching();
+              requestLocation();
+            } else if (!latestLocationRef.current) {
+              setStatus("prompting");
+              setRequesting(false);
+            }
           };
         })
         .catch(() => {
           permissionStatus = null;
+          if (!storedLocation) {
+            setStatus("prompting");
+            setRequesting(false);
+          }
         });
+    } else if (!storedLocation) {
+      setStatus("prompting");
+      setRequesting(false);
     }
 
     return () => {
+      clearRequestTimeout();
       stopWatching();
       if (permissionStatus) permissionStatus.onchange = null;
     };
-  }, [acceptLocation, requestLocation, startWatching, stopWatching]);
+  }, [acceptLocation, clearRequestTimeout, requestLocation, startWatching, stopWatching]);
 
   if (status === "granted" && location) return null;
 
   const message = getMessage(status);
-  const isBusy = requesting || status === "checking" || status === "prompting";
+  const isBusy = requesting || status === "checking";
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">

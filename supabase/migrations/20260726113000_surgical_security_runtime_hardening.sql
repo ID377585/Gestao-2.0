@@ -40,34 +40,29 @@ to authenticated
 using (user_id = (select auth.uid()));
 
 -- Configuration, backup and server-managed benchmark data stay behind service-role code.
-revoke all privileges on table public.notification_thresholds from anon, authenticated;
-revoke all privileges on table public.products_cost_backup_20260527 from anon, authenticated;
-revoke all privileges on table public.sales_price_benchmarks from anon, authenticated;
-
-drop policy if exists "notification_thresholds_service_role_all" on public.notification_thresholds;
-drop policy if exists "products_cost_backup_service_role_all" on public.products_cost_backup_20260527;
-drop policy if exists "sales_price_benchmarks_service_role_all" on public.sales_price_benchmarks;
-
-create policy "notification_thresholds_service_role_all"
-on public.notification_thresholds
-for all
-to service_role
-using (true)
-with check (true);
-
-create policy "products_cost_backup_service_role_all"
-on public.products_cost_backup_20260527
-for all
-to service_role
-using (true)
-with check (true);
-
-create policy "sales_price_benchmarks_service_role_all"
-on public.sales_price_benchmarks
-for all
-to service_role
-using (true)
-with check (true);
+do $$
+declare
+  table_name text;
+  policy_name text;
+begin
+  foreach table_name in array array[
+    'notification_thresholds',
+    'products_cost_backup_20260527',
+    'sales_price_benchmarks'
+  ]
+  loop
+    if to_regclass(format('public.%I', table_name)) is not null then
+      policy_name := table_name || '_service_role_all';
+      execute format('revoke all privileges on table public.%I from anon, authenticated', table_name);
+      execute format('drop policy if exists %I on public.%I', policy_name, table_name);
+      execute format(
+        'create policy %I on public.%I for all to service_role using (true) with check (true)',
+        policy_name,
+        table_name
+      );
+    end if;
+  end loop;
+end $$;
 
 -- Anonymous access is unnecessary for the authenticated notification center.
 revoke all privileges on table public.notifications from anon;

@@ -1,6 +1,58 @@
 -- Permite atrelar uma ficha tecnica a um produto do catalogo.
 -- Isso possibilita que fichas novas e antigas sejam sincronizadas com Produtos e Estoque.
 
+create table if not exists public.products (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null,
+  name text not null,
+  sku text,
+  category text,
+  product_type text not null default 'insumo',
+  price numeric not null default 0,
+  standard_cost numeric,
+  default_unit_label text not null default 'UN',
+  conversion_factor numeric,
+  package_qty numeric,
+  qty_per_package text,
+  brand text,
+  sector_category text,
+  shelf_life_days integer,
+  abc_curve text,
+  aliases text[],
+  alternate_names text[],
+  allergens text[],
+  is_active boolean not null default true,
+  created_by uuid,
+  updated_by uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+
+alter table public.products
+  add column if not exists establishment_id uuid,
+  add column if not exists name text,
+  add column if not exists sku text,
+  add column if not exists category text,
+  add column if not exists product_type text default 'insumo',
+  add column if not exists price numeric default 0,
+  add column if not exists standard_cost numeric,
+  add column if not exists default_unit_label text default 'UN',
+  add column if not exists conversion_factor numeric,
+  add column if not exists package_qty numeric,
+  add column if not exists qty_per_package text,
+  add column if not exists brand text,
+  add column if not exists sector_category text,
+  add column if not exists shelf_life_days integer,
+  add column if not exists abc_curve text,
+  add column if not exists aliases text[],
+  add column if not exists alternate_names text[],
+  add column if not exists allergens text[],
+  add column if not exists is_active boolean default true,
+  add column if not exists created_by uuid,
+  add column if not exists updated_by uuid,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz;
+
 create table if not exists public.technical_sheets (
   id uuid primary key default gen_random_uuid(),
   establishment_id uuid not null,

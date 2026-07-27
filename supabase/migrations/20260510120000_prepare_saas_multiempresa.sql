@@ -13,6 +13,24 @@ alter table public.establishments
   add column if not exists is_active boolean default true,
   add column if not exists created_at timestamptz default now();
 
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  full_name text not null default '',
+  role text not null default 'cliente',
+  sector text,
+  avatar_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.profiles
+  add column if not exists full_name text default '',
+  add column if not exists role text default 'cliente',
+  add column if not exists sector text,
+  add column if not exists avatar_url text,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
 do $$
 begin
   if not exists (

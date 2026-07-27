@@ -80,9 +80,15 @@ declare
   v_establishment_count integer;
   table_name text;
 begin
-  select count(*), min(id)
-    into v_establishment_count, v_default_establishment_id
+  select count(*)
+    into v_establishment_count
   from public.establishments;
+
+  select id
+    into v_default_establishment_id
+  from public.establishments
+  order by id
+  limit 1;
 
   if v_establishment_count = 1 and v_default_establishment_id is not null then
     foreach table_name in array private.gestify_legacy_table_names() loop

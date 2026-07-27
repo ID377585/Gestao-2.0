@@ -2911,6 +2911,7 @@ export type Database = {
       }
       technical_sheets: {
         Row: {
+          active: boolean
           allergens: string | null
           category: string
           cooking_factor_grams: number | null
@@ -2955,6 +2956,7 @@ export type Database = {
           yield_portions: number
         }
         Insert: {
+          active?: boolean
           allergens?: string | null
           category: string
           cooking_factor_grams?: number | null
@@ -2999,6 +3001,7 @@ export type Database = {
           yield_portions?: number
         }
         Update: {
+          active?: boolean
           allergens?: string | null
           category?: string
           cooking_factor_grams?: number | null

@@ -26,38 +26,53 @@ export async function GET(request: Request) {
     const supabase = await createSupabaseServerClient();
 
     const { searchParams } = new URL(request.url);
-    const user_id = searchParams.get("user_id");
-    const establishment_id = searchParams.get("establishment_id");
+    const userId = String(searchParams.get("user_id") ?? "").trim();
+    const establishmentId = String(
+      searchParams.get("establishment_id") ?? ""
+    ).trim();
 
-    if (!user_id || !establishment_id) {
+    if (!userId || !establishmentId) {
       return NextResponse.json({ label: "-" }, { status: 200 });
     }
 
-    await assertSameActiveEstablishment(establishment_id);
+    await assertSameActiveEstablishment(establishmentId);
 
-    const { data, error } = await supabase
+    const { data: membership, error: membershipError } = await supabase
       .from("memberships")
-      .select("display_name, full_name, name, role")
-      .eq("user_id", user_id)
-      .eq("establishment_id", establishment_id)
-      .limit(1)
+      .select("role")
+      .eq("user_id", userId)
+      .eq("establishment_id", establishmentId)
+      .eq("is_active", true)
       .maybeSingle();
 
-    if (error) {
-      console.warn("[user-label] memberships error:", error);
+    if (membershipError) {
+      console.warn("[user-label] membership lookup error:", membershipError);
       return NextResponse.json({ label: "-" }, { status: 200 });
     }
 
-    const md: any = data ?? null;
-    const candidate =
-      md?.display_name ??
-      md?.full_name ??
-      md?.name ??
-      (md?.role ? prettyRole(String(md.role)) : null);
+    if (!membership) {
+      return NextResponse.json({ label: "-" }, { status: 200 });
+    }
 
-    return NextResponse.json({ label: candidate ? String(candidate) : "-" }, { status: 200 });
-  } catch (e) {
-    console.error("[user-label] unexpected error:", e);
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profileError) {
+      console.warn("[user-label] profile lookup error:", profileError);
+    }
+
+    const fullName = String(profile?.full_name ?? "").trim();
+    const roleLabel = prettyRole(String(membership.role ?? ""));
+
+    return NextResponse.json(
+      { label: fullName || roleLabel || "-" },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("[user-label] unexpected error:", error);
     return NextResponse.json({ label: "-" }, { status: 200 });
   }
 }

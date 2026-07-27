@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +23,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+} from "@/components/ui/dialog";
 import {
   createInvoiceEntry,
   deleteInvoiceEntryAttachmentAction,
@@ -397,6 +402,7 @@ export default function EntradasPage() {
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("Rascunho de entrada");
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [entryFormOpen, setEntryFormOpen] = useState(false);
 
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [supplierName, setSupplierName] = useState("");
@@ -602,6 +608,11 @@ export default function EntradasPage() {
     setAttachmentPdfPath(null);
     setItems([]);
     resetDraftItem();
+  };
+
+  const openNewEntryForm = () => {
+    resetForm();
+    setEntryFormOpen(true);
   };
 
   const buildDraftPayload = (): InvoiceEntryDraftPayload => ({
@@ -941,6 +952,7 @@ export default function EntradasPage() {
     );
 
     resetDraftItem();
+    setEntryFormOpen(true);
 
     requestAnimationFrame(() => {
       formRef.current?.scrollIntoView({
@@ -1019,6 +1031,7 @@ export default function EntradasPage() {
         }
 
         resetForm();
+        setEntryFormOpen(false);
 
         await loadData();
       } catch (error: any) {
@@ -1296,7 +1309,7 @@ export default function EntradasPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Button type="button" variant="outline" onClick={exportFilteredCsv}>
             Exportar CSV
           </Button>
@@ -1305,8 +1318,9 @@ export default function EntradasPage() {
             Limpar filtros
           </Button>
 
-          <Button type="button" variant="outline" onClick={resetForm}>
-            Novo lançamento
+          <Button type="button" onClick={openNewEntryForm}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nova entrada
           </Button>
         </div>
       </div>
@@ -1487,9 +1501,10 @@ export default function EntradasPage() {
         </CardContent>
       </Card>
 
-      <div ref={formRef}>
-        <Card>
-          <CardHeader>
+      <Dialog open={entryFormOpen} onOpenChange={setEntryFormOpen}>
+        <DialogContent className="max-h-[calc(100dvh-1rem)] max-w-5xl overflow-y-auto p-0 sm:max-h-[calc(100dvh-2rem)]">
+          <Card className="border-0 shadow-none">
+          <CardHeader className="pr-12">
             <CardTitle>
               {editingEntryId ? "Editar entrada lançada" : "Nova entrada"}
             </CardTitle>
@@ -1500,7 +1515,8 @@ export default function EntradasPage() {
           </CardHeader>
 
           <CardContent className="space-y-5">
-            <div className="flex flex-wrap gap-2">
+            <div ref={formRef} />
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <input
                 ref={xmlInputRef}
                 type="file"
@@ -1566,7 +1582,7 @@ export default function EntradasPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="invoice_number">Número da nota</Label>
                   <Input
@@ -1598,7 +1614,7 @@ export default function EntradasPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="issue_date">Data de emissão</Label>
                   <Input
@@ -1769,7 +1785,7 @@ export default function EntradasPage() {
                 </div>
               </div>
 
-              <div className="mt-4 flex gap-2">
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                 <Button type="button" onClick={addOrUpdateItem}>
                   {editingItemId ? "Salvar item" : "Adicionar item"}
                 </Button>
@@ -1801,7 +1817,7 @@ export default function EntradasPage() {
                 </div>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-4 overflow-x-auto">
                 {items.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     Nenhum item adicionado ainda.
@@ -1909,7 +1925,7 @@ export default function EntradasPage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button type="button" variant="outline" onClick={resetForm}>
                 Limpar
               </Button>
@@ -1932,8 +1948,9 @@ export default function EntradasPage() {
               </Button>
             </div>
           </CardContent>
-        </Card>
-      </div>
+          </Card>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>

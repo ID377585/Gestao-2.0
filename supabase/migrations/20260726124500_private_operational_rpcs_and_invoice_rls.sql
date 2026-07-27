@@ -144,26 +144,10 @@ begin
     raise exception 'Só é possível separar etiquetas quando o pedido está em separação.';
   end if;
 
-  if not exists (
-    select 1
-    from public.memberships m
-    where m.establishment_id = v_order.establishment_id
-      and m.user_id = v_user_id
-      and coalesce(m.is_active, true) = true
-      and m.role in ('admin', 'operacao', 'estoque', 'producao')
-  ) and not exists (
-    select 1
-    from public.establishment_memberships em
-    where em.establishment_id = v_order.establishment_id
-      and em.user_id = v_user_id
-      and em.is_active = true
-      and em.role in (
-        'admin'::public.app_role,
-        'operacao'::public.app_role,
-        'estoque'::public.app_role,
-        'producao'::public.app_role
-      )
-  ) then
+  if not (select private.gestify_has_establishment_role(
+    v_order.establishment_id,
+    array['admin','operacao','estoque','producao']::text[]
+  )) then
     raise exception 'Sem permissão para separar etiquetas neste pedido.';
   end if;
 

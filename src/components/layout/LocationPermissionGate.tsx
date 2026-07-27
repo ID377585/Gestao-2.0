@@ -1,15 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Loader2, LocateFixed, MapPin, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Loader2, LocateFixed, MapPin, RefreshCw } from "lucide-react";
 
 import {
   GESTIFY_USER_LOCATION_EVENT,
   GESTIFY_USER_LOCATION_STORAGE_KEY,
+  isValidUserLocation,
   type GestifyUserLocation,
 } from "@/lib/user-location";
 
 type LocationStatus = "checking" | "prompting" | "granted" | "denied" | "unavailable" | "error";
+const LOCATION_MESSAGE =
+  "Por motivos de segurança e proteção aos dados do sistema, ativar a sua localização para poder usar o sistema.";
 
 function getErrorStatus(error: GeolocationPositionError): LocationStatus {
   if (error.code === error.PERMISSION_DENIED) return "denied";
@@ -23,12 +26,8 @@ function getMessage(status: LocationStatus) {
       return "A permissão de localização está bloqueada neste navegador. Libere a localização do site e tente novamente.";
     case "unavailable":
       return "Não foi possível obter a localização atual do dispositivo. Verifique se o serviço de localização está ativo.";
-    case "error":
-      return "A localização demorou para responder. Tente novamente para continuar.";
-    case "prompting":
-      return "Confirme a permissão de localização na janela do navegador para continuar.";
     default:
-      return "Precisamos da sua localização atual para liberar o acesso ao Gestify.";
+      return LOCATION_MESSAGE;
   }
 }
 
@@ -50,11 +49,42 @@ function publishLocation(position: GeolocationPosition) {
   return location;
 }
 
+function readStoredLocation() {
+  try {
+    const raw = window.localStorage.getItem(GESTIFY_USER_LOCATION_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<GestifyUserLocation>;
+    if (!isValidUserLocation(parsed)) return null;
+
+    return {
+      latitude: Number(parsed.latitude),
+      longitude: Number(parsed.longitude),
+      accuracy: Number.isFinite(parsed.accuracy) ? Number(parsed.accuracy) : null,
+      capturedAt:
+        typeof parsed.capturedAt === "string" && parsed.capturedAt
+          ? parsed.capturedAt
+          : new Date().toISOString(),
+    } satisfies GestifyUserLocation;
+  } catch {
+    return null;
+  }
+}
+
 export function LocationPermissionGate() {
   const [status, setStatus] = useState<LocationStatus>("checking");
   const [location, setLocation] = useState<GestifyUserLocation | null>(null);
   const [requesting, setRequesting] = useState(false);
   const watchIdRef = useRef<number | null>(null);
+  const latestLocationRef = useRef<GestifyUserLocation | null>(null);
+  const requestIdRef = useRef(0);
+
+  const acceptLocation = useCallback((nextLocation: GestifyUserLocation) => {
+    latestLocationRef.current = nextLocation;
+    setLocation(nextLocation);
+    setStatus("granted");
+    setRequesting(false);
+  }, []);
 
   const stopWatching = useCallback(() => {
     if (watchIdRef.current !== null && typeof navigator !== "undefined" && navigator.geolocation) {
@@ -70,23 +100,30 @@ export function LocationPermissionGate() {
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        setLocation(publishLocation(position));
-        setStatus("granted");
+        acceptLocation(publishLocation(position));
       },
       (error) => {
         if (error.code === error.PERMISSION_DENIED) {
+          latestLocationRef.current = null;
           setLocation(null);
           setStatus("denied");
+          setRequesting(false);
           stopWatching();
+          return;
+        }
+
+        if (!latestLocationRef.current) {
+          setStatus(getErrorStatus(error));
+          setRequesting(false);
         }
       },
       {
-        enableHighAccuracy: true,
+        enableHighAccuracy: false,
         maximumAge: 60_000,
-        timeout: 20_000,
+        timeout: 45_000,
       },
     );
-  }, [stopWatching]);
+  }, [acceptLocation, stopWatching]);
 
   const requestLocation = useCallback(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -94,29 +131,39 @@ export function LocationPermissionGate() {
       return;
     }
 
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
     setRequesting(true);
-    setStatus("prompting");
+    if (!latestLocationRef.current) setStatus("prompting");
+    startWatching();
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setLocation(publishLocation(position));
-        setStatus("granted");
-        setRequesting(false);
-        startWatching();
+        if (requestId !== requestIdRef.current) return;
+        acceptLocation(publishLocation(position));
       },
       (error) => {
-        setStatus(getErrorStatus(error));
+        if (requestId !== requestIdRef.current) return;
+        if (latestLocationRef.current) {
+          setStatus("granted");
+        } else {
+          setStatus(getErrorStatus(error));
+        }
         setRequesting(false);
       },
       {
-        enableHighAccuracy: true,
+        enableHighAccuracy: false,
         maximumAge: 60_000,
-        timeout: 12_000,
+        timeout: 45_000,
       },
     );
-  }, [startWatching]);
+  }, [acceptLocation, startWatching]);
 
   useEffect(() => {
+    const storedLocation = readStoredLocation();
+    if (storedLocation) acceptLocation(storedLocation);
+
+    startWatching();
     requestLocation();
 
     let permissionStatus: PermissionStatus | null = null;
@@ -128,8 +175,10 @@ export function LocationPermissionGate() {
           permissionStatus = result;
           result.onchange = () => {
             if (result.state === "denied") {
+              latestLocationRef.current = null;
               setLocation(null);
               setStatus("denied");
+              setRequesting(false);
               stopWatching();
               return;
             }
@@ -146,7 +195,7 @@ export function LocationPermissionGate() {
       stopWatching();
       if (permissionStatus) permissionStatus.onchange = null;
     };
-  }, [requestLocation, stopWatching]);
+  }, [acceptLocation, requestLocation, startWatching, stopWatching]);
 
   if (status === "granted" && location) return null;
 
@@ -168,13 +217,6 @@ export function LocationPermissionGate() {
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold">Localização obrigatória</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{message}</p>
-          </div>
-        </div>
-
-        <div className="mt-5 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-          <div className="flex items-start gap-2">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
-            <span>A previsão no topo usa somente a localização atual autorizada neste dispositivo.</span>
           </div>
         </div>
 

@@ -1,6 +1,35 @@
 -- Preparacao SaaS Multiempresa
 -- Base inicial para planos, assinaturas e auditoria global por empresa.
 
+create table if not exists public.memberships (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  establishment_id uuid not null,
+  role text not null default 'admin',
+  is_active boolean not null default true,
+  org_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now()
+);
+
+alter table public.memberships
+  add column if not exists id uuid default gen_random_uuid(),
+  add column if not exists user_id uuid,
+  add column if not exists establishment_id uuid,
+  add column if not exists role text default 'admin',
+  add column if not exists is_active boolean default true,
+  add column if not exists org_id uuid,
+  add column if not exists unit_id uuid,
+  add column if not exists created_at timestamptz default now();
+
+alter table public.memberships
+  alter column role set default 'admin',
+  alter column is_active set default true,
+  alter column created_at set default now();
+
+create unique index if not exists memberships_establishment_user_unique
+  on public.memberships(establishment_id, user_id);
+
 create table if not exists public.subscription_plans (
   id uuid primary key default gen_random_uuid(),
   slug text not null unique,

@@ -284,6 +284,118 @@ alter table public.order_status_events
 create index if not exists order_status_events_order_id_idx
   on public.order_status_events(order_id);
 
+create table if not exists public.order_invoices (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null,
+  status text not null default 'draft',
+  subtotal numeric not null default 0,
+  discount numeric not null default 0,
+  shipping numeric not null default 0,
+  total numeric not null default 0,
+  notes text,
+  created_by uuid,
+  finalized_by uuid,
+  finalized_at timestamptz,
+  created_at timestamptz default now()
+);
+
+alter table public.order_invoices
+  add column if not exists order_id uuid,
+  add column if not exists status text default 'draft',
+  add column if not exists subtotal numeric default 0,
+  add column if not exists discount numeric default 0,
+  add column if not exists shipping numeric default 0,
+  add column if not exists total numeric default 0,
+  add column if not exists notes text,
+  add column if not exists created_by uuid,
+  add column if not exists finalized_by uuid,
+  add column if not exists finalized_at timestamptz,
+  add column if not exists created_at timestamptz default now();
+
+create index if not exists order_invoices_order_id_idx
+  on public.order_invoices(order_id);
+
+create table if not exists public.order_invoice_items (
+  id uuid primary key default gen_random_uuid(),
+  invoice_id uuid not null,
+  product_id uuid not null,
+  description text,
+  quantity numeric not null default 1,
+  unit text,
+  unit_price numeric not null default 0,
+  line_total numeric not null default 0,
+  created_at timestamptz default now()
+);
+
+alter table public.order_invoice_items
+  add column if not exists invoice_id uuid,
+  add column if not exists product_id uuid,
+  add column if not exists description text,
+  add column if not exists quantity numeric default 1,
+  add column if not exists unit text,
+  add column if not exists unit_price numeric default 0,
+  add column if not exists line_total numeric default 0,
+  add column if not exists created_at timestamptz default now();
+
+create index if not exists order_invoice_items_invoice_id_idx
+  on public.order_invoice_items(invoice_id);
+
+create table if not exists public.pre_invoices (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null,
+  separation_session_id uuid,
+  status text not null default 'draft',
+  subtotal numeric not null default 0,
+  discount numeric not null default 0,
+  shipping numeric not null default 0,
+  total numeric not null default 0,
+  notes text,
+  created_by uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.pre_invoices
+  add column if not exists order_id uuid,
+  add column if not exists separation_session_id uuid,
+  add column if not exists status text default 'draft',
+  add column if not exists subtotal numeric default 0,
+  add column if not exists discount numeric default 0,
+  add column if not exists shipping numeric default 0,
+  add column if not exists total numeric default 0,
+  add column if not exists notes text,
+  add column if not exists created_by uuid,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+create index if not exists pre_invoices_order_id_idx
+  on public.pre_invoices(order_id);
+
+create table if not exists public.pre_invoice_items (
+  id uuid primary key default gen_random_uuid(),
+  pre_invoice_id uuid not null,
+  product_id uuid,
+  product_name text not null,
+  qty numeric not null default 1,
+  unit text not null default 'UN',
+  unit_price numeric not null default 0,
+  line_total numeric not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table public.pre_invoice_items
+  add column if not exists pre_invoice_id uuid,
+  add column if not exists product_id uuid,
+  add column if not exists product_name text,
+  add column if not exists qty numeric default 1,
+  add column if not exists unit text default 'UN',
+  add column if not exists unit_price numeric default 0,
+  add column if not exists line_total numeric default 0,
+  add column if not exists created_at timestamptz default now();
+
+create index if not exists pre_invoice_items_pre_invoice_id_idx
+  on public.pre_invoice_items(pre_invoice_id);
+
 create table if not exists public.stock_balances (
   id uuid primary key default gen_random_uuid(),
   establishment_id uuid not null,

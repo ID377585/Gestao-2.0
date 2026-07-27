@@ -1,0 +1,9 @@
+-- Intencionalmente sem DDL.
+--
+-- A protecao contra duplo clique foi aplicada na camada de aplicacao:
+-- - botao de submit fica desabilitado enquanto a action esta pendente;
+-- - action valida duplicidade por empresa + nome + tipo + unidade antes de inserir.
+--
+-- Nao criamos indice unico agora porque o banco de producao ja possui
+-- duplicidades historicas ativas. Aplicar o indice sem uma consolidacao
+-- assistida quebraria a migration em producao.

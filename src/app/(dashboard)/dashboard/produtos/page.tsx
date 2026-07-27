@@ -39,6 +39,7 @@ import {
   PRODUCT_ABC_CURVES,
   normalizeProductAbcCurve,
 } from "@/lib/product-curves";
+import { ProductSubmitButton } from "./ProductSubmitButton";
 
 const UNIT_OPTIONS = ["UN", "KG", "G", "L", "ML"] as const;
 const STORAGE_CATEGORIES = ["Resfriado", "Congelado", "Temp. Ambiente"] as const;
@@ -441,7 +442,10 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button type="submit">Salvar produto</Button>
+                  <ProductSubmitButton
+                    idleLabel="Salvar produto"
+                    pendingLabel="Registrando..."
+                  />
                 </div>
               </form>
             </DialogContent>

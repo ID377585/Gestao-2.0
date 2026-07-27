@@ -9,6 +9,7 @@ import {
 import { assertBillingLimitAvailable } from "@/lib/billing/limits";
 import { assertActiveTenantRole } from "@/lib/tenant/guards";
 import { writeTenantAuditLog } from "@/lib/tenant/audit";
+import { upsertDefaultModulePermissions } from "@/lib/tenant/module-permissions";
 import {
   createTenantInvitationInternalAction,
   type TenantInvitationRole,
@@ -739,6 +740,14 @@ export async function createCollaborator(formData: FormData) {
     is_active: true,
   });
 
+  await upsertDefaultModulePermissions({
+    supabaseAdmin,
+    establishmentId: ctx.establishment_id,
+    userId,
+    role,
+    updatedBy: ctx.userId,
+  });
+
   await writeUserAuditLog({
     supabaseAdmin,
     establishmentId: ctx.establishment_id,
@@ -855,6 +864,16 @@ export async function updateCollaborator(formData: FormData) {
     role,
     is_active,
   });
+
+  if (String(beforeMembership?.role ?? "") !== role) {
+    await upsertDefaultModulePermissions({
+      supabaseAdmin,
+      establishmentId,
+      userId,
+      role,
+      updatedBy: ctx.userId,
+    });
+  }
 
   await writeUserAuditLog({
     supabaseAdmin,

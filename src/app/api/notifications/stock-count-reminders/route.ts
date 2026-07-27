@@ -97,8 +97,8 @@ async function createStockCountReminder() {
 
   const payload = {
     user_id: null,
-    title: "Contagem de Estoque",
-    message: `Hoje é o último dia do mês. Usuários precisam efetuar a contagem de estoque às ${slot.timeLabel}.`,
+    title: "Inventário",
+    message: `Hoje é o último dia do mês. Usuários precisam efetuar o Inventário para fechar o mês.`,
     type: "stock_count_reminder",
     priority: "critical",
     action_url: "/dashboard/inventario",

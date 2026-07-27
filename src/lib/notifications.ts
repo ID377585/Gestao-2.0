@@ -341,29 +341,79 @@ export async function archiveReadNotifications(userId: string) {
   if (error) throw error;
 }
 
+let notificationAudioContext: AudioContext | null = null;
+
+function getNotificationAudioContext() {
+  if (typeof window === "undefined") return null;
+
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) return null;
+
+  if (!notificationAudioContext) {
+    notificationAudioContext = new AudioContextClass();
+  }
+
+  return notificationAudioContext;
+}
+
+export async function primeNotificationSound() {
+  const context = getNotificationAudioContext();
+  if (!context) return false;
+
+  try {
+    if (context.state === "suspended") {
+      await context.resume();
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function playNotificationSound(priority: NotificationPriority = "normal") {
   if (typeof window === "undefined") return;
 
-  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-  if (!AudioContextClass) return;
+  const context = getNotificationAudioContext();
+  if (!context) return;
+
+  const play = () => {
+    const tones =
+      priority === "critical"
+        ? [
+            { frequency: 880, start: 0, duration: 0.13, gain: 0.075, type: "square" as OscillatorType },
+            { frequency: 660, start: 0.16, duration: 0.16, gain: 0.06, type: "square" as OscillatorType },
+          ]
+        : [
+            { frequency: priority === "high" ? 740 : 620, start: 0, duration: 0.16, gain: 0.045, type: "sine" as OscillatorType },
+          ];
+
+    tones.forEach((tone) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const startAt = context.currentTime + tone.start;
+      const stopAt = startAt + tone.duration;
+
+      oscillator.type = tone.type;
+      oscillator.frequency.value = tone.frequency;
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(tone.gain, startAt + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, stopAt);
+
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(startAt);
+      oscillator.stop(stopAt + 0.02);
+    });
+  };
 
   try {
-    const context = new AudioContextClass();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
+    if (context.state === "suspended") {
+      void context.resume().then(play).catch(() => undefined);
+      return;
+    }
 
-    oscillator.type = priority === "critical" ? "square" : "sine";
-    oscillator.frequency.value = priority === "critical" ? 880 : 660;
-    gain.gain.value = priority === "critical" ? 0.08 : 0.045;
-
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.16);
-
-    oscillator.onended = () => {
-      void context.close();
-    };
+    play();
   } catch {
     // Browsers can block audio until the user interacts with the page.
   }

@@ -1024,12 +1024,16 @@ export async function recordTimeClockEvent(
     events,
     nextEventType,
   });
-  const shiftPayload = shift?.id ? { shift_id: shift.id } : {};
+
+  if (!shift?.id) {
+    throw new Error("Não foi possível abrir a jornada do ponto.");
+  }
+
   const supabaseAdmin = getSupabaseAdminClient();
   const baseEventPayload = {
     establishment_id: tenant.establishmentId,
     user_id: targetUserId,
-    ...shiftPayload,
+    shift_id: shift.id,
     work_date: activeWorkDate,
     event_type: nextEventType,
     source: "web",

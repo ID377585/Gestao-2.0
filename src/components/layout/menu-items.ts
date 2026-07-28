@@ -19,6 +19,7 @@ import {
   Timer,
   Truck,
   Users,
+  UserRoundCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -29,6 +30,7 @@ export type MenuSectionKey =
   | "compras"
   | "fiscal"
   | "financeiro"
+  | "rh"
   | "administracao";
 
 export type MenuSubItem = {
@@ -378,6 +380,23 @@ export const menuSections: MenuSectionConfig[] = [
         label: "Controladoria",
         href: "/dashboard/controladoria",
         icon: BadgeDollarSign,
+      },
+    ],
+  },
+  {
+    key: "rh",
+    label: "RH",
+    icon: UserRoundCheck,
+    items: [
+      {
+        label: "Dashboard RH",
+        href: "/dashboard/rh",
+        icon: BarChart3,
+      },
+      {
+        label: "Ponto Digital",
+        href: "/dashboard/rh/ponto-digital",
+        icon: Timer,
       },
     ],
   },

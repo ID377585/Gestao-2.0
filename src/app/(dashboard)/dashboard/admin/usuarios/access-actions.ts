@@ -67,18 +67,22 @@ export function getDefaultModulesForRole(role: ProfileRole): UserModulePermissio
   if (role === "operacao" || role === "producao") {
     permissions.operacao = true;
     permissions.engenharia = true;
+    permissions.rh = true;
   }
 
   if (role === "estoque") {
     permissions.estoque = true;
+    permissions.rh = true;
   }
 
   if (role === "fiscal") {
     permissions.fiscal = true;
+    permissions.rh = true;
   }
 
   if (role === "entrega") {
     permissions.operacao = true;
+    permissions.rh = true;
   }
 
   return permissions;

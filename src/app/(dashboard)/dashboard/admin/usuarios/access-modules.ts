@@ -5,6 +5,7 @@ export type AccessModuleKey =
   | "compras"
   | "fiscal"
   | "financeiro"
+  | "rh"
   | "administracao";
 
 export type AccessModule = {
@@ -43,6 +44,11 @@ export const ACCESS_MODULES: AccessModule[] = [
     key: "financeiro",
     label: "Financeiro",
     description: "DRE, contas, fluxo de caixa, bancos, conciliação e relatórios.",
+  },
+  {
+    key: "rh",
+    label: "RH",
+    description: "Dashboard de pessoas, ponto digital e banco de horas.",
   },
   {
     key: "administracao",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, HelpCircle, LogOut, RefreshCw, Settings, User as UserIcon } from "lucide-react";
+import { Bell, HelpCircle, LogOut, Music, RefreshCw, Settings, User as UserIcon } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -22,6 +22,7 @@ import type { MenuSectionKey } from "@/components/layout/menu-items";
 import { TenantSummary } from "@/components/tenant/TenantSummary";
 import { CurrentDateWeather } from "@/components/layout/CurrentDateWeather";
 import { LocationPermissionGate } from "@/components/layout/LocationPermissionGate";
+import { openUserMusicPlayer } from "@/components/layout/MusicPlayerHost";
 import {
   SubscriptionStatusBadge,
   type SubscriptionStatusBadgeData,
@@ -519,6 +520,13 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
                 <DropdownMenuItem className="cursor-pointer" onClick={() => openAfterDropdownClose(() => setShowAjuda(true))}>
                   <HelpCircle className="mr-2 h-4 w-4" />
                   Ajuda
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={() => openAfterDropdownClose(openUserMusicPlayer)}
+                >
+                  <Music className="mr-2 h-4 w-4" />
+                  Música
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="cursor-pointer text-red-600 focus:text-red-600" onClick={handleLogout}>

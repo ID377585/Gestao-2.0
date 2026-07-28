@@ -22,6 +22,8 @@ const labelsMap: Record<string, string> = {
   financeiro: "Financeiro",
   dre: "DRE",
   controladoria: "Controladoria",
+  rh: "RH",
+  "ponto-digital": "Ponto Digital",
   admin: "Administração",
   usuarios: "Usuários",
 };

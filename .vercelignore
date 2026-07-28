@@ -2,3 +2,9 @@ Gestao-2.0
 .next
 node_modules
 tsconfig.tsbuildinfo
+.env
+.env.*
+.mcp.json
+.tokensave
+.tokensave/
+CLAUDE.md

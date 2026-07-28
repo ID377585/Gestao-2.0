@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { TimeClockClient } from "./TimeClockClient";
 import { getTimeClockDashboardData } from "@/lib/hr/time-clock.server";
+import { prepareTimeClockDashboardForClient } from "@/lib/hr/time-clock-view";
 import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
 import { assertTenantCanAccessModule } from "@/lib/tenant/module-access";
 
@@ -16,7 +17,9 @@ export default async function DigitalTimeClockPage() {
   }
 
   await assertTenantCanAccessModule(tenant, "rh");
-  const initialData = await getTimeClockDashboardData();
+  const initialData = prepareTimeClockDashboardForClient(
+    await getTimeClockDashboardData()
+  );
 
   return <TimeClockClient initialData={initialData} />;
 }

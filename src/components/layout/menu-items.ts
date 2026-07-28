@@ -29,6 +29,7 @@ export type MenuSectionKey =
   | "compras"
   | "fiscal"
   | "financeiro"
+  | "rh"
   | "administracao";
 
 export type MenuSubItem = {
@@ -378,6 +379,18 @@ export const menuSections: MenuSectionConfig[] = [
         label: "Controladoria",
         href: "/dashboard/controladoria",
         icon: BadgeDollarSign,
+      },
+    ],
+  },
+  {
+    key: "rh",
+    label: "RH",
+    icon: Timer,
+    items: [
+      {
+        label: "Ponto Digital",
+        href: "/dashboard/rh/ponto-digital",
+        icon: Timer,
       },
     ],
   },

@@ -13,6 +13,7 @@ import type {
   TimeClockEventType,
   TimeClockSettingsInput,
 } from "@/lib/hr/time-clock-types";
+import { prepareTimeClockDashboardForClient } from "@/lib/hr/time-clock-view";
 
 function eventSuccessMessage(eventType: TimeClockEventType) {
   switch (eventType) {
@@ -40,7 +41,9 @@ export async function refreshTimeClockAction(): Promise<
   try {
     return {
       ok: true,
-      data: await getTimeClockDashboardData(),
+      data: prepareTimeClockDashboardForClient(
+        await getTimeClockDashboardData()
+      ),
     };
   } catch (error) {
     console.error("[refreshTimeClockAction] erro:", error);
@@ -55,7 +58,7 @@ export async function registerNextTimeClockEventAction(): Promise<TimeClockActio
 
     return {
       ok: true,
-      data: result.data,
+      data: prepareTimeClockDashboardForClient(result.data),
       message: eventSuccessMessage(result.eventType),
     };
   } catch (error) {
@@ -73,7 +76,7 @@ export async function saveTimeClockSettingsAction(
 
     return {
       ok: true,
-      data,
+      data: prepareTimeClockDashboardForClient(data),
       message: "Configurações de jornada salvas.",
     };
   } catch (error) {

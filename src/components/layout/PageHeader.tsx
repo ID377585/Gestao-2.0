@@ -35,6 +35,8 @@ const titles: Record<string, string> = {
   "/dashboard/transferencias": "Transferências",
   "/dashboard/compras": "Hub de Dados",
   "/dashboard/controladoria": "Controladoria",
+  "/dashboard/rh": "RH",
+  "/dashboard/rh/ponto-digital": "Ponto Digital",
   "/dashboard/admin/usuarios": "Usuários",
 };
 

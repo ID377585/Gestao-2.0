@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { CookieBanner } from "@/components/legal/CookieBanner";
+import { MusicPlayerHost } from "@/components/layout/MusicPlayerHost";
 import { PrecoVendaMedioEnhancer } from "@/components/PrecoVendaMedioEnhancer";
 import { PrecoVendaMedioPersistentExtras } from "@/components/PrecoVendaMedioPersistentExtras";
 import { SITE_URL } from "@/lib/legal-content";
@@ -39,6 +40,7 @@ export default function RootLayout({
         <Providers>
           <PrecoVendaMedioEnhancer />
           <PrecoVendaMedioPersistentExtras />
+          <MusicPlayerHost />
           <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100">
             {children}
             <CookieBanner />

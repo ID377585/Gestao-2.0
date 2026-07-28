@@ -19,9 +19,9 @@ type MusicStationRow = {
 };
 
 type MusicSettingsRow = {
-  enabled: boolean;
+  enabled?: boolean;
   autoplay?: boolean | null;
-  default_volume: number | string | null;
+  default_volume?: number | string | null;
   default_station_id?: string | null;
   source_type?: string | null;
   external_url?: string | null;
@@ -31,6 +31,19 @@ type MusicSettingsRow = {
   stream_url?: string | null;
   logo_url?: string | null;
   genre?: string | null;
+};
+
+type NormalizedMusicStation = {
+  id: string;
+  name: string;
+  streamUrl: string;
+  sourceType: "stream" | "youtube";
+  externalUrl: string | null;
+  youtubeVideoId: string | null;
+  youtubePlaylistId: string | null;
+  logoUrl: string | null;
+  genre: string | null;
+  country: string | null;
 };
 
 type StationSource = {
@@ -217,7 +230,7 @@ function clampDefaultVolume(value: unknown) {
 function stationFromLegacySettings(
   settings: MusicSettingsRow | null,
   establishmentId: string
-) {
+): NormalizedMusicStation | null {
   const streamUrl = String(settings?.stream_url ?? "").trim();
 
   if (!streamUrl) return null;
@@ -240,9 +253,9 @@ function stationFromLegacySettings(
   };
 }
 
-function dedupeStations(stations: ReturnType<typeof stationFromLegacySettings>[]) {
+function dedupeStations(stations: Array<NormalizedMusicStation | null>) {
   const seen = new Set<string>();
-  const result: NonNullable<ReturnType<typeof stationFromLegacySettings>>[] = [];
+  const result: NormalizedMusicStation[] = [];
 
   for (const station of stations) {
     if (!station) continue;
@@ -353,7 +366,7 @@ export async function GET() {
     stations = (stationsResult.data ?? []) as MusicStationRow[];
   }
 
-  const safeStations = stations.map((station) => ({
+  const safeStations: NormalizedMusicStation[] = stations.map((station) => ({
     id: station.id,
     name: station.name,
     streamUrl: station.stream_url,

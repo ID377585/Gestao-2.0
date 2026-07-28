@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type SyntheticEvent,
 } from "react";
 import {
   Loader2,
@@ -76,20 +77,20 @@ const DEFAULT_SETTINGS: MusicPlayerSettings = {
   canManage: false,
 };
 
+const RECONNECT_DELAYS_MS = [2_000, 4_000, 8_000, 15_000, 30_000];
 const MusicPlayerContext = createContext<MusicPlayerContextValue | null>(null);
 
-function volumeStorageKey(establishmentId: string) {
-  return `gestify:music-player:volume:${establishmentId}`;
-}
-
-function mutedStorageKey(establishmentId: string) {
-  return `gestify:music-player:muted:${establishmentId}`;
+function storageKey(establishmentId: string, key: "volume" | "muted") {
+  return `gestify:music-player:${key}:${establishmentId}`;
 }
 
 function readStoredVolume(establishmentId: string, fallback: number) {
   if (typeof window === "undefined") return fallback;
 
-  const parsed = Number(window.localStorage.getItem(volumeStorageKey(establishmentId)));
+  const parsed = Number(
+    window.localStorage.getItem(storageKey(establishmentId, "volume"))
+  );
+
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1
     ? parsed
     : fallback;
@@ -97,7 +98,10 @@ function readStoredVolume(establishmentId: string, fallback: number) {
 
 function readStoredMuted(establishmentId: string) {
   if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(mutedStorageKey(establishmentId)) === "true";
+  return (
+    window.localStorage.getItem(storageKey(establishmentId, "muted")) ===
+    "true"
+  );
 }
 
 function statusLabel(status: PlayerStatus) {
@@ -121,6 +125,24 @@ function statusLabel(status: PlayerStatus) {
   }
 }
 
+function normalizePlayerSettings(value: Partial<MusicPlayerSettings>) {
+  const volume = Number(value.defaultVolume);
+
+  return {
+    enabled: value.enabled === true,
+    stationName:
+      String(value.stationName ?? "").trim() || DEFAULT_SETTINGS.stationName,
+    streamUrl: value.streamUrl ? String(value.streamUrl) : null,
+    logoUrl: value.logoUrl ? String(value.logoUrl) : null,
+    genre: value.genre ? String(value.genre) : null,
+    defaultVolume:
+      Number.isFinite(volume) && volume >= 0 && volume <= 1
+        ? volume
+        : DEFAULT_SETTINGS.defaultVolume,
+    canManage: value.canManage === true,
+  } satisfies MusicPlayerSettings;
+}
+
 export function MusicPlayerProvider({
   establishmentId,
   children,
@@ -132,8 +154,11 @@ export function MusicPlayerProvider({
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const requestedPlayingRef = useRef(false);
+  const settingsRef = useRef<MusicPlayerSettings>(DEFAULT_SETTINGS);
+  const volumeRef = useRef(DEFAULT_SETTINGS.defaultVolume);
+  const mutedRef = useRef(false);
 
-  const [settings, setSettings] = useState<MusicPlayerSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<PlayerStatus>("idle");
@@ -142,31 +167,44 @@ export function MusicPlayerProvider({
   const [volume, setVolume] = useState(DEFAULT_SETTINGS.defaultVolume);
   const [muted, setMuted] = useState(false);
 
-  const clearReconnectTimer = useCallback(() => {
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
-    }
+  const updateSettingsState = useCallback((next: MusicPlayerSettings) => {
+    settingsRef.current = next;
+    setSettings(next);
   }, []);
 
-  const pausePlayback = useCallback(() => {
-    requestedPlayingRef.current = false;
-    reconnectAttemptRef.current = 0;
-    clearReconnectTimer();
+  const clearReconnectTimer = useCallback(() => {
+    if (!reconnectTimerRef.current) return;
+    clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = null;
+  }, []);
 
+  const stopPlayback = useCallback(
+    (nextStatus?: PlayerStatus) => {
+      requestedPlayingRef.current = false;
+      reconnectAttemptRef.current = 0;
+      clearReconnectTimer();
+
+      const audio = audioRef.current;
+      if (audio && !audio.paused) audio.pause();
+
+      setIsPlaying(false);
+      setStatus(
+        nextStatus ??
+          (settingsRef.current.enabled && settingsRef.current.streamUrl
+            ? "paused"
+            : "disabled")
+      );
+    },
+    [clearReconnectTimer]
+  );
+
+  const playCurrentStream = useCallback(async () => {
     const audio = audioRef.current;
-    if (audio && !audio.paused) audio.pause();
+    const currentSettings = settingsRef.current;
 
-    setIsPlaying(false);
-    setStatus(settings.enabled ? "paused" : "disabled");
-  }, [clearReconnectTimer, settings.enabled]);
-
-  const startPlayback = useCallback(async () => {
-    const audio = audioRef.current;
-
-    if (!audio || !settings.enabled || !settings.streamUrl) {
+    if (!audio || !currentSettings.enabled || !currentSettings.streamUrl) {
       setError("A rádio ainda não foi configurada para esta empresa.");
-      setStatus(settings.enabled ? "error" : "disabled");
+      setStatus(currentSettings.enabled ? "error" : "disabled");
       return;
     }
 
@@ -175,123 +213,150 @@ export function MusicPlayerProvider({
     setError(null);
     setStatus("connecting");
 
-    if (audio.src !== settings.streamUrl) {
-      audio.src = settings.streamUrl;
+    if (audio.getAttribute("src") !== currentSettings.streamUrl) {
+      audio.src = currentSettings.streamUrl;
     }
 
-    audio.volume = volume;
-    audio.muted = muted;
+    audio.volume = volumeRef.current;
+    audio.muted = mutedRef.current;
 
     try {
       await audio.play();
       reconnectAttemptRef.current = 0;
-    } catch (playError: any) {
+    } catch (playError) {
+      const errorName =
+        playError instanceof DOMException ? playError.name : "UnknownError";
+
       requestedPlayingRef.current = false;
       setIsPlaying(false);
       setStatus("error");
       setError(
-        playError?.name === "NotAllowedError"
+        errorName === "NotAllowedError"
           ? "Toque novamente em reproduzir para liberar o áudio neste navegador."
           : "Não foi possível iniciar a transmissão. Verifique a URL da rádio."
       );
     }
-  }, [clearReconnectTimer, muted, settings, volume]);
+  }, [clearReconnectTimer]);
 
   const scheduleReconnect = useCallback(() => {
+    const currentSettings = settingsRef.current;
+
     if (
       !requestedPlayingRef.current ||
-      !settings.enabled ||
-      !settings.streamUrl
+      !currentSettings.enabled ||
+      !currentSettings.streamUrl
     ) {
       return;
     }
 
     clearReconnectTimer();
-    reconnectAttemptRef.current = Math.min(reconnectAttemptRef.current + 1, 5);
-    const delays = [2000, 4000, 8000, 15000, 30000];
-    const delay = delays[reconnectAttemptRef.current - 1] ?? 30000;
+    reconnectAttemptRef.current = Math.min(
+      reconnectAttemptRef.current + 1,
+      RECONNECT_DELAYS_MS.length
+    );
+
+    const delay =
+      RECONNECT_DELAYS_MS[reconnectAttemptRef.current - 1] ??
+      RECONNECT_DELAYS_MS.at(-1) ??
+      30_000;
 
     setIsPlaying(false);
     setStatus("buffering");
     setError("A conexão caiu. Tentando reconectar automaticamente.");
 
     reconnectTimerRef.current = setTimeout(() => {
+      if (!requestedPlayingRef.current) return;
       const audio = audioRef.current;
-      if (!audio || !requestedPlayingRef.current) return;
+      if (!audio) return;
 
       audio.load();
-      void audio.play().catch(() => {
-        scheduleReconnect();
-      });
+      void audio.play().catch(() => scheduleReconnect());
     }, delay);
-  }, [clearReconnectTimer, settings.enabled, settings.streamUrl]);
-
-  const loadSettings = useCallback(async () => {
-    if (!establishmentId) {
-      pausePlayback();
-      setSettings(DEFAULT_SETTINGS);
-      setLoading(false);
-      setStatus("idle");
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch("/api/music-player/settings", {
-        method: "GET",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const payload = (await response.json().catch(() => ({}))) as
-        | MusicPlayerSettings
-        | { error?: string };
-
-      if (!response.ok) {
-        throw new Error(
-          "error" in payload && payload.error
-            ? payload.error
-            : "Não foi possível carregar a rádio."
-        );
-      }
-
-      const nextSettings = payload as MusicPlayerSettings;
-      const nextVolume = readStoredVolume(
-        establishmentId,
-        nextSettings.defaultVolume
-      );
-      const nextMuted = readStoredMuted(establishmentId);
-
-      pausePlayback();
-      setSettings(nextSettings);
-      setVolume(nextVolume);
-      setMuted(nextMuted);
-      setStatus(
-        nextSettings.enabled && nextSettings.streamUrl ? "ready" : "disabled"
-      );
-
-      const audio = audioRef.current;
-      if (audio) {
-        audio.removeAttribute("src");
-        audio.load();
-        audio.volume = nextVolume;
-        audio.muted = nextMuted;
-      }
-    } catch (loadError: any) {
-      console.error("Erro ao carregar o player de música:", loadError);
-      setSettings(DEFAULT_SETTINGS);
-      setStatus("error");
-      setError(loadError?.message ?? "Não foi possível carregar a rádio.");
-    } finally {
-      setLoading(false);
-    }
-  }, [establishmentId, pausePlayback]);
+  }, [clearReconnectTimer]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadSettings() {
+      stopPlayback("idle");
+
+      if (!establishmentId) {
+        updateSettingsState(DEFAULT_SETTINGS);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setStatus("loading");
+        setError(null);
+
+        const response = await fetch("/api/music-player/settings", {
+          method: "GET",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        const payload = (await response.json().catch(() => ({}))) as
+          | Partial<MusicPlayerSettings>
+          | { error?: string };
+
+        if (!response.ok) {
+          throw new Error(
+            "error" in payload && payload.error
+              ? payload.error
+              : "Não foi possível carregar a rádio."
+          );
+        }
+
+        if (cancelled) return;
+
+        const nextSettings = normalizePlayerSettings(payload);
+        const nextVolume = readStoredVolume(
+          establishmentId,
+          nextSettings.defaultVolume
+        );
+        const nextMuted = readStoredMuted(establishmentId);
+
+        updateSettingsState(nextSettings);
+        volumeRef.current = nextVolume;
+        mutedRef.current = nextMuted;
+        setVolume(nextVolume);
+        setMuted(nextMuted);
+        setStatus(
+          nextSettings.enabled && nextSettings.streamUrl ? "ready" : "disabled"
+        );
+
+        const audio = audioRef.current;
+        if (audio) {
+          audio.removeAttribute("src");
+          audio.load();
+          audio.volume = nextVolume;
+          audio.muted = nextMuted;
+        }
+      } catch (loadError) {
+        if (cancelled) return;
+
+        const message =
+          loadError instanceof Error
+            ? loadError.message
+            : "Não foi possível carregar a rádio.";
+
+        console.error("Erro ao carregar o player de música:", loadError);
+        updateSettingsState(DEFAULT_SETTINGS);
+        setStatus("error");
+        setError(message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
     void loadSettings();
-  }, [loadSettings]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [establishmentId, stopPlayback, updateSettingsState]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -306,31 +371,33 @@ export function MusicPlayerProvider({
     const onPause = () => {
       setIsPlaying(false);
       if (!requestedPlayingRef.current) {
-        setStatus(settings.enabled ? "paused" : "disabled");
+        setStatus(
+          settingsRef.current.enabled && settingsRef.current.streamUrl
+            ? "paused"
+            : "disabled"
+        );
       }
     };
     const onWaiting = () => {
       if (requestedPlayingRef.current) setStatus("buffering");
     };
-    const onError = () => scheduleReconnect();
-    const onEnded = () => scheduleReconnect();
 
     audio.addEventListener("playing", onPlaying);
     audio.addEventListener("pause", onPause);
     audio.addEventListener("waiting", onWaiting);
     audio.addEventListener("stalled", onWaiting);
-    audio.addEventListener("error", onError);
-    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("error", scheduleReconnect);
+    audio.addEventListener("ended", scheduleReconnect);
 
     return () => {
       audio.removeEventListener("playing", onPlaying);
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("waiting", onWaiting);
       audio.removeEventListener("stalled", onWaiting);
-      audio.removeEventListener("error", onError);
-      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("error", scheduleReconnect);
+      audio.removeEventListener("ended", scheduleReconnect);
     };
-  }, [scheduleReconnect, settings.enabled]);
+  }, [scheduleReconnect]);
 
   useEffect(() => {
     if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
@@ -347,11 +414,11 @@ export function MusicPlayerProvider({
           : undefined,
       });
       navigator.mediaSession.setActionHandler("play", () => {
-        void startPlayback();
+        void playCurrentStream();
       });
-      navigator.mediaSession.setActionHandler("pause", pausePlayback);
+      navigator.mediaSession.setActionHandler("pause", () => stopPlayback());
     } catch {
-      // Alguns navegadores expõem Media Session parcialmente.
+      // Alguns navegadores expõem Media Session apenas parcialmente.
     }
 
     return () => {
@@ -362,7 +429,7 @@ export function MusicPlayerProvider({
         // Sem ação necessária.
       }
     };
-  }, [pausePlayback, settings.genre, settings.logoUrl, settings.stationName, startPlayback]);
+  }, [playCurrentStream, settings, stopPlayback]);
 
   useEffect(() => {
     return () => {
@@ -374,37 +441,40 @@ export function MusicPlayerProvider({
 
   const togglePlayback = useCallback(async () => {
     if (isPlaying || requestedPlayingRef.current) {
-      pausePlayback();
+      stopPlayback();
       return;
     }
 
-    await startPlayback();
-  }, [isPlaying, pausePlayback, startPlayback]);
+    await playCurrentStream();
+  }, [isPlaying, playCurrentStream, stopPlayback]);
 
   const reconnect = useCallback(async () => {
     const audio = audioRef.current;
+
+    requestedPlayingRef.current = false;
+    reconnectAttemptRef.current = 0;
+    clearReconnectTimer();
+
     if (audio) {
       audio.pause();
       audio.removeAttribute("src");
       audio.load();
     }
 
-    reconnectAttemptRef.current = 0;
-    requestedPlayingRef.current = false;
-    await startPlayback();
-  }, [startPlayback]);
+    await playCurrentStream();
+  }, [clearReconnectTimer, playCurrentStream]);
 
   const changeVolume = useCallback(
     (nextValue: number) => {
       const normalized = Math.min(Math.max(nextValue, 0), 1);
+      volumeRef.current = normalized;
       setVolume(normalized);
 
-      const audio = audioRef.current;
-      if (audio) audio.volume = normalized;
+      if (audioRef.current) audioRef.current.volume = normalized;
 
       if (establishmentId && typeof window !== "undefined") {
         window.localStorage.setItem(
-          volumeStorageKey(establishmentId),
+          storageKey(establishmentId, "volume"),
           String(normalized)
         );
       }
@@ -413,19 +483,19 @@ export function MusicPlayerProvider({
   );
 
   const toggleMuted = useCallback(() => {
-    const nextMuted = !muted;
+    const nextMuted = !mutedRef.current;
+    mutedRef.current = nextMuted;
     setMuted(nextMuted);
 
-    const audio = audioRef.current;
-    if (audio) audio.muted = nextMuted;
+    if (audioRef.current) audioRef.current.muted = nextMuted;
 
     if (establishmentId && typeof window !== "undefined") {
       window.localStorage.setItem(
-        mutedStorageKey(establishmentId),
+        storageKey(establishmentId, "muted"),
         String(nextMuted)
       );
     }
-  }, [establishmentId, muted]);
+  }, [establishmentId]);
 
   const saveSettings = useCallback(
     async (draft: MusicPlayerDraft) => {
@@ -440,7 +510,7 @@ export function MusicPlayerProvider({
         });
 
         const payload = (await response.json().catch(() => ({}))) as
-          | MusicPlayerSettings
+          | Partial<MusicPlayerSettings>
           | { error?: string };
 
         if (!response.ok) {
@@ -451,9 +521,9 @@ export function MusicPlayerProvider({
           );
         }
 
-        pausePlayback();
-        const nextSettings = payload as MusicPlayerSettings;
-        setSettings(nextSettings);
+        stopPlayback();
+        const nextSettings = normalizePlayerSettings(payload);
+        updateSettingsState(nextSettings);
         setStatus(
           nextSettings.enabled && nextSettings.streamUrl ? "ready" : "disabled"
         );
@@ -463,17 +533,23 @@ export function MusicPlayerProvider({
             establishmentId,
             nextSettings.defaultVolume
           );
+          volumeRef.current = nextVolume;
           setVolume(nextVolume);
         }
-      } catch (saveError: any) {
+      } catch (saveError) {
+        const message =
+          saveError instanceof Error
+            ? saveError.message
+            : "Não foi possível salvar a rádio.";
+
         console.error("Erro ao salvar a rádio:", saveError);
-        setError(saveError?.message ?? "Não foi possível salvar a rádio.");
+        setError(message);
         throw saveError;
       } finally {
         setSaving(false);
       }
     },
-    [establishmentId, pausePlayback]
+    [establishmentId, stopPlayback, updateSettingsState]
   );
 
   const contextValue = useMemo<MusicPlayerContextValue>(
@@ -527,31 +603,30 @@ function useMusicPlayer() {
   return context;
 }
 
+function createDraft(settings: MusicPlayerSettings): MusicPlayerDraft {
+  return {
+    enabled: settings.enabled,
+    stationName: settings.stationName,
+    streamUrl: settings.streamUrl,
+    logoUrl: settings.logoUrl,
+    genre: settings.genre,
+    defaultVolume: settings.defaultVolume,
+  };
+}
+
 export function UserMusicPlayerMenu() {
   const player = useMusicPlayer();
   const [showConfiguration, setShowConfiguration] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
-  const [draft, setDraft] = useState<MusicPlayerDraft>({
-    enabled: player.settings.enabled,
-    stationName: player.settings.stationName,
-    streamUrl: player.settings.streamUrl,
-    logoUrl: player.settings.logoUrl,
-    genre: player.settings.genre,
-    defaultVolume: player.settings.defaultVolume,
-  });
+  const [draft, setDraft] = useState<MusicPlayerDraft>(() =>
+    createDraft(player.settings)
+  );
 
   useEffect(() => {
-    setDraft({
-      enabled: player.settings.enabled,
-      stationName: player.settings.stationName,
-      streamUrl: player.settings.streamUrl,
-      logoUrl: player.settings.logoUrl,
-      genre: player.settings.genre,
-      defaultVolume: player.settings.defaultVolume,
-    });
+    setDraft(createDraft(player.settings));
   }, [player.settings]);
 
-  const preventMenuClose = (event: React.SyntheticEvent) => {
+  const preventMenuClose = (event: SyntheticEvent) => {
     event.stopPropagation();
   };
 
@@ -563,7 +638,7 @@ export function UserMusicPlayerMenu() {
       setSavedMessage("Configuração salva.");
       setShowConfiguration(false);
     } catch {
-      // O erro já aparece no painel.
+      // O erro já é exibido no painel.
     }
   };
 
@@ -585,16 +660,23 @@ export function UserMusicPlayerMenu() {
     >
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-slate-700 dark:bg-slate-800/70">
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white shadow-sm dark:bg-slate-900">
-            {player.settings.logoUrl ? (
-              <img
-                src={player.settings.logoUrl}
-                alt={player.settings.stationName}
-                className="h-full w-full object-cover"
-              />
-            ) : (
+          <div
+            className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white bg-cover bg-center shadow-sm dark:bg-slate-900"
+            style={
+              player.settings.logoUrl
+                ? { backgroundImage: `url(${player.settings.logoUrl})` }
+                : undefined
+            }
+            role={player.settings.logoUrl ? "img" : undefined}
+            aria-label={
+              player.settings.logoUrl
+                ? `Logotipo da ${player.settings.stationName}`
+                : undefined
+            }
+          >
+            {!player.settings.logoUrl ? (
               <Music2 className="h-5 w-5 text-blue-600 dark:text-blue-300" />
-            )}
+            ) : null}
           </div>
 
           <div className="min-w-0 flex-1">

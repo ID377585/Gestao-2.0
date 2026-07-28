@@ -18,6 +18,10 @@ import { ProfileModal } from "@/components/modals/ProfileModal";
 import { SettingsModal } from "@/components/modals/SettingsModal";
 import { HelpModal } from "@/components/modals/HelpModal";
 import { Sidebar } from "@/components/layout/Sidebar";
+import {
+  MusicPlayerProvider,
+  UserMusicPlayerMenu,
+} from "@/components/layout/UserMusicPlayer";
 import type { MenuSectionKey } from "@/components/layout/menu-items";
 import { TenantSummary } from "@/components/tenant/TenantSummary";
 import { CurrentDateWeather } from "@/components/layout/CurrentDateWeather";
@@ -364,7 +368,7 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
   const profileUser = user ?? FALLBACK_USER;
 
   return (
-    <>
+    <MusicPlayerProvider establishmentId={user?.establishmentId}>
       <LocationPermissionGate />
 
       <header className={`border-b border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-950 ${className ?? ""}`}>
@@ -497,7 +501,7 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
                   </Avatar>
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className={`w-64 ${dropdownBaseClasses}`}>
+              <DropdownMenuContent align="end" className={`w-[calc(100vw-1rem)] max-w-sm sm:w-96 ${dropdownBaseClasses}`}>
                 <DropdownMenuLabel>
                   <div className="flex flex-col">
                     <span className="line-clamp-1 text-sm font-semibold">{user?.name ?? "Usuário"}</span>
@@ -520,6 +524,8 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
                   <HelpCircle className="mr-2 h-4 w-4" />
                   Ajuda
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <UserMusicPlayerMenu />
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="cursor-pointer text-red-600 focus:text-red-600" onClick={handleLogout}>
                   <LogOut className="mr-2 h-4 w-4" />
@@ -547,6 +553,6 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
         onArchive={handleArchiveNotification}
         onArchiveRead={handleArchiveReadNotifications}
       />
-    </>
+    </MusicPlayerProvider>
   );
 }

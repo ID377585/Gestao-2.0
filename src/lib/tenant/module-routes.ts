@@ -5,6 +5,7 @@ export type TenantAccessModuleKey =
   | "compras"
   | "fiscal"
   | "financeiro"
+  | "rh"
   | "administracao";
 
 export const TENANT_ACCESS_MODULE_KEYS: TenantAccessModuleKey[] = [
@@ -14,6 +15,7 @@ export const TENANT_ACCESS_MODULE_KEYS: TenantAccessModuleKey[] = [
   "compras",
   "fiscal",
   "financeiro",
+  "rh",
   "administracao",
 ];
 
@@ -39,15 +41,19 @@ export function getDefaultModulePermissionsForRole(
     case "producao":
       permissions.operacao = true;
       permissions.engenharia = true;
+      permissions.rh = true;
       break;
     case "estoque":
       permissions.estoque = true;
+      permissions.rh = true;
       break;
     case "fiscal":
       permissions.fiscal = true;
+      permissions.rh = true;
       break;
     case "entrega":
       permissions.operacao = true;
+      permissions.rh = true;
       break;
   }
 
@@ -66,6 +72,7 @@ export function getModuleKeyForPathname(
   const path = pathname.split("?")[0] || "/";
 
   if (matchesAny(path, ["/dashboard/admin"])) return "administracao";
+  if (matchesAny(path, ["/dashboard/rh"])) return "rh";
   if (matchesAny(path, ["/dashboard/fiscal"])) return "fiscal";
   if (matchesAny(path, ["/compras", "/dashboard/compras"])) return "compras";
   if (matchesAny(path, ["/financeiro", "/dashboard/controladoria"])) {

@@ -9,7 +9,7 @@ const footerLinks = [
   { label: "Solucoes", href: "/solucoes" },
   { label: "Conteudos", href: "/conteudos" },
   { label: "Demonstracao", href: "/demonstracao" },
-  { label: "Suporte", href: "mailto:suporte@gestify.app" },
+  { label: "Suporte", href: "mailto:id377585@gmail.com" },
 ];
 
 export function PublicFooter() {

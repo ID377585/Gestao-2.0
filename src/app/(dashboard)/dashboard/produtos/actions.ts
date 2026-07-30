@@ -18,6 +18,7 @@ import {
   normalizeProductAbcCurve,
 } from "@/lib/product-curves";
 import { assertBillingLimitAvailable } from "@/lib/billing/limits";
+import { ensureProductStockBalance } from "@/lib/stock/product-stock-sync";
 
 export type ProductType = "INSU" | "PREP" | "PROD";
 
@@ -43,185 +44,20 @@ function normalizeUnit(value: FormDataEntryValue | null): string | null {
   return (ALLOWED as readonly string[]).includes(v) ? v : null;
 }
 
-function normalizeStockUnit(value: string | null | undefined): string {
-  const v = String(value ?? "").trim().toUpperCase();
-  if (!v) return "UN";
-  return v;
-}
-
-async function getProductDefaultUnit(params: {
-  supabase: any;
-  establishmentId: string;
-  productId: string;
-}) {
-  const { data, error } = await params.supabase
-    .from("products")
-    .select("id, default_unit_label")
-    .eq("id", params.productId)
-    .eq("establishment_id", params.establishmentId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[products.getProductDefaultUnit] error", error);
-    throw new Error("Não foi possível consultar a unidade padrão do produto.");
-  }
-
-  if (!(data as any)?.id) {
-    throw new Error("Produto inválido para a empresa ativa.");
-  }
-
-  return normalizeStockUnit((data as any)?.default_unit_label);
-}
-
 async function ensureStockBalanceForProduct(params: {
   supabase: any;
   establishmentId: string;
   productId: string;
   unitLabel?: string | null;
 }) {
-  const defaultUnit = await getProductDefaultUnit({
+  const ensured = await ensureProductStockBalance({
     supabase: params.supabase,
     establishmentId: params.establishmentId,
     productId: params.productId,
+    unitLabel: params.unitLabel,
   });
-  const unit_label = normalizeStockUnit(params.unitLabel ?? defaultUnit);
 
-  const { data: rows, error: existingError } = await params.supabase
-    .from("stock_balances")
-    .select("id, quantity, unit_label, min_qty, med_qty, max_qty, location")
-    .eq("establishment_id", params.establishmentId)
-    .eq("product_id", params.productId)
-    .order("id", { ascending: true });
-
-  if (existingError) {
-    console.error("[products.ensureStockBalanceForProduct] error", existingError);
-    throw new Error("Não foi possível verificar o vínculo do produto com o estoque.");
-  }
-
-  const existingRows = (rows ?? []) as any[];
-
-  if (existingRows.length === 0) {
-    const { data: inserted, error: insertError } = await params.supabase
-      .from("stock_balances")
-      .insert({
-        establishment_id: params.establishmentId,
-        product_id: params.productId,
-        quantity: 0,
-        unit_label,
-        min_qty: 0,
-        med_qty: 0,
-        max_qty: 0,
-        location: "Estoque Principal",
-      })
-      .select("id")
-      .maybeSingle();
-
-    if (insertError) {
-      console.error("[products.ensureStockBalanceForProduct] insert error", insertError);
-      throw new Error(
-        "Produto criado, mas não foi possível criar o item correspondente no estoque.",
-      );
-    }
-
-    return inserted?.id as string | undefined;
-  }
-
-  if (existingRows.length === 1) {
-    const onlyRow = existingRows[0];
-
-    const { error: updateSingleError } = await params.supabase
-      .from("stock_balances")
-      .update({
-        unit_label,
-      })
-      .eq("id", onlyRow.id)
-      .eq("establishment_id", params.establishmentId)
-      .eq("product_id", params.productId);
-
-    if (updateSingleError) {
-      console.error(
-        "[products.ensureStockBalanceForProduct] single update error",
-        updateSingleError,
-      );
-      throw new Error(
-        "Não foi possível padronizar a unidade do estoque para este produto.",
-      );
-    }
-
-    return onlyRow.id as string;
-  }
-
-  const keeper = existingRows[0];
-  const duplicateIds = existingRows.slice(1).map((row) => String(row.id));
-
-  const mergedQuantity = existingRows.reduce(
-    (acc, row) => acc + Number(row.quantity ?? 0),
-    0,
-  );
-
-  const mergedMin = existingRows.reduce(
-    (acc, row) => Math.max(acc, Number(row.min_qty ?? 0)),
-    0,
-  );
-
-  const mergedMed = existingRows.reduce(
-    (acc, row) => Math.max(acc, Number(row.med_qty ?? 0)),
-    0,
-  );
-
-  const mergedMax = existingRows.reduce(
-    (acc, row) => Math.max(acc, Number(row.max_qty ?? 0)),
-    0,
-  );
-
-  const mergedLocation =
-    existingRows.find((row) => String(row.location ?? "").trim())?.location ??
-    "Estoque Principal";
-
-  const { error: keeperError } = await params.supabase
-    .from("stock_balances")
-    .update({
-      quantity: mergedQuantity,
-      unit_label,
-      min_qty: mergedMin,
-      med_qty: mergedMed,
-      max_qty: mergedMax,
-      location: mergedLocation,
-    })
-    .eq("id", keeper.id)
-    .eq("establishment_id", params.establishmentId)
-    .eq("product_id", params.productId);
-
-  if (keeperError) {
-    console.error(
-      "[products.ensureStockBalanceForProduct] keeper update error",
-      keeperError,
-    );
-    throw new Error(
-      "Não foi possível consolidar registros duplicados de estoque deste produto.",
-    );
-  }
-
-  if (duplicateIds.length > 0) {
-    const { error: deleteError } = await params.supabase
-      .from("stock_balances")
-      .delete()
-      .eq("establishment_id", params.establishmentId)
-      .eq("product_id", params.productId)
-      .in("id", duplicateIds);
-
-    if (deleteError) {
-      console.error(
-        "[products.ensureStockBalanceForProduct] duplicate delete error",
-        deleteError,
-      );
-      throw new Error(
-        "Não foi possível remover duplicidades de estoque deste produto.",
-      );
-    }
-  }
-
-  return keeper.id as string;
+  return ensured?.id as string | undefined;
 }
 
 function safeJson(obj: any) {

@@ -2,11 +2,19 @@ import { NextResponse } from "next/server";
 import { privateCacheHeaders } from "@/lib/cache/http";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "api:products:catalog",
+      limit: 90,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const supabase = await createSupabaseServerClient();
     let tenantContext: Awaited<ReturnType<typeof getAuthenticatedTenantUserOrThrow>>;
 

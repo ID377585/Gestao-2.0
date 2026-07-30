@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listCurrentUserTenantsForUser } from "@/lib/tenant/get-current-tenant";
 import { TENANT_COOKIE_NAME } from "@/lib/tenant/constants";
 import { getCompanySubscriptionStatusWithClient } from "@/lib/billing/subscription-status";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +27,15 @@ function buildDisplayName(params: {
   return "Usuário";
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "api:user:me",
+      limit: 120,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const supabase = await createSupabaseServerClient();
 
     const {

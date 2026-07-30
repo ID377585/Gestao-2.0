@@ -4,6 +4,7 @@ import {
   assertSameActiveEstablishment,
   getAuthenticatedTenantUserOrThrow,
 } from "@/lib/tenant/guards";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,13 @@ function prettyRole(role: string) {
 
 export async function GET(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "api:memberships:user-label",
+      limit: 180,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     await getAuthenticatedTenantUserOrThrow();
     const supabase = await createSupabaseServerClient();
 

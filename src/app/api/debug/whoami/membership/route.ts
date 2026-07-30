@@ -1,17 +1,26 @@
 import "server-only";
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireDebugApiAccess } from "@/lib/security/debug-api";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const supabase = await createSupabaseServerClient();
+    const limited = rateLimit(request, {
+      key: "api:debug:whoami-membership",
+      limit: 20,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
+    const access = await requireDebugApiAccess(request);
+    if (access.response) return access.response;
 
     const {
       data: { user },
       error: userErr,
-    } = await supabase.auth.getUser();
+    } = await access.supabase.auth.getUser();
 
     if (userErr || !user) {
       return NextResponse.json(
@@ -21,7 +30,7 @@ export async function GET() {
     }
 
     // tenta buscar membership ativo (fonte atual)
-    const { data, error } = await supabase
+    const { data, error } = await access.supabase
       .from("establishment_memberships")
       .select("id, establishment_id, user_id, role, is_active, created_at")
       .eq("user_id", user.id)

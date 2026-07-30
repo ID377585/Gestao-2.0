@@ -557,7 +557,6 @@ export function SobrePageContent() {
             </div>
           </div>
           <div className="relative overflow-hidden rounded-lg border border-[#E2E6EA] bg-[#F7F8FA] p-5 shadow-sm sm:p-8">
-            <div className="pointer-events-none absolute inset-x-8 top-10 hidden h-px bg-gradient-to-r from-transparent via-[#D8A640] to-transparent lg:block" />
             <div className="absolute bottom-0 right-0 h-40 w-40 rounded-full bg-[#D8A640]/10 blur-3xl" />
 
             <div className="relative mb-8">
@@ -569,35 +568,39 @@ export function SobrePageContent() {
               </h3>
             </div>
 
-            <div className="relative grid gap-5 lg:grid-cols-5 lg:gap-3">
-              <div className="absolute bottom-4 left-5 top-4 w-px bg-[#D8A640]/30 lg:hidden" />
+            <div className="relative space-y-5">
+              <div className="absolute bottom-5 left-5 top-5 w-px bg-[#D8A640]/30 sm:left-[4.55rem]" />
               {timeline.map((item, index) => {
                 const Icon = item.icon;
 
                 return (
                   <article
                     key={item.year}
-                    className="group relative flex gap-4 rounded-lg border border-white bg-white p-4 shadow-[0_12px_30px_rgba(23,33,43,0.06)] transition duration-200 hover:-translate-y-1 hover:border-[#D8A640]/60 hover:shadow-[0_18px_38px_rgba(23,33,43,0.1)] lg:flex-col lg:gap-5"
+                    className="group relative grid gap-4 rounded-lg border border-white bg-white p-4 shadow-[0_12px_30px_rgba(23,33,43,0.06)] transition duration-200 hover:-translate-y-0.5 hover:border-[#D8A640]/60 hover:shadow-[0_18px_38px_rgba(23,33,43,0.1)] sm:grid-cols-[5.7rem_1fr] sm:p-5"
                   >
-                    <div className="relative z-10 flex size-10 shrink-0 items-center justify-center rounded-full border border-[#D8A640]/30 bg-[#FFF7E3] text-[#8B6B25] shadow-sm ring-4 ring-[#F7F8FA] transition group-hover:bg-[#D8A640] group-hover:text-white">
-                      <Icon className="size-5" />
+                    <div className="relative z-10 flex items-center gap-3 sm:flex-col sm:items-start sm:gap-4">
+                      <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-[#D8A640]/30 bg-[#FFF7E3] text-[#8B6B25] shadow-sm ring-4 ring-[#F7F8FA] transition group-hover:bg-[#D8A640] group-hover:text-white">
+                        <Icon className="size-5" />
+                      </div>
+                      <p className="text-xl font-black leading-none text-[#8B6B25] sm:text-2xl">
+                        {item.year}
+                      </p>
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 lg:block">
-                        <p className="text-sm font-black text-[#8B6B25]">
-                          {item.year}
-                        </p>
-                        <span className="h-px flex-1 bg-[#E2E6EA] lg:mt-4 lg:block" />
+                      <div className="mb-3 flex items-center gap-3">
+                        <span className="h-px w-10 bg-[#D8A640]/50" />
+                        {index < timeline.length - 1 ? (
+                          <ArrowRight className="hidden size-4 text-[#D8A640] sm:block" />
+                        ) : (
+                          <BadgeCheck className="hidden size-4 text-[#D8A640] sm:block" />
+                        )}
                       </div>
-                      <h4 className="mt-2 text-base font-black leading-snug text-[#17212B]">
+                      <h4 className="text-lg font-black leading-snug text-[#17212B]">
                         {item.title}
                       </h4>
-                      <p className="mt-3 text-sm leading-7 text-[#5F6875]">
+                      <p className="mt-3 text-sm leading-7 text-[#5F6875] sm:text-[0.95rem]">
                         {item.text}
                       </p>
-                      {index < timeline.length - 1 ? (
-                        <ArrowRight className="mt-4 hidden size-4 text-[#D8A640] lg:block" />
-                      ) : null}
                     </div>
                   </article>
                 );

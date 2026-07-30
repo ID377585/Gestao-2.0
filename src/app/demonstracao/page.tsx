@@ -27,9 +27,7 @@ export default function DemonstracaoPage() {
       <section className="bg-[#F7F8FA]">
         <div className="mx-auto grid max-w-7xl gap-6 px-4 py-20 sm:px-6 lg:grid-cols-[0.85fr_1.15fr] lg:px-8">
           <DemoSupportBlock />
-          <DemoRequestForm
-            whatsappUrl={process.env.NEXT_PUBLIC_WHATSAPP_URL ?? null}
-          />
+          <DemoRequestForm />
         </div>
       </section>
     </PublicPageShell>

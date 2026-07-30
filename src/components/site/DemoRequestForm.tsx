@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { ArrowRight, Mail, MessageCircle } from "lucide-react";
+import { Mail, MessageCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,11 +27,10 @@ const needs = [
   "Quero conhecer a plataforma completa",
 ];
 
-type DemoRequestFormProps = {
-  whatsappUrl?: string | null;
-};
+const gestifyWhatsappNumber = "5511986754605";
+const gestifyLeadEmail = "id377585@gmail.com";
 
-export function DemoRequestForm({ whatsappUrl }: DemoRequestFormProps) {
+export function DemoRequestForm() {
   const [submitted, setSubmitted] = useState(false);
   const [form, setForm] = useState({
     name: "",
@@ -43,9 +42,8 @@ export function DemoRequestForm({ whatsappUrl }: DemoRequestFormProps) {
     message: "",
   });
 
-  const mailtoHref = useMemo(() => {
-    const subject = encodeURIComponent("Solicitacao de demonstracao - Gestify");
-    const body = encodeURIComponent(
+  const leadMessage = useMemo(
+    () =>
       [
         "Ola, equipe Gestify.",
         "",
@@ -60,11 +58,22 @@ export function DemoRequestForm({ whatsappUrl }: DemoRequestFormProps) {
         "",
         "Mensagem:",
         form.message || "-",
-      ].join("\n")
-    );
+      ].join("\n"),
+    [form]
+  );
 
-    return `mailto:suporte@gestify.app?subject=${subject}&body=${body}`;
-  }, [form]);
+  const mailtoHref = useMemo(() => {
+    const subject = encodeURIComponent("Solicitacao de demonstracao - Gestify");
+    const body = encodeURIComponent(leadMessage);
+
+    return `mailto:${gestifyLeadEmail}?subject=${subject}&body=${body}`;
+  }, [leadMessage]);
+
+  const whatsappHref = useMemo(() => {
+    const text = encodeURIComponent(leadMessage);
+
+    return `https://wa.me/${gestifyWhatsappNumber}?text=${text}`;
+  }, [leadMessage]);
 
   function updateField(field: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -73,7 +82,7 @@ export function DemoRequestForm({ whatsappUrl }: DemoRequestFormProps) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitted(true);
-    window.location.href = mailtoHref;
+    window.open(whatsappHref, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -107,6 +116,8 @@ export function DemoRequestForm({ whatsappUrl }: DemoRequestFormProps) {
           <Label htmlFor="demo-whatsapp">WhatsApp</Label>
           <Input
             id="demo-whatsapp"
+            type="tel"
+            autoComplete="tel"
             value={form.whatsapp}
             onChange={(event) => updateField("whatsapp", event.target.value)}
             required
@@ -173,24 +184,20 @@ export function DemoRequestForm({ whatsappUrl }: DemoRequestFormProps) {
           type="submit"
           className="bg-[#D8A640] text-[#17212B] hover:bg-[#E8BD5C]"
         >
-          Solicitar demonstracao
-          <ArrowRight className="size-4" />
+          <MessageCircle className="size-4" />
+          Enviar pelo WhatsApp
         </Button>
         <Button asChild variant="outline">
-          <a href={whatsappUrl || mailtoHref}>
-            {whatsappUrl ? (
-              <MessageCircle className="size-4" />
-            ) : (
-              <Mail className="size-4" />
-            )}
-            {whatsappUrl ? "Falar pelo WhatsApp" : "Enviar por e-mail"}
+          <a href={mailtoHref}>
+            <Mail className="size-4" />
+            Enviar por e-mail
           </a>
         </Button>
       </div>
 
       {submitted ? (
         <p className="mt-4 rounded-md bg-[#F7F8FA] px-4 py-3 text-sm font-semibold text-[#313A46]">
-          Abrimos seu aplicativo de e-mail com a solicitacao preenchida.
+          Abrimos o WhatsApp com a solicitacao preenchida para o Gestify.
         </p>
       ) : null}
     </form>

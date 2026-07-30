@@ -58,6 +58,15 @@ type Role =
   | "admin"
   | "entrega";
 
+function createOrderActionKey(action: string, orderId: string) {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  return `order:${orderId}:${action}:${random}`;
+}
+
 type OrderItem = {
   id: string;
   product_name: string;
@@ -880,7 +889,12 @@ export default function PedidoDetalhePage() {
 
     (async () => {
       await runAction(
-        () => advanceOrder(orderId),
+        () =>
+          advanceOrder(
+            orderId,
+            createOrderActionKey("advance", orderId),
+            order.status
+          ),
         {
           title: "Separação concluída",
           description: "Pedido enviado automaticamente para faturamento.",
@@ -894,7 +908,7 @@ export default function PedidoDetalhePage() {
   const onAccept = async () => {
     if (!orderId) return;
     await runAction(
-      () => acceptOrder(orderId),
+      () => acceptOrder(orderId, createOrderActionKey("accept", orderId)),
       { title: "Pedido aceito", description: "Status atualizado com sucesso." },
       { title: "Erro ao aceitar pedido" }
     );
@@ -903,7 +917,12 @@ export default function PedidoDetalhePage() {
   const onAdvance = async () => {
     if (!orderId) return;
     await runAction(
-      () => advanceOrder(orderId),
+      () =>
+        advanceOrder(
+          orderId,
+          createOrderActionKey("advance", orderId),
+          order?.status ?? undefined
+        ),
       {
         title: "Status avançado",
         description: "Atualização registrada com sucesso.",
@@ -934,7 +953,11 @@ export default function PedidoDetalhePage() {
 
     await runAction(
       async () => {
-        await cancelOrder(orderId, reason);
+        await cancelOrder(
+          orderId,
+          reason,
+          createOrderActionKey("cancel", orderId)
+        );
         safeSetState(() => setOpenCancel(false));
       },
       {
@@ -957,7 +980,11 @@ export default function PedidoDetalhePage() {
 
     await runAction(
       async () => {
-        await reopenOrder(orderId, note);
+        await reopenOrder(
+          orderId,
+          note,
+          createOrderActionKey("reopen", orderId)
+        );
         safeSetState(() => setOpenReopen(false));
       },
       { title: "Pedido reaberto", description: "Pedido voltou para o fluxo." },

@@ -233,6 +233,11 @@ function normalizePgError(err: any) {
   return new Error(message);
 }
 
+function normalizeActionIdempotencyKey(key: string | null | undefined) {
+  const trimmed = String(key ?? "").trim();
+  return trimmed || null;
+}
+
 /** membership do usuário logado */
 export async function getMyMembership() {
   const ctx = await getActiveMembershipOrRedirect();
@@ -556,7 +561,10 @@ export async function addOrderItem(data: {
  *  - Chama a RPC transacional accept_order(_order_id)
  *  - O banco centraliza cópia de itens, estoque, unidade, status e metadados
  */
-export async function acceptOrder(orderId: string): Promise<void> {
+export async function acceptOrder(
+  orderId: string,
+  idempotencyKey?: string
+): Promise<void> {
   const supabase = await createSupabaseServerClient();
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = getScopeId(ctx);
@@ -565,35 +573,58 @@ export async function acceptOrder(orderId: string): Promise<void> {
     throw new Error("Sem permissão para aceitar pedido.");
   }
 
-  const order = await getOrderById(orderId);
-  if (!order) {
-    throw new Error("Pedido não encontrado ou sem acesso.");
-  }
+  const { value, replayed } = await runIdempotentAction({
+    key: normalizeActionIdempotencyKey(idempotencyKey),
+    operation: "orders.accept",
+    userId: ctx.user.id,
+    establishmentId,
+    payload: { orderId },
+    execute: async () => {
+      const { data: order, error: orderErr } = await supabase
+        .from("orders")
+        .select("id, order_number, status")
+        .eq("id", orderId)
+        .eq("establishment_id", establishmentId)
+        .maybeSingle();
 
-  if (order.status !== "pedido_criado") {
-    throw new Error("Só é possível aceitar pedidos com status 'pedido_criado'.");
-  }
+      if (orderErr || !order) {
+        throw new Error("Pedido não encontrado ou sem acesso.");
+      }
 
-  const { error: rpcErr } = await supabase.rpc("accept_order", {
-    _order_id: orderId,
+      if (order.status !== "pedido_criado") {
+        throw new Error(
+          "Só é possível aceitar pedidos com status 'pedido_criado'."
+        );
+      }
+
+      const { error: rpcErr } = await supabase.rpc("accept_order", {
+        _order_id: orderId,
+      });
+
+      if (rpcErr) throw normalizePgError(rpcErr);
+
+      return {
+        orderNumber: order.order_number ?? null,
+      };
+    },
   });
-
-  if (rpcErr) throw normalizePgError(rpcErr);
 
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${orderId}`);
   revalidatePath("/dashboard/producao");
 
-  await dispatchOrderLifecycleAlert({
-    establishmentId,
-    orderId,
-    orderNumber: order.order_number ?? null,
-    title: "Pedido aceito",
-    message: `O pedido #${order.order_number ?? "—"} foi aceito e entrou no fluxo operacional.`,
-    type: "success",
-    fromStatus: "pedido_criado",
-    toStatus: "aceitou_pedido",
-  });
+  if (!replayed) {
+    await dispatchOrderLifecycleAlert({
+      establishmentId,
+      orderId,
+      orderNumber: value.orderNumber,
+      title: "Pedido aceito",
+      message: `O pedido #${value.orderNumber ?? "—"} foi aceito e entrou no fluxo operacional.`,
+      type: "success",
+      fromStatus: "pedido_criado",
+      toStatus: "aceitou_pedido",
+    });
+  }
 }
 
 /**
@@ -601,43 +632,82 @@ export async function acceptOrder(orderId: string): Promise<void> {
  * Agora: chama RPC advance_order_status
  * Front sugere o próximo, banco valida anti-pulo + role + establishment
  */
-export async function advanceOrder(orderId: string): Promise<void> {
+export async function advanceOrder(
+  orderId: string,
+  idempotencyKey?: string,
+  expectedStatus?: string
+): Promise<void> {
   const supabase = await createSupabaseServerClient();
   const ctx = await getActiveMembershipOrRedirect();
   const establishmentId = getScopeId(ctx);
 
-  const order = await getOrderById(orderId);
+  const { value, replayed } = await runIdempotentAction({
+    key: normalizeActionIdempotencyKey(idempotencyKey),
+    operation: "orders.advance",
+    userId: ctx.user.id,
+    establishmentId,
+    payload: { orderId, expectedStatus: expectedStatus ?? null },
+    execute: async () => {
+      const { data: order, error: orderErr } = await supabase
+        .from("orders")
+        .select("id, order_number, status")
+        .eq("id", orderId)
+        .eq("establishment_id", establishmentId)
+        .maybeSingle();
 
-  if (!order) {
-    throw new Error("Pedido não encontrado ou sem acesso.");
-  }
+      if (orderErr || !order) {
+        throw new Error("Pedido não encontrado ou sem acesso.");
+      }
 
-  const next = nextStatus(order.status);
-  if (!next) {
-    throw new Error("Este pedido não pode ser avançado a partir do status atual.");
-  }
+      if (expectedStatus && order.status !== expectedStatus) {
+        throw new Error(
+          "Este pedido foi atualizado por outra operação. Recarregue a tela antes de avançar novamente."
+        );
+      }
 
-  const { error: rpcErr } = await supabase.rpc("advance_order_status", {
-    p_order_id: orderId,
-    p_to_status: next,
-    p_note: "Status avançado via sistema",
+      const next = nextStatus(order.status);
+      if (!next) {
+        throw new Error(
+          "Este pedido não pode ser avançado a partir do status atual."
+        );
+      }
+
+      const p_establishment_id = establishmentId;
+      if (!p_establishment_id) {
+        throw new Error("Estabelecimento ativo não identificado.");
+      }
+
+      const { error: rpcErr } = await supabase.rpc("advance_order_status", {
+        p_order_id: orderId,
+        p_to_status: next,
+        p_note: "Status avançado via sistema",
+      });
+
+      if (rpcErr) throw normalizePgError(rpcErr);
+
+      return {
+        orderNumber: order.order_number ?? null,
+        fromStatus: order.status,
+        toStatus: next,
+      };
+    },
   });
-
-  if (rpcErr) throw normalizePgError(rpcErr);
 
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${orderId}`);
 
-  await dispatchOrderLifecycleAlert({
-    establishmentId,
-    orderId,
-    orderNumber: order.order_number ?? null,
-    title: "Status do pedido avançado",
-    message: `O pedido #${order.order_number ?? "—"} avançou de ${order.status} para ${next}.`,
-    type: "info",
-    fromStatus: order.status,
-    toStatus: next,
-  });
+  if (!replayed) {
+    await dispatchOrderLifecycleAlert({
+      establishmentId,
+      orderId,
+      orderNumber: value.orderNumber,
+      title: "Status do pedido avançado",
+      message: `O pedido #${value.orderNumber ?? "—"} avançou de ${value.fromStatus} para ${value.toStatus}.`,
+      type: "info",
+      fromStatus: value.fromStatus,
+      toStatus: value.toStatus,
+    });
+  }
 }
 
 /**
@@ -647,7 +717,8 @@ export async function advanceOrder(orderId: string): Promise<void> {
  */
 export async function cancelOrder(
   orderId: string,
-  reason: string
+  reason: string,
+  idempotencyKey?: string
 ): Promise<void> {
   const supabase = await createSupabaseServerClient();
   const ctx = await getActiveMembershipOrRedirect();
@@ -673,38 +744,55 @@ export async function cancelOrder(
   const trimmed = reason.trim();
   if (!trimmed) throw new Error("Informe o motivo do cancelamento.");
 
-  const { error: rpcErr } = await supabase.rpc("cancel_order", {
-    p_order_id: orderId,
-    p_reason: trimmed,
+  const { value, replayed } = await runIdempotentAction({
+    key: normalizeActionIdempotencyKey(idempotencyKey),
+    operation: "orders.cancel",
+    userId: ctx.user.id,
+    establishmentId,
+    payload: { orderId, reason: trimmed },
+    execute: async () => {
+      const { error: rpcErr } = await supabase.rpc("cancel_order", {
+        p_order_id: orderId,
+        p_reason: trimmed,
+      });
+
+      if (rpcErr) throw normalizePgError(rpcErr);
+
+      const { error: metaErr } = await supabase
+        .from("orders")
+        .update({
+          canceled_by: userData.user.id,
+          canceled_at: new Date().toISOString(),
+          cancel_reason: trimmed,
+        })
+        .eq("id", orderId)
+        .eq("establishment_id", establishmentId);
+
+      if (metaErr) throw new Error(metaErr.message);
+
+      return {
+        orderNumber: order.order_number ?? null,
+        fromStatus: order.status,
+        reason: trimmed,
+      };
+    },
   });
-
-  if (rpcErr) throw normalizePgError(rpcErr);
-
-  const { error: metaErr } = await supabase
-    .from("orders")
-    .update({
-      canceled_by: userData.user.id,
-      canceled_at: new Date().toISOString(),
-      cancel_reason: trimmed,
-    })
-    .eq("id", orderId)
-    .eq("establishment_id", establishmentId);
-
-  if (metaErr) throw new Error(metaErr.message);
 
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${orderId}`);
 
-  await dispatchOrderLifecycleAlert({
-    establishmentId,
-    orderId,
-    orderNumber: order.order_number ?? null,
-    title: "Pedido cancelado",
-    message: `O pedido #${order.order_number ?? "—"} foi cancelado. Motivo: ${trimmed}`,
-    type: "error",
-    fromStatus: order.status,
-    toStatus: "cancelado",
-  });
+  if (!replayed) {
+    await dispatchOrderLifecycleAlert({
+      establishmentId,
+      orderId,
+      orderNumber: value.orderNumber,
+      title: "Pedido cancelado",
+      message: `O pedido #${value.orderNumber ?? "—"} foi cancelado. Motivo: ${value.reason}`,
+      type: "error",
+      fromStatus: value.fromStatus,
+      toStatus: "cancelado",
+    });
+  }
 }
 
 /**
@@ -716,7 +804,8 @@ export async function cancelOrder(
  */
 export async function reopenOrder(
   orderId: string,
-  note?: string
+  note?: string,
+  idempotencyKey?: string
 ): Promise<void> {
   const supabase = await createSupabaseServerClient();
   const ctx = await getActiveMembershipOrRedirect();
@@ -740,37 +829,52 @@ export async function reopenOrder(
 
   const trimmed = (note ?? "").trim();
 
-  const { error: rpcErr } = await supabase.rpc("reopen_order", {
-    p_order_id: orderId,
-    p_note: trimmed ? `Reaberto: ${trimmed}` : "Pedido reaberto",
+  const { value, replayed } = await runIdempotentAction({
+    key: normalizeActionIdempotencyKey(idempotencyKey),
+    operation: "orders.reopen",
+    userId: ctx.user.id,
+    establishmentId,
+    payload: { orderId, note: trimmed || null },
+    execute: async () => {
+      const { error: rpcErr } = await supabase.rpc("reopen_order", {
+        p_order_id: orderId,
+        p_note: trimmed ? `Reaberto: ${trimmed}` : "Pedido reaberto",
+      });
+
+      if (rpcErr) throw normalizePgError(rpcErr);
+
+      const { error: metaErr } = await supabase
+        .from("orders")
+        .update({
+          reopened_by: userData.user.id,
+          reopened_at: new Date().toISOString(),
+        })
+        .eq("id", orderId)
+        .eq("establishment_id", establishmentId);
+
+      if (metaErr) throw new Error(metaErr.message);
+
+      return {
+        orderNumber: order.order_number ?? null,
+      };
+    },
   });
-
-  if (rpcErr) throw normalizePgError(rpcErr);
-
-  const { error: metaErr } = await supabase
-    .from("orders")
-    .update({
-      reopened_by: userData.user.id,
-      reopened_at: new Date().toISOString(),
-    })
-    .eq("id", orderId)
-    .eq("establishment_id", establishmentId);
-
-  if (metaErr) throw new Error(metaErr.message);
 
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${orderId}`);
 
-  await dispatchOrderLifecycleAlert({
-    establishmentId,
-    orderId,
-    orderNumber: order.order_number ?? null,
-    title: "Pedido reaberto",
-    message: `O pedido #${order.order_number ?? "—"} foi reaberto e voltou ao fluxo.`,
-    type: "warning",
-    fromStatus: "cancelado",
-    toStatus: "aceitou_pedido",
-  });
+  if (!replayed) {
+    await dispatchOrderLifecycleAlert({
+      establishmentId,
+      orderId,
+      orderNumber: value.orderNumber,
+      title: "Pedido reaberto",
+      message: `O pedido #${value.orderNumber ?? "—"} foi reaberto e voltou ao fluxo.`,
+      type: "warning",
+      fromStatus: "cancelado",
+      toStatus: "aceitou_pedido",
+    });
+  }
 }
 
 /* ===========================================================

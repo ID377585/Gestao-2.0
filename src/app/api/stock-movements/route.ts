@@ -1,6 +1,11 @@
 // src/app/api/stock-movements/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getIdempotencyKeyFromRequest,
+  runIdempotentAction,
+} from "@/lib/idempotency/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { moveStock, type StockMovementInput } from "@/lib/stock/moveStock";
 import { assertActiveTenantRole } from "@/lib/tenant/guards";
 
@@ -8,6 +13,13 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
+    const limited = rateLimit(req, {
+      key: "stock-movements",
+      limit: 120,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     let tenant: Awaited<ReturnType<typeof assertActiveTenantRole>>;
 
     try {
@@ -63,12 +75,26 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await moveStock(supabase as any, {
-      ...body,
-      establishment_id: tenant.establishmentId,
+    const { value: result, replayed } = await runIdempotentAction({
+      key: getIdempotencyKeyFromRequest(req, body as Record<string, unknown>),
+      operation: "stock.movements.create",
+      userId: tenant.userId,
+      establishmentId: tenant.establishmentId,
+      payload: {
+        ...body,
+        establishment_id: tenant.establishmentId,
+      },
+      execute: () =>
+        moveStock(supabase as any, {
+          ...body,
+          establishment_id: tenant.establishmentId,
+        }),
     });
 
-    return NextResponse.json(result, { status: 200 });
+    return NextResponse.json(result, {
+      status: 200,
+      headers: replayed ? { "Idempotency-Replayed": "true" } : undefined,
+    });
   } catch (err: any) {
     const message = err?.message ? String(err.message) : "Unknown error";
     console.error("[POST /api/stock-movements] error:", err);

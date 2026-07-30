@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   DEFAULT_USER_SETTINGS,
@@ -120,6 +121,13 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "user-notification-preferences",
+      limit: 60,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const supabase = await createSupabaseServerClient();
 
     const {

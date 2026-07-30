@@ -1,6 +1,7 @@
 // src/app/api/transferencias/stock/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
@@ -32,6 +33,13 @@ function jsonError(message: string, status = 400, extra?: any) {
 
 export async function POST(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "stock-transfer-availability",
+      limit: 120,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const supabase = await createSupabaseServerClient();
     const establishmentId = await resolveEstablishmentId();
 

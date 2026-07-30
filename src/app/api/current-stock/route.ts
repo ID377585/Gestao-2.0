@@ -1,14 +1,23 @@
 // src/app/api/current-stock/route.ts
 import { NextResponse } from "next/server";
+import { privateCacheHeaders } from "@/lib/cache/http";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { getActiveEstablishmentIdOrThrow } from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "current-stock",
+      limit: 180,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const supabase = await createSupabaseServerClient();
     let establishmentId: string;
 
@@ -49,7 +58,10 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json(data ?? [], { status: 200 });
+    return NextResponse.json(data ?? [], {
+      status: 200,
+      headers: privateCacheHeaders(10),
+    });
   } catch (err: any) {
     console.error("GET /api/current-stock erro inesperado:", err);
     return NextResponse.json(

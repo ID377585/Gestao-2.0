@@ -1,6 +1,7 @@
 // src/app/api/import/products/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { normalizeAllergenList } from "@/lib/allergens";
 import {
   PRODUCT_SECTOR_CATEGORIES,
@@ -11,6 +12,15 @@ import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
+const ALLOWED_IMPORT_MIME_TYPES = new Set([
+  "",
+  "application/csv",
+  "application/vnd.ms-excel",
+  "text/csv",
+  "text/plain",
+]);
 
 type ExistingProductReference = {
   id: string;
@@ -370,6 +380,13 @@ function calculateActiveProductDelta(params: {
 
 export async function POST(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "import-products",
+      limit: 12,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const supabase = await createSupabaseServerClient();
 
     const {
@@ -387,14 +404,43 @@ export async function POST(request: Request) {
 
     const fileName = (file as any)?.name ? String((file as any).name) : "";
     const lowerName = fileName.toLowerCase();
+    const fileType = String(file.type ?? "").toLowerCase();
+    const fileSize = Number((file as any)?.size ?? 0);
+
+    if (fileSize <= 0) {
+      return respondError(request, "Arquivo vazio ou inválido.", 400);
+    }
+
+    if (fileSize > MAX_IMPORT_BYTES) {
+      return respondError(
+        request,
+        "Arquivo muito grande. Envie um CSV com até 10 MB.",
+        413,
+        { debug: { fileName, size: fileSize } },
+      );
+    }
+
     if (
       lowerName.endsWith(".xlsx") ||
-      String(file.type).includes("spreadsheetml")
+      fileType.includes("spreadsheetml")
     ) {
       return respondError(
         request,
         "Formato .xlsx não suportado nesta importação. Exporte como CSV (de preferência 'CSV UTF-8') e tente novamente.",
         400,
+      );
+    }
+
+    if (
+      !lowerName.endsWith(".csv") &&
+      !lowerName.endsWith(".txt") &&
+      !ALLOWED_IMPORT_MIME_TYPES.has(fileType)
+    ) {
+      return respondError(
+        request,
+        "Formato de arquivo não suportado. Envie um CSV UTF-8.",
+        400,
+        { debug: { fileName, fileType } },
       );
     }
 

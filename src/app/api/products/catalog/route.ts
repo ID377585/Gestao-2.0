@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { privateCacheHeaders } from "@/lib/cache/http";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
@@ -52,7 +53,10 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json(data ?? [], { status: 200 });
+    return NextResponse.json(data ?? [], {
+      status: 200,
+      headers: privateCacheHeaders(30),
+    });
   } catch (error: any) {
     console.error("Erro inesperado em /api/products/catalog:", error);
     return NextResponse.json(

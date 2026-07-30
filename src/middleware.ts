@@ -13,6 +13,82 @@ import {
 } from "@/lib/tenant/module-routes";
 
 const DEFAULT_AUTH_REDIRECT = "/dashboard/pedidos";
+const API_CORS_METHODS = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
+const API_CORS_HEADERS = [
+  "authorization",
+  "content-type",
+  "idempotency-key",
+  "x-idempotency-key",
+  "x-alerts-secret",
+  "x-cron-secret",
+  "x-fiscal-sync-secret",
+  "x-job-worker-secret",
+].join(", ");
+
+function getAllowedCorsOrigins(req: NextRequest) {
+  const origins = new Set<string>([req.nextUrl.origin]);
+  const configured = [
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.APP_URL,
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+    process.env.VERCEL_BRANCH_URL
+      ? `https://${process.env.VERCEL_BRANCH_URL}`
+      : null,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : null,
+    ...(process.env.GESTIFY_ALLOWED_CORS_ORIGINS ?? "")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  ];
+
+  for (const origin of configured) {
+    if (!origin) continue;
+
+    try {
+      origins.add(new URL(origin).origin);
+    } catch {
+      // Ignore malformed optional environment entries.
+    }
+  }
+
+  return origins;
+}
+
+function isCorsOriginAllowed(req: NextRequest) {
+  const origin = req.headers.get("origin");
+  if (!origin) return true;
+  return getAllowedCorsOrigins(req).has(origin);
+}
+
+function applyCorsHeaders(req: NextRequest, response: NextResponse) {
+  const origin = req.headers.get("origin");
+  if (!origin || !isCorsOriginAllowed(req)) return response;
+
+  response.headers.set("Access-Control-Allow-Origin", origin);
+  response.headers.set("Access-Control-Allow-Credentials", "true");
+  response.headers.set("Access-Control-Allow-Methods", API_CORS_METHODS);
+  response.headers.set("Access-Control-Allow-Headers", API_CORS_HEADERS);
+  response.headers.set("Access-Control-Max-Age", "600");
+  response.headers.append("Vary", "Origin");
+
+  return response;
+}
+
+function handleApiCors(req: NextRequest) {
+  if (!req.nextUrl.pathname.startsWith("/api/")) return null;
+
+  if (!isCorsOriginAllowed(req)) {
+    return NextResponse.json({ error: "Origem não permitida." }, { status: 403 });
+  }
+
+  if (req.method === "OPTIONS") {
+    return applyCorsHeaders(req, new NextResponse(null, { status: 204 }));
+  }
+
+  return applyCorsHeaders(req, NextResponse.next());
+}
 
 function isAuthRoute(pathname: string) {
   return (
@@ -148,6 +224,11 @@ function redirectWithCookies(
 
 export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
+  const apiCorsResponse = handleApiCors(req);
+
+  if (apiCorsResponse) {
+    return apiCorsResponse;
+  }
 
   let supabaseResponse = NextResponse.next({
     request: {
@@ -245,5 +326,6 @@ export const config = {
     "/forgot-password/:path*",
     "/reset-password",
     "/reset-password/:path*",
+    "/api/:path*",
   ],
 };

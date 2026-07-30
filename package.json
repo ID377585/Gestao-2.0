@@ -6,6 +6,12 @@
     "node": "22.x",
     "npm": ">=10"
   },
+  "overrides": {
+    "brace-expansion": "^2.1.3",
+    "next": {
+      "sharp": "^0.35.3"
+    }
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
@@ -19,7 +25,7 @@
     "supabase:legacy-tenant:backfill": "node scripts/audit-legacy-tenant.mjs --apply",
     "tenant:writes:audit": "node scripts/audit-tenant-writes.mjs",
     "tenant:writes:ci": "node scripts/audit-tenant-writes.mjs --fail-on-findings",
-    "ci": "npm run lint && npm run typecheck && npm run audit && npm run tenant:writes:audit && npm run build",
+    "ci": "npm run lint && npm run typecheck && npm run audit && npm run tenant:writes:ci && npm run build",
     "postinstall": "node scripts/enforce-production-freeze.js"
   },
   "dependencies": {
@@ -66,7 +72,7 @@
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.561.0",
-    "next": "16.2.6",
+    "next": "^16.2.12",
     "next-themes": "^0.4.6",
     "node-forge": "^1.3.1",
     "pdf-parse": "^1.1.4",

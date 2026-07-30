@@ -3,27 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Building2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-type TenantItem = {
-  id: string;
-  role: string;
-  establishment_id: string | null;
-  establishment_name?: string | null;
-  display_name?: string | null;
-  org_id: string | null;
-  unit_id: string | null;
-  is_active: boolean;
-};
-
-type TenantSummaryPayload = {
-  tenant?: {
-    establishmentId: string;
-    establishmentName?: string | null;
-    role: string;
-    displayName?: string | null;
-  } | null;
-  tenants?: TenantItem[];
-};
+import {
+  clearCurrentTenantCache,
+  getCurrentTenantPayload,
+  type CurrentTenantItem,
+  type CurrentTenantPayload,
+} from "@/lib/tenant/current-tenant-client";
 
 type TenantSummaryProps = {
   compact?: boolean;
@@ -40,7 +25,7 @@ function companyDisplayName(value?: string | null) {
   return name || null;
 }
 
-function tenantLabel(tenant: TenantItem) {
+function tenantLabel(tenant: CurrentTenantItem) {
   return (
     companyDisplayName(tenant.display_name) ??
     companyDisplayName(tenant.establishment_name) ??
@@ -49,8 +34,8 @@ function tenantLabel(tenant: TenantItem) {
 }
 
 export function TenantSummary({ compact = false, className }: TenantSummaryProps) {
-  const [tenant, setTenant] = useState<TenantSummaryPayload["tenant"]>(null);
-  const [tenants, setTenants] = useState<TenantItem[]>([]);
+  const [tenant, setTenant] = useState<CurrentTenantPayload["tenant"]>(null);
+  const [tenants, setTenants] = useState<CurrentTenantItem[]>([]);
   const [loadingTenant, setLoadingTenant] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
@@ -63,29 +48,10 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
         setLoadingTenant(true);
         setLoadError(null);
 
-        const response = await fetch("/api/tenant/me", {
-          method: "GET",
-          cache: "no-store",
-        });
-
-        const data = (await response.json().catch(() => ({}))) as
-          | TenantSummaryPayload
-          | { error?: string };
+        const payload = await getCurrentTenantPayload();
 
         if (!mounted) return;
 
-        if (!response.ok) {
-          setTenant(null);
-          setTenants([]);
-          setLoadError(
-            "error" in data && data.error
-              ? data.error
-              : "Não foi possível carregar a empresa ativa."
-          );
-          return;
-        }
-
-        const payload = data as TenantSummaryPayload;
         setTenant(payload.tenant ?? null);
         setTenants(payload.tenants ?? []);
       } catch (error) {
@@ -133,6 +99,7 @@ export function TenantSummary({ compact = false, className }: TenantSummaryProps
         throw new Error(data?.error ?? "Não foi possível trocar a empresa ativa.");
       }
 
+      clearCurrentTenantCache();
       window.location.reload();
     } catch (error) {
       console.error("Erro ao trocar empresa ativa:", error);

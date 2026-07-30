@@ -1,6 +1,7 @@
 // src/app/api/transferencias/stock/create/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export const runtime = "nodejs";
@@ -23,8 +24,15 @@ function jsonError(message: string, status = 400, extra?: any) {
  *
  * Depois vamos implementar a criação real da transferência (OUT/IN no inventory_movements).
  */
-export async function POST() {
+export async function POST(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "stock-transfer-create",
+      limit: 30,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     await getAuthenticatedTenantUserOrThrow();
     await createSupabaseServerClient(); // garante sessão server ok
 

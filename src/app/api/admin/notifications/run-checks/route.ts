@@ -3,6 +3,7 @@ import {
   createSupabaseServerClient,
   getSupabaseAdminClient,
 } from "@/lib/supabase/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -66,8 +67,15 @@ async function getAuthorizedUserContext() {
   return { supabase, user, membership, error: null };
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "admin-notification-checks",
+      limit: 20,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const context = await getAuthorizedUserContext();
 
     if (context.error) {

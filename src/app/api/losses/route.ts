@@ -4,6 +4,11 @@ import {
   createSupabaseAdminClient,
   createSupabaseServerClient,
 } from "@/lib/supabase/server";
+import {
+  getIdempotencyKeyFromRequest,
+  runIdempotentAction,
+} from "@/lib/idempotency/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 const LOSS_PHOTO_BUCKET = "loss-photos";
@@ -139,6 +144,13 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const limited = rateLimit(req, {
+    key: "losses-create",
+    limit: 60,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   const { supabase, user, error, establishment_id } =
     await getAuthAndEstablishment();
   if (error || !establishment_id) return error!;
@@ -182,28 +194,55 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data, error: rpcErr } = await supabase.rpc("register_loss", {
-    p_establishment_id: establishment_id,
-    p_product_id: product_id,
-    p_qty: qtyNumber,
-    p_unit_label: unit_label,
-    p_reason: reasonTrim,
-    p_reason_detail: reasonDetailTrim || null,
-    p_lot: lotTrim || null,
-    p_label_code: labelCodeTrim || null,
-    p_user_id: user.id,
-    p_allow_negative: false,
-  });
+  let result: any = null;
+  let replayed = false;
 
-  if (rpcErr) {
-    console.error("POST /api/losses rpc error:", rpcErr);
+  try {
+    const action = await runIdempotentAction({
+      key: getIdempotencyKeyFromRequest(req, body),
+      operation: "losses.register",
+      userId: user.id,
+      establishmentId: establishment_id,
+      payload: {
+        product_id,
+        qty: qtyNumber,
+        unit_label,
+        reason: reasonTrim,
+        reason_detail: reasonDetailTrim || null,
+        lot: lotTrim || null,
+        qrcode: labelCodeTrim || null,
+      },
+      execute: async () => {
+        const { data, error: rpcErr } = await supabase.rpc("register_loss", {
+          p_establishment_id: establishment_id,
+          p_product_id: product_id,
+          p_qty: qtyNumber,
+          p_unit_label: unit_label,
+          p_reason: reasonTrim,
+          p_reason_detail: reasonDetailTrim || null,
+          p_lot: lotTrim || null,
+          p_label_code: labelCodeTrim || null,
+          p_user_id: user.id,
+          p_allow_negative: false,
+        });
+
+        if (rpcErr) {
+          console.error("POST /api/losses rpc error:", rpcErr);
+          throw new Error(rpcErr.message ?? "Erro ao registrar perda.");
+        }
+
+        return Array.isArray(data) ? data[0] : data;
+      },
+    });
+
+    result = action.value;
+    replayed = action.replayed;
+  } catch (rpcError: any) {
     return NextResponse.json(
-      { error: rpcErr.message ?? "Erro ao registrar perda." },
+      { error: rpcError?.message ?? "Erro ao registrar perda." },
       { status: 400 }
     );
   }
-
-  const result = Array.isArray(data) ? data[0] : data;
 
   if (result == null) {
     return NextResponse.json(
@@ -217,7 +256,7 @@ export async function POST(req: Request) {
 
   let photoError: string | null = null;
 
-  if (photo?.dataUrl) {
+  if (!replayed && photo?.dataUrl) {
     try {
       const parsedPhoto = parsePhotoInput(photo);
       const lossId = String(result.loss_id ?? "");
@@ -265,5 +304,10 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ success: true, result, photoError });
+  return NextResponse.json(
+    { success: true, result, photoError },
+    {
+      headers: replayed ? { "Idempotency-Replayed": "true" } : undefined,
+    }
+  );
 }

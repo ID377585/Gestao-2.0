@@ -12,6 +12,7 @@ import { writeTenantAuditLog } from "@/lib/tenant/audit";
 import { upsertDefaultModulePermissions } from "@/lib/tenant/module-permissions";
 import {
   createTenantInvitationInternalAction,
+  resendTenantInvitationInternalAction,
   type TenantInvitationRole,
 } from "@/lib/tenant/invitations.server";
 
@@ -74,6 +75,8 @@ export type CreateTenantInvitationActionState = {
   inviteUrl: string | null;
   email: string | null;
   expiresAt: string | null;
+  emailSent?: boolean;
+  emailSkipped?: boolean;
 };
 
 const INITIAL_TENANT_INVITATION_STATE: CreateTenantInvitationActionState = {
@@ -89,7 +92,7 @@ function getSupabaseAdmin() {
 }
 
 async function getContextOrThrow() {
-  const tenant = await assertActiveTenantRole(["admin", "operacao"]);
+  const tenant = await assertActiveTenantRole(["admin"]);
 
   return {
     userId: tenant.userId,
@@ -168,9 +171,27 @@ async function getAppOrigin() {
 }
 
 async function buildInviteUrl(token: string) {
-  const url = new URL("/convite", await getAppOrigin());
+  const url = new URL("/convite/aceitar", await getAppOrigin());
   url.searchParams.set("token", token);
   return url.toString();
+}
+
+function getInviteSuccessMessage(params: {
+  action: "created" | "resent";
+  emailSent?: boolean;
+  emailSkipped?: boolean;
+}) {
+  const verb = params.action === "resent" ? "reenviado" : "criado";
+
+  if (params.emailSent) {
+    return `Convite ${verb} e enviado por e-mail com sucesso.`;
+  }
+
+  if (params.emailSkipped) {
+    return `Convite ${verb}. O e-mail não está configurado; copie e envie o link manualmente.`;
+  }
+
+  return `Convite ${verb}. Envie o link para o usuário convidado.`;
 }
 
 async function getAuthUsersSnapshotMap(
@@ -612,6 +633,7 @@ export async function createTenantInvitationForAdminAction(
       role,
       sector,
       expiresInHours,
+      appOrigin: await getAppOrigin(),
     });
 
     if (!result.ok) {
@@ -623,17 +645,23 @@ export async function createTenantInvitationForAdminAction(
       };
     }
 
-    const inviteUrl = await buildInviteUrl(result.token);
+    const inviteUrl = result.inviteUrl || (await buildInviteUrl(result.token));
     const expiresAt = String((result.invitation as any)?.expires_at ?? "");
 
     revalidatePath("/dashboard/admin/usuarios");
 
     return {
       status: "success",
-      message: "Convite criado. Envie o link para o usuário convidado.",
+      message: getInviteSuccessMessage({
+        action: "created",
+        emailSent: result.emailSent,
+        emailSkipped: result.emailSkipped,
+      }),
       inviteUrl,
       email,
       expiresAt: expiresAt || null,
+      emailSent: result.emailSent,
+      emailSkipped: result.emailSkipped,
     };
   } catch (error: any) {
     console.error("Erro ao criar convite pela tela de usuários:", error);
@@ -643,6 +671,54 @@ export async function createTenantInvitationForAdminAction(
       status: "error",
       message: error?.message ?? "Não foi possível criar o convite.",
       email,
+    };
+  }
+}
+
+export async function resendTenantInvitationForAdminAction(
+  _previousState: CreateTenantInvitationActionState,
+  formData: FormData
+): Promise<CreateTenantInvitationActionState> {
+  const invitationId = String(formData.get("invitation_id") ?? "").trim();
+
+  if (!invitationId) {
+    return {
+      ...INITIAL_TENANT_INVITATION_STATE,
+      status: "error",
+      message: "Convite inválido para reenvio.",
+    };
+  }
+
+  try {
+    const result = await resendTenantInvitationInternalAction(invitationId, {
+      appOrigin: await getAppOrigin(),
+    });
+    const inviteUrl = result.inviteUrl || (await buildInviteUrl(result.token));
+    const expiresAt = String((result.invitation as any)?.expires_at ?? "");
+    const email = String((result.invitation as any)?.email ?? "");
+
+    revalidatePath("/dashboard/admin/usuarios");
+
+    return {
+      status: "success",
+      message: getInviteSuccessMessage({
+        action: "resent",
+        emailSent: result.emailSent,
+        emailSkipped: result.emailSkipped,
+      }),
+      inviteUrl,
+      email,
+      expiresAt: expiresAt || null,
+      emailSent: result.emailSent,
+      emailSkipped: result.emailSkipped,
+    };
+  } catch (error: any) {
+    console.error("Erro ao reenviar convite pela tela de usuários:", error);
+
+    return {
+      ...INITIAL_TENANT_INVITATION_STATE,
+      status: "error",
+      message: error?.message ?? "Não foi possível reenviar o convite.",
     };
   }
 }

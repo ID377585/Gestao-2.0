@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,31 @@ function getLastDayOfMonth(year: number, month: number) {
 
 function pad(value: number) {
   return String(value).padStart(2, "0");
+}
+
+function isAuthorizedBySecret(request: Request) {
+  const configuredSecrets = [
+    process.env.ALERTS_CRON_SECRET,
+    process.env.CRON_SECRET,
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+
+  if (configuredSecrets.length === 0) {
+    console.error(
+      "stock-count-reminders: ALERTS_CRON_SECRET ou CRON_SECRET não configurado."
+    );
+    return false;
+  }
+
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
+  const xSecret = request.headers.get("x-alerts-secret")?.trim();
+  const xCronSecret = request.headers.get("x-cron-secret")?.trim();
+
+  return [bearer, xSecret, xCronSecret].some(
+    (value) => Boolean(value) && configuredSecrets.includes(String(value))
+  );
 }
 
 function getReminderSlot(now: SaoPauloNow) {
@@ -124,8 +150,19 @@ async function createStockCountReminder() {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "stock-count-reminders",
+      limit: 30,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
+    if (!isAuthorizedBySecret(request)) {
+      return NextResponse.json({ ok: false, error: "Não autorizado." }, { status: 401 });
+    }
+
     const result = await createStockCountReminder();
     return NextResponse.json({ ok: true, ...result }, { status: 200 });
   } catch (error: any) {
@@ -136,6 +173,6 @@ export async function GET() {
   }
 }
 
-export async function POST() {
-  return GET();
+export async function POST(request: Request) {
+  return GET(request);
 }

@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export async function GET(req: Request) {
+  const limited = rateLimit(req, {
+    key: "inventory-labels-preview",
+    limit: 180,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   const supabase = await createSupabaseServerClient();
 
   let establishment_id: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -69,6 +69,7 @@ export default function NewOrderDialog({ onCreated }: NewOrderDialogProps) {
   const [currentUnitPrice, setCurrentUnitPrice] = useState<number | null>(null);
 
   const [items, setItems] = useState<NewOrderItemUI[]>([]);
+  const orderIdempotencyKeyRef = useRef<string | null>(null);
 
   const orderTotal = useMemo(
     () => items.reduce((sum, item) => sum + item.total_price, 0),
@@ -117,6 +118,17 @@ export default function NewOrderDialog({ onCreated }: NewOrderDialogProps) {
       unit_label: "",
     });
     setCurrentUnitPrice(null);
+    orderIdempotencyKeyRef.current = null;
+  }
+
+  function getOrderIdempotencyKey() {
+    if (!orderIdempotencyKeyRef.current) {
+      orderIdempotencyKeyRef.current =
+        globalThis.crypto?.randomUUID?.() ??
+        `order-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+
+    return orderIdempotencyKeyRef.current;
   }
 
   function handleAddItem() {
@@ -201,6 +213,7 @@ export default function NewOrderDialog({ onCreated }: NewOrderDialogProps) {
       const result = await createOrderWithItems({
         notes,
         items: payloadItems,
+        idempotencyKey: getOrderIdempotencyKey(),
       });
 
       toast({

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isFiscalCronAuthorized } from "@/lib/fiscal/cron-auth";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { getSupabaseAdminClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,13 @@ function isAuthorized(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const limited = rateLimit(request, {
+    key: "fiscal-auto-manifest",
+    limit: 20,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }

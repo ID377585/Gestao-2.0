@@ -8,7 +8,52 @@ export type CurrentUserInfo = {
   establishmentName?: string | null;
 };
 
-export async function getCurrentUserInfo(): Promise<CurrentUserInfo | null> {
+const CURRENT_USER_CACHE_MS = 10_000;
+
+let cachedCurrentUser:
+  | {
+      value: CurrentUserInfo | null;
+      expiresAt: number;
+    }
+  | null = null;
+
+let currentUserRequest: Promise<CurrentUserInfo | null> | null = null;
+
+export function clearCurrentUserInfoCache() {
+  cachedCurrentUser = null;
+  currentUserRequest = null;
+}
+
+export async function getCurrentUserInfo(options?: {
+  force?: boolean;
+}): Promise<CurrentUserInfo | null> {
+  if (
+    !options?.force &&
+    cachedCurrentUser &&
+    cachedCurrentUser.expiresAt > Date.now()
+  ) {
+    return cachedCurrentUser.value;
+  }
+
+  if (!options?.force && currentUserRequest) {
+    return currentUserRequest;
+  }
+
+  currentUserRequest = fetchCurrentUserInfo();
+
+  try {
+    const value = await currentUserRequest;
+    cachedCurrentUser = {
+      value,
+      expiresAt: Date.now() + CURRENT_USER_CACHE_MS,
+    };
+    return value;
+  } finally {
+    currentUserRequest = null;
+  }
+}
+
+async function fetchCurrentUserInfo(): Promise<CurrentUserInfo | null> {
   try {
     const response = await fetch("/api/user/me", {
       method: "GET",

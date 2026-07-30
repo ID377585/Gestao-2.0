@@ -2,7 +2,7 @@
 
 import { useActionState, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { Copy, Link2, MailPlus } from "lucide-react";
+import { Copy, Link2, MailPlus, RotateCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   createTenantInvitationForAdminAction,
+  resendTenantInvitationForAdminAction,
   type CreateTenantInvitationActionState,
   type TenantInvitationSummary,
 } from "./actions";
@@ -76,6 +77,17 @@ function SubmitButton() {
   );
 }
 
+function ResendButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <Button type="submit" variant="outline" size="sm" disabled={pending}>
+      <RotateCw className={pending ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+      {pending ? "Reenviando..." : "Reenviar"}
+    </Button>
+  );
+}
+
 export function InviteUserCard({
   invitations,
 }: {
@@ -85,14 +97,19 @@ export function InviteUserCard({
     createTenantInvitationForAdminAction,
     INITIAL_STATE
   );
+  const [resendState, resendFormAction] = useActionState(
+    resendTenantInvitationForAdminAction,
+    INITIAL_STATE
+  );
   const [copied, setCopied] = useState(false);
   const recentInvitations = useMemo(() => invitations.slice(0, 6), [invitations]);
+  const visibleState = resendState.status !== "idle" ? resendState : state;
 
   async function copyInviteUrl() {
-    if (!state.inviteUrl) return;
+    if (!visibleState.inviteUrl) return;
 
     try {
-      await navigator.clipboard.writeText(state.inviteUrl);
+      await navigator.clipboard.writeText(visibleState.inviteUrl);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -169,20 +186,20 @@ export function InviteUserCard({
           <SubmitButton />
         </form>
 
-        {state.message ? (
+        {visibleState.message ? (
           <div
             className={
-              state.status === "success"
+              visibleState.status === "success"
                 ? "rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"
                 : "rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
             }
             aria-live="polite"
           >
-            {state.message}
+            {visibleState.message}
           </div>
         ) : null}
 
-        {state.inviteUrl ? (
+        {visibleState.inviteUrl ? (
           <div className="space-y-2 rounded-lg border bg-slate-50 p-3">
             <Label htmlFor="created_invite_url" className="text-xs">
               Link do convite
@@ -190,7 +207,7 @@ export function InviteUserCard({
             <div className="flex gap-2">
               <Input
                 id="created_invite_url"
-                value={state.inviteUrl}
+                value={visibleState.inviteUrl}
                 readOnly
                 className="font-mono text-xs"
               />
@@ -205,7 +222,9 @@ export function InviteUserCard({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              {copied ? "Link copiado." : `Expira em ${formatDate(state.expiresAt)}.`}
+              {copied
+                ? "Link copiado."
+                : `Expira em ${formatDate(visibleState.expiresAt)}.`}
             </p>
           </div>
         ) : null}
@@ -245,10 +264,23 @@ export function InviteUserCard({
                       </Badge>
                     </div>
 
-                    <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-                      <Link2 className="h-3 w-3" />
-                      <span>Criado {formatDate(invitation.created_at)}</span>
-                      <span>· expira {formatDate(invitation.expires_at)}</span>
+                    <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Link2 className="h-3 w-3" />
+                        <span>Criado {formatDate(invitation.created_at)}</span>
+                        <span>· expira {formatDate(invitation.expires_at)}</span>
+                      </div>
+
+                      {status === "pending" || status === "expired" ? (
+                        <form action={resendFormAction}>
+                          <input
+                            type="hidden"
+                            name="invitation_id"
+                            value={invitation.id}
+                          />
+                          <ResendButton />
+                        </form>
+                      ) : null}
                     </div>
                   </div>
                 );

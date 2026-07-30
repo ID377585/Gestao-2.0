@@ -15,7 +15,7 @@ O projeto centraliza em uma única plataforma os processos de:
 - histórico operacional
 - análises e exportações
 
-Construído com **Next.js 14**, **TypeScript**, **Supabase** e **Tailwind CSS**, o sistema foi pensado para oferecer velocidade operacional, rastreabilidade e melhor tomada de decisão.
+Construído com **Next.js 16**, **React 19**, **TypeScript**, **Supabase** e **Tailwind CSS**, o sistema foi pensado para oferecer velocidade operacional, rastreabilidade e melhor tomada de decisão.
 
 ---
 
@@ -133,13 +133,27 @@ A arquitetura foi organizada para crescer com novos módulos e novas rotinas int
 - alertas operacionais
 - estrutura preparada para alertas por e-mail e regras de domínio
 
+## 11. RH / Ponto Digital
+- controle interno de jornada
+- marcações por selfie
+- cadastro de foto de referência para identificação operacional
+- cálculo de jornada em tempo real
+
+> O Ponto Digital é controle interno operacional. Ele não deve ser apresentado como REP legal/oficial sem homologação técnica e jurídica específica.
+
+## 12. Player de música
+- rádio por streaming HTTPS
+- suporte a fonte YouTube via player oficial incorporado
+- configuração por estabelecimento
+- pop-up persistente durante navegação
+
 ---
 
 ## Tecnologias utilizadas
 
 ### Frontend
-- Next.js 14
-- React
+- Next.js 16.2.6
+- React 19
 - TypeScript
 - Tailwind CSS
 - shadcn/ui
@@ -156,6 +170,17 @@ A arquitetura foi organizada para crescer com novos módulos e novas rotinas int
 - Vercel
 - variáveis de ambiente por ambiente
 - rotas server-side e client-side
+
+### Variáveis obrigatórias em produção
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` somente no servidor
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL` ou `ALERTS_FROM_EMAIL`
+- `FISCAL_SYNC_SECRET` ou `CRON_SECRET`
+- `NEXT_PUBLIC_APP_URL`
+
+Configure valores separados para Production, Preview e Development.
 
 ---
 

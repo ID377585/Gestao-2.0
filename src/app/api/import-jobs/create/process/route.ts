@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processImportJob } from "@/lib/import-technical-sheets";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 export async function POST(req: NextRequest) {
   try {
+    const limited = rateLimit(req, {
+      key: "import-jobs-process",
+      limit: 10,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     let tenantContext: Awaited<ReturnType<typeof getAuthenticatedTenantUserOrThrow>>;
     try {
       tenantContext = await getAuthenticatedTenantUserOrThrow();

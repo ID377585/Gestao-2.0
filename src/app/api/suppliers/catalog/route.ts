@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { privateCacheHeaders } from "@/lib/cache/http";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
 
@@ -46,7 +47,9 @@ export async function GET() {
       .filter((supplier) => supplier.active !== false)
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
-    return NextResponse.json(normalized);
+    return NextResponse.json(normalized, {
+      headers: privateCacheHeaders(60),
+    });
   } catch (error) {
     console.error(
       "[GET /api/suppliers/catalog] erro ao carregar fornecedores:",

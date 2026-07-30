@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 const LOSS_PHOTO_BUCKET = "loss-photos";
 
 export async function GET(request: NextRequest) {
+  const limited = rateLimit(request, {
+    key: "loss-photo",
+    limit: 180,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   const photoPath = request.nextUrl.searchParams.get("path")?.trim();
 
   if (!photoPath) {

@@ -4,6 +4,7 @@ import {
   createSupabaseServerClient,
   getSupabaseAdminClient,
 } from "@/lib/supabase/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -20,8 +21,15 @@ function toStatusCode(result: unknown) {
   return 500;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "api:debug:supabase-contract",
+      limit: 10,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const supabase = await createSupabaseServerClient();
     const {
       data: { user },

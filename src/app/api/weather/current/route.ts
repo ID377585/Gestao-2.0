@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listCurrentUserTenantsForUser } from "@/lib/tenant/get-current-tenant";
 import { TENANT_COOKIE_NAME } from "@/lib/tenant/constants";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -263,6 +264,13 @@ async function getCompanyLocationLabel() {
 
 export async function GET(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "api:weather:current",
+      limit: 60,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const url = new URL(request.url);
     const latitude = Number(url.searchParams.get("lat"));
     const longitude = Number(url.searchParams.get("lon"));

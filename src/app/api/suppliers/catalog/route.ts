@@ -2,12 +2,20 @@ import { NextResponse } from "next/server";
 import { privateCacheHeaders } from "@/lib/cache/http";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "api:suppliers:catalog",
+      limit: 90,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const tenant = await getCurrentTenant();
 
     if (!tenant?.establishmentId) {

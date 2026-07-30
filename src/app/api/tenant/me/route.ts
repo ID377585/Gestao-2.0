@@ -4,11 +4,19 @@ import {
   listCurrentUserTenants,
 } from "@/lib/tenant/get-current-tenant";
 import { getCompanySubscriptionStatus } from "@/lib/billing/subscription-status";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "api:tenant:me",
+      limit: 120,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const tenant = await getCurrentTenant();
 
     if (!tenant) {

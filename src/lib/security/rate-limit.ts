@@ -35,6 +35,25 @@ function pruneExpiredBuckets(now: number) {
   }
 }
 
+function buildRateLimitHeaders(params: {
+  limit: number;
+  remaining: number;
+  resetAt: number;
+  retryAfterSeconds?: number;
+}) {
+  const headers: Record<string, string> = {
+    "X-RateLimit-Limit": String(params.limit),
+    "X-RateLimit-Remaining": String(Math.max(0, params.remaining)),
+    "X-RateLimit-Reset": String(Math.ceil(params.resetAt / 1000)),
+  };
+
+  if (params.retryAfterSeconds) {
+    headers["Retry-After"] = String(params.retryAfterSeconds);
+  }
+
+  return headers;
+}
+
 export function rateLimit(request: Request, options: RateLimitOptions) {
   const now = Date.now();
   const identifier = options.identifier || getRequestIp(request);
@@ -65,9 +84,12 @@ export function rateLimit(request: Request, options: RateLimitOptions) {
     },
     {
       status: 429,
-      headers: {
-        "Retry-After": String(retryAfterSeconds),
-      },
+      headers: buildRateLimitHeaders({
+        limit: options.limit,
+        remaining: 0,
+        resetAt: existing.resetAt,
+        retryAfterSeconds,
+      }),
     }
   );
 }

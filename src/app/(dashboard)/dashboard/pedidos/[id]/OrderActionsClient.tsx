@@ -21,6 +21,15 @@ type Props = {
   status: string; // ex.: "pedido_criado", "aceitou_pedido"...
 };
 
+function createOrderActionKey(action: string, orderId: string) {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  return `order:${orderId}:${action}:${random}`;
+}
+
 export default function OrderActionsClient({ orderId, role, status }: Props) {
   const [accepting, setAccepting] = useState(false);
   const [advancing, setAdvancing] = useState(false);
@@ -86,7 +95,9 @@ export default function OrderActionsClient({ orderId, role, status }: Props) {
       {/* Aceitar */}
       <Button
         onClick={() =>
-          runLocked(accepting, setAccepting, () => acceptOrder(orderId))
+          runLocked(accepting, setAccepting, () =>
+            acceptOrder(orderId, createOrderActionKey("accept", orderId))
+          )
         }
         disabled={busy || !canAccept}
         variant="default"
@@ -97,7 +108,13 @@ export default function OrderActionsClient({ orderId, role, status }: Props) {
       {/* Avançar */}
       <Button
         onClick={() =>
-          runLocked(advancing, setAdvancing, () => advanceOrder(orderId))
+          runLocked(advancing, setAdvancing, () =>
+            advanceOrder(
+              orderId,
+              createOrderActionKey("advance", orderId),
+              status
+            )
+          )
         }
         disabled={busy || !canAdvance}
         variant="secondary"
@@ -111,7 +128,11 @@ export default function OrderActionsClient({ orderId, role, status }: Props) {
           runLocked(canceling, setCanceling, async () => {
             const reason = window.prompt("Motivo do cancelamento:") ?? "";
             if (!reason.trim()) return;
-            await cancelOrder(orderId, reason.trim());
+            await cancelOrder(
+              orderId,
+              reason.trim(),
+              createOrderActionKey("cancel", orderId)
+            );
           })
         }
         disabled={busy || !canCancel}
@@ -126,7 +147,11 @@ export default function OrderActionsClient({ orderId, role, status }: Props) {
           runLocked(reopening, setReopening, async () => {
             const note =
               window.prompt("Observação para reabrir (opcional):") ?? "";
-            await reopenOrder(orderId, note);
+            await reopenOrder(
+              orderId,
+              note,
+              createOrderActionKey("reopen", orderId)
+            );
           })
         }
         disabled={busy || !canReopen}

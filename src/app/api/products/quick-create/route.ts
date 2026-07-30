@@ -14,6 +14,7 @@ import {
   normalizeProductSectorCategory,
 } from "@/lib/product-sectors";
 import { rateLimit } from "@/lib/security/rate-limit";
+import { ensureProductStockBalance } from "@/lib/stock/product-stock-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -140,6 +141,20 @@ export async function POST(req: NextRequest) {
         if (error || !product) {
           console.error("Erro ao criar produto rapidamente:", error);
           throw new Error(error?.message ?? "Não foi possível criar o produto.");
+        }
+
+        try {
+          await ensureProductStockBalance({
+            supabase,
+            establishmentId,
+            productId: String((product as any).id),
+            unitLabel: defaultUnitLabel,
+          });
+        } catch (stockError) {
+          console.error(
+            "[products.quick-create] produto criado, mas falhou ao sincronizar estoque:",
+            stockError,
+          );
         }
 
         return product;

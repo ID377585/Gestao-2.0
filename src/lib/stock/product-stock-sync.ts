@@ -7,6 +7,34 @@ export function normalizeStockUnitLabel(input: any): string {
   return allowed.includes(value) ? value : "UN";
 }
 
+function isMissingRpcError(error: any) {
+  const code = String(error?.code ?? "");
+  const message = String(error?.message ?? "").toLowerCase();
+
+  return (
+    code === "42883" ||
+    code === "PGRST202" ||
+    message.includes("could not find the function") ||
+    message.includes("function public.gestify_ensure_stock_balance_for_product")
+  );
+}
+
+async function selectExistingStockBalance(params: {
+  supabase: any;
+  establishmentId: string;
+  productId: string;
+}) {
+  return params.supabase
+    .from("stock_balances")
+    .select("id, unit_label, location")
+    .eq("establishment_id", params.establishmentId)
+    .eq("product_id", params.productId)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+}
+
 export async function ensureProductStockBalance(params: {
   supabase: any;
   establishmentId: string;
@@ -17,12 +45,35 @@ export async function ensureProductStockBalance(params: {
   const unitLabel = normalizeStockUnitLabel(params.unitLabel);
   const defaultLocation = params.defaultLocation ?? "Estoque Principal";
 
-  const { data: existing, error: existingError } = await params.supabase
-    .from("stock_balances")
-    .select("id, unit_label, location")
-    .eq("establishment_id", params.establishmentId)
-    .eq("product_id", params.productId)
+  const { data: ensured, error: rpcError } = await params.supabase
+    .rpc("gestify_ensure_stock_balance_for_product", {
+      p_establishment_id: params.establishmentId,
+      p_product_id: params.productId,
+      p_unit_label: unitLabel,
+      p_default_location: defaultLocation,
+    })
     .maybeSingle();
+
+  if (!rpcError && ensured?.id) {
+    return ensured;
+  }
+
+  if (rpcError && !isMissingRpcError(rpcError)) {
+    console.error(
+      "[product-stock-sync.ensureProductStockBalance] rpc error",
+      rpcError,
+    );
+    throw new Error(
+      "Não foi possível garantir o item correspondente no estoque.",
+    );
+  }
+
+  const { data: existing, error: existingError } =
+    await selectExistingStockBalance({
+      supabase: params.supabase,
+      establishmentId: params.establishmentId,
+      productId: params.productId,
+    });
 
   if (existingError) {
     console.error(
@@ -54,6 +105,19 @@ export async function ensureProductStockBalance(params: {
     .maybeSingle();
 
   if (insertError) {
+    if (insertError.code === "23505") {
+      const { data: racedExisting, error: racedExistingError } =
+        await selectExistingStockBalance({
+          supabase: params.supabase,
+          establishmentId: params.establishmentId,
+          productId: params.productId,
+        });
+
+      if (!racedExistingError && racedExisting?.id) {
+        return racedExisting;
+      }
+    }
+
     console.error(
       "[product-stock-sync.ensureProductStockBalance] insert error",
       insertError,
@@ -75,7 +139,7 @@ export async function syncProductStockBalance(params: {
 }) {
   const normalizedUnit = normalizeStockUnitLabel(params.unitLabel);
 
-  await ensureProductStockBalance({
+  const ensured = await ensureProductStockBalance({
     supabase: params.supabase,
     establishmentId: params.establishmentId,
     productId: params.productId,
@@ -89,6 +153,7 @@ export async function syncProductStockBalance(params: {
   const { error } = await params.supabase
     .from("stock_balances")
     .update(updatePayload)
+    .eq("id", ensured.id)
     .eq("establishment_id", params.establishmentId)
     .eq("product_id", params.productId);
 

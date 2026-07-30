@@ -6,6 +6,7 @@ import { dispatchLowStockAlertsForProducts } from "@/lib/alerts/domain-triggers"
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveMembershipOrRedirect } from "@/lib/auth/get-membership";
 import { moveStock, type StockMovementInput } from "@/lib/stock/moveStock";
+import { ensureProductStockBalance } from "@/lib/stock/product-stock-sync";
 
 type StockBalanceRow = {
   id: string;
@@ -328,149 +329,14 @@ async function ensureStockBalanceForProduct(params: {
       productId: params.productId,
     }));
 
-  const { data: existingRows, error: existingError } = await params.supabase
-    .from("stock_balances")
-    .select(
-      "id, quantity, unit_label, min_qty, med_qty, max_qty, location, created_at"
-    )
-    .eq("establishment_id", params.establishmentId)
-    .eq("product_id", params.productId)
-    .order("id", { ascending: true });
+  const ensured = await ensureProductStockBalance({
+    supabase: params.supabase,
+    establishmentId: params.establishmentId,
+    productId: params.productId,
+    unitLabel: canonicalUnit,
+  });
 
-  if (existingError) {
-    console.error(
-      "[estoque.ensureStockBalanceForProduct] erro ao consultar stock_balances:",
-      existingError
-    );
-    throw new Error(
-      "Não foi possível verificar a estrutura de estoque deste produto."
-    );
-  }
-
-  const rows = (existingRows ?? []) as any[];
-
-  if (rows.length === 0) {
-    const { data: inserted, error: insertError } = await params.supabase
-      .from("stock_balances")
-      .insert({
-        establishment_id: params.establishmentId,
-        product_id: params.productId,
-        quantity: 0,
-        unit_label: canonicalUnit,
-        min_qty: 0,
-        med_qty: 0,
-        max_qty: 0,
-        location: "Estoque Principal",
-      })
-      .select("id")
-      .maybeSingle();
-
-    if (insertError) {
-      console.error(
-        "[estoque.ensureStockBalanceForProduct] erro ao inserir stock_balance:",
-        insertError
-      );
-      throw new Error(
-        "Não foi possível criar a estrutura de estoque para um ou mais produtos."
-      );
-    }
-
-    return inserted?.id as string | undefined;
-  }
-
-  if (rows.length === 1) {
-    const onlyRow = rows[0];
-
-    const mergedQuantity = convertQtyToCanonical(
-      normalizeNumber(onlyRow.quantity, 0),
-      onlyRow.unit_label
-    );
-
-    const { error: updateSingleError } = await params.supabase
-      .from("stock_balances")
-      .update({
-        quantity: mergedQuantity,
-        unit_label: canonicalUnit,
-      })
-      .eq("id", onlyRow.id);
-
-    if (updateSingleError) {
-      console.error(
-        "[estoque.ensureStockBalanceForProduct] erro ao padronizar unidade:",
-        updateSingleError
-      );
-      throw new Error(
-        "Não foi possível padronizar a unidade estrutural do estoque."
-      );
-    }
-
-    return onlyRow.id as string;
-  }
-
-  const keeper = rows[0];
-  const duplicateIds = rows.slice(1).map((row) => String(row.id));
-
-  const mergedQuantity = rows.reduce((acc, row) => {
-    return acc + convertQtyToCanonical(normalizeNumber(row.quantity, 0), row.unit_label);
-  }, 0);
-
-  const mergedMin = rows.reduce(
-    (acc, row) => Math.max(acc, normalizeNumber(row.min_qty, 0)),
-    0
-  );
-  const mergedMed = rows.reduce(
-    (acc, row) => Math.max(acc, normalizeNumber(row.med_qty, 0)),
-    0
-  );
-  const mergedMax = rows.reduce(
-    (acc, row) => Math.max(acc, normalizeNumber(row.max_qty, 0)),
-    0
-  );
-
-  const mergedLocation =
-    rows.find((row) => String(row.location ?? "").trim().length > 0)?.location ??
-    "Estoque Principal";
-
-  const { error: updateKeeperError } = await params.supabase
-    .from("stock_balances")
-    .update({
-      quantity: mergedQuantity,
-      unit_label: canonicalUnit,
-      min_qty: mergedMin,
-      med_qty: mergedMed,
-      max_qty: mergedMax,
-      location: mergedLocation,
-    })
-    .eq("id", keeper.id);
-
-  if (updateKeeperError) {
-    console.error(
-      "[estoque.ensureStockBalanceForProduct] erro ao consolidar duplicados:",
-      updateKeeperError
-    );
-    throw new Error(
-      "Não foi possível consolidar a estrutura duplicada de estoque deste produto."
-    );
-  }
-
-  if (duplicateIds.length > 0) {
-    const { error: deleteDuplicatesError } = await params.supabase
-      .from("stock_balances")
-      .delete()
-      .in("id", duplicateIds);
-
-    if (deleteDuplicatesError) {
-      console.error(
-        "[estoque.ensureStockBalanceForProduct] erro ao remover duplicados:",
-        deleteDuplicatesError
-      );
-      throw new Error(
-        "Não foi possível remover estruturas duplicadas de estoque deste produto."
-      );
-    }
-  }
-
-  return keeper.id as string;
+  return ensured?.id as string | undefined;
 }
 
 async function getOpenInventorySessionOwned(

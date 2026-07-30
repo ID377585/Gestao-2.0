@@ -77,6 +77,7 @@ function parseArgs(argv) {
 
   return {
     json: argv.includes("--json"),
+    quiet: argv.includes("--quiet"),
     failOnFindings: argv.includes("--fail-on-findings"),
     baselinePath: valueAfter("--baseline"),
     updateBaselinePath: valueAfter("--update-baseline"),
@@ -251,13 +252,23 @@ if (args.json) {
     console.log(`- baseline=${args.updateBaselinePath}`);
   }
 
-  for (const finding of annotatedFindings) {
+  const findingsToPrint = args.quiet
+    ? annotatedFindings.filter((finding) => !finding.baselineAccepted)
+    : annotatedFindings;
+
+  for (const finding of findingsToPrint) {
     console.log(
       `\n[${finding.risk.toUpperCase()}${
         finding.baselineAccepted ? " baseline" : ""
       }] ${finding.file}:${finding.line}\n` +
         `  ${finding.sample}\n` +
         `  ${finding.reason}`
+    );
+  }
+
+  if (args.quiet && findingsToPrint.length < annotatedFindings.length) {
+    console.log(
+      `\n[tenant-write-audit] ${annotatedFindings.length - findingsToPrint.length} achados baseline omitidos no modo quiet.`
     );
   }
 }

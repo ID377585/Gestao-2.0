@@ -220,20 +220,25 @@ export async function getCurrentTenantForUser(
   const selectedEstablishmentId =
     cookieStore.get(TENANT_COOKIE_NAME)?.value ?? null;
 
-  let query = supabase
-    .from("memberships")
-    .select(MEMBERSHIP_SELECT)
-    .eq("user_id", user.id)
-    .eq("is_active", true);
+  const loadMembership = async (establishmentId: string | null) => {
+    let query = supabase
+      .from("memberships")
+      .select(MEMBERSHIP_SELECT)
+      .eq("user_id", user.id)
+      .eq("is_active", true);
 
-  if (selectedEstablishmentId) {
-    query = query.eq("establishment_id", selectedEstablishmentId);
+    if (establishmentId) {
+      query = query.eq("establishment_id", establishmentId);
+    }
+
+    return query.order("created_at", { ascending: false }).limit(1).maybeSingle();
+  };
+
+  let { data, error } = await loadMembership(selectedEstablishmentId);
+
+  if (!data?.establishment_id && selectedEstablishmentId && !error) {
+    ({ data, error } = await loadMembership(null));
   }
-
-  const { data, error } = await query
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
 
   if (error) {
     console.error("[getCurrentTenantForUser] memberships error:", {

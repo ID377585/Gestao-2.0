@@ -142,6 +142,29 @@ function copyResponseCookies(source: NextResponse, target: NextResponse) {
   return target;
 }
 
+function isInvalidRefreshTokenError(error: unknown) {
+  const message = String((error as any)?.message ?? "").toLowerCase();
+
+  return (
+    message.includes("invalid refresh token") ||
+    message.includes("refresh token not found") ||
+    message.includes("refresh_token_not_found")
+  );
+}
+
+function clearAuthAndTenantCookies(req: NextRequest, response: NextResponse) {
+  for (const cookie of req.cookies.getAll()) {
+    if (cookie.name.startsWith("sb-") || cookie.name === TENANT_COOKIE_NAME) {
+      response.cookies.set(cookie.name, "", {
+        path: "/",
+        maxAge: 0,
+      });
+    }
+  }
+
+  return response;
+}
+
 async function userCanAccessProtectedModule(params: {
   supabase: ReturnType<typeof createSupabaseMiddlewareClient>["supabase"];
   userId: string;
@@ -154,23 +177,30 @@ async function userCanAccessProtectedModule(params: {
     return true;
   }
 
-  let membershipQuery = params.supabase
-    .from("memberships")
-    .select("establishment_id, role")
-    .eq("user_id", params.userId)
-    .eq("is_active", true);
+  const loadMembership = async (establishmentId: string | null) => {
+    let membershipQuery = params.supabase
+      .from("memberships")
+      .select("establishment_id, role")
+      .eq("user_id", params.userId)
+      .eq("is_active", true);
 
-  if (params.selectedEstablishmentId) {
-    membershipQuery = membershipQuery.eq(
-      "establishment_id",
-      params.selectedEstablishmentId
-    );
+    if (establishmentId) {
+      membershipQuery = membershipQuery.eq("establishment_id", establishmentId);
+    }
+
+    return membershipQuery
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+  };
+
+  let { data: membership, error: membershipError } = await loadMembership(
+    params.selectedEstablishmentId
+  );
+
+  if (!membership?.establishment_id && params.selectedEstablishmentId) {
+    ({ data: membership, error: membershipError } = await loadMembership(null));
   }
-
-  const { data: membership, error: membershipError } = await membershipQuery
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
 
   if (membershipError || !membership?.establishment_id) {
     console.error("[middleware] active membership lookup failed:", {
@@ -259,9 +289,28 @@ export async function middleware(req: NextRequest) {
    */
   const {
     data: { user },
+    error: userError,
   } = await middlewareClient.supabase.auth.getUser();
 
   supabaseResponse = middlewareClient.getResponse();
+
+  if (userError && isInvalidRefreshTokenError(userError)) {
+    const clearedResponse = clearAuthAndTenantCookies(req, supabaseResponse);
+
+    if (isProtectedRoute(pathname)) {
+      return redirectWithCookies(req, clearedResponse, "/login", {
+        redirect: pathname,
+      });
+    }
+
+    return clearedResponse;
+  }
+
+  if (userError) {
+    console.warn("[middleware] sessão não pôde ser validada:", {
+      message: userError.message,
+    });
+  }
 
   if (!user && isProtectedRoute(pathname)) {
     return redirectWithCookies(req, supabaseResponse, "/login", {

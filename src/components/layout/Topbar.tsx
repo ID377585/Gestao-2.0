@@ -28,6 +28,10 @@ import {
   type SubscriptionStatusBadgeData,
 } from "@/components/billing/SubscriptionStatusBadge";
 import { clearSession } from "@/lib/auth/session";
+import {
+  clearCurrentUserInfoCache,
+  getCurrentUserInfo,
+} from "@/lib/auth/current-user";
 import { supabase } from "@/lib/supabase";
 import {
   archiveNotification,
@@ -179,19 +183,8 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
     try {
       setLoadingUser(true);
 
-      const response = await fetch("/api/user/me", {
-        method: "GET",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (!response.ok) {
-        setUser(null);
-        return;
-      }
-
-      const data = (await response.json()) as TopbarUser;
-      setUser(data);
+      const data = await getCurrentUserInfo();
+      setUser(data as TopbarUser | null);
     } catch (error) {
       console.error("Erro ao carregar usuário do Topbar:", error);
       setUser(null);
@@ -211,6 +204,7 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async () => {
+      clearCurrentUserInfoCache();
       await fetchCurrentUser();
     });
 

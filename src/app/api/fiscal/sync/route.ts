@@ -3,6 +3,7 @@ import { type SupabaseClient } from "@supabase/supabase-js";
 import { consultarDistribuicaoDfe, parseDistributedDocument, type SefazAmbiente } from "@/lib/fiscal/sefaz-distribuicao-dfe";
 import { isFiscalCronAuthorized } from "@/lib/fiscal/cron-auth";
 import { parseNfeXml } from "@/lib/fiscal/nfe-parser";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { getSupabaseAdminClient } from "@/lib/supabase/server";
 import forge from "node-forge";
 
@@ -219,6 +220,13 @@ async function syncEstablishment(params: {
 }
 
 export async function GET(request: NextRequest) {
+  const limited = rateLimit(request, {
+    key: "fiscal-sync",
+    limit: 20,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }

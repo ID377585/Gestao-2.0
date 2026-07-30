@@ -1,18 +1,13 @@
 import { supabase } from "@/lib/supabase/client";
+import {
+  clearCurrentTenantCache,
+  getCurrentTenantPayload,
+} from "@/lib/tenant/current-tenant-client";
 
 type LegacyPayload = Record<string, unknown> | Record<string, unknown>[];
 type LegacyScopedQuery<T extends object> = Omit<T, "then"> & {
   query: T;
 };
-
-let cachedTenant:
-  | {
-      establishmentId: string;
-      expiresAt: number;
-    }
-  | null = null;
-
-const LEGACY_TENANT_CACHE_MS = 5_000;
 
 export function getLegacySupabase() {
   return supabase;
@@ -56,42 +51,29 @@ function wrapLegacyQuery<T extends object>(query: T): LegacyScopedQuery<T> {
 }
 
 export function resetLegacyTenantCache() {
-  cachedTenant = null;
+  clearCurrentTenantCache();
 }
 
 export async function getLegacyActiveEstablishmentId() {
-  if (cachedTenant && cachedTenant.expiresAt > Date.now()) {
-    return cachedTenant.establishmentId;
-  }
-
   if (typeof window === "undefined") {
     throw new Error("Contexto legado de empresa ativo indisponível no servidor.");
   }
 
-  const response = await fetch("/api/tenant/me", {
-    cache: "no-store",
-    credentials: "same-origin",
-  });
-
-  if (!response.ok) {
-    throw new Error("Não foi possível identificar a empresa ativa.");
-  }
-
-  const payload = await response.json();
+  const payload = await getCurrentTenantPayload();
+  const tenant = payload.tenant as
+    | {
+        establishmentId?: string | null;
+        establishment_id?: string | null;
+      }
+    | null
+    | undefined;
   const establishmentId = String(
-    payload?.tenant?.establishmentId ??
-      payload?.tenant?.establishment_id ??
-      ""
+    tenant?.establishmentId ?? tenant?.establishment_id ?? ""
   ).trim();
 
   if (!establishmentId) {
     throw new Error("Empresa ativa não encontrada.");
   }
-
-  cachedTenant = {
-    establishmentId,
-    expiresAt: Date.now() + LEGACY_TENANT_CACHE_MS,
-  };
 
   return establishmentId;
 }

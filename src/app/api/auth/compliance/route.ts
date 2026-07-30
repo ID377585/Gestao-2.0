@@ -13,6 +13,7 @@ import {
   recordTermsAcceptanceForCurrentUser,
 } from "@/lib/auth/terms-compliance.server";
 import { getRequiredSupabasePublicEnv } from "@/lib/supabase/config";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -119,6 +120,13 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "auth-compliance-accept",
+      limit: 20,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const { user, accessToken } = await resolveAuthenticatedUser(request);
 
     if (!user) {

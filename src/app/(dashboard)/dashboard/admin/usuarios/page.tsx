@@ -16,6 +16,7 @@ import {
   cancelTenantInvitationInternalAction,
   createTenantInvitationInternalAction,
   listTenantInvitationsInternalAction,
+  resendTenantInvitationInternalAction,
   type TenantInvitationListItem,
 } from "@/lib/tenant/invitations.server";
 
@@ -74,6 +75,8 @@ function getInvitationStatusLabel(status?: string | null) {
       return "Aceito";
     case "canceled":
       return "Cancelado";
+    case "expired":
+      return "Expirado";
     default:
       return "—";
   }
@@ -174,7 +177,22 @@ function InvitationCard({ invitation }: { invitation: TenantInvitationListItem }
     redirect("/dashboard/admin/usuarios?invite_canceled=1");
   }
 
+  async function handleResend(formData: FormData) {
+    "use server";
+    const invitationId = String(formData.get("invitation_id") ?? "").trim();
+    const result = await resendTenantInvitationInternalAction(invitationId, {
+      appOrigin: process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? null,
+    });
+
+    redirect(
+      `/dashboard/admin/usuarios?invite_email=${encodeURIComponent(
+        String((result.invitation as any)?.email ?? "")
+      )}&invite_token=${encodeURIComponent(result.token)}`
+    );
+  }
+
   const isPending = invitation.status === "pending";
+  const canResend = invitation.status === "pending" || invitation.status === "expired";
 
   return (
     <div className="rounded-xl border p-4">
@@ -203,6 +221,15 @@ function InvitationCard({ invitation }: { invitation: TenantInvitationListItem }
               </Button>
             </form>
           ) : null}
+
+          {canResend ? (
+            <form action={handleResend}>
+              <input type="hidden" name="invitation_id" value={invitation.id} />
+              <Button type="submit" variant="outline" size="sm">
+                Reenviar
+              </Button>
+            </form>
+          ) : null}
         </div>
       </div>
     </div>
@@ -224,6 +251,10 @@ export default async function UsuariosPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const membershipContext = await getActiveMembershipOrRedirect();
+  if (membershipContext.role !== "admin") {
+    redirect("/sem-acesso");
+  }
+
   const establishmentId = String(membershipContext.establishmentId ?? "");
 
   const collaborators = await listCollaborators();
@@ -298,6 +329,7 @@ export default async function UsuariosPage({
       role,
       sector,
       expiresInHours: 72,
+      appOrigin: process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? null,
     });
 
     if (!result.ok || !result.token) {

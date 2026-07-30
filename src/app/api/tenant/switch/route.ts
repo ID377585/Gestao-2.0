@@ -9,11 +9,19 @@ import {
   TENANT_COOKIE_NAME,
 } from "@/lib/tenant/constants";
 import { writeTenantAuditLog } from "@/lib/tenant/audit";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "tenant-switch",
+      limit: 30,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const body = await request.json().catch(() => ({}));
     const establishmentId = String(body?.establishmentId ?? "").trim();
 

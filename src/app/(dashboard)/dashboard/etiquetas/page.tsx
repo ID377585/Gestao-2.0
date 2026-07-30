@@ -2,7 +2,7 @@
 
 // src/app/(dashboard)/dashboard/etiquetas/page.tsx
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +44,7 @@ import {
 
 // ✅ impressão isolada (em src/lib/etiquetas)
 import { imprimirBatchNoBrowser } from "@/lib/etiquetas/print";
+import { createClientIdempotencyKey } from "@/lib/idempotency/client";
 
 // ✅ helpers isolados (em src/lib/etiquetas)
 import {
@@ -241,11 +242,17 @@ async function apiCreateInventoryLabel(payload: {
   qty: number;
   unitLabel: string;
   labelCode: string;
+  idempotencyKey?: string;
   extraPayload: any;
 }) {
   const res = await fetch("/api/inventory-labels", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(payload.idempotencyKey
+        ? { "Idempotency-Key": payload.idempotencyKey }
+        : {}),
+    },
     body: JSON.stringify(payload),
   });
 
@@ -319,6 +326,8 @@ export default function EtiquetasPage() {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(
     null
   );
+  const [salvandoEtiquetas, setSalvandoEtiquetas] = useState(false);
+  const etiquetaBatchIdempotencyRef = useRef<string | null>(null);
 
   const [formData, setFormData] = useState(createDefaultForm());
   const [linhasPorcao, setLinhasPorcao] = useState<LinhaPorcao[]>([]);
@@ -598,6 +607,8 @@ export default function EtiquetasPage() {
   }, [formData.qtd, linhasPorcao]);
 
   const handleGerarEImprimir = useCallback(async () => {
+    if (salvandoEtiquetas) return;
+
     const ok = validarQuantidades();
     if (!ok) return;
 
@@ -687,6 +698,11 @@ export default function EtiquetasPage() {
       marca: formData.marca,
     });
 
+    setSalvandoEtiquetas(true);
+    etiquetaBatchIdempotencyRef.current =
+      etiquetaBatchIdempotencyRef.current ??
+      createClientIdempotencyKey("inventory-labels.batch");
+
     try {
       /**
        * ✅ CORREÇÃO DO ERRO uq_stock_balances_*:
@@ -703,21 +719,26 @@ export default function EtiquetasPage() {
           unitLabel: String(et.umd || "").trim().toUpperCase().replace(/\s+/g, ""),
 
           labelCode: et.loteMan,
+          idempotencyKey: `${etiquetaBatchIdempotencyRef.current}:${et.loteMan}`,
           extraPayload: et,
         });
       }
+
+      await refreshHistorico();
+
+      await imprimirBatchNoBrowser(novas as unknown as EtiquetaGerada[]);
+
+      setShowNovaEtiqueta(false);
     } catch (e: any) {
       console.error("Erro ao salvar etiquetas no banco:", e);
       alert(e?.message ?? "Falha ao salvar etiqueta no banco.");
       return;
+    } finally {
+      setSalvandoEtiquetas(false);
+      etiquetaBatchIdempotencyRef.current = null;
     }
-
-    await refreshHistorico();
-
-    await imprimirBatchNoBrowser(novas as unknown as EtiquetaGerada[]);
-
-    setShowNovaEtiqueta(false);
   }, [
+    salvandoEtiquetas,
     validarQuantidades,
     formData,
     linhasPorcao,
@@ -1662,6 +1683,7 @@ export default function EtiquetasPage() {
                   <Button
                     onClick={handleGerarEImprimir}
                     disabled={
+                      salvandoEtiquetas ||
                       !tipoSelecionado ||
                       !tamanhoSelecionado ||
                       !String(formData.insumo || "").trim() ||
@@ -1672,7 +1694,9 @@ export default function EtiquetasPage() {
                     }
                   >
                     <span className="mr-2">🖨️</span>
-                    Gerar e Imprimir Etiqueta(s)
+                    {salvandoEtiquetas
+                      ? "Salvando..."
+                      : "Gerar e Imprimir Etiqueta(s)"}
                   </Button>
                 </div>
 

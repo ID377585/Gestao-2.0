@@ -4,6 +4,11 @@ import {
   createSupabaseAdminClient,
   createSupabaseServerClient,
 } from "@/lib/supabase/server";
+import {
+  getIdempotencyKeyFromRequest,
+  runIdempotentAction,
+} from "@/lib/idempotency/server";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 
 // ✅ NOVO: permite PATCH aqui também (evita 405 e mantém compatibilidade)
@@ -122,6 +127,13 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const limited = rateLimit(req, {
+    key: "inventory-labels-create",
+    limit: 120,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   const supabase = createSupabaseAdminClient();
   const { establishmentId, userId, debug } = await resolveTenantContext();
 
@@ -177,18 +189,48 @@ export async function POST(req: Request) {
   if (!qty || qty <= 0)
     return NextResponse.json({ error: "qty inválido." }, { status: 400 });
 
-  const { data, error } = await supabase
-    .rpc("create_inventory_label", {
-      p_establishment_id: establishmentId,
-      p_product_id: productId,
-      p_label_code: labelCode,
-      p_qty: qty,
-      p_unit_label: unitLabel,
-      p_notes: notes,
-      p_label_type: labelType,
-      p_user_id: userId,
-    })
-    .single();
+  let data: unknown = null;
+  let error: unknown = null;
+  let replayed = false;
+
+  try {
+    const result = await runIdempotentAction({
+      key: getIdempotencyKeyFromRequest(req, body),
+      operation: "inventory_labels.create",
+      userId,
+      establishmentId,
+      payload: {
+        productId,
+        labelCode,
+        unitLabel,
+        qty,
+        labelType,
+        notes,
+      },
+      execute: async () => {
+        const { data: created, error: createError } = await supabase
+          .rpc("create_inventory_label", {
+            p_establishment_id: establishmentId,
+            p_product_id: productId,
+            p_label_code: labelCode,
+            p_qty: qty,
+            p_unit_label: unitLabel,
+            p_notes: notes,
+            p_label_type: labelType,
+            p_user_id: userId,
+          })
+          .single();
+
+        if (createError) throw createError;
+        return created;
+      },
+    });
+
+    data = result.value;
+    replayed = result.replayed;
+  } catch (createError: any) {
+    error = createError;
+  }
 
   // erros comuns
   if ((error as any)?.code === "23505") {
@@ -213,7 +255,10 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json(data as InventoryLabelRow, { status: 201 });
+  return NextResponse.json(data as InventoryLabelRow, {
+    status: replayed ? 200 : 201,
+    headers: replayed ? { "Idempotency-Replayed": "true" } : undefined,
+  });
 }
 
 /**
@@ -225,6 +270,13 @@ export async function POST(req: Request) {
  * { labelId: string, newNotes: any }
  */
 export async function PATCH(req: Request) {
+  const limited = rateLimit(req, {
+    key: "inventory-labels-patch",
+    limit: 90,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   let body: any = null;
   try {
     body = await req.json();

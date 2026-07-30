@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { privateCacheHeaders } from "@/lib/cache/http";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { getSupabaseAdminClient } from "@/lib/supabase/server";
 import { getCurrentTenant } from "@/lib/tenant/get-current-tenant";
 
@@ -393,17 +395,29 @@ export async function GET() {
         ? legacyStation?.id ?? null
         : allStations[0]?.id ?? null;
 
-  return NextResponse.json({
-    enabled: Boolean(settings?.enabled) && allStations.length > 0,
-    autoplay: false,
-    canManage: canManageMusic(tenant.role),
-    defaultVolume: Number(settings?.default_volume ?? 0.6),
-    defaultStationId,
-    stations: allStations,
-  });
+  return NextResponse.json(
+    {
+      enabled: Boolean(settings?.enabled) && allStations.length > 0,
+      autoplay: false,
+      canManage: canManageMusic(tenant.role),
+      defaultVolume: Number(settings?.default_volume ?? 0.6),
+      defaultStationId,
+      stations: allStations,
+    },
+    {
+      headers: privateCacheHeaders(20),
+    }
+  );
 }
 
 export async function POST(request: Request) {
+  const limited = rateLimit(request, {
+    key: "music-player-settings",
+    limit: 30,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   const tenant = await getCurrentTenant();
 
   if (!tenant?.establishmentId) {

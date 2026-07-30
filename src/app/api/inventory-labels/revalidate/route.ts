@@ -1,6 +1,7 @@
 // src/app/api/inventory-labels/revalidate/route.ts
 import { NextResponse } from "next/server";
 import { revalidateInventoryLabel } from "@/app/(dashboard)/dashboard/etiquetas/actions";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,13 @@ function jsonError(
 
 export async function PATCH(req: Request) {
   try {
+    const limited = rateLimit(req, {
+      key: "inventory-labels-revalidate",
+      limit: 90,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     // ✅ Garantia de JSON válido
     let body: any;
     try {

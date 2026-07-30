@@ -2,6 +2,7 @@ import "server-only";
 
 import { type NotificationType } from "@/lib/notifications";
 import { getSupabaseAdminClient } from "@/lib/supabase/server";
+import { enqueueAppJob, shouldQueueAlertEmails } from "@/lib/queue/app-jobs";
 import { DEFAULT_USER_SETTINGS } from "@/lib/user-settings";
 import { buildAlertEmailHtml, sendAlertEmail } from "@/lib/alerts/email";
 
@@ -251,7 +252,9 @@ export async function dispatchAlert(input: DispatchAlertInput) {
 
   let notificationsCreated = 0;
   let emailsSent = 0;
+  let emailsQueued = 0;
   let emailSkipped = 0;
+  const queueEmails = shouldQueueAlertEmails();
 
   for (const recipient of recipients) {
     const preferences = preferencesMap.get(recipient.userId);
@@ -291,6 +294,24 @@ export async function dispatchAlert(input: DispatchAlertInput) {
       href: input.href ?? null,
     });
 
+    if (queueEmails) {
+      await enqueueAppJob({
+        queueName: "alerts",
+        jobType: "alert.email",
+        payload: {
+          to: recipientEmail,
+          subject: input.emailSubject?.trim() || input.titulo,
+          html,
+        },
+        dedupeKey: input.eventKey
+          ? `alert-email:${input.eventKey}:${recipient.userId}`
+          : null,
+        priority: 80,
+      });
+      emailsQueued += 1;
+      continue;
+    }
+
     const emailResult = await sendAlertEmail({
       to: recipientEmail,
       subject: input.emailSubject?.trim() || input.titulo,
@@ -308,6 +329,7 @@ export async function dispatchAlert(input: DispatchAlertInput) {
   return {
     notificationsCreated,
     emailsSent,
+    emailsQueued,
     emailSkipped,
   };
 }

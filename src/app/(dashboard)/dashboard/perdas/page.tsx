@@ -2,7 +2,7 @@
 
 // src/app/(dashboard)/dashboard/perdas/page.tsx
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -45,6 +45,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClientIdempotencyKey } from "@/lib/idempotency/client";
 import {
   Popover,
   PopoverContent,
@@ -215,6 +216,7 @@ export default function PerdasPage() {
   const [photoError, setPhotoError] = useState<string>("");
 
   const [submitting, setSubmitting] = useState(false);
+  const submitIdempotencyKeyRef = useRef<string | null>(null);
 
   /* =========================
      STATE: PREVIEW ETIQUETA
@@ -231,6 +233,19 @@ export default function PerdasPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<RpcLossResult | null>(null);
+
+  useEffect(() => {
+    submitIdempotencyKeyRef.current = null;
+  }, [
+    selectedProductId,
+    qty,
+    unitLabel,
+    lot,
+    reason,
+    reasonDetail,
+    qrcode,
+    photoFile,
+  ]);
 
   /* =========================
      LOAD: PRODUTOS
@@ -461,6 +476,11 @@ export default function PerdasPage() {
       return;
     }
 
+    const idempotencyKey =
+      submitIdempotencyKeyRef.current ??
+      createClientIdempotencyKey("losses.register");
+    submitIdempotencyKeyRef.current = idempotencyKey;
+
     setSubmitting(true);
     try {
       const photoPayload = photoFile
@@ -489,7 +509,10 @@ export default function PerdasPage() {
 
       const res = await fetch("/api/losses", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify(payload),
       });
 
@@ -512,6 +535,7 @@ export default function PerdasPage() {
       setQrcode("");
       setPhotoFile(null);
       setPhotoError("");
+      submitIdempotencyKeyRef.current = null;
 
       // limpa preview também
       setLabelPreview(null);

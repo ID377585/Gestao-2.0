@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { dispatchOverdueOrderAlerts } from "@/lib/alerts/domain-triggers";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { assertActiveTenantRole } from "@/lib/tenant/guards";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,13 @@ function isAuthorizedBySecret(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const limited = rateLimit(request, {
+      key: "alerts-orders-overdue",
+      limit: 30,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     let establishmentId: string | null = null;
 
     if (isAuthorizedBySecret(request)) {

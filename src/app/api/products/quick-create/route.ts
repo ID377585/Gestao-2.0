@@ -3,12 +3,17 @@ import {
   createSupabaseServerClient,
   getSupabaseAdminClient,
 } from "@/lib/supabase/server";
+import {
+  getIdempotencyKeyFromRequest,
+  runIdempotentAction,
+} from "@/lib/idempotency/server";
 import { assertBillingLimitAvailable } from "@/lib/billing/limits";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
 import {
   isProductSectorConstraintError,
   normalizeProductSectorCategory,
 } from "@/lib/product-sectors";
+import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +32,13 @@ function toNumber(value: unknown, fallback = 0) {
 
 export async function POST(req: NextRequest) {
   try {
+    const limited = rateLimit(req, {
+      key: "products-quick-create",
+      limit: 60,
+      windowMs: 60_000,
+    });
+    if (limited) return limited;
+
     const supabase = await createSupabaseServerClient();
     let tenantContext: Awaited<ReturnType<typeof getAuthenticatedTenantUserOrThrow>>;
 
@@ -81,52 +93,63 @@ export async function POST(req: NextRequest) {
       is_active: true,
     };
 
-    let { data, error } = await supabase
-      .from("products")
-      .insert(insertPayload)
-      .select(`
-        id,
-        name,
-        sku,
-        default_unit_label,
-        price,
-        standard_cost,
-        category,
-        sector_category,
-        shelf_life_days
-      `)
-      .single();
+    const { value: data, replayed } = await runIdempotentAction({
+      key: getIdempotencyKeyFromRequest(req, body),
+      operation: "products.quick_create",
+      userId: user.id,
+      establishmentId,
+      payload: insertPayload,
+      execute: async () => {
+        let { data: product, error } = await supabase
+          .from("products")
+          .insert(insertPayload)
+          .select(`
+            id,
+            name,
+            sku,
+            default_unit_label,
+            price,
+            standard_cost,
+            category,
+            sector_category,
+            shelf_life_days
+          `)
+          .single();
 
-    if (isProductSectorConstraintError(error) && insertPayload.sector_category) {
-      ({ data, error } = await supabase
-        .from("products")
-        .insert({
-          ...insertPayload,
-          sector_category: null,
-        })
-        .select(`
-          id,
-          name,
-          sku,
-          default_unit_label,
-          price,
-          standard_cost,
-          category,
-          sector_category,
-          shelf_life_days
-        `)
-        .single());
-    }
+        if (isProductSectorConstraintError(error) && insertPayload.sector_category) {
+          ({ data: product, error } = await supabase
+            .from("products")
+            .insert({
+              ...insertPayload,
+              sector_category: null,
+            })
+            .select(`
+              id,
+              name,
+              sku,
+              default_unit_label,
+              price,
+              standard_cost,
+              category,
+              sector_category,
+              shelf_life_days
+            `)
+            .single());
+        }
 
-    if (error || !data) {
-      console.error("Erro ao criar produto rapidamente:", error);
-      return NextResponse.json(
-        { error: error?.message ?? "Não foi possível criar o produto." },
-        { status: 500 }
-      );
-    }
+        if (error || !product) {
+          console.error("Erro ao criar produto rapidamente:", error);
+          throw new Error(error?.message ?? "Não foi possível criar o produto.");
+        }
 
-    return NextResponse.json(data, { status: 201 });
+        return product;
+      },
+    });
+
+    return NextResponse.json(data, {
+      status: replayed ? 200 : 201,
+      headers: replayed ? { "Idempotency-Replayed": "true" } : undefined,
+    });
   } catch (error: any) {
     console.error("Erro inesperado em quick-create:", error);
     return NextResponse.json(

@@ -15,6 +15,7 @@ import {
   dispatchLowStockAlertsForProducts,
   dispatchOrderLifecycleAlert,
 } from "@/lib/alerts/domain-triggers";
+import { runIdempotentAction } from "@/lib/idempotency/server";
 
 export type Role =
   | "cliente"
@@ -274,6 +275,7 @@ export async function createOrderWithItems(
   params: {
     notes?: string | null;
     items: NewOrderItemInput[];
+    idempotencyKey?: string | null;
   }
 ): Promise<CreateOrderResult> {
   const ctx = await getActiveMembershipOrRedirect();
@@ -324,38 +326,56 @@ export async function createOrderWithItems(
 
   const validItems = Array.from(consolidated.values());
 
-  const { data: createdOrders, error: createErr } = await supabaseAdmin.rpc(
-    "create_order_with_items",
-    {
-      p_establishment_id: establishmentId,
-      p_notes: safeNotes,
-      p_items: validItems,
-      p_user_id: userId,
-    }
-  );
+  const { value: order, replayed } = await runIdempotentAction<CreateOrderResult>({
+    key: params.idempotencyKey,
+    operation: "orders.create_with_items",
+    userId,
+    establishmentId,
+    payload: {
+      notes: safeNotes,
+      items: validItems,
+    },
+    execute: async () => {
+      const { data: createdOrders, error: createErr } = await supabaseAdmin.rpc(
+        "create_order_with_items",
+        {
+          p_establishment_id: establishmentId,
+          p_notes: safeNotes,
+          p_items: validItems,
+          p_user_id: userId,
+        }
+      );
 
-  if (createErr) {
-    throw normalizePgError(createErr);
-  }
+      if (createErr) {
+        throw normalizePgError(createErr);
+      }
 
-  const order = Array.isArray(createdOrders) ? createdOrders[0] : createdOrders;
+      const createdOrder = Array.isArray(createdOrders)
+        ? createdOrders[0]
+        : createdOrders;
 
-  if (!order) {
-    throw new Error("Erro ao criar pedido.");
-  }
+      if (!createdOrder) {
+        throw new Error("Erro ao criar pedido.");
+      }
+
+      return createdOrder as CreateOrderResult;
+    },
+  });
 
   revalidatePath("/dashboard/pedidos");
   revalidatePath(`/dashboard/pedidos/${order.id}`);
 
-  await dispatchOrderLifecycleAlert({
-    establishmentId,
-    orderId: String(order.id),
-    orderNumber: order.order_number ?? null,
-    title: "Novo pedido criado",
-    message: `O pedido #${order.order_number ?? "—"} foi criado e está aguardando aceite.`,
-    type: "info",
-    toStatus: "pedido_criado",
-  });
+  if (!replayed) {
+    await dispatchOrderLifecycleAlert({
+      establishmentId,
+      orderId: String(order.id),
+      orderNumber: order.order_number ?? null,
+      title: "Novo pedido criado",
+      message: `O pedido #${order.order_number ?? "—"} foi criado e está aguardando aceite.`,
+      type: "info",
+      toStatus: "pedido_criado",
+    });
+  }
 
   return order as CreateOrderResult;
 }

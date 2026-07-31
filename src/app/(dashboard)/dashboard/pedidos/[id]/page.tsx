@@ -26,6 +26,10 @@ import {
 import { OrderStatusStepper } from "@/components/orders/OrderStatusStepper";
 import { useToast } from "@/hooks/use-toast";
 
+import {
+  clearStableClientIdempotencyKey,
+  getStableClientIdempotencyKey,
+} from "@/lib/idempotency/client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 import {
@@ -58,13 +62,17 @@ type Role =
   | "admin"
   | "entrega";
 
-function createOrderActionKey(action: string, orderId: string) {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+function getOrderActionScope(action: string, orderId: string, status?: string) {
+  return `order:${orderId}:${action}:${status ?? "current"}`;
+}
 
-  return `order:${orderId}:${action}:${random}`;
+function getOrderActionKey(action: string, orderId: string, status?: string) {
+  const scope = getOrderActionScope(action, orderId, status);
+  return getStableClientIdempotencyKey(scope, `order:${orderId}:${action}`);
+}
+
+function clearOrderActionKey(action: string, orderId: string, status?: string) {
+  clearStableClientIdempotencyKey(getOrderActionScope(action, orderId, status));
 }
 
 type OrderItem = {
@@ -866,12 +874,14 @@ export default function PedidoDetalhePage() {
       await load();
 
       toast({ title: ok.title, description: ok.description });
+      return true;
     } catch (e: any) {
       toast({
         title: fail.title,
         description: e?.message ?? "Erro inesperado",
         variant: "destructive",
       });
+      return false;
     } finally {
       actionLockRef.current = false;
       safeSetState(() => setActing(false));
@@ -888,12 +898,13 @@ export default function PedidoDetalhePage() {
     autoAdvanceTriggeredRef.current = true;
 
     (async () => {
-      await runAction(
+      const actionStatus = order.status;
+      const ok = await runAction(
         () =>
           advanceOrder(
             orderId,
-            createOrderActionKey("advance", orderId),
-            order.status
+            getOrderActionKey("advance", orderId, actionStatus),
+            actionStatus
           ),
         {
           title: "Separação concluída",
@@ -901,27 +912,31 @@ export default function PedidoDetalhePage() {
         },
         { title: "Erro ao enviar para faturamento" }
       );
+      if (ok) clearOrderActionKey("advance", orderId, actionStatus);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId, order, separationProgress]);
 
   const onAccept = async () => {
     if (!orderId) return;
-    await runAction(
-      () => acceptOrder(orderId, createOrderActionKey("accept", orderId)),
+    const actionStatus = order?.status ?? "pedido_criado";
+    const ok = await runAction(
+      () => acceptOrder(orderId, getOrderActionKey("accept", orderId, actionStatus)),
       { title: "Pedido aceito", description: "Status atualizado com sucesso." },
       { title: "Erro ao aceitar pedido" }
     );
+    if (ok) clearOrderActionKey("accept", orderId, actionStatus);
   };
 
   const onAdvance = async () => {
     if (!orderId) return;
-    await runAction(
+    const actionStatus = order?.status ?? undefined;
+    const ok = await runAction(
       () =>
         advanceOrder(
           orderId,
-          createOrderActionKey("advance", orderId),
-          order?.status ?? undefined
+          getOrderActionKey("advance", orderId, actionStatus),
+          actionStatus
         ),
       {
         title: "Status avançado",
@@ -929,6 +944,7 @@ export default function PedidoDetalhePage() {
       },
       { title: "Erro ao avançar status" }
     );
+    if (ok) clearOrderActionKey("advance", orderId, actionStatus);
   };
 
   const onOpenCancel = () => {
@@ -951,12 +967,13 @@ export default function PedidoDetalhePage() {
 
     if (actionLockRef.current) return;
 
-    await runAction(
+    const actionStatus = order?.status ?? undefined;
+    const ok = await runAction(
       async () => {
         await cancelOrder(
           orderId,
           reason,
-          createOrderActionKey("cancel", orderId)
+          getOrderActionKey("cancel", orderId, actionStatus)
         );
         safeSetState(() => setOpenCancel(false));
       },
@@ -966,6 +983,7 @@ export default function PedidoDetalhePage() {
       },
       { title: "Erro ao cancelar pedido" }
     );
+    if (ok) clearOrderActionKey("cancel", orderId, actionStatus);
   };
 
   const onOpenReopen = () => {
@@ -978,18 +996,20 @@ export default function PedidoDetalhePage() {
 
     const note = reopenNote.trim() ? reopenNote.trim() : undefined;
 
-    await runAction(
+    const actionStatus = order?.status ?? undefined;
+    const ok = await runAction(
       async () => {
         await reopenOrder(
           orderId,
           note,
-          createOrderActionKey("reopen", orderId)
+          getOrderActionKey("reopen", orderId, actionStatus)
         );
         safeSetState(() => setOpenReopen(false));
       },
       { title: "Pedido reaberto", description: "Pedido voltou para o fluxo." },
       { title: "Erro ao reabrir pedido" }
     );
+    if (ok) clearOrderActionKey("reopen", orderId, actionStatus);
   };
 
   // 💰 Base de custo para pré-faturamento

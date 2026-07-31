@@ -118,6 +118,51 @@ function assertSameRequestHash(record: IdempotencyRecord<unknown>, requestHash: 
   );
 }
 
+async function markIdempotencyCompleted<T>(params: {
+  id: string;
+  value: T;
+}) {
+  const { data, error } = await getSupabaseAdminClient()
+    .from("api_idempotency_keys")
+    .update({
+      status: "completed",
+      response_status: 200,
+      response_body: params.value as any,
+      error_message: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.id)
+    .eq("status", "processing")
+    .select("id")
+    .maybeSingle();
+
+  if (error || !data) {
+    console.error("[idempotency] complete error:", error);
+    throw new Error(
+      "A operação foi concluída, mas não foi possível registrar o resultado idempotente. Recarregue a tela antes de tentar novamente."
+    );
+  }
+}
+
+async function markIdempotencyFailed(params: {
+  id: string;
+  message: string | null;
+}) {
+  const { error } = await getSupabaseAdminClient()
+    .from("api_idempotency_keys")
+    .update({
+      status: "failed",
+      error_message: params.message,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.id)
+    .eq("status", "processing");
+
+  if (error) {
+    console.error("[idempotency] fail mark error:", error);
+  }
+}
+
 export async function runIdempotentAction<T>(
   options: IdempotentActionOptions<T>
 ): Promise<IdempotentActionResult<T>> {
@@ -194,8 +239,11 @@ export async function runIdempotentAction<T>(
         updated_at: new Date().toISOString(),
       })
       .eq("id", record.id)
+      .eq("request_hash", requestHash)
+      .eq("status", record.status)
+      .lte("locked_until", new Date(now).toISOString())
       .select("id, request_hash, status, response_status, response_body, locked_until")
-      .single();
+      .maybeSingle();
 
     if (reclaimError || !reclaimed) {
       console.error("[idempotency] reclaim error:", reclaimError);
@@ -208,27 +256,17 @@ export async function runIdempotentAction<T>(
   try {
     const value = await options.execute();
 
-    await supabaseAdmin
-      .from("api_idempotency_keys")
-      .update({
-        status: "completed",
-        response_status: 200,
-        response_body: value as any,
-        error_message: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", record!.id);
+    await markIdempotencyCompleted({
+      id: record!.id,
+      value,
+    });
 
     return { value, replayed: false };
   } catch (error: any) {
-    await supabaseAdmin
-      .from("api_idempotency_keys")
-      .update({
-        status: "failed",
-        error_message: error?.message ? String(error.message).slice(0, 1000) : null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", record!.id);
+    await markIdempotencyFailed({
+      id: record!.id,
+      message: error?.message ? String(error.message).slice(0, 1000) : null,
+    });
 
     throw error;
   }

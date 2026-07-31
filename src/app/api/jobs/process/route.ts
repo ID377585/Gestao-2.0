@@ -51,6 +51,12 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ ok: true, ...result }, { status: 200 });
 }
 
-export async function GET(request: NextRequest) {
-  return POST(request);
+export async function GET() {
+  return NextResponse.json(
+    { ok: false, error: "Método não permitido. Use POST." },
+    {
+      status: 405,
+      headers: { Allow: "POST" },
+    }
+  );
 }

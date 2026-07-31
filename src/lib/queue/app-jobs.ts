@@ -86,7 +86,7 @@ export async function enqueueAppJob(input: EnqueueAppJobInput) {
 }
 
 async function completeJob(jobId: string) {
-  await getSupabaseAdminClient()
+  const { error } = await getSupabaseAdminClient()
     .from("app_job_queue")
     .update({
       status: "completed",
@@ -96,6 +96,11 @@ async function completeJob(jobId: string) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", jobId);
+
+  if (error) {
+    console.error("[app-jobs] complete error:", { jobId, error });
+    throw new Error("Não foi possível marcar a tarefa como concluída.");
+  }
 }
 
 async function failJob(job: AppJobRow, error: unknown) {
@@ -103,7 +108,7 @@ async function failJob(job: AppJobRow, error: unknown) {
   const shouldRetry = job.attempts < job.max_attempts;
   const delayMinutes = Math.min(60, Math.max(1, job.attempts * 2));
 
-  await getSupabaseAdminClient()
+  const { error: updateError } = await getSupabaseAdminClient()
     .from("app_job_queue")
     .update({
       status: shouldRetry ? "pending" : "dead",
@@ -116,6 +121,11 @@ async function failJob(job: AppJobRow, error: unknown) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", job.id);
+
+  if (updateError) {
+    console.error("[app-jobs] fail mark error:", { jobId: job.id, updateError });
+    throw new Error("Não foi possível registrar a falha da tarefa.");
+  }
 }
 
 async function handleAlertEmailJob(job: AppJobRow) {

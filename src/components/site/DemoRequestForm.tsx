@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { Mail, MessageCircle } from "lucide-react";
+import { Loader2, Mail, MessageCircle } from "lucide-react";
 
+import { ConsentCheckbox } from "@/components/legal/ConsentCheckbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,8 +31,15 @@ const needs = [
 const gestifyWhatsappNumber = "5511986754605";
 const gestifyLeadEmail = "id377585@gmail.com";
 
+type ContactPreference = "whatsapp" | "email";
+
 export function DemoRequestForm() {
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submittingPreference, setSubmittingPreference] =
+    useState<ContactPreference | null>(null);
+  const [consentTerms, setConsentTerms] = useState(false);
+  const [consentMarketing, setConsentMarketing] = useState(false);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -79,11 +87,71 @@ export function DemoRequestForm() {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
+  async function submitLead(contactPreference: ContactPreference) {
+    if (!consentTerms) {
+      setSubmitError(
+        "Aceite os termos e a política de privacidade para solicitar a demonstração."
+      );
+      return;
+    }
+
+    setSubmitError(null);
+    setSubmitted(false);
+    setSubmittingPreference(contactPreference);
+
+    try {
+      const response = await fetch("/api/public/demo-leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          contactPreference,
+          consentTerms,
+          consentMarketing,
+        }),
+      });
+      const result = await response.json().catch(() => null);
+
+      const nextWhatsappHref =
+        typeof result?.whatsappUrl === "string" ? result.whatsappUrl : whatsappHref;
+      const nextMailtoHref =
+        typeof result?.mailtoHref === "string" ? result.mailtoHref : mailtoHref;
+
+      if (!response.ok || !result?.ok) {
+        setSubmitError(
+          result?.error ||
+            "Não foi possível registrar sua solicitação agora. Vamos abrir o contato direto mesmo assim."
+        );
+      }
+
+      if (contactPreference === "whatsapp") {
+        window.open(nextWhatsappHref, "_blank", "noopener,noreferrer");
+      } else {
+        window.location.href = nextMailtoHref;
+      }
+
+      setSubmitted(Boolean(response.ok && result?.ok));
+    } catch {
+      setSubmitError(
+        "Não foi possível registrar sua solicitação agora. Vamos abrir o WhatsApp com os dados preenchidos."
+      );
+
+      if (contactPreference === "whatsapp") {
+        window.open(whatsappHref, "_blank", "noopener,noreferrer");
+      } else {
+        window.location.href = mailtoHref;
+      }
+    } finally {
+      setSubmittingPreference(null);
+    }
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSubmitted(true);
-    window.open(whatsappHref, "_blank", "noopener,noreferrer");
+    void submitLead("whatsapp");
   }
+
+  const isSubmitting = submittingPreference !== null;
 
   return (
     <form
@@ -179,25 +247,65 @@ export function DemoRequestForm() {
         />
       </label>
 
+      <ConsentCheckbox
+        id="demo-legal-consent"
+        value={consentTerms}
+        onChange={setConsentTerms}
+        error={submitError && !consentTerms ? submitError : undefined}
+        className="mt-5 rounded-lg border border-[#E2E6EA] bg-[#F7F8FA] p-4"
+        helperText="Usaremos os dados enviados somente para registrar o interesse, entrar em contato sobre a demonstração e cumprir obrigações legais de privacidade."
+        secondaryConsent={{
+          id: "demo-marketing-consent",
+          value: consentMarketing,
+          onChange: setConsentMarketing,
+          label: "Aceito receber comunicações comerciais da Gestify.",
+          description:
+            "Esse aceite é opcional e pode ser revogado a qualquer momento.",
+        }}
+      />
+
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
         <Button
           type="submit"
+          disabled={isSubmitting}
           className="bg-[#D8A640] text-[#17212B] hover:bg-[#E8BD5C]"
         >
-          <MessageCircle className="size-4" />
-          Enviar pelo WhatsApp
+          {submittingPreference === "whatsapp" ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <MessageCircle className="size-4" />
+          )}
+          {submittingPreference === "whatsapp"
+            ? "Registrando..."
+            : "Enviar pelo WhatsApp"}
         </Button>
-        <Button asChild variant="outline">
-          <a href={mailtoHref}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={isSubmitting}
+          onClick={() => void submitLead("email")}
+        >
+          {submittingPreference === "email" ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
             <Mail className="size-4" />
-            Enviar por e-mail
-          </a>
+          )}
+          {submittingPreference === "email" ? "Registrando..." : "Enviar por e-mail"}
         </Button>
       </div>
 
       {submitted ? (
         <p className="mt-4 rounded-md bg-[#F7F8FA] px-4 py-3 text-sm font-semibold text-[#313A46]">
-          Abrimos o WhatsApp com a solicitacao preenchida para o Gestify.
+          Solicitação registrada. Abrimos o canal escolhido com a mensagem preenchida.
+        </p>
+      ) : null}
+
+      {submitError && consentTerms ? (
+        <p
+          className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900"
+          aria-live="polite"
+        >
+          {submitError}
         </p>
       ) : null}
     </form>

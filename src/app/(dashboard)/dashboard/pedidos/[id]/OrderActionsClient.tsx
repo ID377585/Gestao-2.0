@@ -9,6 +9,10 @@ import {
   cancelOrder,
   reopenOrder,
 } from "../actions"; // importa as server actions do pedido
+import {
+  clearStableClientIdempotencyKey,
+  getStableClientIdempotencyKey,
+} from "@/lib/idempotency/client";
 
 // 🔗 Server action usada na etapa de SEPARAÇÃO
 // (arquivo: src/app/(dashboard)/dashboard/pedidos/separacao/actions.ts)
@@ -21,13 +25,17 @@ type Props = {
   status: string; // ex.: "pedido_criado", "aceitou_pedido"...
 };
 
-function createOrderActionKey(action: string, orderId: string) {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+function getOrderActionScope(action: string, orderId: string, status?: string) {
+  return `order:${orderId}:${action}:${status ?? "current"}`;
+}
 
-  return `order:${orderId}:${action}:${random}`;
+function getOrderActionKey(action: string, orderId: string, status?: string) {
+  const scope = getOrderActionScope(action, orderId, status);
+  return getStableClientIdempotencyKey(scope, `order:${orderId}:${action}`);
+}
+
+function clearOrderActionKey(action: string, orderId: string, status?: string) {
+  clearStableClientIdempotencyKey(getOrderActionScope(action, orderId, status));
 }
 
 export default function OrderActionsClient({ orderId, role, status }: Props) {
@@ -95,9 +103,10 @@ export default function OrderActionsClient({ orderId, role, status }: Props) {
       {/* Aceitar */}
       <Button
         onClick={() =>
-          runLocked(accepting, setAccepting, () =>
-            acceptOrder(orderId, createOrderActionKey("accept", orderId))
-          )
+          runLocked(accepting, setAccepting, async () => {
+            await acceptOrder(orderId, getOrderActionKey("accept", orderId, status));
+            clearOrderActionKey("accept", orderId, status);
+          })
         }
         disabled={busy || !canAccept}
         variant="default"
@@ -108,13 +117,14 @@ export default function OrderActionsClient({ orderId, role, status }: Props) {
       {/* Avançar */}
       <Button
         onClick={() =>
-          runLocked(advancing, setAdvancing, () =>
-            advanceOrder(
+          runLocked(advancing, setAdvancing, async () => {
+            await advanceOrder(
               orderId,
-              createOrderActionKey("advance", orderId),
+              getOrderActionKey("advance", orderId, status),
               status
-            )
-          )
+            );
+            clearOrderActionKey("advance", orderId, status);
+          })
         }
         disabled={busy || !canAdvance}
         variant="secondary"
@@ -131,8 +141,9 @@ export default function OrderActionsClient({ orderId, role, status }: Props) {
             await cancelOrder(
               orderId,
               reason.trim(),
-              createOrderActionKey("cancel", orderId)
+              getOrderActionKey("cancel", orderId, status)
             );
+            clearOrderActionKey("cancel", orderId, status);
           })
         }
         disabled={busy || !canCancel}
@@ -150,8 +161,9 @@ export default function OrderActionsClient({ orderId, role, status }: Props) {
             await reopenOrder(
               orderId,
               note,
-              createOrderActionKey("reopen", orderId)
+              getOrderActionKey("reopen", orderId, status)
             );
+            clearOrderActionKey("reopen", orderId, status);
           })
         }
         disabled={busy || !canReopen}

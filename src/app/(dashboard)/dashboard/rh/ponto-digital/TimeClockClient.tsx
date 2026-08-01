@@ -700,6 +700,19 @@ export function TimeClockClient({
     });
   };
 
+  const handleTerminalTap = () => {
+    if (isPending || capturingSelfie) return;
+
+    if (registeredFacesCount === 0) {
+      setError(
+        "Cadastre ao menos uma foto de biometria para liberar o registro por reconhecimento facial."
+      );
+      return;
+    }
+
+    captureSelfieAndRegister();
+  };
+
   const recentRecords = snapshot.recentRecords ?? [];
   const registeredFacesCount = snapshot.employees.filter(
     (employee) => employee.faceRegistered
@@ -732,7 +745,12 @@ export function TimeClockClient({
     : recentRecords;
   const latestRecords = filteredRecords.slice(0, 3);
   const syncedTodayCount = snapshot.syncedTodayCount;
-  const primaryEmployeeName = identifiedEmployee?.name ?? snapshot.subjectName;
+  const primaryEmployeeName = identifiedEmployee?.name ?? "Terminal Gestify";
+  const terminalSubtitle = identifiedEmployee
+    ? `${identifiedEmployee.name} · ${getNextActionLabel(snapshot.nextEventType)}`
+    : registeredFacesCount === 0
+      ? "Cadastre uma foto na lista de colaboradores abaixo"
+      : "Ao identificar o rosto, o sistema registra a próxima batida do colaborador";
   const terminalInstruction =
     registeredFacesCount === 0
       ? "Cadastre uma biometria para liberar o ponto"
@@ -795,20 +813,15 @@ export function TimeClockClient({
               {terminalInstruction}
             </h1>
             <p className="mt-2 max-w-lg text-sm text-slate-300">
-              {getNextActionLabel(snapshot.nextEventType)}
+              {terminalSubtitle}
               {matchScore ? ` · biometria ${Math.round(matchScore * 100)}%` : ""}
             </p>
 
             <button
               type="button"
               className="group relative mt-14 flex w-full max-w-[360px] flex-col items-center justify-center overflow-hidden rounded-[28px] border-[8px] border-white bg-black/55 p-5 text-white shadow-[0_22px_65px_rgba(0,0,0,0.50)] transition hover:scale-[1.01] focus:outline-none focus:ring-4 focus:ring-cyan-300/50 disabled:cursor-not-allowed disabled:opacity-60 sm:max-w-[420px] sm:p-7"
-              disabled={
-                !snapshot.nextEventType ||
-                isPending ||
-                capturingSelfie ||
-                registeredFacesCount === 0
-              }
-              onClick={captureSelfieAndRegister}
+              disabled={isPending || capturingSelfie}
+              onClick={handleTerminalTap}
             >
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-white/70 bg-slate-950">
                 <video

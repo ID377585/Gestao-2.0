@@ -74,6 +74,8 @@ function serializeNotificationError(error: unknown) {
   };
 }
 
+const lastSuccessfulNotificationsByUserId = new Map<string, AppNotification[]>();
+
 function normalizeNotification(row: Record<string, any>): AppNotification {
   const priority = normalizePriority(row.priority);
   const readAt = row.read_at ?? row.readAt ?? null;
@@ -114,6 +116,41 @@ function normalizeNotification(row: Record<string, any>): AppNotification {
           ? row.emailSent
           : undefined,
   };
+}
+
+async function getUserNotificationsFromApi(userId: string) {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const response = await fetch("/api/user/notifications", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (response.status === 401) return [];
+
+    if (!response.ok) {
+      throw new Error(`Falha ao carregar notificações (${response.status}).`);
+    }
+
+    const body = (await response.json().catch(() => ({}))) as {
+      notifications?: unknown;
+    };
+    const notifications = Array.isArray(body.notifications)
+      ? body.notifications.map((row) =>
+          normalizeNotification(row as Record<string, any>)
+        )
+      : [];
+
+    lastSuccessfulNotificationsByUserId.set(userId, notifications);
+    return notifications;
+  } catch {
+    return lastSuccessfulNotificationsByUserId.get(userId) ?? [];
+  }
 }
 
 async function getUserNotificationsFromNewSchema(userId: string) {
@@ -158,17 +195,38 @@ export async function getUserNotifications(userId: string) {
     return [];
   }
 
+  const apiNotifications = await getUserNotificationsFromApi(safeUserId);
+  if (apiNotifications) return apiNotifications;
+
   try {
-    return await getUserNotificationsFromNewSchema(safeUserId);
+    const notifications = await getUserNotificationsFromNewSchema(safeUserId);
+    lastSuccessfulNotificationsByUserId.set(safeUserId, notifications);
+    return notifications;
   } catch {
     try {
       if (!isUuid(safeUserId)) {
         throw new Error("Formato de usuário incompatível com user_id.");
       }
 
-      return await getUserNotificationsByColumn(safeUserId, "user_id", "created_at");
+      const notifications = await getUserNotificationsByColumn(
+        safeUserId,
+        "user_id",
+        "created_at"
+      );
+      lastSuccessfulNotificationsByUserId.set(safeUserId, notifications);
+      return notifications;
     } catch {
-      return getUserNotificationsByColumn(safeUserId, "userId", "createdAt");
+      try {
+        const notifications = await getUserNotificationsByColumn(
+          safeUserId,
+          "userId",
+          "createdAt"
+        );
+        lastSuccessfulNotificationsByUserId.set(safeUserId, notifications);
+        return notifications;
+      } catch {
+        return lastSuccessfulNotificationsByUserId.get(safeUserId) ?? [];
+      }
     }
   }
 }

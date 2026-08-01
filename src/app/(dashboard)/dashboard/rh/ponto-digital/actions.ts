@@ -20,6 +20,7 @@ export type TimeClockStatus =
 
 export type TimeClockEvent = {
   id: string;
+  userId?: string | null;
   eventType: TimeClockEventType;
   occurredAt: string;
   workDate: string;
@@ -38,6 +39,13 @@ export type TimeClockEmployee = {
   faceRegistered: boolean;
   faceSignature: number[] | null;
   updatedAt: string | null;
+};
+
+export type TimeClockRecentRecord = TimeClockEvent & {
+  userId: string;
+  employeeName: string;
+  employeeSector: string | null;
+  employeeRole: string | null;
 };
 
 export type FaceDetectionStatus =
@@ -65,6 +73,9 @@ export type TimeClockSnapshot = {
   status: TimeClockStatus;
   nextEventType: TimeClockEventType | null;
   events: TimeClockEvent[];
+  recentRecords: TimeClockRecentRecord[];
+  syncedTodayCount: number;
+  pendingSyncCount: number;
   settings: TimeClockSettings;
   employees: TimeClockEmployee[];
 };
@@ -222,6 +233,7 @@ function normalizeEvent(row: any): TimeClockEvent {
 
   return {
     id: String(row.id),
+    userId: row.user_id ? String(row.user_id) : null,
     eventType:
       APP_EVENT_TYPES_BY_DB[dbEventType] ?? (dbEventType as TimeClockEventType),
     occurredAt: String(row.occurred_at),
@@ -657,6 +669,89 @@ async function fetchRecentEvents(params: {
   return (legacyResult.data ?? []).map(normalizeEvent);
 }
 
+async function fetchRecentRecords(params: {
+  establishmentId: string;
+  employees: TimeClockEmployee[];
+  serverNow: Date;
+  workDate: string;
+}): Promise<{ records: TimeClockRecentRecord[]; syncedTodayCount: number }> {
+  const supabaseAdmin = getSupabaseAdminClient();
+  const since = new Date(
+    params.serverNow.getTime() - 42 * 60 * 60 * 1000
+  ).toISOString();
+  const employeeByUserId = new Map(
+    params.employees.map((employee) => [employee.userId, employee])
+  );
+
+  const normalizeRecords = (rows: any[]) => {
+    const records = rows
+      .map(normalizeEvent)
+      .filter((event) => event.workDate === params.workDate && event.userId)
+      .map((event) => {
+        const employee = employeeByUserId.get(String(event.userId));
+
+        return {
+          ...event,
+          userId: String(event.userId),
+          employeeName: employee?.name ?? "Colaborador",
+          employeeSector: employee?.sector ?? null,
+          employeeRole: employee?.role ?? null,
+        } satisfies TimeClockRecentRecord;
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
+      );
+
+    return {
+      records: records.slice(0, 12),
+      syncedTodayCount: records.length,
+    };
+  };
+
+  const fullResult = await supabaseAdmin
+    .from("hr_time_clock_events")
+    .select(
+      "id, user_id, shift_id, event_type, occurred_at, work_date, source, selfie_path, face_detection_status, face_count"
+    )
+    .eq("establishment_id", params.establishmentId)
+    .gte("occurred_at", since)
+    .order("occurred_at", { ascending: false })
+    .limit(80);
+
+  if (!fullResult.error) {
+    return normalizeRecords(fullResult.data ?? []);
+  }
+
+  if (!isMissingTableError(fullResult.error)) {
+    console.warn(
+      "[time-clock] recent records fallback:",
+      serializeSupabaseError(fullResult.error)
+    );
+    return { records: [], syncedTodayCount: 0 };
+  }
+
+  const legacyResult = await supabaseAdmin
+    .from("hr_time_clock_events")
+    .select("id, user_id, shift_id, event_type, occurred_at, work_date, source")
+    .eq("establishment_id", params.establishmentId)
+    .gte("occurred_at", since)
+    .order("occurred_at", { ascending: false })
+    .limit(80);
+
+  if (legacyResult.error) {
+    if (!isMissingTableError(legacyResult.error)) {
+      console.warn(
+        "[time-clock] legacy recent records fallback:",
+        serializeSupabaseError(legacyResult.error)
+      );
+    }
+    return { records: [], syncedTodayCount: 0 };
+  }
+
+  return normalizeRecords(legacyResult.data ?? []);
+}
+
 async function fetchOpenShift(params: {
   establishmentId: string;
   userId: string;
@@ -925,6 +1020,12 @@ export async function getTimeClockSnapshot(
     today,
   });
   const events = getEventsForWorkDate(recentEvents, activeWorkDate);
+  const recentRecordsResult = await fetchRecentRecords({
+    establishmentId: tenant.establishmentId,
+    employees,
+    serverNow,
+    workDate: activeWorkDate,
+  });
 
   return {
     serverNow: serverNow.toISOString(),
@@ -935,6 +1036,9 @@ export async function getTimeClockSnapshot(
     status: getStatus(events),
     nextEventType: getNextEventType(events),
     events,
+    recentRecords: recentRecordsResult.records,
+    syncedTodayCount: recentRecordsResult.syncedTodayCount,
+    pendingSyncCount: 0,
     settings,
     employees,
   };

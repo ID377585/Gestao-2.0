@@ -31,6 +31,7 @@ import {
   type TimeClockEmployee,
   type TimeClockEvent,
   type TimeClockEventType,
+  type TimeClockRecentRecord,
   type TimeClockSelfieInput,
   type TimeClockSnapshot,
 } from "./actions";
@@ -191,6 +192,14 @@ function getSelfieStatusLabel(status?: FaceDetectionStatus | null) {
   }
 }
 
+function getRecordHourKey(record: TimeClockRecentRecord) {
+  const date = new Date(record.occurredAt);
+  const minutes = date.getMinutes();
+  const roundedMinutes = minutes < 30 ? "00" : "30";
+
+  return `${String(date.getHours()).padStart(2, "0")}:${roundedMinutes}`;
+}
+
 async function detectFaceFromBlob(blob: Blob): Promise<{
   status: FaceDetectionStatus;
   method: "browser-face-detector" | "unsupported";
@@ -348,6 +357,7 @@ export function TimeClockClient({
   const [uploadingEmployeeId, setUploadingEmployeeId] = useState<string | null>(
     null
   );
+  const [selectedHour, setSelectedHour] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -690,23 +700,45 @@ export function TimeClockClient({
     });
   };
 
+  const recentRecords = snapshot.recentRecords ?? [];
   const registeredFacesCount = snapshot.employees.filter(
     (employee) => employee.faceRegistered
   ).length;
-  const latestRecords = [...snapshot.events]
-    .sort(
-      (a, b) =>
-        new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
-    )
-    .slice(0, 3);
-  const timelineHours = ["06:00", "07:00", "08:00", "08:30", "09:00", "09:30", "10:00", "11:00", "12:00"];
+  const timelineHours = useMemo(() => {
+    const baseHours = [
+      "06:00",
+      "06:30",
+      "07:00",
+      "07:30",
+      "08:00",
+      "08:30",
+      "09:00",
+      "09:30",
+      "10:00",
+      "10:30",
+      "11:00",
+      "11:30",
+      "12:00",
+      "12:30",
+    ];
+    const recordHours = recentRecords.map(getRecordHourKey);
+
+    return Array.from(new Set([...baseHours, ...recordHours])).sort();
+  }, [recentRecords]);
+  const filteredRecords = selectedHour
+    ? recentRecords.filter(
+        (record) => getRecordHourKey(record) === selectedHour
+      )
+    : recentRecords;
+  const latestRecords = filteredRecords.slice(0, 3);
+  const syncedTodayCount = snapshot.syncedTodayCount;
   const primaryEmployeeName = identifiedEmployee?.name ?? snapshot.subjectName;
   const terminalInstruction =
     registeredFacesCount === 0
       ? "Cadastre uma biometria para liberar o ponto"
       : capturingSelfie
         ? "Centralize o rosto para registrar o ponto"
-        : "Toque na tela para registrar o ponto";
+        : "Escolha um gesto para desbloquear a tela";
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
@@ -838,7 +870,9 @@ export function TimeClockClient({
               <div className="grid gap-2 sm:grid-cols-3">
                 {latestRecords.length === 0 ? (
                   <div className="rounded-md border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300 sm:col-span-3">
-                    Nenhuma marcação registrada hoje
+                    {selectedHour
+                      ? `Nenhuma marcação em ${selectedHour}`
+                      : "Nenhuma marcação registrada hoje"}
                   </div>
                 ) : null}
                 {latestRecords.map((record) => {
@@ -850,14 +884,17 @@ export function TimeClockClient({
                       className="flex min-w-0 items-center gap-3 rounded-md border border-white/10 bg-white/5 px-3 py-2"
                     >
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-slate-900">
-                        {getInitials(primaryEmployeeName)}
+                        {getInitials(record.employeeName)}
                       </div>
                       <div className="min-w-0 text-left">
                         <p className="truncate text-xs font-bold uppercase text-white">
-                          {primaryEmployeeName}
+                          {record.employeeName}
                         </p>
                         <p className="truncate text-[11px] uppercase text-slate-300">
                           {EVENT_LABELS[record.eventType]}
+                          {record.employeeSector || record.employeeRole
+                            ? ` · ${record.employeeSector ?? record.employeeRole}`
+                            : ""}
                         </p>
                         <p className="text-[11px] text-slate-400">
                           {formatDateKey(record.workDate)} · {formatTime(record.occurredAt)}
@@ -877,17 +914,34 @@ export function TimeClockClient({
               </div>
               <div className="flex min-h-[72px] items-center overflow-x-auto rounded-md border border-white/10 bg-black/25 px-3">
                 <div className="flex min-w-max items-center gap-3">
+                  <button
+                    type="button"
+                    className={
+                      selectedHour === null
+                        ? "rounded-md bg-white px-2 py-1 text-sm font-bold text-slate-950"
+                        : "rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:text-white"
+                    }
+                    onClick={() => setSelectedHour(null)}
+                  >
+                    Todos
+                  </button>
                   {timelineHours.map((hour) => (
-                    <span
+                    <button
+                      type="button"
                       key={hour}
                       className={
-                        hour === "08:30" || hour === "09:00"
-                          ? "text-sm font-bold text-white"
-                          : "text-xs font-medium text-slate-500"
+                        selectedHour === hour
+                          ? "rounded-md bg-white px-2 py-1 text-sm font-bold text-slate-950"
+                          : recentRecords.some(
+                                (record) => getRecordHourKey(record) === hour
+                              )
+                            ? "rounded-md px-2 py-1 text-sm font-bold text-white transition hover:bg-white/10"
+                            : "rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:text-white"
                       }
+                      onClick={() => setSelectedHour(hour)}
                     >
                       {hour}
-                    </span>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -900,7 +954,7 @@ export function TimeClockClient({
                 Sincronizadas hoje
               </div>
               <div className="border-l border-cyan-500/50 px-4 py-3 text-center text-2xl font-black">
-                {snapshot.events.length}
+                {syncedTodayCount}
               </div>
             </div>
             <div className="grid grid-cols-[minmax(0,1fr)_82px] overflow-hidden rounded-md bg-cyan-300 text-slate-900">
@@ -908,7 +962,7 @@ export function TimeClockClient({
                 Pendente
               </div>
               <div className="border-l border-cyan-500/50 px-4 py-3 text-center text-2xl font-black">
-                0
+                {snapshot.pendingSyncCount}
               </div>
             </div>
           </div>

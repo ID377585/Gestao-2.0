@@ -6,9 +6,15 @@ import {
   Camera,
   CheckCircle2,
   Coffee,
+  Clock3,
+  Fingerprint,
+  History,
   LogIn,
   LogOut,
+  Menu,
   RefreshCw,
+  ScanFace,
+  Search,
   ShieldCheck,
   Upload,
   UserCheck,
@@ -17,12 +23,6 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   recordTimeClockEvent,
   saveEmployeeFaceProfile,
@@ -69,6 +69,33 @@ function formatTime(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatClockTime(value: Date) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(value);
+}
+
+function formatShortDate(value: Date) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+  })
+    .format(value)
+    .replace(/\.$/, "");
+}
+
+function getInitials(name: string) {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return (parts[0]?.[0] ?? "G") + (parts[1]?.[0] ?? "");
 }
 
 function formatDateKey(value: string) {
@@ -666,133 +693,83 @@ export function TimeClockClient({
   const registeredFacesCount = snapshot.employees.filter(
     (employee) => employee.faceRegistered
   ).length;
+  const latestRecords = [...snapshot.events]
+    .sort(
+      (a, b) =>
+        new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
+    )
+    .slice(0, 3);
+  const timelineHours = ["06:00", "07:00", "08:00", "08:30", "09:00", "09:30", "10:00", "11:00", "12:00"];
+  const primaryEmployeeName = identifiedEmployee?.name ?? snapshot.subjectName;
+  const terminalInstruction =
+    registeredFacesCount === 0
+      ? "Cadastre uma biometria para liberar o ponto"
+      : capturingSelfie
+        ? "Centralize o rosto para registrar o ponto"
+        : "Toque na tela para registrar o ponto";
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm text-gray-500 dark:text-slate-400">
-            {formatDateKey(snapshot.workDate)}
-          </p>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100">
-            Ponto Digital
-          </h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-            Acesso de {userName}
-          </p>
-        </div>
+    <div className="mx-auto flex max-w-6xl flex-col gap-5">
+      <section className="overflow-hidden rounded-md border border-slate-200 bg-slate-950 shadow-sm dark:border-slate-800">
+        <header className="flex items-center justify-between gap-4 bg-white px-4 py-4 text-slate-950 dark:bg-slate-950 dark:text-white sm:px-7">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              aria-label="Menu do ponto"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-slate-50 dark:text-slate-200 dark:hover:border-slate-800 dark:hover:bg-slate-900"
+            >
+              <Menu className="h-6 w-6" />
+            </button>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-cyan-50 text-cyan-600 dark:bg-cyan-950/60 dark:text-cyan-300">
+                <Fingerprint className="h-6 w-6" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-2xl font-semibold tracking-normal sm:text-3xl">
+                  Gestify <span className="text-cyan-500">Ponto</span>
+                </p>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  {formatShortDate(now)} · {formatDateKey(snapshot.workDate)}
+                </p>
+              </div>
+            </div>
+          </div>
 
-        <Badge
-          variant="secondary"
-          className="w-fit rounded-md px-3 py-1.5 text-sm"
-        >
-          {getStatusLabel(snapshot)}
-        </Badge>
-      </div>
+          <div className="shrink-0 text-right">
+            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-slate-400">
+              Horário
+            </p>
+            <p className="font-mono text-lg font-semibold text-cyan-500 sm:text-xl">
+              {formatClockTime(now)}
+            </p>
+          </div>
+        </header>
 
       {error ? (
-        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+        <div className="m-4 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200 sm:m-5">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
       ) : null}
 
-      <Card className="rounded-md">
-        <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="text-sm text-gray-500 dark:text-slate-400">
-              Colaborador identificado
-            </p>
-            <p className="truncate text-lg font-semibold text-gray-900 dark:text-slate-100">
-              {identifiedEmployee?.name ?? snapshot.subjectName}
-            </p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+        <div className="relative min-h-[660px] overflow-hidden bg-[radial-gradient(circle_at_18%_18%,rgba(148,163,184,0.22),transparent_28%),linear-gradient(135deg,#111827_0%,#071013_54%,#020617_100%)] px-4 pb-5 pt-10 text-white sm:px-7 lg:min-h-[720px]">
+          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(0deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:52px_52px] opacity-20" />
+
+          <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center text-center">
+            <Badge className="mb-5 rounded-md border border-white/15 bg-white/10 px-3 py-1 text-xs text-white hover:bg-white/10">
+              {getStatusLabel(snapshot)}
+            </Badge>
+            <h1 className="max-w-xl text-balance text-2xl font-semibold leading-tight text-white sm:text-3xl">
+              {terminalInstruction}
+            </h1>
+            <p className="mt-2 max-w-lg text-sm text-slate-300">
               {getNextActionLabel(snapshot.nextEventType)}
-              {matchScore ? ` · ${Math.round(matchScore * 100)}%` : ""}
+              {matchScore ? ` · biometria ${Math.round(matchScore * 100)}%` : ""}
             </p>
-          </div>
-          <Button
-            type="button"
-            className="h-11 w-full gap-2 sm:w-auto"
-            disabled={
-              !snapshot.nextEventType ||
-              isPending ||
-              capturingSelfie ||
-              registeredFacesCount === 0
-            }
-            onClick={captureSelfieAndRegister}
-          >
-            {isPending || capturingSelfie ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <Camera className="h-4 w-4" />
-            )}
-            Capturar selfie e registrar
-          </Button>
-        </CardContent>
-      </Card>
 
-      <Card className="rounded-md">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-sm font-medium">Selfie do ponto</CardTitle>
-          <ShieldCheck className="h-4 w-4 text-emerald-600" />
-        </CardHeader>
-        <CardContent className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
-          <div className="relative overflow-hidden rounded-md border border-gray-200 bg-gray-100 dark:border-slate-700 dark:bg-slate-900">
-            {selfie ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={selfie.previewUrl}
-                alt="Selfie do ponto"
-                className="aspect-[4/3] w-full object-cover"
-              />
-            ) : (
-              <video
-                ref={videoRef}
-                className="aspect-[4/3] w-full object-cover"
-                muted
-                playsInline
-              />
-            )}
-            {!selfie ? (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="h-[68%] w-[46%] rounded-[50%] border-2 border-white/90 shadow-[0_0_0_999px_rgba(15,23,42,0.30)]" />
-              </div>
-            ) : null}
-            <canvas ref={canvasRef} className="hidden" />
-          </div>
-
-          <div className="flex flex-col gap-3">
-            <div className="rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-slate-700">
-              <p className="font-medium text-gray-900 dark:text-slate-100">
-                {getSelfieStatusLabel(selfie?.faceDetectionStatus)}
-              </p>
-              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                {selfie?.faceCount !== null && selfie?.faceCount !== undefined
-                  ? `${selfie.faceCount} rosto(s)`
-                  : `${registeredFacesCount} biometria(s) cadastrada(s)`}
-              </p>
-            </div>
-
-            <div className="rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-slate-700">
-              <p className="font-medium text-gray-900 dark:text-slate-100">
-                {identifiedEmployee?.name ?? "Aguardando identificação"}
-              </p>
-              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                {identifiedEmployee?.sector ?? "Reconhecimento facial interno"}
-              </p>
-            </div>
-
-            {cameraError ? (
-              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{cameraError}</span>
-              </div>
-            ) : null}
-
-            <Button
+            <button
               type="button"
-              className="gap-2"
+              className="group relative mt-14 flex w-full max-w-[360px] flex-col items-center justify-center overflow-hidden rounded-[28px] border-[8px] border-white bg-black/55 p-5 text-white shadow-[0_22px_65px_rgba(0,0,0,0.50)] transition hover:scale-[1.01] focus:outline-none focus:ring-4 focus:ring-cyan-300/50 disabled:cursor-not-allowed disabled:opacity-60 sm:max-w-[420px] sm:p-7"
               disabled={
                 !snapshot.nextEventType ||
                 isPending ||
@@ -801,23 +778,206 @@ export function TimeClockClient({
               }
               onClick={captureSelfieAndRegister}
             >
-              {isPending || capturingSelfie ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : (
-                <Camera className="h-4 w-4" />
-              )}
-              Capturar selfie
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-white/70 bg-slate-950">
+                <video
+                  ref={videoRef}
+                  className={
+                    capturingSelfie && !selfie
+                      ? "absolute inset-0 h-full w-full object-cover opacity-100"
+                      : "absolute inset-0 h-full w-full object-cover opacity-0"
+                  }
+                  muted
+                  playsInline
+                />
+                {selfie ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={selfie.previewUrl}
+                    alt="Selfie do ponto"
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                ) : null}
+                <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                  <div className="relative flex h-[74%] w-[58%] items-center justify-center rounded-md border border-white/80">
+                    <span className="absolute left-5 top-5 h-7 w-7 border-l-4 border-t-4 border-white" />
+                    <span className="absolute right-5 top-5 h-7 w-7 border-r-4 border-t-4 border-white" />
+                    <span className="absolute bottom-5 left-5 h-7 w-7 border-b-4 border-l-4 border-white" />
+                    <span className="absolute bottom-5 right-5 h-7 w-7 border-b-4 border-r-4 border-white" />
+                    {isPending || capturingSelfie ? (
+                      <RefreshCw className="h-16 w-16 animate-spin text-white" />
+                    ) : (
+                      <ScanFace className="h-20 w-20 text-white/85" />
+                    )}
+                  </div>
+                </div>
+              </div>
+              <span className="mt-6 flex items-center gap-3 text-2xl font-black uppercase tracking-normal sm:text-3xl">
+                <Camera className="h-8 w-8" />
+                Toque na tela
+              </span>
+              <span className="mt-2 text-xs font-medium uppercase tracking-normal text-cyan-200">
+                {primaryEmployeeName}
+              </span>
+            </button>
+            <canvas ref={canvasRef} className="hidden" />
 
-      <Card className="rounded-md">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-sm font-medium">Colaboradores</CardTitle>
-          <Users className="h-4 w-4 text-gray-500 dark:text-slate-400" />
-        </CardHeader>
-        <CardContent className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {cameraError ? (
+              <div className="mt-5 flex max-w-xl items-start gap-2 rounded-md border border-amber-300/40 bg-amber-400/10 px-3 py-2 text-left text-sm text-amber-100">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{cameraError}</span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="relative z-10 mt-8 grid gap-3 rounded-md border border-white/10 bg-slate-950/70 p-3 backdrop-blur md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center justify-center gap-2 text-xs font-bold uppercase text-white">
+                <History className="h-4 w-4 text-cyan-300" />
+                Últimos registros
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {latestRecords.length === 0 ? (
+                  <div className="rounded-md border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300 sm:col-span-3">
+                    Nenhuma marcação registrada hoje
+                  </div>
+                ) : null}
+                {latestRecords.map((record) => {
+                  const Icon = EVENT_ICONS[record.eventType];
+
+                  return (
+                    <div
+                      key={record.id}
+                      className="flex min-w-0 items-center gap-3 rounded-md border border-white/10 bg-white/5 px-3 py-2"
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-slate-900">
+                        {getInitials(primaryEmployeeName)}
+                      </div>
+                      <div className="min-w-0 text-left">
+                        <p className="truncate text-xs font-bold uppercase text-white">
+                          {primaryEmployeeName}
+                        </p>
+                        <p className="truncate text-[11px] uppercase text-slate-300">
+                          {EVENT_LABELS[record.eventType]}
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          {formatDateKey(record.workDate)} · {formatTime(record.occurredAt)}
+                        </p>
+                      </div>
+                      <Icon className="ml-auto h-4 w-4 shrink-0 text-cyan-300" />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center justify-center gap-2 text-xs font-bold uppercase text-white">
+                <Search className="h-4 w-4 text-cyan-300" />
+                Busca de registros por horário
+              </div>
+              <div className="flex min-h-[72px] items-center overflow-x-auto rounded-md border border-white/10 bg-black/25 px-3">
+                <div className="flex min-w-max items-center gap-3">
+                  {timelineHours.map((hour) => (
+                    <span
+                      key={hour}
+                      className={
+                        hour === "08:30" || hour === "09:00"
+                          ? "text-sm font-bold text-white"
+                          : "text-xs font-medium text-slate-500"
+                      }
+                    >
+                      {hour}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative z-10 mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_82px] overflow-hidden rounded-md bg-cyan-300 text-slate-900">
+              <div className="px-4 py-3 text-center text-sm font-semibold">
+                Sincronizadas hoje
+              </div>
+              <div className="border-l border-cyan-500/50 px-4 py-3 text-center text-2xl font-black">
+                {snapshot.events.length}
+              </div>
+            </div>
+            <div className="grid grid-cols-[minmax(0,1fr)_82px] overflow-hidden rounded-md bg-cyan-300 text-slate-900">
+              <div className="px-4 py-3 text-center text-sm font-semibold">
+                Pendente
+              </div>
+              <div className="border-l border-cyan-500/50 px-4 py-3 text-center text-2xl font-black">
+                0
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-md border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+          <p className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+            <Clock3 className="h-4 w-4" />
+            Tempo trabalhado
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950 dark:text-white">
+            {formatDuration(metrics.worked)}
+          </p>
+        </div>
+        <div className="rounded-md border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+          <p className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+            <Coffee className="h-4 w-4" />
+            Intervalo restante
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950 dark:text-white">
+            {formatDuration(metrics.breakRemaining)}
+          </p>
+        </div>
+        <div className="rounded-md border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+          <p className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+            <LogOut className="h-4 w-4" />
+            {metrics.remaining > 0 ? "Faltam" : "Excedente"}
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950 dark:text-white">
+            {formatDuration(Math.abs(metrics.remaining))}
+          </p>
+        </div>
+        <div className="rounded-md border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+          <p className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            Saldo do dia
+          </p>
+          <p
+            className={
+              metrics.balance >= 0
+                ? "mt-2 text-2xl font-semibold text-emerald-700 dark:text-emerald-300"
+                : "mt-2 text-2xl font-semibold text-red-700 dark:text-red-300"
+            }
+          >
+            {formatSignedDuration(metrics.balance)}
+          </p>
+        </div>
+      </section>
+
+      <section className="rounded-md border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold text-slate-950 dark:text-white">
+              <Users className="h-4 w-4 text-slate-500" />
+              Colaboradores e biometria
+            </h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              {registeredFacesCount} de {snapshot.employees.length} colaborador(es)
+              com biometria cadastrada
+            </p>
+          </div>
+          <Badge variant="secondary" className="w-fit rounded-md">
+            <ShieldCheck className="mr-1 h-3 w-3" />
+            {userName}
+          </Badge>
+        </div>
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {snapshot.employees.length === 0 ? (
             <div className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-500 dark:border-slate-700 dark:text-slate-400">
               Nenhum colaborador ativo
@@ -871,91 +1031,8 @@ export function TimeClockClient({
               </div>
             </div>
           ))}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {(["entrada", "saida_refeicao", "retorno_refeicao", "saida"] as const).map(
-          (eventType) => {
-            const event = getEvent(snapshot.events, eventType);
-            const Icon = EVENT_ICONS[eventType];
-
-            return (
-              <Card key={eventType} className="rounded-md">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    {EVENT_LABELS[eventType]}
-                  </CardTitle>
-                  <Icon className="h-4 w-4 text-gray-500 dark:text-slate-400" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-semibold">
-                    {formatTime(event?.occurredAt)}
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                    {event ? "Registrado pelo sistema" : "Pendente"}
-                  </p>
-                </CardContent>
-              </Card>
-            );
-          }
-        )}
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-4">
-        <Card className="rounded-md">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Tempo trabalhado</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-semibold">
-              {formatDuration(metrics.worked)}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-md">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Intervalo restante</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-semibold">
-              {formatDuration(metrics.breakRemaining)}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-md">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">
-              {metrics.remaining > 0 ? "Faltam" : "Excedente"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-semibold">
-              {formatDuration(Math.abs(metrics.remaining))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-md">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Saldo do dia</CardTitle>
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-          </CardHeader>
-          <CardContent>
-            <div
-              className={
-                metrics.balance >= 0
-                  ? "text-2xl font-semibold text-emerald-700 dark:text-emerald-300"
-                  : "text-2xl font-semibold text-red-700 dark:text-red-300"
-              }
-            >
-              {formatSignedDuration(metrics.balance)}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+        </div>
+      </section>
     </div>
   );
 }

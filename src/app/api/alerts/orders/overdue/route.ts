@@ -1,21 +1,20 @@
 import { NextResponse } from "next/server";
 import { dispatchOverdueOrderAlerts } from "@/lib/alerts/domain-triggers";
+import {
+  authorizeCronSecret,
+  cronUnauthorizedResponse,
+} from "@/lib/security/cron-secret";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { assertActiveTenantRole } from "@/lib/tenant/guards";
 
 export const dynamic = "force-dynamic";
 
 function isAuthorizedBySecret(request: Request) {
-  const secret = process.env.ALERTS_CRON_SECRET?.trim();
-  if (!secret) return false;
-
-  const authHeader = request.headers.get("authorization") ?? "";
-  const xSecret = request.headers.get("x-alerts-secret") ?? "";
-
-  return (
-    authHeader === `Bearer ${secret}` ||
-    xSecret === secret
-  );
+  return authorizeCronSecret(request, {
+    routeLabel: "alerts/orders/overdue",
+    envNames: ["ALERTS_CRON_SECRET", "CRON_SECRET"],
+    acceptedHeaderNames: ["x-alerts-secret", "x-cron-secret"],
+  });
 }
 
 export async function POST(request: Request) {
@@ -29,7 +28,9 @@ export async function POST(request: Request) {
 
     let establishmentId: string | null = null;
 
-    if (isAuthorizedBySecret(request)) {
+    const cronAuthorization = isAuthorizedBySecret(request);
+
+    if (cronAuthorization.authorized) {
       const body = (await request.json().catch(() => ({}))) as {
         establishmentId?: string;
       };
@@ -37,6 +38,8 @@ export async function POST(request: Request) {
       establishmentId = body?.establishmentId
         ? String(body.establishmentId)
         : null;
+    } else if (cronAuthorization.code !== "missing_credentials") {
+      return cronUnauthorizedResponse(cronAuthorization);
     } else {
       try {
         const tenant = await assertActiveTenantRole(["admin", "operacao"]);

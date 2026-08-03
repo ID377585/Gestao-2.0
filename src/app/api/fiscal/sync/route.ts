@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { consultarDistribuicaoDfe, parseDistributedDocument, type SefazAmbiente } from "@/lib/fiscal/sefaz-distribuicao-dfe";
-import { isFiscalCronAuthorized } from "@/lib/fiscal/cron-auth";
 import { parseNfeXml } from "@/lib/fiscal/nfe-parser";
+import {
+  authorizeCronSecret,
+  cronUnauthorizedResponse,
+} from "@/lib/security/cron-secret";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { getSupabaseAdminClient } from "@/lib/supabase/server";
 import forge from "node-forge";
@@ -84,7 +87,12 @@ function extractNfeSummaryFromDistributedXml(xml: string) {
 }
 
 function isAuthorized(request: NextRequest) {
-  return isFiscalCronAuthorized(request, "/api/fiscal/sync");
+  return authorizeCronSecret(request, {
+    routeLabel: "/api/fiscal/sync",
+    envNames: ["FISCAL_SYNC_SECRET", "CRON_SECRET"],
+    acceptedHeaderNames: ["x-fiscal-sync-secret", "x-cron-secret"],
+    allowSecretQueryParam: true,
+  });
 }
 
 async function syncEstablishment(params: {
@@ -227,9 +235,8 @@ export async function GET(request: NextRequest) {
   });
   if (limited) return limited;
 
-  if (!isAuthorized(request)) {
-    return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
-  }
+  const authorization = isAuthorized(request);
+  if (!authorization.authorized) return cronUnauthorizedResponse(authorization);
 
   const supabase = getAdminSupabase();
   const establishmentId = request.nextUrl.searchParams.get("establishment_id");

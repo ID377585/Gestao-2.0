@@ -64,5 +64,12 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npm run supabase:contract
 
+      - name: Order RLS/RPC audit
+        if: ${{ env.HAS_SUPABASE_CONTRACT_SECRETS == 'true' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run orders:rls:ci
+
       - name: Build
         run: npm run build

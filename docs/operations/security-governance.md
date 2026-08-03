@@ -107,6 +107,13 @@ Checklist trimestral:
 - testar rollback de migration;
 - testar rollback de deploy Vercel.
 
+Metas iniciais para piloto controlado:
+
+- RPO: perda máxima de 15 minutos de dados.
+- RTO: recuperação do app e banco em até 4 horas.
+
+Substitua esses números por métricas reais depois do primeiro teste de restore.
+
 ## 7. LGPD e Biometria
 
 Biometria facial é dado pessoal sensível. Antes de ativar comercialmente:
@@ -134,3 +141,22 @@ Antes de liberar clientes externos em escala:
 - revisão fiscal;
 - revisão LGPD;
 - restauração de backup comprovada.
+
+## 9. Comandos de Prontidão
+
+Execute antes de qualquer promoção relevante:
+
+```bash
+npm run readiness:check
+npm run lint
+npm run typecheck
+npm run tenant:writes:ci
+npm run orders:rls:ci
+npm run build
+```
+
+Quando as secrets reais estiverem disponíveis no ambiente, rode:
+
+```bash
+npm run readiness:strict
+```

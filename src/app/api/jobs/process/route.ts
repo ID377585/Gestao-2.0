@@ -10,7 +10,7 @@ import { rateLimit } from "@/lib/security/rate-limit";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
+async function handleJobsProcess(request: NextRequest) {
   const limited = rateLimit(request, {
     key: "jobs-process",
     limit: 30,
@@ -33,12 +33,10 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ ok: true, ...result }, { status: 200 });
 }
 
-export async function GET() {
-  return NextResponse.json(
-    { ok: false, error: "Método não permitido. Use POST." },
-    {
-      status: 405,
-      headers: { Allow: "POST" },
-    }
-  );
+export async function POST(request: NextRequest) {
+  return handleJobsProcess(request);
+}
+
+export async function GET(request: NextRequest) {
+  return handleJobsProcess(request);
 }

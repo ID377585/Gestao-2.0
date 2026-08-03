@@ -6,6 +6,7 @@ export type NotificationPriority = "critical" | "high" | "normal" | "info";
 export type AppNotification = {
   id: string;
   userId: string;
+  establishmentId?: string | null;
   title: string;
   message: string;
   read: boolean;
@@ -74,7 +75,14 @@ function serializeNotificationError(error: unknown) {
   };
 }
 
-const lastSuccessfulNotificationsByUserId = new Map<string, AppNotification[]>();
+const lastSuccessfulNotificationsByUserAndEstablishment = new Map<
+  string,
+  AppNotification[]
+>();
+
+function getNotificationsCacheKey(userId: string, establishmentId?: string | null) {
+  return `${userId}:${establishmentId ?? "sem-estabelecimento"}`;
+}
 
 function normalizeNotification(row: Record<string, any>): AppNotification {
   const priority = normalizePriority(row.priority);
@@ -89,10 +97,16 @@ function normalizeNotification(row: Record<string, any>): AppNotification {
     row.metadata && typeof row.metadata === "object"
       ? (row.metadata as Record<string, unknown>)
       : payload;
+  const establishmentId =
+    row.establishment_id ??
+    payload?.establishment_id ??
+    payload?.establishmentId ??
+    null;
 
   return {
     id: String(row.id ?? ""),
     userId: String(row.user_id ?? row.userId ?? ""),
+    establishmentId: establishmentId ? String(establishmentId) : null,
     title: String(row.title ?? row.titulo ?? ""),
     message: String(row.message ?? row.mensagem ?? ""),
     read,
@@ -118,8 +132,13 @@ function normalizeNotification(row: Record<string, any>): AppNotification {
   };
 }
 
-async function getUserNotificationsFromApi(userId: string) {
+async function getUserNotificationsFromApi(
+  userId: string,
+  establishmentId?: string | null
+) {
   if (typeof window === "undefined") return null;
+
+  const cacheKey = getNotificationsCacheKey(userId, establishmentId);
 
   try {
     const response = await fetch("/api/user/notifications", {
@@ -146,25 +165,34 @@ async function getUserNotificationsFromApi(userId: string) {
         )
       : [];
 
-    lastSuccessfulNotificationsByUserId.set(userId, notifications);
+    lastSuccessfulNotificationsByUserAndEstablishment.set(cacheKey, notifications);
     return notifications;
   } catch {
-    return lastSuccessfulNotificationsByUserId.get(userId) ?? [];
+    return lastSuccessfulNotificationsByUserAndEstablishment.get(cacheKey) ?? [];
   }
 }
 
-async function getUserNotificationsFromNewSchema(userId: string) {
+async function getUserNotificationsFromNewSchema(
+  userId: string,
+  establishmentId?: string | null
+) {
   if (!isUuid(userId)) {
     throw new Error("Formato de usuário incompatível com user_id.");
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("notifications")
     .select("*")
-    .or(`user_id.is.null,user_id.eq.${userId}`)
+    .or(`user_id.eq.${userId},userId.eq.${userId}`)
     .is("archived_at", null)
     .order("created_at", { ascending: false })
     .limit(50);
+
+  if (establishmentId) {
+    query = query.eq("establishment_id", establishmentId);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
 
@@ -188,21 +216,35 @@ async function getUserNotificationsByColumn(
   return (data ?? []).map((row) => normalizeNotification(row as Record<string, any>));
 }
 
-export async function getUserNotifications(userId: string) {
+export async function getUserNotifications(
+  userId: string,
+  establishmentId?: string | null
+) {
   const safeUserId = String(userId ?? "").trim();
 
   if (!safeUserId) {
     return [];
   }
 
-  const apiNotifications = await getUserNotificationsFromApi(safeUserId);
+  const cacheKey = getNotificationsCacheKey(safeUserId, establishmentId);
+  const apiNotifications = await getUserNotificationsFromApi(
+    safeUserId,
+    establishmentId
+  );
   if (apiNotifications) return apiNotifications;
 
   try {
-    const notifications = await getUserNotificationsFromNewSchema(safeUserId);
-    lastSuccessfulNotificationsByUserId.set(safeUserId, notifications);
+    const notifications = await getUserNotificationsFromNewSchema(
+      safeUserId,
+      establishmentId
+    );
+    lastSuccessfulNotificationsByUserAndEstablishment.set(cacheKey, notifications);
     return notifications;
   } catch {
+    if (establishmentId) {
+      return lastSuccessfulNotificationsByUserAndEstablishment.get(cacheKey) ?? [];
+    }
+
     try {
       if (!isUuid(safeUserId)) {
         throw new Error("Formato de usuário incompatível com user_id.");
@@ -213,7 +255,7 @@ export async function getUserNotifications(userId: string) {
         "user_id",
         "created_at"
       );
-      lastSuccessfulNotificationsByUserId.set(safeUserId, notifications);
+      lastSuccessfulNotificationsByUserAndEstablishment.set(cacheKey, notifications);
       return notifications;
     } catch {
       try {
@@ -222,10 +264,10 @@ export async function getUserNotifications(userId: string) {
           "userId",
           "createdAt"
         );
-        lastSuccessfulNotificationsByUserId.set(safeUserId, notifications);
+        lastSuccessfulNotificationsByUserAndEstablishment.set(cacheKey, notifications);
         return notifications;
       } catch {
-        return lastSuccessfulNotificationsByUserId.get(safeUserId) ?? [];
+        return lastSuccessfulNotificationsByUserAndEstablishment.get(cacheKey) ?? [];
       }
     }
   }
@@ -242,6 +284,7 @@ export async function createNotification(params: {
   priority?: NotificationPriority;
   href?: string | null;
   actionUrl?: string | null;
+  establishmentId?: string | null;
   eventKey?: string | null;
   entityType?: string | null;
   entityId?: string | null;
@@ -255,19 +298,36 @@ export async function createNotification(params: {
   const type = params.type ?? params.tipo ?? "info";
   const payload = params.payload ?? params.metadata ?? null;
   const href = params.actionUrl ?? params.href ?? null;
+  const scopedPayload = params.establishmentId
+    ? {
+        ...(payload ?? {}),
+        establishment_id: params.establishmentId,
+      }
+    : payload;
 
   const newSchemaPayload = {
     user_id: params.userId ?? null,
+    userId: params.userId ?? "",
     title,
     message,
     type,
     priority: params.priority ?? "normal",
     action_url: href,
-    payload,
+    establishment_id: params.establishmentId ?? null,
+    payload: scopedPayload,
     dedupe_key: params.dedupeKey ?? params.eventKey ?? null,
   };
 
   let { error } = await supabase.from("notifications").insert(newSchemaPayload);
+
+  if (!error) return;
+
+  const { establishment_id: _ignored, ...payloadScopedWithoutColumn } =
+    newSchemaPayload;
+
+  ({ error } = await supabase
+    .from("notifications")
+    .insert(payloadScopedWithoutColumn));
 
   if (!error) return;
 
@@ -278,10 +338,11 @@ export async function createNotification(params: {
     read: false,
     type,
     href,
+    establishment_id: params.establishmentId ?? null,
     event_key: params.eventKey ?? null,
     entity_type: params.entityType ?? null,
     entity_id: params.entityId ?? null,
-    metadata: payload,
+    metadata: scopedPayload,
     email_sent: params.emailSent ?? false,
   };
 
@@ -322,16 +383,49 @@ export async function markNotificationAsRead(id: string) {
   if (error) throw error;
 }
 
-export async function markAllNotificationsAsRead(userId: string) {
-  let { error } = await supabase.rpc("mark_all_notifications_read", { p_user_id: userId });
+export async function markAllNotificationsAsRead(
+  userId: string,
+  establishmentId?: string | null
+) {
+  let { error } = establishmentId
+    ? await supabase.rpc("mark_establishment_notifications_read", {
+        p_establishment_id: establishmentId,
+      })
+    : await supabase.rpc("mark_all_notifications_read", { p_user_id: userId });
 
   if (!error) return;
 
-  ({ error } = await supabase
+  if (establishmentId) {
+    const readAt = new Date().toISOString();
+
+    ({ error } = await supabase
+      .from("notifications")
+      .update({ read_at: readAt, read: true })
+      .or(`user_id.eq.${userId},userId.eq.${userId}`)
+      .eq("establishment_id", establishmentId)
+      .is("read_at", null));
+
+    if (!error) return;
+
+    ({ error } = await supabase
+      .from("notifications")
+      .update({ read_at: readAt, read: true })
+      .or(`user_id.eq.${userId},userId.eq.${userId}`)
+      .contains("payload", { establishment_id: establishmentId })
+      .is("read_at", null));
+
+    if (!error) return;
+
+    return;
+  }
+
+  const query = supabase
     .from("notifications")
     .update({ read_at: new Date().toISOString() })
-    .or(`user_id.is.null,user_id.eq.${userId}`)
-    .is("read_at", null));
+    .or(`user_id.eq.${userId},userId.eq.${userId}`)
+    .is("read_at", null);
+
+  ({ error } = await query);
 
   if (!error) return;
 
@@ -378,15 +472,52 @@ export async function archiveNotification(id: string) {
   if (error) throw error;
 }
 
-export async function archiveReadNotifications(userId: string) {
+export async function archiveReadNotifications(
+  userId: string,
+  establishmentId?: string | null
+) {
   const archivedAt = new Date().toISOString();
 
-  let { error } = await supabase
+  let { error } = establishmentId
+    ? await supabase.rpc("archive_establishment_read_notifications", {
+        p_establishment_id: establishmentId,
+      })
+    : { error: new Error("Estabelecimento ativo ausente.") as any };
+
+  if (!error) return;
+
+  if (establishmentId) {
+    ({ error } = await supabase
+      .from("notifications")
+      .update({ archived_at: archivedAt })
+      .or(`user_id.eq.${userId},userId.eq.${userId}`)
+      .eq("establishment_id", establishmentId)
+      .not("read_at", "is", null)
+      .is("archived_at", null));
+
+    if (!error) return;
+
+    ({ error } = await supabase
+      .from("notifications")
+      .update({ archived_at: archivedAt })
+      .or(`user_id.eq.${userId},userId.eq.${userId}`)
+      .contains("payload", { establishment_id: establishmentId })
+      .not("read_at", "is", null)
+      .is("archived_at", null));
+
+    if (!error) return;
+
+    return;
+  }
+
+  const query = supabase
     .from("notifications")
     .update({ archived_at: archivedAt })
-    .or(`user_id.is.null,user_id.eq.${userId}`)
+    .or(`user_id.eq.${userId},userId.eq.${userId}`)
     .not("read_at", "is", null)
     .is("archived_at", null);
+
+  ({ error } = await query);
 
   if (!error) return;
 
@@ -479,6 +610,7 @@ export function playNotificationSound(priority: NotificationPriority = "normal")
 
 function subscribeRealtime(
   userId: string,
+  establishmentId: string | null | undefined,
   callback: (notifications: AppNotification[]) => void
 ) {
   const channel = supabase
@@ -492,7 +624,7 @@ function subscribeRealtime(
       },
       async () => {
         try {
-          callback(await getUserNotifications(userId));
+          callback(await getUserNotifications(userId, establishmentId));
         } catch (error) {
           console.error("Erro ao atualizar notificações em tempo real:", error);
         }
@@ -507,6 +639,7 @@ function subscribeRealtime(
 
 export function subscribeToNotifications(
   userId: string,
+  establishmentId: string | null | undefined,
   callback: (notifications: AppNotification[]) => void
 ) {
   let active = true;
@@ -515,7 +648,7 @@ export function subscribeToNotifications(
 
   async function refresh() {
     try {
-      const data = await getUserNotifications(userId);
+      const data = await getUserNotifications(userId, establishmentId);
       loggedFetchError = false;
       if (active) callback(data);
     } catch (error) {
@@ -527,7 +660,7 @@ export function subscribeToNotifications(
   }
 
   void refresh();
-  const unsubscribeRealtime = subscribeRealtime(userId, callback);
+  const unsubscribeRealtime = subscribeRealtime(userId, establishmentId, callback);
 
   // Polling remains as a fallback for projects where the realtime publication was not enabled yet.
   intervalId = setInterval(refresh, 15000);

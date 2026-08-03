@@ -203,6 +203,7 @@ export async function dispatchCollaboratorCreatedOrUpdatedAlert(params: {
 
   await dispatchAlert({
     recipients,
+    establishmentId: params.establishmentId,
     titulo,
     mensagem,
     tipo: "info",
@@ -259,6 +260,7 @@ export async function dispatchLowStockAlertsForProducts(params: {
 
     await dispatchAlert({
       recipients,
+      establishmentId: params.establishmentId,
       titulo,
       mensagem,
       tipo: row.status === "critico" ? "error" : "warning",
@@ -308,6 +310,7 @@ export async function dispatchOrderLifecycleAlert(params: {
 
   await dispatchAlert({
     recipients,
+    establishmentId: params.establishmentId,
     titulo: params.title,
     mensagem: params.message,
     tipo: params.type ?? "info",

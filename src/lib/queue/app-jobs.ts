@@ -16,6 +16,12 @@ export type AppJobRow = {
   max_attempts: number;
 };
 
+type AppJobCleanupResult = {
+  recoveredStaleJobs: number;
+  deletedExpiredIdempotencyKeys: number;
+  deletedCompletedJobs: number;
+};
+
 export type EnqueueAppJobInput = {
   establishmentId?: string | null;
   queueName?: string;
@@ -30,6 +36,10 @@ export type EnqueueAppJobInput = {
 function normalizeText(value: unknown, fallback = "") {
   const trimmed = String(value ?? "").trim();
   return trimmed || fallback;
+}
+
+function countFromMutation(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 export async function enqueueAppJob(input: EnqueueAppJobInput) {
@@ -154,6 +164,71 @@ async function processJob(job: AppJobRow) {
   throw new Error(`Tipo de job não suportado: ${job.job_type}`);
 }
 
+export async function cleanupAppRuntimeState(params?: {
+  staleProcessingMinutes?: number;
+  completedJobRetentionDays?: number;
+}) {
+  const supabaseAdmin = getSupabaseAdminClient();
+  const staleProcessingMinutes = Math.min(
+    Math.max(params?.staleProcessingMinutes ?? 20, 5),
+    24 * 60
+  );
+  const completedJobRetentionDays = Math.min(
+    Math.max(params?.completedJobRetentionDays ?? 7, 1),
+    90
+  );
+  const staleProcessingBefore = new Date(
+    Date.now() - staleProcessingMinutes * 60_000
+  ).toISOString();
+  const completedJobCutoff = new Date(
+    Date.now() - completedJobRetentionDays * 24 * 60 * 60_000
+  ).toISOString();
+  const nowIso = new Date().toISOString();
+
+  const { count: recoveredCount, error: recoveredError } = await supabaseAdmin
+    .from("app_job_queue")
+    .update({
+      status: "pending",
+      locked_at: null,
+      locked_by: null,
+      last_error: "Job recuperado automaticamente após lock expirado.",
+      updated_at: nowIso,
+    }, { count: "exact" })
+    .eq("status", "processing")
+    .lt("locked_at", staleProcessingBefore);
+
+  if (recoveredError) {
+    console.error("[app-jobs] stale job recovery error:", recoveredError);
+  }
+
+  const { count: idempotencyCount, error: idempotencyError } =
+    await supabaseAdmin
+      .from("api_idempotency_keys")
+      .delete({ count: "exact" })
+      .lt("expires_at", nowIso);
+
+  if (idempotencyError) {
+    console.error("[app-jobs] idempotency cleanup error:", idempotencyError);
+  }
+
+  const { count: completedJobCount, error: completedJobError } =
+    await supabaseAdmin
+      .from("app_job_queue")
+      .delete({ count: "exact" })
+      .eq("status", "completed")
+      .lt("processed_at", completedJobCutoff);
+
+  if (completedJobError) {
+    console.error("[app-jobs] completed job cleanup error:", completedJobError);
+  }
+
+  return {
+    recoveredStaleJobs: countFromMutation(recoveredCount),
+    deletedExpiredIdempotencyKeys: countFromMutation(idempotencyCount),
+    deletedCompletedJobs: countFromMutation(completedJobCount),
+  } satisfies AppJobCleanupResult;
+}
+
 export async function processAppJobs(params?: {
   limit?: number;
   workerId?: string;
@@ -192,10 +267,13 @@ export async function processAppJobs(params?: {
     }
   }
 
+  const cleanup = await cleanupAppRuntimeState();
+
   return {
     claimed: jobs.length,
     completed,
     failed,
+    cleanup,
   };
 }
 

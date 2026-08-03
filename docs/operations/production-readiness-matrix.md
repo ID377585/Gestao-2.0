@@ -12,6 +12,7 @@ npm run lint
 npm run typecheck
 npm run audit
 npm run tenant:writes:ci
+npm run runtime:imports:check
 npm run supabase:contract
 npm run orders:rls:ci
 npm run build
@@ -35,6 +36,7 @@ npm run readiness:strict
 | Invalid refresh tokens | Middleware cleanup already implemented | Monitor runtime logs after deploys |
 | Direct order status writes | Cutover trigger prepared | Apply after staging validates legacy order flows |
 | SECURITY DEFINER RPCs | Order RLS audit checks definitions and grants | Keep grants reviewed after each DB migration |
+| Job queue leases | Lease columns, lock token and cleanup are versioned | Apply migration and monitor dead jobs |
 | Staging environment | Runbook exists | Create separate Supabase project/branch and Vercel Preview env |
 | Branch protection | Documented as required | Enable in GitHub repository settings |
 
@@ -107,3 +109,10 @@ Reason: npm only offers `npm audit fix --force`, which would install an older
 breaking `exceljs` version. Keep this exception monitored and remove it when
 `exceljs` releases a non-breaking fix or when exports can be validated after a
 controlled dependency change.
+
+## Runtime Import Gate
+
+`npm run runtime:imports:check` fails when heavy server-side packages are
+statically imported by client components or middleware/proxy files. Keep OCR,
+PDF, Excel, SOAP and fiscal cryptography in server-only code paths or dynamic
+route-level imports.

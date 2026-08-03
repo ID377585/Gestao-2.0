@@ -114,6 +114,8 @@ Metas iniciais para piloto controlado:
 
 Substitua esses números por métricas reais depois do primeiro teste de restore.
 
+Runbook detalhado: [incident-response-runbooks.md](./incident-response-runbooks.md).
+
 ## 7. LGPD e Biometria
 
 Biometria facial é dado pessoal sensível. Antes de ativar comercialmente:
@@ -128,6 +130,8 @@ Biometria facial é dado pessoal sensível. Antes de ativar comercialmente:
 - procedimento de contestação;
 - plano de incidente;
 - revisão jurídica.
+
+Politica inicial: [data-retention-policy.md](./data-retention-policy.md).
 
 ## 8. Auditoria Final
 

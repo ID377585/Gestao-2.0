@@ -27,9 +27,10 @@
     "supabase:legacy-tenant:backfill": "node scripts/audit-legacy-tenant.mjs --apply",
     "tenant:writes:audit": "node scripts/audit-tenant-writes.mjs",
     "tenant:writes:ci": "node scripts/audit-tenant-writes.mjs --fail-on-findings --baseline scripts/tenant-writes-baseline.json --quiet",
+    "runtime:imports:check": "node scripts/audit-runtime-imports.mjs",
     "readiness:check": "node scripts/check-production-readiness.mjs",
     "readiness:strict": "node scripts/check-production-readiness.mjs --strict",
-    "ci": "npm run lint && npm run typecheck && npm run audit && npm run tenant:writes:ci && npm run readiness:check && npm run build",
+    "ci": "npm run lint && npm run typecheck && npm run audit && npm run tenant:writes:ci && npm run runtime:imports:check && npm run readiness:check && npm run build",
     "postinstall": "node scripts/enforce-production-freeze.js"
   },
   "dependencies": {

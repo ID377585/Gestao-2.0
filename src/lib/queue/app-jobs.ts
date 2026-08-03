@@ -14,12 +14,15 @@ export type AppJobRow = {
   dedupe_key: string | null;
   attempts: number;
   max_attempts: number;
+  locked_until?: string | null;
+  lock_token?: string | null;
 };
 
 type AppJobCleanupResult = {
   recoveredStaleJobs: number;
   deletedExpiredIdempotencyKeys: number;
   deletedCompletedJobs: number;
+  deadJobs: number;
 };
 
 export type EnqueueAppJobInput = {
@@ -40,6 +43,20 @@ function normalizeText(value: unknown, fallback = "") {
 
 function countFromMutation(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+let appJobQueueLeasesSupported: boolean | null = null;
+
+async function supportsAppJobQueueLeases() {
+  if (appJobQueueLeasesSupported !== null) return appJobQueueLeasesSupported;
+
+  const { data, error } = await getSupabaseAdminClient()
+    .from("app_job_queue")
+    .select("locked_until, lock_token, last_heartbeat_at")
+    .limit(0);
+
+  appJobQueueLeasesSupported = !error && Array.isArray(data);
+  return appJobQueueLeasesSupported;
 }
 
 export async function enqueueAppJob(input: EnqueueAppJobInput) {
@@ -95,20 +112,34 @@ export async function enqueueAppJob(input: EnqueueAppJobInput) {
   return { id: String((existing as any).id), deduped: true };
 }
 
-async function completeJob(jobId: string) {
-  const { error } = await getSupabaseAdminClient()
-    .from("app_job_queue")
-    .update({
-      status: "completed",
-      processed_at: new Date().toISOString(),
-      locked_at: null,
-      locked_by: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", jobId);
+async function completeJob(job: AppJobRow) {
+  const updatePayload: Record<string, unknown> = {
+    status: "completed",
+    processed_at: new Date().toISOString(),
+    locked_at: null,
+    locked_by: null,
+    updated_at: new Date().toISOString(),
+  };
 
-  if (error) {
-    console.error("[app-jobs] complete error:", { jobId, error });
+  if (job.lock_token) {
+    updatePayload.locked_until = null;
+    updatePayload.lock_token = null;
+    updatePayload.last_heartbeat_at = null;
+  }
+
+  let query = getSupabaseAdminClient()
+    .from("app_job_queue")
+    .update(updatePayload)
+    .eq("id", job.id);
+
+  if (job.lock_token) {
+    query = query.eq("lock_token", job.lock_token);
+  }
+
+  const { data, error } = await query.select("id").maybeSingle();
+
+  if (error || !data) {
+    console.error("[app-jobs] complete error:", { jobId: job.id, error });
     throw new Error("Não foi possível marcar a tarefa como concluída.");
   }
 }
@@ -118,24 +149,74 @@ async function failJob(job: AppJobRow, error: unknown) {
   const shouldRetry = job.attempts < job.max_attempts;
   const delayMinutes = Math.min(60, Math.max(1, job.attempts * 2));
 
-  const { error: updateError } = await getSupabaseAdminClient()
+  const updatePayload: Record<string, unknown> = {
+    status: shouldRetry ? "pending" : "dead",
+    available_at: shouldRetry
+      ? new Date(Date.now() + delayMinutes * 60_000).toISOString()
+      : new Date().toISOString(),
+    locked_at: null,
+    locked_by: null,
+    last_error: message.slice(0, 1000),
+    updated_at: new Date().toISOString(),
+  };
+
+  if (job.lock_token) {
+    updatePayload.locked_until = null;
+    updatePayload.lock_token = null;
+    updatePayload.last_heartbeat_at = null;
+  }
+
+  let query = getSupabaseAdminClient()
     .from("app_job_queue")
-    .update({
-      status: shouldRetry ? "pending" : "dead",
-      available_at: shouldRetry
-        ? new Date(Date.now() + delayMinutes * 60_000).toISOString()
-        : new Date().toISOString(),
-      locked_at: null,
-      locked_by: null,
-      last_error: message.slice(0, 1000),
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq("id", job.id);
 
-  if (updateError) {
+  if (job.lock_token) {
+    query = query.eq("lock_token", job.lock_token);
+  }
+
+  const { data, error: updateError } = await query.select("id").maybeSingle();
+
+  if (updateError || !data) {
     console.error("[app-jobs] fail mark error:", { jobId: job.id, updateError });
     throw new Error("Não foi possível registrar a falha da tarefa.");
   }
+}
+
+export async function renewAppJobLease(params: {
+  job: Pick<AppJobRow, "id" | "lock_token">;
+  leaseMs?: number;
+}) {
+  if (!params.job.lock_token) return { renewed: false };
+
+  const leaseMs = Math.min(
+    Math.max(params.leaseMs ?? 20 * 60_000, 60_000),
+    24 * 60 * 60_000
+  );
+  const nowIso = new Date().toISOString();
+  const lockedUntil = new Date(Date.now() + leaseMs).toISOString();
+
+  const { data, error } = await getSupabaseAdminClient()
+    .from("app_job_queue")
+    .update({
+      locked_until: lockedUntil,
+      last_heartbeat_at: nowIso,
+      updated_at: nowIso,
+    })
+    .eq("id", params.job.id)
+    .eq("lock_token", params.job.lock_token)
+    .eq("status", "processing")
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[app-jobs] lease renewal error:", {
+      jobId: params.job.id,
+      error,
+    });
+  }
+
+  return { renewed: Boolean(data) };
 }
 
 async function handleAlertEmailJob(job: AppJobRow) {
@@ -184,18 +265,40 @@ export async function cleanupAppRuntimeState(params?: {
     Date.now() - completedJobRetentionDays * 24 * 60 * 60_000
   ).toISOString();
   const nowIso = new Date().toISOString();
+  const leasesSupported = await supportsAppJobQueueLeases();
 
-  const { count: recoveredCount, error: recoveredError } = await supabaseAdmin
+  let recoveredQuery = supabaseAdmin
     .from("app_job_queue")
-    .update({
-      status: "pending",
-      locked_at: null,
-      locked_by: null,
-      last_error: "Job recuperado automaticamente após lock expirado.",
-      updated_at: nowIso,
-    }, { count: "exact" })
-    .eq("status", "processing")
-    .lt("locked_at", staleProcessingBefore);
+    .update(
+      leasesSupported
+        ? {
+            status: "pending",
+            locked_at: null,
+            locked_until: null,
+            lock_token: null,
+            last_heartbeat_at: null,
+            locked_by: null,
+            last_error: "Job recuperado automaticamente após lock expirado.",
+            updated_at: nowIso,
+          }
+        : {
+            status: "pending",
+            locked_at: null,
+            locked_by: null,
+            last_error: "Job recuperado automaticamente após lock expirado.",
+            updated_at: nowIso,
+          },
+      { count: "exact" }
+    )
+    .eq("status", "processing");
+
+  recoveredQuery = leasesSupported
+    ? recoveredQuery.or(
+        `locked_until.lt.${nowIso},and(locked_until.is.null,locked_at.lt.${staleProcessingBefore})`
+      )
+    : recoveredQuery.lt("locked_at", staleProcessingBefore);
+
+  const { count: recoveredCount, error: recoveredError } = await recoveredQuery;
 
   if (recoveredError) {
     console.error("[app-jobs] stale job recovery error:", recoveredError);
@@ -222,10 +325,20 @@ export async function cleanupAppRuntimeState(params?: {
     console.error("[app-jobs] completed job cleanup error:", completedJobError);
   }
 
+  const { count: deadJobCount, error: deadJobError } = await supabaseAdmin
+    .from("app_job_queue")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "dead");
+
+  if (deadJobError) {
+    console.error("[app-jobs] dead job count error:", deadJobError);
+  }
+
   return {
     recoveredStaleJobs: countFromMutation(recoveredCount),
     deletedExpiredIdempotencyKeys: countFromMutation(idempotencyCount),
     deletedCompletedJobs: countFromMutation(completedJobCount),
+    deadJobs: countFromMutation(deadJobCount),
   } satisfies AppJobCleanupResult;
 }
 
@@ -236,11 +349,21 @@ export async function processAppJobs(params?: {
   const workerId = params?.workerId?.trim() || `worker-${randomUUID()}`;
   const limit = Math.min(Math.max(params?.limit ?? 10, 1), 50);
   const supabaseAdmin = getSupabaseAdminClient();
+  const leasesSupported = await supportsAppJobQueueLeases();
 
-  const { data, error } = await supabaseAdmin.rpc("claim_app_jobs", {
-    p_worker_id: workerId,
-    p_limit: limit,
-  });
+  const { data, error } = await supabaseAdmin.rpc(
+    "claim_app_jobs",
+    leasesSupported
+      ? {
+          p_worker_id: workerId,
+          p_limit: limit,
+          p_lease_seconds: 20 * 60,
+        }
+      : {
+          p_worker_id: workerId,
+          p_limit: limit,
+        }
+  );
 
   if (error) {
     console.error("[app-jobs] claim error:", error);
@@ -253,8 +376,11 @@ export async function processAppJobs(params?: {
 
   for (const job of jobs) {
     try {
+      if (leasesSupported) {
+        await renewAppJobLease({ job });
+      }
       await processJob(job);
-      await completeJob(job.id);
+      await completeJob(job);
       completed += 1;
     } catch (jobError) {
       console.error("[app-jobs] job failed:", {

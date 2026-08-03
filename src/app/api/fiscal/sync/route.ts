@@ -91,7 +91,6 @@ function isAuthorized(request: NextRequest) {
     routeLabel: "/api/fiscal/sync",
     envNames: ["FISCAL_SYNC_SECRET", "CRON_SECRET"],
     acceptedHeaderNames: ["x-fiscal-sync-secret", "x-cron-secret"],
-    allowSecretQueryParam: true,
   });
 }
 

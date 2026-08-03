@@ -144,22 +144,51 @@ function copyResponseCookies(source: NextResponse, target: NextResponse) {
 
 function isInvalidRefreshTokenError(error: unknown) {
   const message = String((error as any)?.message ?? "").toLowerCase();
+  const code = String((error as any)?.code ?? "").toLowerCase();
+  const status = Number((error as any)?.status ?? 0);
 
   return (
+    code.includes("refresh") ||
+    code === "session_not_found" ||
+    code === "bad_jwt" ||
+    status === 401 ||
     message.includes("invalid refresh token") ||
     message.includes("refresh token not found") ||
-    message.includes("refresh_token_not_found")
+    message.includes("refresh_token_not_found") ||
+    message.includes("session from session_id claim in jwt does not exist") ||
+    message.includes("jwt expired")
   );
 }
 
 function clearAuthAndTenantCookies(req: NextRequest, response: NextResponse) {
+  const cookieNames = new Set<string>([TENANT_COOKIE_NAME]);
+
   for (const cookie of req.cookies.getAll()) {
     if (cookie.name.startsWith("sb-") || cookie.name === TENANT_COOKIE_NAME) {
-      response.cookies.set(cookie.name, "", {
-        path: "/",
-        maxAge: 0,
-      });
+      cookieNames.add(cookie.name);
     }
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (supabaseUrl) {
+    try {
+      const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
+      if (projectRef) {
+        cookieNames.add(`sb-${projectRef}-auth-token`);
+        cookieNames.add(`sb-${projectRef}-auth-token.0`);
+        cookieNames.add(`sb-${projectRef}-auth-token.1`);
+      }
+    } catch {
+      // Ignore malformed optional environment values.
+    }
+  }
+
+  for (const name of cookieNames) {
+    response.cookies.set(name, "", {
+      path: "/",
+      maxAge: 0,
+      sameSite: "lax",
+    });
   }
 
   return response;

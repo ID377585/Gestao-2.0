@@ -12,6 +12,5 @@ export function isFiscalCronAuthorized(
     routeLabel,
     envNames: ["FISCAL_SYNC_SECRET", "CRON_SECRET"],
     acceptedHeaderNames: ["x-fiscal-sync-secret", "x-cron-secret"],
-    allowSecretQueryParam: true,
   }).authorized;
 }

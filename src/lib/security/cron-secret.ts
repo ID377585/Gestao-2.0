@@ -8,7 +8,6 @@ type CronSecretAuthOptions = {
   routeLabel: string;
   envNames: string[];
   acceptedHeaderNames?: string[];
-  allowSecretQueryParam?: boolean;
   maxTimestampSkewMs?: number;
 };
 
@@ -84,14 +83,9 @@ export function authorizeCronSecret(
   const headerCandidates = (options.acceptedHeaderNames ?? [])
     .map((headerName) => request.headers.get(headerName)?.trim())
     .filter(Boolean);
-  const querySecret =
-    options.allowSecretQueryParam && "nextUrl" in request
-      ? (request as any).nextUrl?.searchParams?.get("secret")?.trim()
-      : null;
   const candidates = [
     getBearerToken(request),
     ...headerCandidates,
-    querySecret,
   ].filter(Boolean);
 
   if (candidates.length === 0) {

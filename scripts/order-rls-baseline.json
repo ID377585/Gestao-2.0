@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "tables": {
+    "orders": {
+      "maxPolicies": 21,
+      "maxByCommand": {
+        "DELETE": 1,
+        "INSERT": 6,
+        "SELECT": 6,
+        "UPDATE": 8
+      }
+    },
+    "order_status_events": {
+      "maxPolicies": 19,
+      "maxByCommand": {
+        "DELETE": 1,
+        "INSERT": 8,
+        "SELECT": 10
+      }
+    }
+  },
+  "requiredFunctions": {
+    "advance_order_status": [
+      "Authenticated user required",
+      "Role cannot advance order",
+      "order_status_transitions",
+      "for update"
+    ],
+    "cancel_order": [
+      "Authenticated user required",
+      "Only admin/operacao can cancel",
+      "for update"
+    ],
+    "reopen_order": [
+      "Authenticated user required",
+      "Only admin can reopen",
+      "Only canceled orders can be reopened",
+      "for update"
+    ],
+    "gestify_ensure_stock_balance_for_product": [
+      "pg_advisory_xact_lock",
+      "coalesce(m.role::text, '') <> 'cliente'",
+      "coalesce(em.role::text, '') <> 'cliente'",
+      "sem permissão para este estabelecimento"
+    ]
+  }
+}

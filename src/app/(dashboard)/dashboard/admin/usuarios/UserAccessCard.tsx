@@ -1,5 +1,9 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { useState, type FormEvent } from "react";
+import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,6 +57,12 @@ type UserAccessCardProps = {
 const dialogInputClass = "border-slate-300 bg-white text-slate-950 placeholder:text-slate-400";
 const dialogSelectClass = "h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950";
 const dialogCardClass = "rounded-xl border border-slate-200 bg-white p-3 text-sm transition hover:bg-slate-50";
+const idleAccessState = { status: "idle", message: null } as const;
+
+type AccessSaveState = {
+  status: "idle" | "saving" | "success" | "error";
+  message: string | null;
+};
 
 export function UserAccessCard({
   collaborator,
@@ -64,9 +74,45 @@ export function UserAccessCard({
   toggleStatusAction,
   deleteAction,
 }: UserAccessCardProps) {
+  const router = useRouter();
+  const [accessSaveState, setAccessSaveState] =
+    useState<AccessSaveState>(idleAccessState);
+  const [isSavingAccess, setIsSavingAccess] = useState(false);
   const enabledModules = ACCESS_MODULES.filter(
     (module) => modulePermissions?.[module.key]
   );
+
+  async function handleAccessSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSavingAccess) return;
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+
+    setIsSavingAccess(true);
+    setAccessSaveState({
+      status: "saving",
+      message: "Salvando permissões de acesso...",
+    });
+
+    try {
+      await updateAccessAction(formData);
+      setAccessSaveState({
+        status: "success",
+        message: "Acessos salvos com sucesso.",
+      });
+      router.refresh();
+    } catch (error: any) {
+      setAccessSaveState({
+        status: "error",
+        message:
+          error?.message ??
+          "Não foi possível salvar os acessos. Tente novamente.",
+      });
+    } finally {
+      setIsSavingAccess(false);
+    }
+  }
 
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm transition hover:shadow-md">
@@ -206,7 +252,15 @@ export function UserAccessCard({
               </DialogDescription>
             </DialogHeader>
 
-            <form action={updateAccessAction} className="space-y-4">
+            <form
+              onSubmit={handleAccessSubmit}
+              onChange={() => {
+                if (!isSavingAccess && accessSaveState.status !== "idle") {
+                  setAccessSaveState(idleAccessState);
+                }
+              }}
+              className="space-y-4"
+            >
               <input type="hidden" name="user_id" value={collaborator.id} />
               <input type="hidden" name="establishment_id" value={establishmentId} />
 
@@ -221,6 +275,7 @@ export function UserAccessCard({
                       name="modules"
                       value={module.key}
                       defaultChecked={Boolean(modulePermissions?.[module.key])}
+                      disabled={isSavingAccess}
                       className="mt-1 h-4 w-4 accent-blue-600"
                     />
                     <span>
@@ -233,8 +288,40 @@ export function UserAccessCard({
                 ))}
               </div>
 
+              {accessSaveState.message ? (
+                <div
+                  role={accessSaveState.status === "error" ? "alert" : "status"}
+                  className={
+                    accessSaveState.status === "error"
+                      ? "flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                      : accessSaveState.status === "success"
+                        ? "flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+                        : "flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700"
+                  }
+                >
+                  {accessSaveState.status === "saving" ? (
+                    <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+                  ) : accessSaveState.status === "success" ? (
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  ) : (
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  )}
+                  <span>{accessSaveState.message}</span>
+                </div>
+              ) : null}
+
               <DialogFooter>
-                <Button type="submit" className="bg-slate-900 text-white hover:bg-slate-800">Salvar acessos</Button>
+                <Button
+                  type="submit"
+                  disabled={isSavingAccess}
+                  aria-busy={isSavingAccess}
+                  className="bg-slate-900 text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isSavingAccess ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  {isSavingAccess ? "Salvando acessos..." : "Salvar acessos"}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>

@@ -73,18 +73,29 @@ function parseEnvFile(path) {
   return env;
 }
 
-const envExample = parseEnvFile(".env.example");
+const envExamplePath = ".env.example";
+const envExampleExists = existsSync(resolve(process.cwd(), envExamplePath));
+const envExample = parseEnvFile(envExamplePath);
 const localEnv = parseEnvFile(envFile);
 const packageJson = readJson("package.json");
 const vercelJson = readJson("vercel.json");
 const nextConfig = readText("next.config.js");
 
-for (const key of requiredExampleKeys) {
+if (!envExampleExists) {
   addCheck(
-    `.env.example inclui ${key}`,
-    Object.prototype.hasOwnProperty.call(envExample, key),
-    "Variável documentada para configuração por ambiente."
+    ".env.example disponível",
+    false,
+    "Arquivo não incluído no pacote atual; em Vercel isso pode ser causado por .vercelignore.",
+    "warning"
   );
+} else {
+  for (const key of requiredExampleKeys) {
+    addCheck(
+      `.env.example inclui ${key}`,
+      Object.prototype.hasOwnProperty.call(envExample, key),
+      "Variável documentada para configuração por ambiente."
+    );
+  }
 }
 
 for (const key of requiredProductionEnv) {

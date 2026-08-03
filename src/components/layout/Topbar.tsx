@@ -243,36 +243,45 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
   useEffect(() => {
     if (!userNotificationId) return;
 
-    const unsubscribe = subscribeToNotifications(userNotificationId, (items) => {
-      setNotificacoes(items);
+    const unsubscribe = subscribeToNotifications(
+      userNotificationId,
+      user?.establishmentId ?? null,
+      (items) => {
+        setNotificacoes(items);
 
-      const currentIds = items.map((item) => item.id);
-      const previousIds = previousIdsRef.current;
-      const newNotifications = items.filter((item) => !previousIds.includes(item.id));
+        const currentIds = items.map((item) => item.id);
+        const previousIds = previousIdsRef.current;
+        const newNotifications = items.filter((item) => !previousIds.includes(item.id));
 
-      if (previousIds.length > 0 && settings.soundNotifications && newNotifications.length > 0) {
-        const hasCritical = newNotifications.some((item) => item.priority === "critical");
-        playNotificationSound(hasCritical ? "critical" : newNotifications[0]?.priority ?? "normal");
-      }
+        if (previousIds.length > 0 && settings.soundNotifications && newNotifications.length > 0) {
+          const hasCritical = newNotifications.some((item) => item.priority === "critical");
+          playNotificationSound(hasCritical ? "critical" : newNotifications[0]?.priority ?? "normal");
+        }
 
-      if (
-        settings.browserNotifications &&
-        typeof window !== "undefined" &&
-        "Notification" in window &&
-        Notification.permission === "granted"
-      ) {
-        newNotifications.forEach((item) => {
-          new Notification(item.title ?? "Notificação", {
-            body: item.message ?? "",
+        if (
+          settings.browserNotifications &&
+          typeof window !== "undefined" &&
+          "Notification" in window &&
+          Notification.permission === "granted"
+        ) {
+          newNotifications.forEach((item) => {
+            new Notification(item.title ?? "Notificação", {
+              body: item.message ?? "",
+            });
           });
-        });
-      }
+        }
 
-      previousIdsRef.current = currentIds;
-    });
+        previousIdsRef.current = currentIds;
+      }
+    );
 
     return () => unsubscribe();
-  }, [userNotificationId, settings.browserNotifications, settings.soundNotifications]);
+  }, [
+    user?.establishmentId,
+    userNotificationId,
+    settings.browserNotifications,
+    settings.soundNotifications,
+  ]);
 
   const notificacoesNaoLidas = notificacoes.filter((n) => !n.read).length;
   const podeVerificarAlertas = canRunNotificationChecks(user?.role);
@@ -313,7 +322,7 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
   const handleMarkAllAsRead = async () => {
     if (!userNotificationId) return;
     try {
-      await markAllNotificationsAsRead(userNotificationId);
+      await markAllNotificationsAsRead(userNotificationId, user?.establishmentId ?? null);
     } catch (error) {
       console.error("Erro ao marcar notificações como lidas:", error);
     }
@@ -338,7 +347,7 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
   const handleArchiveReadNotifications = async () => {
     if (!userNotificationId) return;
     try {
-      await archiveReadNotifications(userNotificationId);
+      await archiveReadNotifications(userNotificationId, user?.establishmentId ?? null);
     } catch (error) {
       console.error("Erro ao arquivar notificações lidas:", error);
     }

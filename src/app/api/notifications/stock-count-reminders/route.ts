@@ -19,6 +19,11 @@ type SaoPauloNow = {
   minute: number;
 };
 
+type ReminderRecipient = {
+  establishment_id: string | null;
+  user_id: string | null;
+};
+
 function getSaoPauloNow(reference = new Date()): SaoPauloNow {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: TIME_ZONE,
@@ -70,7 +75,7 @@ function getReminderSlot(now: SaoPauloNow) {
   return {
     dateKey,
     timeLabel,
-    dedupeKey: `stock-count-reminder:${dateKey}:${pad(now.hour)}`,
+    dedupeKeyPrefix: `stock-count-reminder:${dateKey}:${pad(now.hour)}`,
   };
 }
 
@@ -88,42 +93,73 @@ async function createStockCountReminder() {
 
   const supabase = createSupabaseAdminClient();
 
-  const { data: existing, error: existingError } = await supabase
-    .from("notifications")
-    .select("id")
-    .eq("dedupe_key", slot.dedupeKey)
-    .limit(1);
+  const { data: recipients, error: recipientsError } = await supabase
+    .from("memberships")
+    .select("establishment_id,user_id")
+    .eq("is_active", true)
+    .not("establishment_id", "is", null)
+    .in("role", ["admin", "operacao", "estoque"]);
 
-  if (existingError) {
-    console.error("Erro ao verificar deduplicação da contagem de estoque:", existingError);
-    throw existingError;
+  if (recipientsError) {
+    console.error("Erro ao buscar destinatários da contagem de estoque:", recipientsError);
+    throw recipientsError;
   }
 
-  if ((existing ?? []).length > 0) {
+  const uniqueRecipients = Array.from(
+    new Map(
+      ((recipients ?? []) as ReminderRecipient[])
+        .filter((item) => item.establishment_id && item.user_id)
+        .map((item) => [
+          `${item.establishment_id}:${item.user_id}`,
+          {
+            establishmentId: String(item.establishment_id),
+            userId: String(item.user_id),
+          },
+        ])
+    ).values()
+  );
+
+  if (uniqueRecipients.length === 0) {
     return {
       created: false,
-      reason: "Notificação já criada para este horário.",
-      dedupeKey: slot.dedupeKey,
+      reason: "Nenhum destinatário ativo encontrado para o lembrete.",
       now,
     };
   }
 
-  const payload = {
-    user_id: null,
+  const payloads = uniqueRecipients.map((recipient) => ({
+    user_id: recipient.userId,
+    establishment_id: recipient.establishmentId,
     title: "Inventário",
     message: `Hoje é o último dia do mês. Usuários precisam efetuar o Inventário para fechar o mês.`,
     type: "stock_count_reminder",
     priority: "critical",
     action_url: "/dashboard/inventario",
-    dedupe_key: slot.dedupeKey,
+    dedupe_key: `${slot.dedupeKeyPrefix}:${recipient.establishmentId}:${recipient.userId}`,
     payload: {
+      establishment_id: recipient.establishmentId,
       reminder_time: slot.timeLabel,
       stock_count_date: slot.dateKey,
       timezone: TIME_ZONE,
     },
-  };
+  }));
 
-  const { error } = await supabase.from("notifications").insert(payload);
+  let { error } = await supabase
+    .from("notifications")
+    .upsert(payloads, { onConflict: "dedupe_key", ignoreDuplicates: true });
+
+  if (error) {
+    const payloadsWithoutEstablishmentColumn = payloads.map(
+      ({ establishment_id: _ignored, ...payload }) => payload
+    );
+
+    ({ error } = await supabase
+      .from("notifications")
+      .upsert(payloadsWithoutEstablishmentColumn, {
+        onConflict: "dedupe_key",
+        ignoreDuplicates: true,
+      }));
+  }
 
   if (error) {
     console.error("Erro ao criar notificação de contagem de estoque:", error);
@@ -132,7 +168,8 @@ async function createStockCountReminder() {
 
   return {
     created: true,
-    dedupeKey: slot.dedupeKey,
+    recipients: payloads.length,
+    dedupeKeyPrefix: slot.dedupeKeyPrefix,
     now,
   };
 }

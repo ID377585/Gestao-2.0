@@ -21,6 +21,7 @@ export type AlertRecipient = {
 
 export type DispatchAlertInput = {
   recipients: AlertRecipient[];
+  establishmentId?: string | null;
   titulo: string;
   mensagem: string;
   tipo?: NotificationType;
@@ -99,6 +100,7 @@ async function listAuthEmailsByUserIds(userIds: string[]) {
 
 async function createNotificationAsAdmin(params: {
   userId: string;
+  establishmentId?: string | null;
   titulo: string;
   mensagem: string;
   tipo: NotificationType;
@@ -111,8 +113,48 @@ async function createNotificationAsAdmin(params: {
 }) {
   const supabaseAdmin = getSupabaseAdminForAlerts();
 
+  const currentPayload = {
+    user_id: params.userId,
+    "userId": params.userId,
+    establishment_id: params.establishmentId ?? null,
+    title: params.titulo,
+    message: params.mensagem,
+    read: false,
+    type: params.tipo,
+    priority:
+      params.tipo === "error"
+        ? "critical"
+        : params.tipo === "warning"
+          ? "high"
+          : "normal",
+    action_url: params.href ?? null,
+    payload: {
+      ...(params.metadata ?? {}),
+      establishment_id: params.establishmentId ?? null,
+      event_key: params.eventKey ?? null,
+      entity_type: params.entityType ?? null,
+      entity_id: params.entityId ?? null,
+      email_sent: params.emailSent ?? false,
+    },
+    dedupe_key: params.eventKey ?? null,
+  };
+
+  let { error } = await supabaseAdmin.from("notifications").insert(currentPayload);
+
+  if (!error) return;
+
+  const { establishment_id: _ignored, ...payloadScopedWithoutColumn } =
+    currentPayload;
+
+  ({ error } = await supabaseAdmin
+    .from("notifications")
+    .insert(payloadScopedWithoutColumn));
+
+  if (!error) return;
+
   const richPayload = {
     user_id: params.userId,
+    establishment_id: params.establishmentId ?? null,
     title: params.titulo,
     message: params.mensagem,
     read: false,
@@ -125,7 +167,7 @@ async function createNotificationAsAdmin(params: {
     email_sent: params.emailSent ?? false,
   };
 
-  let { error } = await supabaseAdmin.from("notifications").insert(richPayload);
+  ({ error } = await supabaseAdmin.from("notifications").insert(richPayload));
 
   if (!error) return;
 
@@ -261,6 +303,7 @@ export async function dispatchAlert(input: DispatchAlertInput) {
 
     await createNotificationAsAdmin({
       userId: recipient.userId,
+      establishmentId: input.establishmentId ?? null,
       titulo: input.titulo,
       mensagem: input.mensagem,
       tipo: input.tipo ?? "info",

@@ -20,11 +20,11 @@
     },
     {
       "path": "/api/jobs/process?limit=20",
-      "schedule": "*/5 * * * *"
+      "schedule": "30 5 * * *"
     },
     {
       "path": "/api/nutricao/notifications/sweep",
-      "schedule": "15 * * * *"
+      "schedule": "45 5 * * *"
     }
   ]
 }

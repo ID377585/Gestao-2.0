@@ -3,29 +3,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { NUTRICAO_SUBMODULES } from "@/lib/nutricao/navigation";
+import { getNutritionSummary } from "./actions";
 
-const summaryCards = [
-  {
-    title: "Vistorias",
-    value: "Estrutura inicial",
-    detail: "Modelos, agenda e execução serão conectados nas próximas fases.",
-  },
-  {
-    title: "Não conformidades",
-    value: "Ciclo rastreável",
-    detail: "Ocorrência, responsável, prazo, evidência, reinspeção e encerramento.",
-  },
-  {
-    title: "Documentos",
-    value: "Controle sanitário",
-    detail: "POPs, treinamentos, evidências e vencimentos no mesmo módulo.",
-  },
-  {
-    title: "Permissões",
-    value: "Por estabelecimento",
-    detail: "Acesso controlado pelo módulo Nutrição no cadastro de usuários.",
-  },
-];
+export const dynamic = "force-dynamic";
 
 const workflowSteps = [
   "Não conformidade",
@@ -37,7 +17,41 @@ const workflowSteps = [
   "Encerramento",
 ];
 
-export default function NutricaoPage() {
+export default async function NutricaoPage() {
+  const summary = await getNutritionSummary();
+  const summaryCards = [
+    {
+      title: "Vistorias hoje",
+      value: summary.inspectionsToday,
+      detail: "Agendadas para o dia atual no estabelecimento ativo.",
+    },
+    {
+      title: "Em andamento",
+      value: summary.inspectionsInProgress,
+      detail: "Vistorias iniciadas ou pausadas aguardando conclusão.",
+    },
+    {
+      title: "Não conformidades",
+      value: summary.openNonconformities,
+      detail: "Ocorrências abertas, em correção ou validação.",
+    },
+    {
+      title: "Críticas",
+      value: summary.criticalNonconformities,
+      detail: "Ocorrências críticas que exigem prioridade operacional.",
+    },
+    {
+      title: "Ações vencidas",
+      value: summary.overdueActions,
+      detail: "Itens de plano de ação fora do prazo configurado.",
+    },
+    {
+      title: "Documentos a vencer",
+      value: summary.expiringDocuments,
+      detail: "Documentos com validade nos próximos 30 dias.",
+    },
+  ];
+
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
       <section className="grid gap-5 lg:grid-cols-[1.3fr_0.7fr]">
@@ -62,7 +76,7 @@ export default function NutricaoPage() {
                 Fase 1 ativa
               </p>
               <p className="mt-1">
-                Menu, permissão e rota principal preparados para evolução segura.
+                Indicadores e fluxos iniciais preparados por estabelecimento.
               </p>
             </div>
           </div>
@@ -85,7 +99,14 @@ export default function NutricaoPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {summary.message ? (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm dark:border-amber-900/60 dark:bg-amber-950 dark:text-amber-100">
+          <p className="font-semibold">Banco de Nutrição pendente</p>
+          <p className="mt-1">{summary.message}</p>
+        </section>
+      ) : null}
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {summaryCards.map((card) => (
           <div
             key={card.title}

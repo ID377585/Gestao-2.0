@@ -18,6 +18,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   createNutritionInspection,
   createNutritionNonconformity,
+  createActionItem,
+  createActionPlan,
   createDocument,
   createPop,
   createReportDraft,
@@ -26,6 +28,8 @@ import {
   createTemperaturePoint,
   createTemperatureRecord,
   createTraining,
+  getNutritionSettings,
+  listActionPlans,
   listDocuments,
   listNutritionInspections,
   listNutritionNonconformities,
@@ -35,6 +39,7 @@ import {
   listSupplierAssessments,
   listTemperaturePoints,
   listTrainings,
+  updateNutritionSettings,
 } from "@/app/nutricao/actions";
 import { SubmitButton } from "@/app/nutricao/SubmitButton";
 import {
@@ -113,6 +118,7 @@ const statusLabels: Record<string, string> = {
   draft: "Rascunho",
   active: "Ativo",
   inactive: "Inativo",
+  accepted: "Aceita",
   near_expiration: "Próximo do vencimento",
   expired: "Vencido",
   replaced: "Substituído",
@@ -844,6 +850,306 @@ async function RelatoriosSection() {
   );
 }
 
+async function PlanosDeAcaoSection() {
+  const plans = await listActionPlans();
+
+  return (
+    <section className="grid gap-5 xl:grid-cols-[0.82fr_1.18fr]">
+      <div className="grid gap-5">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Novo plano 5W2H
+          </h2>
+          <form action={createActionPlan} className="mt-5 grid gap-4">
+            <Field label="Título">
+              <Input name="title" placeholder="Ex.: Correção da câmara fria 01" required />
+            </Field>
+            <Field label="Descrição">
+              <Textarea name="description" placeholder="Contexto do plano e risco envolvido." />
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Setor">
+                <Input name="sector" placeholder="Ex.: Estoque frio" />
+              </Field>
+              <Field label="Prioridade">
+                <select
+                  name="priority"
+                  className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                  defaultValue="medium"
+                >
+                  <option value="low">Baixa</option>
+                  <option value="medium">Média</option>
+                  <option value="high">Alta</option>
+                  <option value="critical">Crítica</option>
+                </select>
+              </Field>
+            </div>
+            <Field label="Prazo">
+              <Input name="due_at" type="datetime-local" />
+            </Field>
+            <Field label="O que será feito">
+              <Textarea
+                name="first_action"
+                placeholder="Ex.: Revisar vedação, acionar manutenção e transferir os produtos."
+                required
+              />
+            </Field>
+            <Field label="Por que será feito">
+              <Textarea name="why" placeholder="Ex.: Reduzir risco de temperatura fora do padrão." />
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Onde">
+                <Input name="where_text" placeholder="Ex.: Câmara fria 01" />
+              </Field>
+              <Field label="Como">
+                <Input name="how_text" placeholder="Ex.: Checklist técnico e evidência fotográfica" />
+              </Field>
+            </div>
+            <SubmitButton pendingLabel="Criando...">Criar plano</SubmitButton>
+          </form>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Adicionar ação
+          </h2>
+          <form action={createActionItem} className="mt-5 grid gap-4">
+            <Field label="Plano">
+              <select
+                name="action_plan_id"
+                className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                required
+              >
+                <option value="">Selecione</option>
+                {plans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.title}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="O que será feito">
+              <Textarea name="what" required />
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Onde">
+                <Input name="where_text" />
+              </Field>
+              <Field label="Como">
+                <Input name="how_text" />
+              </Field>
+            </div>
+            <Field label="Por que será feito">
+              <Textarea name="why" />
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Prazo">
+                <Input name="due_at" type="datetime-local" />
+              </Field>
+              <Field label="Prioridade">
+                <select
+                  name="priority"
+                  className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                  defaultValue="medium"
+                >
+                  <option value="low">Baixa</option>
+                  <option value="medium">Média</option>
+                  <option value="high">Alta</option>
+                  <option value="critical">Crítica</option>
+                </select>
+              </Field>
+            </div>
+            <SubmitButton pendingLabel="Adicionando...">Adicionar ação</SubmitButton>
+          </form>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Planos ativos
+          </h2>
+          <Pill>{plans.length}</Pill>
+        </div>
+
+        <div className="mt-5 grid gap-3">
+          {plans.length === 0 ? (
+            <EmptyState message="Nenhum plano de ação cadastrado para este estabelecimento." />
+          ) : (
+            plans.map((plan) => (
+              <div
+                key={plan.id}
+                className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
+              >
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-950 dark:text-white">
+                      {plan.title}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                      {plan.sector ?? "Sem setor"} • Prazo: {formatDateTime(plan.dueAt)}
+                    </p>
+                    {plan.description ? (
+                      <p className="mt-2 text-sm leading-5 text-slate-600 dark:text-slate-300">
+                        {plan.description}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Pill tone={plan.priority === "critical" ? "red" : "amber"}>
+                      {severityLabels[plan.priority] ?? plan.priority}
+                    </Pill>
+                    <Pill>{statusLabels[plan.status] ?? plan.status}</Pill>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-2">
+                  {plan.items.length === 0 ? (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      Nenhuma ação cadastrada neste plano.
+                    </p>
+                  ) : (
+                    plan.items.map((item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-md border border-slate-100 bg-slate-50 p-3 text-sm dark:border-slate-800 dark:bg-slate-950"
+                      >
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <p className="font-medium text-slate-900 dark:text-slate-100">
+                              {item.what}
+                            </p>
+                            <p className="mt-1 text-slate-500 dark:text-slate-400">
+                              {item.whereText ?? "Sem local"} • {item.progressPercent}% concluído
+                            </p>
+                          </div>
+                          <Pill>{statusLabels[item.status] ?? item.status}</Pill>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+async function ConfiguracoesSection() {
+  const settings = await getNutritionSettings();
+
+  return (
+    <section className="grid gap-5 xl:grid-cols-[0.82fr_1.18fr]">
+      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="font-semibold text-slate-950 dark:text-white">
+          Regras do estabelecimento
+        </h2>
+        <form action={updateNutritionSettings} className="mt-5 grid gap-4">
+          <Field label="Fuso horário">
+            <Input name="timezone" defaultValue={settings.timezone} required />
+          </Field>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Prazo baixa gravidade (dias)">
+              <Input
+                name="default_low_due_days"
+                type="number"
+                min="1"
+                max="365"
+                defaultValue={settings.defaultLowDueDays}
+              />
+            </Field>
+            <Field label="Prazo média gravidade (dias)">
+              <Input
+                name="default_medium_due_days"
+                type="number"
+                min="1"
+                max="365"
+                defaultValue={settings.defaultMediumDueDays}
+              />
+            </Field>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Prazo alta gravidade (dias)">
+              <Input
+                name="default_high_due_days"
+                type="number"
+                min="0"
+                max="365"
+                defaultValue={settings.defaultHighDueDays}
+              />
+            </Field>
+            <Field label="Prazo crítica (horas)">
+              <Input
+                name="default_critical_due_hours"
+                type="number"
+                min="1"
+                max="720"
+                defaultValue={settings.defaultCriticalDueHours}
+              />
+            </Field>
+          </div>
+          <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <input
+              name="require_geolocation"
+              type="checkbox"
+              className="mt-1 h-4 w-4"
+              defaultChecked={settings.requireGeolocation}
+            />
+            Exigir geolocalização no início de vistorias
+          </label>
+          <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <input
+              name="allow_geolocation_refusal_with_reason"
+              type="checkbox"
+              className="mt-1 h-4 w-4"
+              defaultChecked={settings.allowGeolocationRefusalWithReason}
+            />
+            Permitir recusa/falha de localização com justificativa
+          </label>
+          <SubmitButton pendingLabel="Salvando...">Salvar configurações</SubmitButton>
+        </form>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center gap-3">
+          <ShieldCheck className="h-5 w-5 text-emerald-600" />
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Governança sanitária
+          </h2>
+        </div>
+        {settings.message ? (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950 dark:text-amber-100">
+            {settings.message}
+          </div>
+        ) : null}
+        <div className="mt-5 grid gap-3">
+          <RegistryCard
+            title="Prazos por gravidade"
+            description={`Baixa ${settings.defaultLowDueDays}d • Média ${settings.defaultMediumDueDays}d • Alta ${settings.defaultHighDueDays}d • Crítica ${settings.defaultCriticalDueHours}h`}
+            status={settings.status}
+          />
+          <RegistryCard
+            title="Geolocalização"
+            description={
+              settings.requireGeolocation
+                ? "Obrigatória nas vistorias."
+                : "Opcional nas vistorias."
+            }
+            status={
+              settings.allowGeolocationRefusalWithReason
+                ? "Recusa justificada permitida"
+                : "Sem recusa justificada"
+            }
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function RegistrySection({
   title,
   count,
@@ -1024,6 +1330,8 @@ export default async function NutricaoSectionPage({
       {module.slug === "treinamentos" ? <TreinamentosSection /> : null}
       {module.slug === "fornecedores" ? <FornecedoresSection /> : null}
       {module.slug === "relatorios" ? <RelatoriosSection /> : null}
+      {module.slug === "planos-de-acao" ? <PlanosDeAcaoSection /> : null}
+      {module.slug === "configuracoes" ? <ConfiguracoesSection /> : null}
       {![
         "vistorias",
         "nao-conformidades",
@@ -1034,6 +1342,8 @@ export default async function NutricaoSectionPage({
         "treinamentos",
         "fornecedores",
         "relatorios",
+        "planos-de-acao",
+        "configuracoes",
       ].includes(module.slug) ? (
         <PreparedSection notes={notes} />
       ) : null}

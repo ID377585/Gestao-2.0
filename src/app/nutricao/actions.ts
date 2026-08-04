@@ -123,6 +123,38 @@ export type NutritionReportItem = {
   generatedAt: string | null;
 };
 
+export type ActionPlanItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  sector: string | null;
+  status: string;
+  priority: string;
+  dueAt: string | null;
+  items: Array<{
+    id: string;
+    what: string;
+    whereText: string | null;
+    howText: string | null;
+    status: string;
+    priority: string;
+    dueAt: string | null;
+    progressPercent: number;
+  }>;
+};
+
+export type NutritionSettingsItem = {
+  status: NutritionModuleStatus;
+  timezone: string;
+  requireGeolocation: boolean;
+  allowGeolocationRefusalWithReason: boolean;
+  defaultLowDueDays: number;
+  defaultMediumDueDays: number;
+  defaultHighDueDays: number;
+  defaultCriticalDueHours: number;
+  message?: string;
+};
+
 function isMissingNutritionTableError(error: unknown) {
   const candidate = error as SupabaseErrorLike | null;
   const message = String(candidate?.message ?? "").toLowerCase();
@@ -969,4 +1001,275 @@ export async function createReportDraft(formData: FormData) {
   }
 
   revalidatePath("/nutricao/relatorios");
+}
+
+export async function listActionPlans(): Promise<ActionPlanItem[]> {
+  const { tenant, supabase } = await getNutritionContext();
+  const { data, error } = await supabase
+    .from("nutrition_action_plans")
+    .select(
+      "id,title,description,sector,status,priority,due_at,nutrition_action_items(id,what,where_text,how_text,status,priority,due_at,progress_percent)"
+    )
+    .eq("establishment_id", tenant.establishmentId)
+    .order("due_at", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    if (isMissingNutritionTableError(error)) return [];
+    console.error("[nutrition] action plans list error:", serializeError(error));
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id),
+    title: String(row.title ?? ""),
+    description: row.description ? String(row.description) : null,
+    sector: row.sector ? String(row.sector) : null,
+    status: String(row.status ?? "open"),
+    priority: String(row.priority ?? "medium"),
+    dueAt: row.due_at ? String(row.due_at) : null,
+    items: Array.isArray(row.nutrition_action_items)
+      ? row.nutrition_action_items.map((item: any) => ({
+          id: String(item.id),
+          what: String(item.what ?? ""),
+          whereText: item.where_text ? String(item.where_text) : null,
+          howText: item.how_text ? String(item.how_text) : null,
+          status: String(item.status ?? "pending"),
+          priority: String(item.priority ?? "medium"),
+          dueAt: item.due_at ? String(item.due_at) : null,
+          progressPercent:
+            item.progress_percent == null ? 0 : Number(item.progress_percent),
+        }))
+      : [],
+  }));
+}
+
+export async function createActionPlan(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const title = String(formData.get("title") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
+  const sector = String(formData.get("sector") ?? "").trim();
+  const priority = String(formData.get("priority") ?? "medium").trim();
+  const dueAt = String(formData.get("due_at") ?? "").trim();
+  const firstAction = String(formData.get("first_action") ?? "").trim();
+  const why = String(formData.get("why") ?? "").trim();
+  const whereText = String(formData.get("where_text") ?? "").trim();
+  const howText = String(formData.get("how_text") ?? "").trim();
+
+  if (!title) throw new Error("Informe o título do plano de ação.");
+  if (!firstAction) throw new Error("Informe ao menos uma ação inicial.");
+
+  const normalizedPriority = ["low", "medium", "high", "critical"].includes(priority)
+    ? priority
+    : "medium";
+
+  const { data: plan, error: planError } = await supabase
+    .from("nutrition_action_plans")
+    .insert({
+      establishment_id: tenant.establishmentId,
+      title,
+      description: description || null,
+      source_type: "manual",
+      sector: sector || null,
+      status: "open",
+      priority: normalizedPriority,
+      due_at: dueAt ? new Date(dueAt).toISOString() : null,
+      created_by: tenant.userId,
+      updated_by: tenant.userId,
+    })
+    .select("id")
+    .single();
+
+  if (planError) {
+    if (isMissingNutritionTableError(planError)) {
+      throw new Error("A migration de banco do módulo Nutrição ainda precisa ser aplicada.");
+    }
+
+    console.error("[nutrition] create action plan error:", serializeError(planError));
+    throw new Error("Não foi possível criar o plano de ação.");
+  }
+
+  const { error: itemError } = await supabase.from("nutrition_action_items").insert({
+    establishment_id: tenant.establishmentId,
+    action_plan_id: plan.id,
+    what: firstAction,
+    why: why || null,
+    where_text: whereText || null,
+    how_text: howText || null,
+    due_at: dueAt ? new Date(dueAt).toISOString() : null,
+    status: "pending",
+    priority: normalizedPriority,
+    created_by: tenant.userId,
+    updated_by: tenant.userId,
+  });
+
+  if (itemError) {
+    console.error("[nutrition] create action item error:", serializeError(itemError));
+    throw new Error("O plano foi criado, mas não foi possível cadastrar a primeira ação.");
+  }
+
+  revalidatePath("/nutricao");
+  revalidatePath("/nutricao/planos-de-acao");
+}
+
+export async function createActionItem(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const actionPlanId = String(formData.get("action_plan_id") ?? "").trim();
+  const what = String(formData.get("what") ?? "").trim();
+  const why = String(formData.get("why") ?? "").trim();
+  const whereText = String(formData.get("where_text") ?? "").trim();
+  const howText = String(formData.get("how_text") ?? "").trim();
+  const priority = String(formData.get("priority") ?? "medium").trim();
+  const dueAt = String(formData.get("due_at") ?? "").trim();
+
+  if (!actionPlanId) throw new Error("Selecione o plano de ação.");
+  if (!what) throw new Error("Informe a ação.");
+
+  const { data: plan, error: planError } = await supabase
+    .from("nutrition_action_plans")
+    .select("id")
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", actionPlanId)
+    .single();
+
+  if (planError || !plan) {
+    if (planError && isMissingNutritionTableError(planError)) {
+      throw new Error("A migration de banco do módulo Nutrição ainda precisa ser aplicada.");
+    }
+
+    throw new Error("Plano de ação não encontrado para este estabelecimento.");
+  }
+
+  const { error } = await supabase.from("nutrition_action_items").insert({
+    establishment_id: tenant.establishmentId,
+    action_plan_id: actionPlanId,
+    what,
+    why: why || null,
+    where_text: whereText || null,
+    how_text: howText || null,
+    due_at: dueAt ? new Date(dueAt).toISOString() : null,
+    status: "pending",
+    priority: ["low", "medium", "high", "critical"].includes(priority)
+      ? priority
+      : "medium",
+    created_by: tenant.userId,
+    updated_by: tenant.userId,
+  });
+
+  if (error) {
+    console.error("[nutrition] create action item error:", serializeError(error));
+    throw new Error("Não foi possível cadastrar a ação.");
+  }
+
+  revalidatePath("/nutricao");
+  revalidatePath("/nutricao/planos-de-acao");
+}
+
+export async function getNutritionSettings(): Promise<NutritionSettingsItem> {
+  const { tenant, supabase } = await getNutritionContext();
+  const fallback: NutritionSettingsItem = {
+    status: "ready",
+    timezone: "America/Sao_Paulo",
+    requireGeolocation: false,
+    allowGeolocationRefusalWithReason: true,
+    defaultLowDueDays: 7,
+    defaultMediumDueDays: 3,
+    defaultHighDueDays: 1,
+    defaultCriticalDueHours: 4,
+  };
+
+  const { data, error } = await supabase
+    .from("nutrition_settings")
+    .select(
+      "timezone,require_geolocation,allow_geolocation_refusal_with_reason,default_low_due_days,default_medium_due_days,default_high_due_days,default_critical_due_hours"
+    )
+    .eq("establishment_id", tenant.establishmentId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingNutritionTableError(error)) {
+      return {
+        ...fallback,
+        status: "migration_pending",
+        message: "A migration de banco do módulo Nutrição ainda precisa ser aplicada.",
+      };
+    }
+
+    console.error("[nutrition] settings load error:", serializeError(error));
+    return {
+      ...fallback,
+      status: "error",
+      message: "Não foi possível carregar as configurações de Nutrição.",
+    };
+  }
+
+  if (!data) return fallback;
+
+  return {
+    status: "ready",
+    timezone: String(data.timezone ?? fallback.timezone),
+    requireGeolocation: Boolean(data.require_geolocation),
+    allowGeolocationRefusalWithReason: Boolean(
+      data.allow_geolocation_refusal_with_reason
+    ),
+    defaultLowDueDays: Number(data.default_low_due_days ?? fallback.defaultLowDueDays),
+    defaultMediumDueDays: Number(
+      data.default_medium_due_days ?? fallback.defaultMediumDueDays
+    ),
+    defaultHighDueDays: Number(
+      data.default_high_due_days ?? fallback.defaultHighDueDays
+    ),
+    defaultCriticalDueHours: Number(
+      data.default_critical_due_hours ?? fallback.defaultCriticalDueHours
+    ),
+  };
+}
+
+export async function updateNutritionSettings(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const timezone = String(formData.get("timezone") ?? "America/Sao_Paulo").trim();
+  const lowDays = Number(formData.get("default_low_due_days") ?? 7);
+  const mediumDays = Number(formData.get("default_medium_due_days") ?? 3);
+  const highDays = Number(formData.get("default_high_due_days") ?? 1);
+  const criticalHours = Number(formData.get("default_critical_due_hours") ?? 4);
+
+  const { error } = await supabase.from("nutrition_settings").upsert(
+    {
+      establishment_id: tenant.establishmentId,
+      timezone: timezone || "America/Sao_Paulo",
+      require_geolocation: formData.get("require_geolocation") === "on",
+      allow_geolocation_refusal_with_reason:
+        formData.get("allow_geolocation_refusal_with_reason") === "on",
+      default_low_due_days:
+        Number.isFinite(lowDays) && lowDays >= 1 && lowDays <= 365 ? lowDays : 7,
+      default_medium_due_days:
+        Number.isFinite(mediumDays) && mediumDays >= 1 && mediumDays <= 365
+          ? mediumDays
+          : 3,
+      default_high_due_days:
+        Number.isFinite(highDays) && highDays >= 0 && highDays <= 365
+          ? highDays
+          : 1,
+      default_critical_due_hours:
+        Number.isFinite(criticalHours) && criticalHours >= 1 && criticalHours <= 720
+          ? criticalHours
+          : 4,
+      updated_by: tenant.userId,
+      created_by: tenant.userId,
+    },
+    { onConflict: "establishment_id" }
+  );
+
+  if (error) {
+    if (isMissingNutritionTableError(error)) {
+      throw new Error("A migration de banco do módulo Nutrição ainda precisa ser aplicada.");
+    }
+
+    console.error("[nutrition] settings update error:", serializeError(error));
+    throw new Error("Não foi possível salvar as configurações de Nutrição.");
+  }
+
+  revalidatePath("/nutricao");
+  revalidatePath("/nutricao/configuracoes");
 }

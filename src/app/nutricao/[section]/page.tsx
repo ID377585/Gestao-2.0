@@ -20,6 +20,7 @@ import {
   createNutritionNonconformity,
   createActionItem,
   createActionPlan,
+  createInspectionTemplate,
   createDocument,
   createPop,
   createReportDraft,
@@ -29,6 +30,7 @@ import {
   createTemperatureRecord,
   createTraining,
   getNutritionSettings,
+  listInspectionTemplates,
   listActionPlans,
   listDocuments,
   listNutritionInspections,
@@ -196,47 +198,121 @@ function EmptyState({ message }: { message: string }) {
 }
 
 async function VistoriasSection() {
-  const inspections = await listNutritionInspections();
+  const [inspections, templates] = await Promise.all([
+    listNutritionInspections(),
+    listInspectionTemplates(),
+  ]);
 
   return (
     <section className="grid gap-5 xl:grid-cols-[0.82fr_1.18fr]">
-      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center gap-2">
-          <Plus className="h-5 w-5 text-emerald-600" />
-          <h2 className="font-semibold text-slate-950 dark:text-white">
-            Agendar vistoria
-          </h2>
+      <div className="grid gap-5">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center gap-2">
+            <Plus className="h-5 w-5 text-emerald-600" />
+            <h2 className="font-semibold text-slate-950 dark:text-white">
+              Modelo de checklist
+            </h2>
+          </div>
+
+          <form action={createInspectionTemplate} className="mt-5 grid gap-4">
+            <Field label="Nome do modelo">
+              <Input name="name" placeholder="Ex.: Vistoria semanal da cozinha" required />
+            </Field>
+            <Field label="Descrição">
+              <Textarea name="description" placeholder="Objetivo e escopo do checklist." />
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Tipo">
+                <select
+                  name="inspection_type"
+                  className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                  defaultValue="vistoria"
+                >
+                  <option value="vistoria">Vistoria</option>
+                  <option value="auditoria">Auditoria</option>
+                  <option value="rotina">Rotina operacional</option>
+                  <option value="reinspecao">Reinspeção</option>
+                </select>
+              </Field>
+              <Field label="Duração padrão (min)">
+                <Input name="expected_duration_minutes" type="number" min="1" max="1440" />
+              </Field>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Seção inicial">
+                <Input name="section_title" defaultValue="Geral" />
+              </Field>
+              <Field label="Aprovação mínima (%)">
+                <Input name="minimum_approval_percent" type="number" min="0" max="100" step="0.1" />
+              </Field>
+            </div>
+            <Field label="Referência técnica">
+              <Input name="technical_reference" placeholder="Ex.: Manual de Boas Práticas" />
+            </Field>
+            <Field label="Itens do checklist, um por linha">
+              <Textarea
+                name="items"
+                rows={7}
+                placeholder={"Temperatura dos equipamentos conforme\nAlimentos identificados e protegidos\nBancadas higienizadas"}
+                required
+              />
+            </Field>
+            <SubmitButton pendingLabel="Criando...">Criar modelo</SubmitButton>
+          </form>
         </div>
 
-        <form action={createNutritionInspection} className="mt-5 grid gap-4">
-          <Field label="Título">
-            <Input name="title" placeholder="Ex.: Vistoria semanal da cozinha" required />
-          </Field>
-          <Field label="Tipo">
-            <select
-              name="inspection_type"
-              className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
-              defaultValue="vistoria"
-            >
-              <option value="vistoria">Vistoria</option>
-              <option value="auditoria">Auditoria</option>
-              <option value="rotina">Rotina operacional</option>
-              <option value="reinspecao">Reinspeção</option>
-            </select>
-          </Field>
-          <Field label="Setor">
-            <Input name="sector" placeholder="Ex.: Cozinha quente" />
-          </Field>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Data e hora">
-              <Input name="scheduled_for" type="datetime-local" />
-            </Field>
-            <Field label="Duração prevista (min)">
-              <Input name="expected_duration_minutes" type="number" min="1" max="1440" />
-            </Field>
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center gap-2">
+            <CalendarClock className="h-5 w-5 text-sky-600" />
+            <h2 className="font-semibold text-slate-950 dark:text-white">
+              Agendar vistoria
+            </h2>
           </div>
-          <SubmitButton pendingLabel="Agendando...">Agendar vistoria</SubmitButton>
-        </form>
+
+          <form action={createNutritionInspection} className="mt-5 grid gap-4">
+            <Field label="Modelo">
+              <select
+                name="template_id"
+                className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                defaultValue=""
+              >
+                <option value="">Sem modelo</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Título">
+              <Input name="title" placeholder="Ex.: Vistoria semanal da cozinha" required />
+            </Field>
+            <Field label="Tipo">
+              <select
+                name="inspection_type"
+                className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                defaultValue="vistoria"
+              >
+                <option value="vistoria">Vistoria</option>
+                <option value="auditoria">Auditoria</option>
+                <option value="rotina">Rotina operacional</option>
+                <option value="reinspecao">Reinspeção</option>
+              </select>
+            </Field>
+            <Field label="Setor">
+              <Input name="sector" placeholder="Ex.: Cozinha quente" />
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Data e hora">
+                <Input name="scheduled_for" type="datetime-local" />
+              </Field>
+              <Field label="Duração prevista (min)">
+                <Input name="expected_duration_minutes" type="number" min="1" max="1440" />
+              </Field>
+            </div>
+            <SubmitButton pendingLabel="Agendando...">Agendar vistoria</SubmitButton>
+          </form>
+        </div>
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -264,10 +340,23 @@ async function VistoriasSection() {
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                       {inspection.sector ?? "Sem setor"} • {formatDateTime(inspection.scheduledFor)}
                     </p>
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                      {inspection.totalItems ?? 0} itens
+                      {inspection.compliancePercent == null
+                        ? ""
+                        : ` • ${inspection.compliancePercent}% conformidade`}
+                    </p>
                   </div>
-                  <Pill tone={inspection.status === "completed" ? "green" : "amber"}>
-                    {statusLabels[inspection.status] ?? inspection.status}
-                  </Pill>
+                  <div className="flex flex-wrap gap-2">
+                    <Pill tone={inspection.status === "completed" ? "green" : "amber"}>
+                      {statusLabels[inspection.status] ?? inspection.status}
+                    </Pill>
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/nutricao/vistorias/${inspection.id}`}>
+                        Executar
+                      </Link>
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))

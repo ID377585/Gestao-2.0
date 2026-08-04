@@ -35,7 +35,63 @@ export type InspectionListItem = {
   sector: string | null;
   scheduledFor: string | null;
   inspectorUserId: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  totalItems?: number;
+  compliancePercent?: number | null;
   createdAt: string;
+};
+
+export type InspectionTemplateListItem = {
+  id: string;
+  name: string;
+  description: string | null;
+  inspectionType: string;
+  status: string;
+  currentVersion: number;
+  expectedDurationMinutes: number | null;
+  itemCount: number;
+  updatedAt: string;
+};
+
+export type InspectionExecutionItem = {
+  id: string;
+  sectionId: string | null;
+  sectionTitle: string;
+  title: string;
+  instruction: string | null;
+  responseType: string;
+  orderIndex: number;
+  defaultSeverity: string;
+  commentRequired: boolean;
+  createNonconformityOnFailure: boolean;
+  answer: {
+    id: string;
+    conformityStatus: string | null;
+    comment: string | null;
+    answeredAt: string;
+  } | null;
+};
+
+export type InspectionExecutionSnapshot = {
+  id: string;
+  title: string;
+  inspectionCode: string | null;
+  inspectionType: string;
+  status: string;
+  sector: string | null;
+  scheduledFor: string | null;
+  expectedDurationMinutes: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  totalItems: number;
+  compliantItems: number;
+  noncompliantItems: number;
+  notApplicableItems: number;
+  compliancePercent: number | null;
+  result: string | null;
+  templateName: string | null;
+  items: InspectionExecutionItem[];
 };
 
 export type NonconformityListItem = {
@@ -205,6 +261,27 @@ function emptySummary(message?: string): NutritionSummary {
   };
 }
 
+function normalizePriority(value: string) {
+  return ["low", "medium", "high", "critical"].includes(value)
+    ? value
+    : "medium";
+}
+
+function parseLineItems(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 80);
+}
+
+function inspectionResultFromPercent(percent: number | null) {
+  if (percent == null) return null;
+  if (percent >= 90) return "approved";
+  if (percent >= 70) return "approved_with_restrictions";
+  return "failed";
+}
+
 export async function getNutritionSummary(): Promise<NutritionSummary> {
   const { tenant, supabase } = await getNutritionContext();
   const today = new Date();
@@ -299,12 +376,221 @@ export async function getNutritionSummary(): Promise<NutritionSummary> {
   };
 }
 
+export async function listInspectionTemplates(): Promise<
+  InspectionTemplateListItem[]
+> {
+  const { tenant, supabase } = await getNutritionContext();
+  const { data, error } = await supabase
+    .from("nutrition_inspection_templates")
+    .select("id,name,description,inspection_type,status,current_version,expected_duration_minutes,updated_at")
+    .eq("establishment_id", tenant.establishmentId)
+    .neq("status", "canceled")
+    .order("updated_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    if (isMissingNutritionTableError(error)) return [];
+    console.error("[nutrition] templates list error:", serializeError(error));
+    return [];
+  }
+
+  const templates = data ?? [];
+  const templateIds = templates.map((row: any) => String(row.id));
+  const itemCountByTemplate = new Map<string, number>();
+
+  if (templateIds.length > 0) {
+    const { data: versions, error: versionsError } = await supabase
+      .from("nutrition_inspection_template_versions")
+      .select("id,template_id,version")
+      .eq("establishment_id", tenant.establishmentId)
+      .in("template_id", templateIds);
+
+    if (versionsError && !isMissingNutritionTableError(versionsError)) {
+      console.error("[nutrition] template versions count error:", serializeError(versionsError));
+    }
+
+    const latestVersionByTemplate = new Map<string, string>();
+    for (const version of versions ?? []) {
+      const templateId = String((version as any).template_id ?? "");
+      const versionId = String((version as any).id ?? "");
+      const versionNumber = Number((version as any).version ?? 0);
+      const current = latestVersionByTemplate.get(templateId);
+      const currentVersion = versions?.find((item: any) => String(item.id) === current);
+
+      if (!current || versionNumber > Number((currentVersion as any)?.version ?? 0)) {
+        latestVersionByTemplate.set(templateId, versionId);
+      }
+    }
+
+    const versionIds = Array.from(latestVersionByTemplate.values());
+    if (versionIds.length > 0) {
+      const { data: items, error: itemsError } = await supabase
+        .from("nutrition_inspection_items")
+        .select("template_version_id")
+        .eq("establishment_id", tenant.establishmentId)
+        .in("template_version_id", versionIds);
+
+      if (itemsError && !isMissingNutritionTableError(itemsError)) {
+        console.error("[nutrition] template items count error:", serializeError(itemsError));
+      }
+
+      const templateByVersion = new Map(
+        Array.from(latestVersionByTemplate.entries()).map(([templateId, versionId]) => [
+          versionId,
+          templateId,
+        ])
+      );
+
+      for (const item of items ?? []) {
+        const templateId = templateByVersion.get(String((item as any).template_version_id ?? ""));
+        if (!templateId) continue;
+        itemCountByTemplate.set(templateId, (itemCountByTemplate.get(templateId) ?? 0) + 1);
+      }
+    }
+  }
+
+  return templates.map((row: any) => ({
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    description: row.description ? String(row.description) : null,
+    inspectionType: String(row.inspection_type ?? "vistoria"),
+    status: String(row.status ?? "active"),
+    currentVersion: Number(row.current_version ?? 1),
+    expectedDurationMinutes:
+      row.expected_duration_minutes == null
+        ? null
+        : Number(row.expected_duration_minutes),
+    itemCount: itemCountByTemplate.get(String(row.id)) ?? 0,
+    updatedAt: String(row.updated_at ?? ""),
+  }));
+}
+
+export async function createInspectionTemplate(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const name = String(formData.get("name") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
+  const inspectionType = String(formData.get("inspection_type") ?? "vistoria").trim();
+  const technicalReference = String(formData.get("technical_reference") ?? "").trim();
+  const expectedDuration = Number(formData.get("expected_duration_minutes") ?? 0);
+  const minimumApproval = Number(formData.get("minimum_approval_percent") ?? 0);
+  const sectionTitle = String(formData.get("section_title") ?? "Geral").trim();
+  const items = parseLineItems(String(formData.get("items") ?? ""));
+
+  if (!name) throw new Error("Informe o nome do modelo.");
+  if (items.length === 0) {
+    throw new Error("Informe ao menos um item do checklist, um por linha.");
+  }
+
+  const snapshot = {
+    name,
+    description: description || null,
+    inspection_type: inspectionType || "vistoria",
+    technical_reference: technicalReference || null,
+    items,
+  };
+
+  const { data: template, error: templateError } = await supabase
+    .from("nutrition_inspection_templates")
+    .insert({
+      establishment_id: tenant.establishmentId,
+      name,
+      description: description || null,
+      inspection_type: inspectionType || "vistoria",
+      technical_reference: technicalReference || null,
+      expected_duration_minutes:
+        Number.isFinite(expectedDuration) && expectedDuration > 0
+          ? expectedDuration
+          : null,
+      minimum_approval_percent:
+        Number.isFinite(minimumApproval) && minimumApproval > 0
+          ? minimumApproval
+          : null,
+      status: "active",
+      current_version: 1,
+      created_by: tenant.userId,
+      updated_by: tenant.userId,
+      approved_by: tenant.userId,
+      approved_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (templateError) {
+    if (isMissingNutritionTableError(templateError)) {
+      throw new Error("A migration de execução de vistorias ainda precisa ser aplicada.");
+    }
+
+    console.error("[nutrition] create template error:", serializeError(templateError));
+    throw new Error("Não foi possível criar o modelo de vistoria.");
+  }
+
+  const { data: version, error: versionError } = await supabase
+    .from("nutrition_inspection_template_versions")
+    .insert({
+      establishment_id: tenant.establishmentId,
+      template_id: template.id,
+      version: 1,
+      status: "active",
+      snapshot,
+      created_by: tenant.userId,
+      approved_by: tenant.userId,
+      approved_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (versionError) {
+    console.error("[nutrition] create template version error:", serializeError(versionError));
+    throw new Error("O modelo foi criado, mas não foi possível versioná-lo.");
+  }
+
+  const { data: section, error: sectionError } = await supabase
+    .from("nutrition_inspection_sections")
+    .insert({
+      establishment_id: tenant.establishmentId,
+      template_version_id: version.id,
+      title: sectionTitle || "Geral",
+      order_index: 0,
+    })
+    .select("id")
+    .single();
+
+  if (sectionError) {
+    console.error("[nutrition] create template section error:", serializeError(sectionError));
+    throw new Error("O modelo foi criado, mas não foi possível criar a seção.");
+  }
+
+  const { error: itemsError } = await supabase
+    .from("nutrition_inspection_items")
+    .insert(
+      items.map((title, index) => ({
+        establishment_id: tenant.establishmentId,
+        template_version_id: version.id,
+        section_id: section.id,
+        title,
+        response_type: "conformity",
+        order_index: index,
+        default_severity: "medium",
+        comment_required: false,
+        create_nonconformity_on_failure: true,
+      }))
+    );
+
+  if (itemsError) {
+    console.error("[nutrition] create template items error:", serializeError(itemsError));
+    throw new Error("O modelo foi criado, mas não foi possível cadastrar os itens.");
+  }
+
+  revalidatePath("/nutricao");
+  revalidatePath("/nutricao/vistorias");
+}
+
 export async function listNutritionInspections(): Promise<InspectionListItem[]> {
   const { tenant, supabase } = await getNutritionContext();
   const { data, error } = await supabase
     .from("nutrition_inspections")
     .select(
-      "id,title,inspection_code,inspection_type,status,sector,scheduled_for,inspector_user_id,created_at"
+      "id,title,inspection_code,inspection_type,status,sector,scheduled_for,inspector_user_id,started_at,completed_at,total_items,compliance_percent,created_at"
     )
     .eq("establishment_id", tenant.establishmentId)
     .order("scheduled_for", { ascending: false, nullsFirst: false })
@@ -326,6 +612,11 @@ export async function listNutritionInspections(): Promise<InspectionListItem[]> 
     sector: row.sector ? String(row.sector) : null,
     scheduledFor: row.scheduled_for ? String(row.scheduled_for) : null,
     inspectorUserId: row.inspector_user_id ? String(row.inspector_user_id) : null,
+    startedAt: row.started_at ? String(row.started_at) : null,
+    completedAt: row.completed_at ? String(row.completed_at) : null,
+    totalItems: row.total_items == null ? 0 : Number(row.total_items),
+    compliancePercent:
+      row.compliance_percent == null ? null : Number(row.compliance_percent),
     createdAt: String(row.created_at ?? ""),
   }));
 }
@@ -337,8 +628,66 @@ export async function createNutritionInspection(formData: FormData) {
   const sector = String(formData.get("sector") ?? "").trim();
   const scheduledFor = String(formData.get("scheduled_for") ?? "").trim();
   const expectedDuration = Number(formData.get("expected_duration_minutes") ?? 0);
+  const templateId = String(formData.get("template_id") ?? "").trim();
 
   if (!title) throw new Error("Informe o título da vistoria.");
+
+  let templatePayload: Record<string, unknown> = {};
+
+  if (templateId) {
+    const { data: template, error: templateError } = await supabase
+      .from("nutrition_inspection_templates")
+      .select("id,name,inspection_type,expected_duration_minutes,current_version")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("id", templateId)
+      .neq("status", "canceled")
+      .single();
+
+    if (templateError || !template) {
+      if (templateError && isMissingNutritionTableError(templateError)) {
+        throw new Error("A migration de execução de vistorias ainda precisa ser aplicada.");
+      }
+
+      throw new Error("Modelo de vistoria não encontrado para este estabelecimento.");
+    }
+
+    const { data: version, error: versionError } = await supabase
+      .from("nutrition_inspection_template_versions")
+      .select("id,version,snapshot")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("template_id", templateId)
+      .eq("version", Number((template as any).current_version ?? 1))
+      .single();
+
+    if (versionError || !version) {
+      throw new Error("Versão ativa do modelo não encontrada.");
+    }
+
+    const { count, error: countError } = await supabase
+      .from("nutrition_inspection_items")
+      .select("id", { count: "exact", head: true })
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("template_version_id", version.id);
+
+    if (countError) {
+      console.error("[nutrition] count template items error:", serializeError(countError));
+      throw new Error("Não foi possível carregar os itens do modelo.");
+    }
+
+    templatePayload = {
+      template_id: templateId,
+      template_version_id: version.id,
+      template_snapshot: version.snapshot ?? {},
+      total_items: count ?? 0,
+      inspection_type: String(
+        (template as any).inspection_type ?? (inspectionType || "vistoria")
+      ),
+      expected_duration_minutes:
+        Number.isFinite(expectedDuration) && expectedDuration > 0
+          ? expectedDuration
+          : ((template as any).expected_duration_minutes ?? null),
+    };
+  }
 
   const { error } = await supabase.from("nutrition_inspections").insert({
     establishment_id: tenant.establishmentId,
@@ -350,6 +699,7 @@ export async function createNutritionInspection(formData: FormData) {
       Number.isFinite(expectedDuration) && expectedDuration > 0
         ? expectedDuration
         : null,
+    ...templatePayload,
     status: "scheduled",
     inspector_user_id: tenant.userId,
     created_by: tenant.userId,
@@ -367,6 +717,343 @@ export async function createNutritionInspection(formData: FormData) {
 
   revalidatePath("/nutricao");
   revalidatePath("/nutricao/vistorias");
+}
+
+export async function getInspectionExecution(
+  inspectionId: string
+): Promise<InspectionExecutionSnapshot | null> {
+  const { tenant, supabase } = await getNutritionContext();
+  const { data: inspection, error } = await supabase
+    .from("nutrition_inspections")
+    .select(
+      "id,title,inspection_code,inspection_type,status,sector,scheduled_for,expected_duration_minutes,started_at,completed_at,total_items,compliant_items,noncompliant_items,not_applicable_items,compliance_percent,result,template_id,template_version_id"
+    )
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", inspectionId)
+    .single();
+
+  if (error) {
+    if (isMissingNutritionTableError(error)) return null;
+    console.error("[nutrition] inspection execution load error:", serializeError(error));
+    return null;
+  }
+
+  if (!inspection) return null;
+
+  let templateName: string | null = null;
+  if ((inspection as any).template_id) {
+    const { data: template } = await supabase
+      .from("nutrition_inspection_templates")
+      .select("name")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("id", String((inspection as any).template_id))
+      .maybeSingle();
+    templateName = template?.name ? String(template.name) : null;
+  }
+
+  const templateVersionId = (inspection as any).template_version_id
+    ? String((inspection as any).template_version_id)
+    : "";
+
+  const { data: items, error: itemsError } = templateVersionId
+    ? await supabase
+        .from("nutrition_inspection_items")
+        .select(
+          "id,section_id,title,instruction,response_type,order_index,default_severity,comment_required,create_nonconformity_on_failure,nutrition_inspection_sections(title,order_index)"
+        )
+        .eq("establishment_id", tenant.establishmentId)
+        .eq("template_version_id", templateVersionId)
+        .order("order_index", { ascending: true })
+    : { data: [], error: null };
+
+  if (itemsError) {
+    console.error("[nutrition] inspection items load error:", serializeError(itemsError));
+  }
+
+  const itemIds = (items ?? []).map((row: any) => String(row.id));
+  const answerByItemId = new Map<
+    string,
+    {
+      id: string;
+      conformityStatus: string | null;
+      comment: string | null;
+      answeredAt: string;
+    }
+  >();
+
+  if (itemIds.length > 0) {
+    const { data: answers, error: answersError } = await supabase
+      .from("nutrition_inspection_answers")
+      .select("id,item_id,conformity_status,comment,answered_at")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("inspection_id", inspectionId)
+      .in("item_id", itemIds);
+
+    if (answersError && !isMissingNutritionTableError(answersError)) {
+      console.error("[nutrition] inspection answers load error:", serializeError(answersError));
+    }
+
+    for (const answer of answers ?? []) {
+      const itemId = String((answer as any).item_id ?? "");
+      if (!itemId) continue;
+      answerByItemId.set(itemId, {
+        id: String((answer as any).id),
+        conformityStatus: (answer as any).conformity_status
+          ? String((answer as any).conformity_status)
+          : null,
+        comment: (answer as any).comment ? String((answer as any).comment) : null,
+        answeredAt: String((answer as any).answered_at ?? ""),
+      });
+    }
+  }
+
+  return {
+    id: String((inspection as any).id),
+    title: String((inspection as any).title ?? ""),
+    inspectionCode: (inspection as any).inspection_code
+      ? String((inspection as any).inspection_code)
+      : null,
+    inspectionType: String((inspection as any).inspection_type ?? "vistoria"),
+    status: String((inspection as any).status ?? "scheduled"),
+    sector: (inspection as any).sector ? String((inspection as any).sector) : null,
+    scheduledFor: (inspection as any).scheduled_for
+      ? String((inspection as any).scheduled_for)
+      : null,
+    expectedDurationMinutes:
+      (inspection as any).expected_duration_minutes == null
+        ? null
+        : Number((inspection as any).expected_duration_minutes),
+    startedAt: (inspection as any).started_at
+      ? String((inspection as any).started_at)
+      : null,
+    completedAt: (inspection as any).completed_at
+      ? String((inspection as any).completed_at)
+      : null,
+    totalItems: Number((inspection as any).total_items ?? itemIds.length),
+    compliantItems: Number((inspection as any).compliant_items ?? 0),
+    noncompliantItems: Number((inspection as any).noncompliant_items ?? 0),
+    notApplicableItems: Number((inspection as any).not_applicable_items ?? 0),
+    compliancePercent:
+      (inspection as any).compliance_percent == null
+        ? null
+        : Number((inspection as any).compliance_percent),
+    result: (inspection as any).result ? String((inspection as any).result) : null,
+    templateName,
+    items: (items ?? []).map((row: any) => {
+      const section = Array.isArray(row.nutrition_inspection_sections)
+        ? row.nutrition_inspection_sections[0]
+        : row.nutrition_inspection_sections;
+
+      return {
+        id: String(row.id),
+        sectionId: row.section_id ? String(row.section_id) : null,
+        sectionTitle: section?.title ? String(section.title) : "Geral",
+        title: String(row.title ?? ""),
+        instruction: row.instruction ? String(row.instruction) : null,
+        responseType: String(row.response_type ?? "conformity"),
+        orderIndex: Number(row.order_index ?? 0),
+        defaultSeverity: String(row.default_severity ?? "medium"),
+        commentRequired: Boolean(row.comment_required),
+        createNonconformityOnFailure: Boolean(row.create_nonconformity_on_failure),
+        answer: answerByItemId.get(String(row.id)) ?? null,
+      };
+    }),
+  };
+}
+
+export async function startInspection(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const inspectionId = String(formData.get("inspection_id") ?? "").trim();
+  if (!inspectionId) throw new Error("Vistoria não informada.");
+
+  const { error } = await supabase
+    .from("nutrition_inspections")
+    .update({
+      status: "in_progress",
+      started_at: new Date().toISOString(),
+      updated_by: tenant.userId,
+    })
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", inspectionId)
+    .in("status", ["scheduled", "paused", "overdue"]);
+
+  if (error) {
+    console.error("[nutrition] start inspection error:", serializeError(error));
+    throw new Error("Não foi possível iniciar a vistoria.");
+  }
+
+  revalidatePath("/nutricao");
+  revalidatePath("/nutricao/vistorias");
+  revalidatePath(`/nutricao/vistorias/${inspectionId}`);
+}
+
+export async function saveInspectionAnswer(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const inspectionId = String(formData.get("inspection_id") ?? "").trim();
+  const itemId = String(formData.get("item_id") ?? "").trim();
+  const sectionId = String(formData.get("section_id") ?? "").trim();
+  const responseType = String(formData.get("response_type") ?? "conformity").trim();
+  const conformityStatus = String(formData.get("conformity_status") ?? "").trim();
+  const comment = String(formData.get("comment") ?? "").trim();
+  const itemTitle = String(formData.get("item_title") ?? "Item de vistoria").trim();
+  const severity = normalizePriority(String(formData.get("severity") ?? "medium").trim());
+  const createNonconformity = formData.get("create_nonconformity") === "true";
+
+  if (!inspectionId || !itemId) throw new Error("Item de vistoria não informado.");
+  if (!["compliant", "noncompliant", "not_applicable"].includes(conformityStatus)) {
+    throw new Error("Informe o resultado do item.");
+  }
+
+  const { data: inspection, error: inspectionError } = await supabase
+    .from("nutrition_inspections")
+    .select("id,status,sector")
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", inspectionId)
+    .single();
+
+  if (inspectionError || !inspection) {
+    throw new Error("Vistoria não encontrada para este estabelecimento.");
+  }
+
+  if (String((inspection as any).status) === "completed") {
+    throw new Error("Vistoria concluída não pode receber novas respostas.");
+  }
+
+  const { data: answer, error } = await supabase
+    .from("nutrition_inspection_answers")
+    .upsert(
+      {
+        establishment_id: tenant.establishmentId,
+        inspection_id: inspectionId,
+        item_id: itemId,
+        section_id: sectionId || null,
+        response_type: responseType || "conformity",
+        response_value: { conformity_status: conformityStatus },
+        conformity_status: conformityStatus,
+        comment: comment || null,
+        answered_by: tenant.userId,
+        answered_at: new Date().toISOString(),
+      },
+      { onConflict: "establishment_id,inspection_id,item_id" }
+    )
+    .select("id")
+    .single();
+
+  if (error) {
+    console.error("[nutrition] save inspection answer error:", serializeError(error));
+    throw new Error("Não foi possível salvar a resposta.");
+  }
+
+  if (
+    conformityStatus === "noncompliant" &&
+    createNonconformity &&
+    answer?.id
+  ) {
+    const { data: existingNonconformity, error: existingError } = await supabase
+      .from("nutrition_nonconformities")
+      .select("id")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("inspection_id", inspectionId)
+      .eq("source_type", "inspection_item")
+      .eq("source_id", itemId)
+      .neq("status", "canceled")
+      .maybeSingle();
+
+    if (existingError && !isMissingNutritionTableError(existingError)) {
+      console.error(
+        "[nutrition] auto nonconformity lookup error:",
+        serializeError(existingError)
+      );
+    }
+
+    if (!existingNonconformity) {
+      const { error: nonconformityError } = await supabase
+      .from("nutrition_nonconformities")
+      .insert({
+        establishment_id: tenant.establishmentId,
+        source_type: "inspection_item",
+        source_id: itemId,
+        inspection_id: inspectionId,
+        answer_id: answer.id,
+        title: `Vistoria: ${itemTitle}`,
+        description: comment || "Item marcado como não conforme.",
+        sector: (inspection as any).sector ?? null,
+        severity,
+        status: "open",
+        created_by: tenant.userId,
+        updated_by: tenant.userId,
+      });
+
+      if (nonconformityError) {
+        console.error(
+          "[nutrition] auto nonconformity error:",
+          serializeError(nonconformityError)
+        );
+      }
+    }
+  }
+
+  revalidatePath("/nutricao");
+  revalidatePath("/nutricao/vistorias");
+  revalidatePath(`/nutricao/vistorias/${inspectionId}`);
+}
+
+export async function completeInspection(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const inspectionId = String(formData.get("inspection_id") ?? "").trim();
+  if (!inspectionId) throw new Error("Vistoria não informada.");
+
+  const snapshot = await getInspectionExecution(inspectionId);
+  if (!snapshot) throw new Error("Vistoria não encontrada.");
+  if (snapshot.status === "completed") return;
+
+  if (snapshot.items.length === 0) {
+    throw new Error("A vistoria não possui itens para conclusão.");
+  }
+
+  const answeredItems = snapshot.items.filter((item) => item.answer);
+  if (answeredItems.length < snapshot.items.length) {
+    throw new Error("Responda todos os itens obrigatórios antes de concluir.");
+  }
+
+  const compliant = answeredItems.filter(
+    (item) => item.answer?.conformityStatus === "compliant"
+  ).length;
+  const noncompliant = answeredItems.filter(
+    (item) => item.answer?.conformityStatus === "noncompliant"
+  ).length;
+  const notApplicable = answeredItems.filter(
+    (item) => item.answer?.conformityStatus === "not_applicable"
+  ).length;
+  const applicable = Math.max(answeredItems.length - notApplicable, 0);
+  const compliancePercent =
+    applicable > 0 ? Number(((compliant / applicable) * 100).toFixed(2)) : 100;
+
+  const { error } = await supabase
+    .from("nutrition_inspections")
+    .update({
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      total_items: snapshot.items.length,
+      compliant_items: compliant,
+      noncompliant_items: noncompliant,
+      not_applicable_items: notApplicable,
+      compliance_percent: compliancePercent,
+      result: inspectionResultFromPercent(compliancePercent),
+      updated_by: tenant.userId,
+    })
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", inspectionId)
+    .neq("status", "completed");
+
+  if (error) {
+    console.error("[nutrition] complete inspection error:", serializeError(error));
+    throw new Error("Não foi possível concluir a vistoria.");
+  }
+
+  revalidatePath("/nutricao");
+  revalidatePath("/nutricao/vistorias");
+  revalidatePath(`/nutricao/vistorias/${inspectionId}`);
 }
 
 export async function listNutritionNonconformities(): Promise<

@@ -284,6 +284,9 @@ export type TrainingItem = {
     scheduledFor: string | null;
     status: string;
     location: string | null;
+    attendeesTotal: number;
+    attendeesPresent: number;
+    averageScore: number | null;
   } | null;
 };
 
@@ -303,7 +306,20 @@ export type NutritionReportItem = {
   reportType: string;
   format: string;
   status: string;
+  fileUrl: string | null;
+  version: number;
   generatedAt: string | null;
+  deliveries: Array<{
+    id: string;
+    channel: string;
+    recipientName: string | null;
+    recipientAddressMasked: string;
+    status: string;
+    errorMessage: string | null;
+    requestedAt: string | null;
+    sentAt: string | null;
+    deliveredAt: string | null;
+  }>;
 };
 
 export type ActionPlanItem = {
@@ -3578,7 +3594,15 @@ export async function listTrainings(): Promise<TrainingItem[]> {
   const trainingIds = (data ?? []).map((row: any) => String(row.id));
   const latestSessionByTraining = new Map<
     string,
-    { id: string; scheduledFor: string | null; status: string; location: string | null }
+    {
+      id: string;
+      scheduledFor: string | null;
+      status: string;
+      location: string | null;
+      attendeesTotal: number;
+      attendeesPresent: number;
+      averageScore: number | null;
+    }
   >();
 
   if (trainingIds.length > 0) {
@@ -3594,16 +3618,67 @@ export async function listTrainings(): Promise<TrainingItem[]> {
       console.error("[nutrition] training sessions list error:", serializeError(sessionsError));
     }
 
+    const sessionIds = (sessions ?? []).map((session: any) => String(session.id));
+    const attendeeStatsBySession = new Map<
+      string,
+      { total: number; present: number; scoreSum: number; scoreCount: number }
+    >();
+
+    if (sessionIds.length > 0) {
+      const { data: attendees, error: attendeesError } = await supabase
+        .from("nutrition_training_attendees")
+        .select("session_id,attendance_status,assessment_score")
+        .eq("establishment_id", tenant.establishmentId)
+        .in("session_id", sessionIds)
+        .limit(500);
+
+      if (attendeesError && !isMissingNutritionTableError(attendeesError)) {
+        console.error(
+          "[nutrition] training attendees list error:",
+          serializeError(attendeesError)
+        );
+      }
+
+      for (const attendee of attendees ?? []) {
+        const sessionId = String((attendee as any).session_id ?? "");
+        if (!sessionId) continue;
+        const current =
+          attendeeStatsBySession.get(sessionId) ??
+          { total: 0, present: 0, scoreSum: 0, scoreCount: 0 };
+        current.total += 1;
+        if (String((attendee as any).attendance_status ?? "") === "present") {
+          current.present += 1;
+        }
+        const score =
+          (attendee as any).assessment_score == null
+            ? null
+            : Number((attendee as any).assessment_score);
+        if (score != null && Number.isFinite(score)) {
+          current.scoreSum += score;
+          current.scoreCount += 1;
+        }
+        attendeeStatsBySession.set(sessionId, current);
+      }
+    }
+
     for (const session of sessions ?? []) {
       const trainingId = String((session as any).training_id ?? "");
       if (!trainingId || latestSessionByTraining.has(trainingId)) continue;
+      const sessionId = String((session as any).id);
+      const stats = attendeeStatsBySession.get(sessionId);
       latestSessionByTraining.set(trainingId, {
-        id: String((session as any).id),
+        id: sessionId,
         scheduledFor: (session as any).scheduled_for
           ? String((session as any).scheduled_for)
           : null,
         status: String((session as any).status ?? "scheduled"),
         location: (session as any).location ? String((session as any).location) : null,
+        attendeesTotal: stats?.total ?? 0,
+        attendeesPresent: stats?.present ?? 0,
+        averageScore:
+          stats && stats.scoreCount > 0
+            ? Math.round((stats.scoreSum / stats.scoreCount) * 10) / 10
+            : null,
       });
     }
   }
@@ -3698,6 +3773,74 @@ export async function createTrainingSession(formData: FormData) {
     console.error("[nutrition] create training session error:", serializeError(error));
     throw new Error("Não foi possível agendar a turma.");
   }
+
+  revalidatePath("/nutricao/treinamentos");
+}
+
+export async function registerTrainingAttendee(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const sessionId = String(formData.get("session_id") ?? "").trim();
+  const attendeeName = String(formData.get("attendee_name") ?? "").trim();
+  const attendanceStatus = String(
+    formData.get("attendance_status") ?? "present"
+  ).trim();
+  const assessmentScore = Number(formData.get("assessment_score") ?? NaN);
+  const idempotencyKey =
+    String(formData.get("idempotency_key") ?? "").trim() || randomUUID();
+
+  if (!sessionId) throw new Error("Selecione a turma.");
+  if (!attendeeName) throw new Error("Informe o nome do participante.");
+  if (
+    !["pending", "present", "absent", "justified", "canceled"].includes(
+      attendanceStatus
+    )
+  ) {
+    throw new Error("Status de presença inválido.");
+  }
+
+  const { data: session, error: sessionError } = await supabase
+    .from("nutrition_training_sessions")
+    .select("id,training_id")
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (sessionError || !session) {
+    throw new Error("Turma não encontrada para este estabelecimento.");
+  }
+
+  const { error } = await supabase.from("nutrition_training_attendees").upsert(
+    {
+      establishment_id: tenant.establishmentId,
+      session_id: sessionId,
+      attendee_name: attendeeName,
+      attendance_status: attendanceStatus,
+      assessment_score:
+        Number.isFinite(assessmentScore) && assessmentScore >= 0
+          ? assessmentScore
+          : null,
+      idempotency_key: idempotencyKey,
+    },
+    { onConflict: "establishment_id,idempotency_key" }
+  );
+
+  if (error) {
+    console.error("[nutrition] training attendee error:", serializeError(error));
+    throw new Error("Não foi possível registrar a presença.");
+  }
+
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: "training.attendee_registered",
+    resourceType: "nutrition_training_session",
+    resourceId: sessionId,
+    afterData: {
+      attendee_name: attendeeName,
+      attendance_status: attendanceStatus,
+      assessment_score: Number.isFinite(assessmentScore) ? assessmentScore : null,
+    },
+  });
 
   revalidatePath("/nutricao/treinamentos");
 }
@@ -3829,7 +3972,7 @@ export async function listReports(): Promise<NutritionReportItem[]> {
   const { tenant, supabase } = await getNutritionContext();
   const { data, error } = await supabase
     .from("nutrition_reports")
-    .select("id,title,report_type,format,status,generated_at")
+    .select("id,title,report_type,format,status,file_path,version,generated_at")
     .eq("establishment_id", tenant.establishmentId)
     .order("created_at", { ascending: false })
     .limit(50);
@@ -3840,13 +3983,66 @@ export async function listReports(): Promise<NutritionReportItem[]> {
     return [];
   }
 
+  const reportIds = (data ?? []).map((row: any) => String(row.id));
+  const deliveriesByReport = new Map<string, NutritionReportItem["deliveries"]>();
+
+  if (reportIds.length > 0) {
+    const { data: deliveries, error: deliveriesError } = await supabase
+      .from("nutrition_report_deliveries")
+      .select(
+        "id,report_id,channel,recipient_name,recipient_address_masked,status,error_message,requested_at,sent_at,delivered_at"
+      )
+      .eq("establishment_id", tenant.establishmentId)
+      .in("report_id", reportIds)
+      .order("requested_at", { ascending: false })
+      .limit(200);
+
+    if (deliveriesError && !isMissingNutritionTableError(deliveriesError)) {
+      console.error(
+        "[nutrition] report deliveries list error:",
+        serializeError(deliveriesError)
+      );
+    }
+
+    for (const delivery of deliveries ?? []) {
+      const reportId = String((delivery as any).report_id ?? "");
+      if (!reportId) continue;
+      const group = deliveriesByReport.get(reportId) ?? [];
+      group.push({
+        id: String((delivery as any).id),
+        channel: String((delivery as any).channel ?? ""),
+        recipientName: (delivery as any).recipient_name
+          ? String((delivery as any).recipient_name)
+          : null,
+        recipientAddressMasked: String(
+          (delivery as any).recipient_address_masked ?? ""
+        ),
+        status: String((delivery as any).status ?? "pending"),
+        errorMessage: (delivery as any).error_message
+          ? String((delivery as any).error_message)
+          : null,
+        requestedAt: (delivery as any).requested_at
+          ? String((delivery as any).requested_at)
+          : null,
+        sentAt: (delivery as any).sent_at ? String((delivery as any).sent_at) : null,
+        deliveredAt: (delivery as any).delivered_at
+          ? String((delivery as any).delivered_at)
+          : null,
+      });
+      deliveriesByReport.set(reportId, group);
+    }
+  }
+
   return (data ?? []).map((row: any) => ({
     id: String(row.id),
     title: String(row.title ?? ""),
     reportType: String(row.report_type ?? ""),
     format: String(row.format ?? "pdf"),
     status: String(row.status ?? "draft"),
+    fileUrl: nutritionFileUrl(row.file_path ? String(row.file_path) : null),
+    version: Number(row.version ?? 1),
     generatedAt: row.generated_at ? String(row.generated_at) : null,
+    deliveries: deliveriesByReport.get(String(row.id)) ?? [],
   }));
 }
 
@@ -4335,6 +4531,205 @@ export async function enqueueNutritionReportDelivery(formData: FormData) {
   });
 
   revalidatePath("/nutricao/relatorios");
+}
+
+export async function queueNutritionOperationalNotifications() {
+  const { tenant, supabase } = await getNutritionContext();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const next24hIso = new Date(now.getTime() + 24 * 60 * 60_000).toISOString();
+  const next7Days = new Date(now.getTime() + 7 * 24 * 60 * 60_000);
+  const next30DaysDate = next7Days;
+  next30DaysDate.setDate(next30DaysDate.getDate() + 23);
+  const next30Days = next30DaysDate.toISOString().slice(0, 10);
+  let created = 0;
+
+  const [
+    overdueInspections,
+    upcomingInspections,
+    overdueNonconformities,
+    dueSoonNonconformities,
+    expiringDocuments,
+    upcomingTrainingSessions,
+  ] = await Promise.all([
+    supabase
+      .from("nutrition_inspections")
+      .select("id,title,scheduled_for")
+      .eq("establishment_id", tenant.establishmentId)
+      .in("status", ["scheduled", "paused", "in_progress"])
+      .lt("scheduled_for", nowIso)
+      .limit(50),
+    supabase
+      .from("nutrition_inspections")
+      .select("id,title,scheduled_for")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("status", "scheduled")
+      .gte("scheduled_for", nowIso)
+      .lte("scheduled_for", next24hIso)
+      .limit(50),
+    supabase
+      .from("nutrition_nonconformities")
+      .select("id,title,severity,due_at")
+      .eq("establishment_id", tenant.establishmentId)
+      .not("status", "in", "(closed,canceled)")
+      .lt("due_at", nowIso)
+      .limit(50),
+    supabase
+      .from("nutrition_nonconformities")
+      .select("id,title,severity,due_at")
+      .eq("establishment_id", tenant.establishmentId)
+      .not("status", "in", "(closed,canceled)")
+      .gte("due_at", nowIso)
+      .lte("due_at", next24hIso)
+      .limit(50),
+    supabase
+      .from("nutrition_documents")
+      .select("id,title,valid_until")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("status", "active")
+      .lte("valid_until", next30Days)
+      .limit(50),
+    supabase
+      .from("nutrition_training_sessions")
+      .select("id,scheduled_for,nutrition_trainings(title)")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("status", "scheduled")
+      .gte("scheduled_for", nowIso)
+      .lte("scheduled_for", next24hIso)
+      .limit(50),
+  ]);
+
+  const maybeNotify = async (
+    result:
+      | typeof overdueInspections
+      | typeof upcomingInspections
+      | typeof overdueNonconformities
+      | typeof dueSoonNonconformities
+      | typeof expiringDocuments
+      | typeof upcomingTrainingSessions,
+    handler: (row: any) => Promise<void>
+  ) => {
+    if (result.error && !isMissingNutritionTableError(result.error)) {
+      console.error("[nutrition] notification sweep query error:", serializeError(result.error));
+      return;
+    }
+
+    for (const row of result.data ?? []) {
+      await handler(row);
+      created += 1;
+    }
+  };
+
+  await maybeNotify(overdueInspections, async (row) => {
+    await createNutritionScopedNotification(supabase, {
+      establishmentId: tenant.establishmentId,
+      userId: tenant.userId,
+      type: "nutrition_inspection_overdue",
+      priority: "high",
+      title: "Vistoria atrasada",
+      message: String(row.title ?? "Vistoria agendada"),
+      resourceType: "nutrition_inspection",
+      resourceId: String(row.id),
+      href: `/nutricao/vistorias/${String(row.id)}`,
+      dueAt: row.scheduled_for ? String(row.scheduled_for) : null,
+      dedupeKey: `nutrition-inspection-overdue:${tenant.establishmentId}:${String(row.id)}`,
+    });
+  });
+
+  await maybeNotify(upcomingInspections, async (row) => {
+    await createNutritionScopedNotification(supabase, {
+      establishmentId: tenant.establishmentId,
+      userId: tenant.userId,
+      type: "nutrition_inspection_upcoming",
+      priority: "normal",
+      title: "Vistoria próxima",
+      message: String(row.title ?? "Vistoria agendada"),
+      resourceType: "nutrition_inspection",
+      resourceId: String(row.id),
+      href: `/nutricao/vistorias/${String(row.id)}`,
+      dueAt: row.scheduled_for ? String(row.scheduled_for) : null,
+      dedupeKey: `nutrition-inspection-upcoming:${tenant.establishmentId}:${String(row.id)}`,
+    });
+  });
+
+  await maybeNotify(overdueNonconformities, async (row) => {
+    await createNutritionScopedNotification(supabase, {
+      establishmentId: tenant.establishmentId,
+      userId: tenant.userId,
+      type: "nutrition_nonconformity_overdue",
+      priority: String(row.severity ?? "") === "critical" ? "critical" : "high",
+      title: "Não conformidade vencida",
+      message: String(row.title ?? "Ocorrência em aberto"),
+      resourceType: "nutrition_nonconformity",
+      resourceId: String(row.id),
+      href: `/nutricao/nao-conformidades/${String(row.id)}`,
+      dueAt: row.due_at ? String(row.due_at) : null,
+      dedupeKey: `nutrition-nc-overdue:${tenant.establishmentId}:${String(row.id)}`,
+    });
+  });
+
+  await maybeNotify(dueSoonNonconformities, async (row) => {
+    await createNutritionScopedNotification(supabase, {
+      establishmentId: tenant.establishmentId,
+      userId: tenant.userId,
+      type: "nutrition_nonconformity_due_soon",
+      priority: String(row.severity ?? "") === "critical" ? "critical" : "normal",
+      title: "Prazo de não conformidade próximo",
+      message: String(row.title ?? "Ocorrência em aberto"),
+      resourceType: "nutrition_nonconformity",
+      resourceId: String(row.id),
+      href: `/nutricao/nao-conformidades/${String(row.id)}`,
+      dueAt: row.due_at ? String(row.due_at) : null,
+      dedupeKey: `nutrition-nc-due-soon:${tenant.establishmentId}:${String(row.id)}`,
+    });
+  });
+
+  await maybeNotify(expiringDocuments, async (row) => {
+    await createNutritionScopedNotification(supabase, {
+      establishmentId: tenant.establishmentId,
+      userId: tenant.userId,
+      type: "nutrition_document_expiring",
+      priority: "normal",
+      title: "Documento sanitário próximo do vencimento",
+      message: String(row.title ?? "Documento sanitário"),
+      resourceType: "nutrition_document",
+      resourceId: String(row.id),
+      href: "/nutricao/documentos",
+      dueAt: row.valid_until ? `${String(row.valid_until)}T12:00:00.000Z` : null,
+      dedupeKey: `nutrition-document-expiring:${tenant.establishmentId}:${String(row.id)}`,
+    });
+  });
+
+  await maybeNotify(upcomingTrainingSessions, async (row) => {
+    const training = Array.isArray(row.nutrition_trainings)
+      ? row.nutrition_trainings[0]
+      : row.nutrition_trainings;
+    await createNutritionScopedNotification(supabase, {
+      establishmentId: tenant.establishmentId,
+      userId: tenant.userId,
+      type: "nutrition_training_upcoming",
+      priority: "normal",
+      title: "Treinamento próximo",
+      message: String(training?.title ?? "Treinamento agendado"),
+      resourceType: "nutrition_training_session",
+      resourceId: String(row.id),
+      href: "/nutricao/treinamentos",
+      dueAt: row.scheduled_for ? String(row.scheduled_for) : null,
+      dedupeKey: `nutrition-training-upcoming:${tenant.establishmentId}:${String(row.id)}`,
+    });
+  });
+
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: "notifications.sweep",
+    resourceType: "nutrition_notifications",
+    resourceId: tenant.establishmentId,
+    afterData: { generated_or_refreshed: created },
+  });
+
+  revalidatePath("/nutricao");
+  revalidatePath("/nutricao/configuracoes");
 }
 
 export async function listActionPlans(): Promise<ActionPlanItem[]> {

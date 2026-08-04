@@ -32,6 +32,7 @@ import {
   createThermometer,
   createTraining,
   createTrainingSession,
+  enqueueNutritionReportDelivery,
   executeSanitationRecord,
   getNutritionSettings,
   listInspectionTemplates,
@@ -46,6 +47,8 @@ import {
   listTemperaturePoints,
   listThermometers,
   listTrainings,
+  queueNutritionOperationalNotifications,
+  registerTrainingAttendee,
   updateNutritionSettings,
 } from "@/app/nutricao/actions";
 import { SubmitButton } from "@/app/nutricao/SubmitButton";
@@ -1022,6 +1025,52 @@ async function TreinamentosSection() {
             <SubmitButton pendingLabel="Agendando...">Agendar turma</SubmitButton>
           </form>
         </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Registrar presença
+          </h2>
+          <form action={registerTrainingAttendee} className="mt-5 grid gap-4">
+            <input name="idempotency_key" type="hidden" value={randomUUID()} />
+            <Field label="Turma">
+              <select
+                name="session_id"
+                className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                required
+              >
+                <option value="">Selecione</option>
+                {items
+                  .filter((item) => item.latestSession)
+                  .map((item) => (
+                    <option key={item.latestSession!.id} value={item.latestSession!.id}>
+                      {item.title} • {formatDateTime(item.latestSession!.scheduledFor)}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            <Field label="Participante">
+              <Input name="attendee_name" required />
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Presença">
+                <select
+                  name="attendance_status"
+                  className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                  defaultValue="present"
+                >
+                  <option value="present">Presente</option>
+                  <option value="absent">Ausente</option>
+                  <option value="justified">Justificada</option>
+                  <option value="pending">Pendente</option>
+                </select>
+              </Field>
+              <Field label="Nota da avaliação">
+                <Input name="assessment_score" type="number" min="0" max="100" step="0.1" />
+              </Field>
+            </div>
+            <SubmitButton pendingLabel="Registrando...">Registrar presença</SubmitButton>
+          </form>
+        </div>
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -1043,7 +1092,7 @@ async function TreinamentosSection() {
                 status={item.latestSession?.status ?? item.status}
                 extra={
                   item.latestSession
-                    ? `Turma: ${formatDateTime(item.latestSession.scheduledFor)} • ${item.latestSession.location ?? "sem local"}`
+                    ? `Turma: ${formatDateTime(item.latestSession.scheduledFor)} • ${item.latestSession.attendeesPresent}/${item.latestSession.attendeesTotal} presentes${item.latestSession.averageScore == null ? "" : ` • média ${item.latestSession.averageScore}`}`
                     : item.validityDays
                       ? `Validade: ${item.validityDays} dias`
                       : "Sem turma agendada"
@@ -1131,50 +1180,112 @@ async function FornecedoresSection() {
 
 async function RelatoriosSection() {
   const items = await listReports();
+  const generatedReports = items.filter((item) => item.status === "generated");
 
   return (
-    <RegistrySection
-      title="Preparar relatório"
-      count={items.length}
-      form={
-        <form action={createReportDraft} className="grid gap-4">
-          <Field label="Título">
-            <Input name="title" required />
-          </Field>
-          <Field label="Tipo">
-            <Input name="report_type" placeholder="Ex.: vistorias_por_periodo" required />
-          </Field>
-          <Field label="Formato">
-            <select
-              name="format"
-              className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
-              defaultValue="pdf"
-            >
-              <option value="pdf">PDF</option>
-              <option value="docx">DOCX</option>
-              <option value="xlsx">XLSX</option>
-              <option value="html">HTML</option>
-            </select>
-          </Field>
-          <SubmitButton>Preparar rascunho</SubmitButton>
-        </form>
-      }
-      list={
-        items.length === 0 ? (
-          <EmptyState message="Nenhum relatório preparado." />
-        ) : (
-          items.map((item) => (
-            <RegistryCard
-              key={item.id}
-              title={item.title}
-              description={`${item.reportType} • ${item.format.toUpperCase()}`}
-              status={item.status}
-              extra={item.generatedAt ? formatDateTime(item.generatedAt) : "Ainda não gerado"}
-            />
-          ))
-        )
-      }
-    />
+    <section className="grid gap-5 xl:grid-cols-[0.82fr_1.18fr]">
+      <div className="grid gap-5">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Preparar relatório
+          </h2>
+          <form action={createReportDraft} className="mt-5 grid gap-4">
+            <Field label="Título">
+              <Input name="title" required />
+            </Field>
+            <Field label="Tipo">
+              <Input name="report_type" placeholder="Ex.: vistorias_por_periodo" required />
+            </Field>
+            <Field label="Formato">
+              <select
+                name="format"
+                className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                defaultValue="pdf"
+              >
+                <option value="pdf">PDF</option>
+                <option value="docx">DOCX</option>
+                <option value="xlsx">XLSX</option>
+                <option value="html">HTML</option>
+              </select>
+            </Field>
+            <SubmitButton>Preparar rascunho</SubmitButton>
+          </form>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Enviar relatório
+          </h2>
+          <form action={enqueueNutritionReportDelivery} className="mt-5 grid gap-4">
+            <Field label="Relatório gerado">
+              <select
+                name="report_id"
+                className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                required
+              >
+                <option value="">Selecione</option>
+                {generatedReports.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title} • {item.format.toUpperCase()} v{item.version}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Canal">
+                <select
+                  name="channel"
+                  className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                  defaultValue="manual_share"
+                >
+                  <option value="manual_share">Compartilhamento manual</option>
+                  <option value="email">E-mail</option>
+                  <option value="whatsapp">WhatsApp oficial</option>
+                </select>
+              </Field>
+              <Field label="Nome do destinatário">
+                <Input name="recipient_name" />
+              </Field>
+            </div>
+            <Field label="E-mail ou telefone">
+              <Input name="recipient_address" required />
+            </Field>
+            <SubmitButton pendingLabel="Enfileirando...">Registrar envio</SubmitButton>
+          </form>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Relatórios
+          </h2>
+          <Pill>{items.length}</Pill>
+        </div>
+        <div className="mt-5 grid gap-3">
+          {items.length === 0 ? (
+            <EmptyState message="Nenhum relatório preparado." />
+          ) : (
+            items.map((item) => (
+              <RegistryCard
+                key={item.id}
+                title={item.title}
+                description={`${item.reportType} • ${item.format.toUpperCase()} • v${item.version}`}
+                status={item.status}
+                extra={
+                  item.deliveries.length > 0
+                    ? `Último envio: ${item.deliveries[0].channel} • ${item.deliveries[0].status}${item.deliveries[0].errorMessage ? ` • ${item.deliveries[0].errorMessage}` : ""}`
+                    : item.generatedAt
+                      ? formatDateTime(item.generatedAt)
+                      : "Ainda não gerado"
+                }
+                href={item.fileUrl}
+              />
+            ))
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1472,6 +1583,24 @@ async function ConfiguracoesSection() {
                 : "Sem recusa justificada"
             }
           />
+          <form
+            action={queueNutritionOperationalNotifications}
+            className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
+          >
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="font-semibold text-slate-950 dark:text-white">
+                  Notificações operacionais
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Gera alertas internos de vistorias, prazos, documentos e treinamentos.
+                </p>
+              </div>
+              <SubmitButton pendingLabel="Verificando...">
+                Verificar prazos
+              </SubmitButton>
+            </div>
+          </form>
         </div>
       </div>
     </section>

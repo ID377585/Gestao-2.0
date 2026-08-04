@@ -330,7 +330,7 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
 
   const handleMarkAsRead = async (id: string) => {
     try {
-      await markNotificationAsRead(id);
+      await markNotificationAsRead(id, user?.establishmentId ?? null);
     } catch (error) {
       console.error("Erro ao marcar notificação como lida:", error);
     }
@@ -338,7 +338,7 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
 
   const handleArchiveNotification = async (id: string) => {
     try {
-      await archiveNotification(id);
+      await archiveNotification(id, user?.establishmentId ?? null);
     } catch (error) {
       console.error("Erro ao arquivar notificação:", error);
     }
@@ -422,7 +422,10 @@ export function Topbar({ className, allowedSectionKeys }: TopbarProps) {
                         className="flex cursor-pointer flex-col items-start gap-1 whitespace-normal px-3 py-2"
                         onClick={() => {
                           if (n.href) {
-                            void markNotificationAsRead(n.id);
+                            void markNotificationAsRead(
+                              n.id,
+                              user?.establishmentId ?? n.establishmentId ?? null
+                            );
                             window.location.assign(n.href);
                           }
                         }}

@@ -355,6 +355,8 @@ export async function createNotification(params: {
     title,
     message,
     read: false,
+    establishment_id: params.establishmentId ?? null,
+    payload: scopedPayload,
   };
 
   ({ error } = await supabase.from("notifications").insert(basicPayload));
@@ -362,23 +364,38 @@ export async function createNotification(params: {
   if (error) throw error;
 }
 
-export async function markNotificationAsRead(id: string) {
-  let { error } = await supabase.rpc("mark_notification_read", { p_id: id });
+export async function markNotificationAsRead(
+  id: string,
+  establishmentId?: string | null
+) {
+  if (!establishmentId) {
+    const { error } = await supabase.rpc("mark_notification_read", { p_id: id });
+
+    if (error) throw error;
+    return;
+  }
+
+  let { error } = await supabase
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("establishment_id", establishmentId);
 
   if (!error) return;
 
   ({ error } = await supabase
     .from("notifications")
-    .update({ read_at: new Date().toISOString() })
-    .eq("id", id));
+    .update({ read: true })
+    .eq("id", id)
+    .contains("payload", { establishment_id: establishmentId }));
 
   if (!error) return;
 
-  ({ error } = await supabase.from("notifications").update({ read: true }).eq("id", id));
-
-  if (!error) return;
-
-  ({ error } = await supabase.from("notifications").update({ lida: true }).eq("id", id));
+  ({ error } = await supabase
+    .from("notifications")
+    .update({ lida: true })
+    .eq("id", id)
+    .contains("payload", { establishment_id: establishmentId }));
 
   if (error) throw error;
 }
@@ -419,55 +436,43 @@ export async function markAllNotificationsAsRead(
     return;
   }
 
-  const query = supabase
-    .from("notifications")
-    .update({ read_at: new Date().toISOString() })
-    .or(`user_id.eq.${userId},userId.eq.${userId}`)
-    .is("read_at", null);
-
-  ({ error } = await query);
-
-  if (!error) return;
-
-  ({ error } = await supabase
-    .from("notifications")
-    .update({ read: true })
-    .eq("user_id", userId)
-    .eq("read", false));
-
-  if (!error) return;
-
-  ({ error } = await supabase
-    .from("notifications")
-    .update({ read: true })
-    .eq("userId", userId)
-    .eq("read", false));
-
-  if (!error) return;
-
-  ({ error } = await supabase
-    .from("notifications")
-    .update({ lida: true })
-    .eq("userId", userId)
-    .eq("lida", false));
-
   if (error) throw error;
 }
 
-export async function archiveNotification(id: string) {
+export async function archiveNotification(
+  id: string,
+  establishmentId?: string | null
+) {
   const archivedAt = new Date().toISOString();
+
+  if (!establishmentId) {
+    const { error } = await supabase.rpc("archive_notification", { p_id: id });
+
+    if (error) throw error;
+    return;
+  }
 
   let { error } = await supabase
     .from("notifications")
     .update({ archived_at: archivedAt, read_at: archivedAt })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("establishment_id", establishmentId);
+
+  if (!error) return;
+
+  ({ error } = await supabase
+    .from("notifications")
+    .update({ archived_at: archivedAt, read_at: archivedAt })
+    .eq("id", id)
+    .contains("payload", { establishment_id: establishmentId }));
 
   if (!error) return;
 
   ({ error } = await supabase
     .from("notifications")
     .update({ archivedAt, read: true })
-    .eq("id", id));
+    .eq("id", id)
+    .contains("payload", { establishment_id: establishmentId }));
 
   if (error) throw error;
 }

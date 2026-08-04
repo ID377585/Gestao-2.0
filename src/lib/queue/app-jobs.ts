@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { sendAlertEmail } from "@/lib/alerts/email";
+import { buildAlertEmailHtml, sendAlertEmail } from "@/lib/alerts/email";
 import { getSupabaseAdminClient } from "@/lib/supabase/server";
 
 export type AppJobRow = {
@@ -248,6 +248,18 @@ async function handleNutritionReportDeliveryJob(job: AppJobRow) {
   const supabaseAdmin = getSupabaseAdminClient();
   const nowIso = new Date().toISOString();
 
+  const { data: delivery, error: deliveryError } = await supabaseAdmin
+    .from("nutrition_report_deliveries")
+    .select(
+      "id,report_id,recipient_name,recipient_address_masked,channel_payload,nutrition_reports(title,file_path)"
+    )
+    .eq("id", deliveryId)
+    .maybeSingle();
+
+  if (deliveryError || !delivery) {
+    throw deliveryError ?? new Error("Entrega de relatório não encontrada.");
+  }
+
   if (channel === "manual_share") {
     let { error } = await supabaseAdmin
       .from("nutrition_report_deliveries")
@@ -269,6 +281,62 @@ async function handleNutritionReportDeliveryJob(job: AppJobRow) {
         })
         .eq("id", deliveryId));
     }
+
+    if (error) throw error;
+    return;
+  }
+
+  if (channel === "email") {
+    const recipient =
+      normalizeText((delivery as any).channel_payload?.recipient) ||
+      normalizeText(payload.recipient);
+    const report = Array.isArray((delivery as any).nutrition_reports)
+      ? (delivery as any).nutrition_reports[0]
+      : (delivery as any).nutrition_reports;
+    const filePath = normalizeText(report?.file_path);
+    const reportTitle = normalizeText(report?.title, "Relatório de Nutrição");
+
+    if (!recipient || !filePath) {
+      throw new Error("Entrega de e-mail sem destinatário ou relatório.");
+    }
+
+    const { data: signedUrlData, error: signedUrlError } =
+      await supabaseAdmin.storage
+        .from("nutrition-files")
+        .createSignedUrl(filePath, 7 * 24 * 60 * 60);
+
+    if (signedUrlError || !signedUrlData?.signedUrl) {
+      throw signedUrlError ?? new Error("Não foi possível gerar link assinado.");
+    }
+
+    const result = await sendAlertEmail({
+      to: recipient,
+      subject: reportTitle,
+      html: buildAlertEmailHtml({
+        recipientName: normalizeText((delivery as any).recipient_name),
+        titulo: reportTitle,
+        mensagem:
+          "O relatório de Nutrição solicitado está disponível em link privado temporário.",
+        href: signedUrlData.signedUrl,
+      }),
+    });
+
+    if (!result.ok) {
+      throw new Error(result.error || "Falha ao enviar relatório por e-mail.");
+    }
+
+    const { error } = await supabaseAdmin
+      .from("nutrition_report_deliveries")
+      .update({
+        status: "sent",
+        provider_message_id: result.id ?? null,
+        attempt_count: Number((payload.attempt_count as any) ?? 0) + 1,
+        last_attempt_at: nowIso,
+        sent_at: nowIso,
+        error_message: null,
+        updated_at: nowIso,
+      })
+      .eq("id", deliveryId);
 
     if (error) throw error;
     return;

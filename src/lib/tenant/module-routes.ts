@@ -2,6 +2,7 @@ export type TenantAccessModuleKey =
   | "operacao"
   | "estoque"
   | "engenharia"
+  | "nutricao"
   | "compras"
   | "fiscal"
   | "financeiro"
@@ -12,6 +13,7 @@ export const TENANT_ACCESS_MODULE_KEYS: TenantAccessModuleKey[] = [
   "operacao",
   "estoque",
   "engenharia",
+  "nutricao",
   "compras",
   "fiscal",
   "financeiro",
@@ -74,6 +76,7 @@ export function getModuleKeyForPathname(
   if (matchesAny(path, ["/dashboard/admin"])) return "administracao";
   if (matchesAny(path, ["/dashboard/rh"])) return "rh";
   if (matchesAny(path, ["/dashboard/fiscal"])) return "fiscal";
+  if (matchesAny(path, ["/nutricao"])) return "nutricao";
   if (matchesAny(path, ["/compras", "/dashboard/compras"])) return "compras";
   if (matchesAny(path, ["/financeiro", "/dashboard/controladoria"])) {
     return "financeiro";

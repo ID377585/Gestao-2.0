@@ -55,6 +55,10 @@ export async function getTenantModulePermissions(
     return fallback;
   }
 
+  for (const key of TENANT_ACCESS_MODULE_KEYS) {
+    permissions[key] = fallback[key];
+  }
+
   for (const row of data) {
     const moduleKey = String((row as any).module_key ?? "") as TenantAccessModuleKey;
     if (!TENANT_ACCESS_MODULE_KEYS.includes(moduleKey)) continue;

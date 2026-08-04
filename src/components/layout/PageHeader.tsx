@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 
 const titles: Record<string, string> = {
+  "/nutricao": "Nutrição",
   "/financeiro": "Financeiro",
   "/financeiro/dre": "DRE",
   "/financeiro/dre/drilldown": "Drill-down da DRE",

@@ -5,18 +5,29 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock,
+  FileDown,
   FileWarning,
+  MapPin,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  createInspectionAddendum,
   completeInspection,
+  generateInspectionReport,
   getInspectionExecution,
   saveInspectionAnswer,
   startInspection,
 } from "@/app/nutricao/actions";
 import { SubmitButton } from "@/app/nutricao/SubmitButton";
+import {
+  EvidenceList,
+  EvidenceUploadForm,
+  InspectionGeolocation,
+  InspectionTimer,
+  SignaturePad,
+} from "./InspectionRuntimeTools";
 
 export const dynamic = "force-dynamic";
 
@@ -198,6 +209,45 @@ export default async function VistoriaExecutionPage({
         </div>
       </section>
 
+      <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <InspectionGeolocation
+          inspectionId={inspection.id}
+          status={inspection.geolocationStatus}
+          latitude={inspection.latitude}
+          longitude={inspection.longitude}
+          accuracyMeters={inspection.geolocationAccuracyMeters}
+          failureReason={inspection.geolocationFailureReason}
+          disabled={!canEdit}
+        />
+        <InspectionTimer
+          startedAt={inspection.startedAt}
+          completedAt={inspection.completedAt}
+          expectedDurationMinutes={inspection.expectedDurationMinutes}
+        />
+      </section>
+
+      <section className="grid gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-start gap-3">
+          <MapPin className="mt-0.5 h-5 w-5 text-emerald-700" />
+          <div>
+            <h2 className="font-semibold text-slate-950 dark:text-white">
+              Evidências gerais da vistoria
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Anexe fotos, documentos ou registros que valem para a vistoria inteira.
+            </p>
+          </div>
+        </div>
+        <EvidenceList evidences={inspection.evidences} disabled={!canEdit} />
+        {canEdit ? (
+          <EvidenceUploadForm
+            inspectionId={inspection.id}
+            resourceType="inspection"
+            disabled={!canEdit}
+          />
+        ) : null}
+      </section>
+
       {inspection.items.length === 0 ? (
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950 dark:text-amber-100">
           <div className="flex gap-3">
@@ -284,20 +334,107 @@ export default async function VistoriaExecutionPage({
                   {item.answer.comment}
                 </p>
               ) : null}
+
+              <div className="mt-5 grid gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    Evidências do item
+                    {item.evidenceRequired ? (
+                      <span className="ml-2 text-xs text-red-600 dark:text-red-300">
+                        obrigatória
+                      </span>
+                    ) : null}
+                  </h3>
+                </div>
+                <EvidenceList evidences={item.evidences} disabled={!canEdit} />
+                {canEdit && item.answer ? (
+                  <EvidenceUploadForm
+                    inspectionId={inspection.id}
+                    answerId={item.answer.id}
+                    resourceType="inspection_answer"
+                  />
+                ) : canEdit ? (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950 dark:text-amber-100">
+                    Salve a resposta do item antes de anexar evidências.
+                  </p>
+                ) : null}
+              </div>
             </div>
           ))}
         </section>
       )}
+
+      <SignaturePad
+        inspectionId={inspection.id}
+        signatures={inspection.signatures}
+        disabled={!canEdit}
+      />
+
+      <section className="grid gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center gap-2">
+          <FileDown className="h-5 w-5 text-blue-700" />
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Relatórios
+          </h2>
+        </div>
+        {inspection.reports.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Nenhum relatório versionado gerado ainda.
+          </p>
+        ) : (
+          <div className="grid gap-2">
+            {inspection.reports.map((report) => (
+              <div
+                key={report.id}
+                className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800 md:flex-row md:items-center md:justify-between"
+              >
+                <div>
+                  <p className="font-semibold">{report.title}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    v{report.version} • {report.format.toUpperCase()} •{" "}
+                    {report.contentHash ?? "sem hash"}
+                  </p>
+                </div>
+                {report.fileUrl ? (
+                  <Button asChild variant="outline" size="sm">
+                    <a href={report.fileUrl} target="_blank" rel="noreferrer">
+                      Baixar
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <form action={generateInspectionReport}>
+            <input name="inspection_id" type="hidden" value={inspection.id} />
+            <input name="format" type="hidden" value="html" />
+            <SubmitButton pendingLabel="Gerando...">Gerar HTML</SubmitButton>
+          </form>
+          <form action={generateInspectionReport}>
+            <input name="inspection_id" type="hidden" value={inspection.id} />
+            <input name="format" type="hidden" value="pdf" />
+            <SubmitButton pendingLabel="Gerando...">Gerar PDF</SubmitButton>
+          </form>
+        </div>
+      </section>
 
       {inspection.status === "completed" ? (
         <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950 dark:text-emerald-100">
           <div className="flex gap-3">
             <CheckCircle2 className="h-5 w-5 shrink-0" />
             <p>
-              Vistoria concluída. As próximas fases vão adicionar assinatura em
-              tela, evidências privadas e geração de PDF/DOCX versionados.
+              Vistoria concluída. O registro principal fica imutável; alterações
+              posteriores devem ser feitas por adendo versionado.
             </p>
           </div>
+          <form action={createInspectionAddendum} className="mt-4 grid gap-3">
+            <input name="inspection_id" type="hidden" value={inspection.id} />
+            <input name="title" placeholder="Título do adendo" className="h-9 rounded-md border border-emerald-200 bg-white px-3 text-sm text-slate-900 dark:border-emerald-900 dark:bg-slate-950 dark:text-white" required />
+            <Textarea name="body" placeholder="Conteúdo do adendo versionado" required />
+            <SubmitButton pendingLabel="Registrando...">Registrar adendo</SubmitButton>
+          </form>
         </section>
       ) : null}
     </div>

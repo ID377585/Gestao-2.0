@@ -1,10 +1,13 @@
 "use server";
 
+import { createHash, randomUUID } from "node:crypto";
+
 import { revalidatePath } from "next/cache";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveTenantOrRedirect } from "@/lib/tenant/guards";
 import { assertTenantCanAccessModule } from "@/lib/tenant/module-access";
+import { enqueueAppJob } from "@/lib/queue/app-jobs";
 
 type SupabaseErrorLike = {
   code?: string | null;
@@ -64,13 +67,49 @@ export type InspectionExecutionItem = {
   orderIndex: number;
   defaultSeverity: string;
   commentRequired: boolean;
+  evidenceRequired: boolean;
   createNonconformityOnFailure: boolean;
+  evidences: NutritionEvidenceItem[];
   answer: {
     id: string;
     conformityStatus: string | null;
     comment: string | null;
     answeredAt: string;
   } | null;
+};
+
+export type NutritionEvidenceItem = {
+  id: string;
+  caption: string | null;
+  category: string | null;
+  fileName: string | null;
+  mimeType: string;
+  fileSizeBytes: number | null;
+  url: string;
+  createdAt: string;
+};
+
+export type NutritionSignatureItem = {
+  id: string;
+  signerName: string;
+  signerRole: string | null;
+  signatureUrl: string | null;
+  signatureHash: string | null;
+  refusalReason: string | null;
+  witnessName: string | null;
+  signedAt: string | null;
+  createdAt: string;
+};
+
+export type NutritionReportFileItem = {
+  id: string;
+  title: string;
+  format: string;
+  status: string;
+  version: number;
+  fileUrl: string | null;
+  contentHash: string | null;
+  generatedAt: string | null;
 };
 
 export type InspectionExecutionSnapshot = {
@@ -90,8 +129,20 @@ export type InspectionExecutionSnapshot = {
   notApplicableItems: number;
   compliancePercent: number | null;
   result: string | null;
+  geolocationStatus: string;
+  latitude: number | null;
+  longitude: number | null;
+  geolocationAccuracyMeters: number | null;
+  geolocationFailureReason: string | null;
+  geolocationCapturedAt: string | null;
+  requiresSignature: boolean;
+  requiresGeolocation: boolean;
+  completionIntegrityHash: string | null;
   templateName: string | null;
   items: InspectionExecutionItem[];
+  evidences: NutritionEvidenceItem[];
+  signatures: NutritionSignatureItem[];
+  reports: NutritionReportFileItem[];
 };
 
 export type NonconformityListItem = {
@@ -130,6 +181,9 @@ export type NonconformityDetail = NonconformityListItem & {
     caption: string | null;
     category: string | null;
     fileName: string | null;
+    mimeType: string;
+    fileSizeBytes: number | null;
+    url: string;
     createdAt: string;
   }>;
   reinspections: Array<{
@@ -183,6 +237,21 @@ export type SanitationPlanItem = {
   productName: string | null;
   status: string;
   evidenceRequired: boolean;
+  latestRecord?: {
+    id: string;
+    status: string;
+    result: string | null;
+    executedAt: string | null;
+  } | null;
+};
+
+export type NutritionThermometerItem = {
+  id: string;
+  name: string;
+  identifier: string | null;
+  calibrationDueAt: string | null;
+  verificationDueAt: string | null;
+  status: string;
 };
 
 export type DocumentItem = {
@@ -203,6 +272,12 @@ export type TrainingItem = {
   workloadMinutes: number | null;
   validityDays: number | null;
   status: string;
+  latestSession?: {
+    id: string;
+    scheduledFor: string | null;
+    status: string;
+    location: string | null;
+  } | null;
 };
 
 export type SupplierAssessmentItem = {
@@ -276,6 +351,73 @@ function serializeError(error: unknown) {
     message: candidate.message,
     details: candidate.details,
     hint: candidate.hint,
+  };
+}
+
+const NUTRITION_FILES_BUCKET = "nutrition-files";
+const MAX_NUTRITION_FILE_SIZE = 20 * 1024 * 1024;
+const ALLOWED_NUTRITION_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "application/pdf",
+  "text/html",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+
+function sanitizeFileName(value: string) {
+  return (
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 120) || "arquivo"
+  );
+}
+
+function nutritionFileUrl(filePath: string | null | undefined) {
+  if (!filePath) return null;
+  return `/api/nutricao/files?path=${encodeURIComponent(filePath)}`;
+}
+
+function hashPayload(value: unknown) {
+  return createHash("sha256")
+    .update(typeof value === "string" ? value : JSON.stringify(value))
+    .digest("hex");
+}
+
+function parseOptionalNumber(value: FormDataEntryValue | null) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
+function parseSignatureDataUrl(value: string) {
+  const match = value.match(/^data:(image\/(?:png|jpeg|webp));base64,([a-zA-Z0-9+/=]+)$/);
+  if (!match) return null;
+
+  return {
+    mimeType: match[1],
+    buffer: Buffer.from(match[2], "base64"),
+  };
+}
+
+function normalizeEvidenceRow(row: any): NutritionEvidenceItem {
+  return {
+    id: String(row.id),
+    caption: row.caption ? String(row.caption) : null,
+    category: row.category ? String(row.category) : null,
+    fileName: row.file_name ? String(row.file_name) : null,
+    mimeType: String(row.mime_type ?? "application/octet-stream"),
+    fileSizeBytes:
+      row.file_size_bytes == null ? null : Number(row.file_size_bytes),
+    url: nutritionFileUrl(String(row.file_path ?? "")) ?? "#",
+    createdAt: String(row.created_at ?? ""),
   };
 }
 
@@ -814,14 +956,28 @@ export async function getInspectionExecution(
   inspectionId: string
 ): Promise<InspectionExecutionSnapshot | null> {
   const { tenant, supabase } = await getNutritionContext();
-  const { data: inspection, error } = await supabase
+  const extendedInspectionColumns =
+    "id,title,inspection_code,inspection_type,status,sector,scheduled_for,expected_duration_minutes,started_at,completed_at,total_items,compliant_items,noncompliant_items,not_applicable_items,compliance_percent,result,template_id,template_version_id,latitude,longitude,geolocation_accuracy_meters,geolocation_status,geolocation_failure_reason,geolocation_captured_at,requires_signature,requires_geolocation,completion_integrity_hash";
+  const baseInspectionColumns =
+    "id,title,inspection_code,inspection_type,status,sector,scheduled_for,expected_duration_minutes,started_at,completed_at,total_items,compliant_items,noncompliant_items,not_applicable_items,compliance_percent,result,template_id,template_version_id,latitude,longitude,geolocation_accuracy_meters,geolocation_status,geolocation_failure_reason";
+
+  let inspectionResult = await supabase
     .from("nutrition_inspections")
-    .select(
-      "id,title,inspection_code,inspection_type,status,sector,scheduled_for,expected_duration_minutes,started_at,completed_at,total_items,compliant_items,noncompliant_items,not_applicable_items,compliance_percent,result,template_id,template_version_id"
-    )
+    .select(extendedInspectionColumns)
     .eq("establishment_id", tenant.establishmentId)
     .eq("id", inspectionId)
     .single();
+
+  if (inspectionResult.error && isMissingNutritionTableError(inspectionResult.error)) {
+    inspectionResult = await supabase
+      .from("nutrition_inspections")
+      .select(baseInspectionColumns)
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("id", inspectionId)
+      .single();
+  }
+
+  const { data: inspection, error } = inspectionResult;
 
   if (error) {
     if (isMissingNutritionTableError(error)) return null;
@@ -846,16 +1002,31 @@ export async function getInspectionExecution(
     ? String((inspection as any).template_version_id)
     : "";
 
-  const { data: items, error: itemsError } = templateVersionId
+  let itemsResult: { data: any[] | null; error: any } = templateVersionId
     ? await supabase
         .from("nutrition_inspection_items")
         .select(
-          "id,section_id,title,instruction,response_type,order_index,default_severity,comment_required,create_nonconformity_on_failure,nutrition_inspection_sections(title,order_index)"
+          "id,section_id,title,instruction,response_type,order_index,default_severity,comment_required,evidence_required,create_nonconformity_on_failure,nutrition_inspection_sections(title,order_index)"
         )
         .eq("establishment_id", tenant.establishmentId)
         .eq("template_version_id", templateVersionId)
         .order("order_index", { ascending: true })
     : { data: [], error: null };
+
+  if (itemsResult.error && isMissingNutritionTableError(itemsResult.error)) {
+    itemsResult = templateVersionId
+      ? await supabase
+          .from("nutrition_inspection_items")
+          .select(
+            "id,section_id,title,instruction,response_type,order_index,default_severity,comment_required,create_nonconformity_on_failure,nutrition_inspection_sections(title,order_index)"
+          )
+          .eq("establishment_id", tenant.establishmentId)
+          .eq("template_version_id", templateVersionId)
+          .order("order_index", { ascending: true })
+      : { data: [], error: null };
+  }
+
+  const { data: items, error: itemsError } = itemsResult;
 
   if (itemsError) {
     console.error("[nutrition] inspection items load error:", serializeError(itemsError));
@@ -871,6 +1042,7 @@ export async function getInspectionExecution(
       answeredAt: string;
     }
   >();
+  const answerIds: string[] = [];
 
   if (itemIds.length > 0) {
     const { data: answers, error: answersError } = await supabase
@@ -895,8 +1067,60 @@ export async function getInspectionExecution(
         comment: (answer as any).comment ? String((answer as any).comment) : null,
         answeredAt: String((answer as any).answered_at ?? ""),
       });
+      answerIds.push(String((answer as any).id));
     }
   }
+
+  const evidenceByAnswerId = new Map<string, NutritionEvidenceItem[]>();
+  const inspectionEvidences: NutritionEvidenceItem[] = [];
+
+  if (answerIds.length > 0 || inspectionId) {
+    const { data: evidences, error: evidencesError } = await supabase
+      .from("nutrition_evidences")
+      .select("id,resource_type,inspection_id,answer_id,file_path,file_name,mime_type,file_size_bytes,caption,category,created_at")
+      .eq("establishment_id", tenant.establishmentId)
+      .or(`inspection_id.eq.${inspectionId}${answerIds.length ? `,answer_id.in.(${answerIds.join(",")})` : ""}`)
+      .is("removed_at", null)
+      .order("created_at", { ascending: false })
+      .limit(200);
+
+    if (evidencesError && !isMissingNutritionTableError(evidencesError)) {
+      console.error("[nutrition] evidence load error:", serializeError(evidencesError));
+    }
+
+    for (const evidence of evidences ?? []) {
+      const normalized = normalizeEvidenceRow(evidence);
+      const answerId = (evidence as any).answer_id
+        ? String((evidence as any).answer_id)
+        : "";
+
+      if (answerId) {
+        const current = evidenceByAnswerId.get(answerId) ?? [];
+        current.push(normalized);
+        evidenceByAnswerId.set(answerId, current);
+        continue;
+      }
+
+      inspectionEvidences.push(normalized);
+    }
+  }
+
+  const [signaturesResult, reportsResult] = await Promise.all([
+    supabase
+      .from("nutrition_signatures")
+      .select("id,signer_name,signer_role,signature_path,signature_hash,refusal_reason,witness_name,signed_at,created_at")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("inspection_id", inspectionId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("nutrition_reports")
+      .select("id,title,format,status,version,file_path,content_hash,generated_at")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("source_type", "inspection")
+      .eq("source_id", inspectionId)
+      .order("version", { ascending: false })
+      .limit(20),
+  ]);
 
   return {
     id: String((inspection as any).id),
@@ -929,6 +1153,26 @@ export async function getInspectionExecution(
         ? null
         : Number((inspection as any).compliance_percent),
     result: (inspection as any).result ? String((inspection as any).result) : null,
+    geolocationStatus: String((inspection as any).geolocation_status ?? "not_requested"),
+    latitude:
+      (inspection as any).latitude == null ? null : Number((inspection as any).latitude),
+    longitude:
+      (inspection as any).longitude == null ? null : Number((inspection as any).longitude),
+    geolocationAccuracyMeters:
+      (inspection as any).geolocation_accuracy_meters == null
+        ? null
+        : Number((inspection as any).geolocation_accuracy_meters),
+    geolocationFailureReason: (inspection as any).geolocation_failure_reason
+      ? String((inspection as any).geolocation_failure_reason)
+      : null,
+    geolocationCapturedAt: (inspection as any).geolocation_captured_at
+      ? String((inspection as any).geolocation_captured_at)
+      : null,
+    requiresSignature: Boolean((inspection as any).requires_signature),
+    requiresGeolocation: Boolean((inspection as any).requires_geolocation),
+    completionIntegrityHash: (inspection as any).completion_integrity_hash
+      ? String((inspection as any).completion_integrity_hash)
+      : null,
     templateName,
     items: (items ?? []).map((row: any) => {
       const section = Array.isArray(row.nutrition_inspection_sections)
@@ -945,10 +1189,34 @@ export async function getInspectionExecution(
         orderIndex: Number(row.order_index ?? 0),
         defaultSeverity: String(row.default_severity ?? "medium"),
         commentRequired: Boolean(row.comment_required),
+        evidenceRequired: Boolean(row.evidence_required),
         createNonconformityOnFailure: Boolean(row.create_nonconformity_on_failure),
+        evidences: evidenceByAnswerId.get(answerByItemId.get(String(row.id))?.id ?? "") ?? [],
         answer: answerByItemId.get(String(row.id)) ?? null,
       };
     }),
+    evidences: inspectionEvidences,
+    signatures: ((signaturesResult.data ?? []) as any[]).map((row) => ({
+      id: String(row.id),
+      signerName: String(row.signer_name ?? ""),
+      signerRole: row.signer_role ? String(row.signer_role) : null,
+      signatureUrl: nutritionFileUrl(row.signature_path ? String(row.signature_path) : null),
+      signatureHash: row.signature_hash ? String(row.signature_hash) : null,
+      refusalReason: row.refusal_reason ? String(row.refusal_reason) : null,
+      witnessName: row.witness_name ? String(row.witness_name) : null,
+      signedAt: row.signed_at ? String(row.signed_at) : null,
+      createdAt: String(row.created_at ?? ""),
+    })),
+    reports: ((reportsResult.data ?? []) as any[]).map((row) => ({
+      id: String(row.id),
+      title: String(row.title ?? ""),
+      format: String(row.format ?? "html"),
+      status: String(row.status ?? "draft"),
+      version: Number(row.version ?? 1),
+      fileUrl: nutritionFileUrl(row.file_path ? String(row.file_path) : null),
+      contentHash: row.content_hash ? String(row.content_hash) : null,
+      generatedAt: row.generated_at ? String(row.generated_at) : null,
+    })),
   };
 }
 
@@ -957,16 +1225,77 @@ export async function startInspection(formData: FormData) {
   const inspectionId = String(formData.get("inspection_id") ?? "").trim();
   if (!inspectionId) throw new Error("Vistoria não informada.");
 
-  const { error } = await supabase
+  const latitude = parseOptionalNumber(formData.get("latitude"));
+  const longitude = parseOptionalNumber(formData.get("longitude"));
+  const accuracy = parseOptionalNumber(formData.get("accuracy"));
+  const geolocationStatus = String(
+    formData.get("geolocation_status") ?? ""
+  ).trim();
+  const geolocationFailureReason = String(
+    formData.get("geolocation_failure_reason") ?? ""
+  ).trim();
+  const geolocationPayload =
+    latitude != null && longitude != null
+      ? {
+          latitude,
+          longitude,
+          geolocation_accuracy_meters: accuracy,
+          geolocation_status: "captured",
+          geolocation_failure_reason: null,
+          geolocation_captured_at: new Date().toISOString(),
+        }
+      : geolocationStatus
+        ? {
+            geolocation_status: ["denied", "unavailable", "failed"].includes(
+              geolocationStatus
+            )
+              ? geolocationStatus
+              : "failed",
+            geolocation_failure_reason:
+              geolocationFailureReason || "Localização não capturada.",
+          }
+        : {};
+
+  const updatePayload = {
+    status: "in_progress",
+    started_at: new Date().toISOString(),
+    started_by: tenant.userId,
+    updated_by: tenant.userId,
+    ...geolocationPayload,
+  };
+
+  let { error } = await supabase
     .from("nutrition_inspections")
-    .update({
-      status: "in_progress",
-      started_at: new Date().toISOString(),
-      updated_by: tenant.userId,
-    })
+    .update(updatePayload)
     .eq("establishment_id", tenant.establishmentId)
     .eq("id", inspectionId)
     .in("status", ["scheduled", "paused", "overdue"]);
+
+  if (error && isMissingNutritionTableError(error)) {
+    const fallbackPayload: Record<string, unknown> = {
+      status: "in_progress",
+      started_at: updatePayload.started_at,
+      updated_by: tenant.userId,
+    };
+
+    if ("latitude" in geolocationPayload) {
+      fallbackPayload.latitude = (geolocationPayload as any).latitude;
+      fallbackPayload.longitude = (geolocationPayload as any).longitude;
+      fallbackPayload.geolocation_accuracy_meters = (geolocationPayload as any).geolocation_accuracy_meters;
+      fallbackPayload.geolocation_status = (geolocationPayload as any).geolocation_status;
+      fallbackPayload.geolocation_failure_reason = null;
+    } else if ("geolocation_status" in geolocationPayload) {
+      fallbackPayload.geolocation_status = (geolocationPayload as any).geolocation_status;
+      fallbackPayload.geolocation_failure_reason = (geolocationPayload as any).geolocation_failure_reason;
+    }
+
+    ({ error } = await supabase
+      .from("nutrition_inspections")
+      .update(fallbackPayload)
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("id", inspectionId)
+      .in("status", ["scheduled", "paused", "overdue"]));
+  }
 
   if (error) {
     console.error("[nutrition] start inspection error:", serializeError(error));
@@ -975,6 +1304,69 @@ export async function startInspection(formData: FormData) {
 
   revalidatePath("/nutricao");
   revalidatePath("/nutricao/vistorias");
+  revalidatePath(`/nutricao/vistorias/${inspectionId}`);
+}
+
+export async function saveInspectionGeolocation(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const inspectionId = String(formData.get("inspection_id") ?? "").trim();
+  const latitude = parseOptionalNumber(formData.get("latitude"));
+  const longitude = parseOptionalNumber(formData.get("longitude"));
+  const accuracy = parseOptionalNumber(formData.get("accuracy"));
+  const status = String(formData.get("geolocation_status") ?? "").trim();
+  const failureReason = String(
+    formData.get("geolocation_failure_reason") ?? ""
+  ).trim();
+
+  if (!inspectionId) throw new Error("Vistoria não informada.");
+
+  const captured = latitude != null && longitude != null;
+  const nextStatus = captured
+    ? "captured"
+    : ["denied", "unavailable", "failed"].includes(status)
+      ? status
+      : "failed";
+
+  let { error } = await supabase
+    .from("nutrition_inspections")
+    .update({
+      latitude: captured ? latitude : null,
+      longitude: captured ? longitude : null,
+      geolocation_accuracy_meters: captured ? accuracy : null,
+      geolocation_status: nextStatus,
+      geolocation_failure_reason: captured
+        ? null
+        : failureReason || "Localização não capturada.",
+      geolocation_captured_at: captured ? new Date().toISOString() : null,
+      updated_by: tenant.userId,
+    })
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", inspectionId)
+    .neq("status", "completed");
+
+  if (error && isMissingNutritionTableError(error)) {
+    ({ error } = await supabase
+      .from("nutrition_inspections")
+      .update({
+        latitude: captured ? latitude : null,
+        longitude: captured ? longitude : null,
+        geolocation_accuracy_meters: captured ? accuracy : null,
+        geolocation_status: nextStatus,
+        geolocation_failure_reason: captured
+          ? null
+          : failureReason || "Localização não capturada.",
+        updated_by: tenant.userId,
+      })
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("id", inspectionId)
+      .neq("status", "completed"));
+  }
+
+  if (error) {
+    console.error("[nutrition] save geolocation error:", serializeError(error));
+    throw new Error("Não foi possível registrar a geolocalização.");
+  }
+
   revalidatePath(`/nutricao/vistorias/${inspectionId}`);
 }
 
@@ -1089,9 +1481,310 @@ export async function saveInspectionAnswer(formData: FormData) {
   revalidatePath(`/nutricao/vistorias/${inspectionId}`);
 }
 
+async function resolveEvidenceTarget(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  establishmentId: string,
+  formData: FormData
+) {
+  const resourceType = String(formData.get("resource_type") ?? "").trim();
+  const inspectionId = String(formData.get("inspection_id") ?? "").trim();
+  const answerId = String(formData.get("answer_id") ?? "").trim();
+  const nonconformityId = String(formData.get("nonconformity_id") ?? "").trim();
+
+  if (resourceType === "inspection_answer") {
+    if (!answerId) throw new Error("Resposta da vistoria não informada.");
+    const { data, error } = await supabase
+      .from("nutrition_inspection_answers")
+      .select("id,inspection_id")
+      .eq("establishment_id", establishmentId)
+      .eq("id", answerId)
+      .maybeSingle();
+
+    if (error || !data) throw new Error("Resposta não encontrada para este estabelecimento.");
+
+    return {
+      resourceType,
+      resourceId: answerId,
+      inspectionId: String((data as any).inspection_id ?? inspectionId),
+      answerId,
+      nonconformityId: null as string | null,
+      revalidatePaths: [
+        "/nutricao",
+        "/nutricao/vistorias",
+        `/nutricao/vistorias/${String((data as any).inspection_id ?? inspectionId)}`,
+      ],
+    };
+  }
+
+  if (resourceType === "nonconformity") {
+    if (!nonconformityId) throw new Error("Não conformidade não informada.");
+    const { data, error } = await supabase
+      .from("nutrition_nonconformities")
+      .select("id,inspection_id")
+      .eq("establishment_id", establishmentId)
+      .eq("id", nonconformityId)
+      .maybeSingle();
+
+    if (error || !data) {
+      throw new Error("Não conformidade não encontrada para este estabelecimento.");
+    }
+
+    const relatedInspectionId = (data as any).inspection_id
+      ? String((data as any).inspection_id)
+      : null;
+
+    return {
+      resourceType,
+      resourceId: nonconformityId,
+      inspectionId: relatedInspectionId,
+      answerId: null as string | null,
+      nonconformityId,
+      revalidatePaths: [
+        "/nutricao",
+        "/nutricao/nao-conformidades",
+        `/nutricao/nao-conformidades/${nonconformityId}`,
+        ...(relatedInspectionId ? [`/nutricao/vistorias/${relatedInspectionId}`] : []),
+      ],
+    };
+  }
+
+  if (resourceType === "inspection") {
+    if (!inspectionId) throw new Error("Vistoria não informada.");
+    const { data, error } = await supabase
+      .from("nutrition_inspections")
+      .select("id")
+      .eq("establishment_id", establishmentId)
+      .eq("id", inspectionId)
+      .maybeSingle();
+
+    if (error || !data) throw new Error("Vistoria não encontrada para este estabelecimento.");
+
+    return {
+      resourceType,
+      resourceId: inspectionId,
+      inspectionId,
+      answerId: null as string | null,
+      nonconformityId: null as string | null,
+      revalidatePaths: ["/nutricao", "/nutricao/vistorias", `/nutricao/vistorias/${inspectionId}`],
+    };
+  }
+
+  throw new Error("Tipo de evidência não suportado.");
+}
+
+export async function uploadNutritionEvidence(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const file = formData.get("file");
+  const caption = String(formData.get("caption") ?? "").trim();
+  const category = String(formData.get("category") ?? "geral").trim();
+  const metadataText = String(formData.get("metadata") ?? "").trim();
+
+  if (!(file instanceof File) || file.size <= 0) {
+    throw new Error("Selecione um arquivo de evidência.");
+  }
+
+  if (file.size > MAX_NUTRITION_FILE_SIZE) {
+    throw new Error("Arquivo muito grande. O limite é 20 MB.");
+  }
+
+  const mimeType = file.type || "application/octet-stream";
+  if (!ALLOWED_NUTRITION_MIME_TYPES.has(mimeType)) {
+    throw new Error("Formato não permitido. Use imagem, PDF, DOCX ou XLSX.");
+  }
+
+  const target = await resolveEvidenceTarget(
+    supabase,
+    tenant.establishmentId,
+    formData
+  );
+  let metadata: Record<string, unknown> = {};
+  if (metadataText) {
+    try {
+      metadata = JSON.parse(metadataText) as Record<string, unknown>;
+    } catch {
+      metadata = { note: metadataText };
+    }
+  }
+
+  const originalName = sanitizeFileName(file.name || "evidencia");
+  const filePath = `${tenant.establishmentId}/${target.resourceType}/${target.resourceId}/${Date.now()}-${randomUUID()}-${originalName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(NUTRITION_FILES_BUCKET)
+    .upload(filePath, file, {
+      contentType: mimeType,
+      upsert: false,
+    });
+
+  if (uploadError) {
+    console.error("[nutrition] evidence upload error:", serializeError(uploadError));
+    throw new Error("Não foi possível enviar a evidência.");
+  }
+
+  const { error } = await supabase.from("nutrition_evidences").insert({
+    establishment_id: tenant.establishmentId,
+    resource_type: target.resourceType,
+    resource_id: target.resourceId,
+    inspection_id: target.inspectionId,
+    answer_id: target.answerId,
+    nonconformity_id: target.nonconformityId,
+    file_path: filePath,
+    file_name: file.name || originalName,
+    mime_type: mimeType,
+    file_size_bytes: file.size,
+    caption: caption || null,
+    category: category || null,
+    metadata: {
+      ...metadata,
+      uploaded_from: "nutrition_module",
+      original_name: file.name || originalName,
+    },
+    captured_at: new Date().toISOString(),
+    uploaded_by: tenant.userId,
+  });
+
+  if (error) {
+    console.error("[nutrition] evidence insert error:", serializeError(error));
+    throw new Error("O arquivo foi enviado, mas não foi possível registrar a evidência.");
+  }
+
+  for (const path of target.revalidatePaths) revalidatePath(path);
+}
+
+export async function removeNutritionEvidence(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const evidenceId = String(formData.get("evidence_id") ?? "").trim();
+  const reason = String(formData.get("remove_reason") ?? "").trim();
+
+  if (!evidenceId) throw new Error("Evidência não informada.");
+  if (!reason) throw new Error("Informe a justificativa da remoção.");
+
+  const { data: evidence, error: loadError } = await supabase
+    .from("nutrition_evidences")
+    .select("id,inspection_id,nonconformity_id")
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", evidenceId)
+    .is("removed_at", null)
+    .maybeSingle();
+
+  if (loadError || !evidence) {
+    throw new Error("Evidência não encontrada para este estabelecimento.");
+  }
+
+  const { error } = await supabase
+    .from("nutrition_evidences")
+    .update({
+      removed_at: new Date().toISOString(),
+      removed_by: tenant.userId,
+      remove_reason: reason,
+    })
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", evidenceId);
+
+  if (error) {
+    console.error("[nutrition] remove evidence error:", serializeError(error));
+    throw new Error("Não foi possível remover a evidência.");
+  }
+
+  revalidatePath("/nutricao");
+  if ((evidence as any).inspection_id) {
+    revalidatePath(`/nutricao/vistorias/${String((evidence as any).inspection_id)}`);
+  }
+  if ((evidence as any).nonconformity_id) {
+    revalidatePath(
+      `/nutricao/nao-conformidades/${String((evidence as any).nonconformity_id)}`
+    );
+  }
+}
+
+export async function saveNutritionSignature(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const inspectionId = String(formData.get("inspection_id") ?? "").trim();
+  const reinspectionId = String(formData.get("reinspection_id") ?? "").trim();
+  const signerName = String(formData.get("signer_name") ?? "").trim();
+  const signerRole = String(formData.get("signer_role") ?? "").trim();
+  const signerDocument = String(formData.get("signer_document") ?? "").trim();
+  const signatureData = String(formData.get("signature_data") ?? "").trim();
+  const refusalReason = String(formData.get("refusal_reason") ?? "").trim();
+  const witnessName = String(formData.get("witness_name") ?? "").trim();
+  const declarationText =
+    String(formData.get("declaration_text") ?? "").trim() ||
+    "Declaro ciência sobre o conteúdo e os registros desta vistoria.";
+
+  if (!inspectionId && !reinspectionId) {
+    throw new Error("Vistoria ou reinspeção não informada.");
+  }
+  if (!signerName) throw new Error("Informe o nome do assinante.");
+  if (!signatureData && !refusalReason) {
+    throw new Error("Colete a assinatura ou registre a recusa com justificativa.");
+  }
+
+  if (inspectionId) {
+    const { data, error } = await supabase
+      .from("nutrition_inspections")
+      .select("id,status")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("id", inspectionId)
+      .maybeSingle();
+
+    if (error || !data) throw new Error("Vistoria não encontrada para este estabelecimento.");
+  }
+
+  let signaturePath: string | null = null;
+  let signatureHash: string | null = null;
+
+  if (signatureData) {
+    const parsed = parseSignatureDataUrl(signatureData);
+    if (!parsed) throw new Error("Assinatura inválida. Tente coletar novamente.");
+    if (parsed.buffer.byteLength > 1_500_000) {
+      throw new Error("Assinatura muito grande. Limpe e assine novamente.");
+    }
+
+    signatureHash = hashPayload(parsed.buffer.toString("base64"));
+    signaturePath = `${tenant.establishmentId}/signature/${inspectionId || reinspectionId}/${Date.now()}-${randomUUID()}.png`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(NUTRITION_FILES_BUCKET)
+      .upload(signaturePath, parsed.buffer, {
+        contentType: parsed.mimeType,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error("[nutrition] signature upload error:", serializeError(uploadError));
+      throw new Error("Não foi possível enviar a assinatura.");
+    }
+  }
+
+  const { error } = await supabase.from("nutrition_signatures").insert({
+    establishment_id: tenant.establishmentId,
+    inspection_id: inspectionId || null,
+    reinspection_id: reinspectionId || null,
+    signer_name: signerName,
+    signer_role: signerRole || null,
+    signer_document: signerDocument || null,
+    signature_path: signaturePath,
+    signature_hash: signatureHash,
+    declaration_text: declarationText,
+    refusal_reason: refusalReason || null,
+    witness_name: witnessName || null,
+    signed_at: signaturePath ? new Date().toISOString() : null,
+    collected_by: tenant.userId,
+  });
+
+  if (error) {
+    console.error("[nutrition] signature insert error:", serializeError(error));
+    throw new Error("Não foi possível registrar a assinatura.");
+  }
+
+  revalidatePath("/nutricao");
+  if (inspectionId) revalidatePath(`/nutricao/vistorias/${inspectionId}`);
+}
+
 export async function completeInspection(formData: FormData) {
   const { tenant, supabase } = await getNutritionContext();
   const inspectionId = String(formData.get("inspection_id") ?? "").trim();
+  const completionNotes = String(formData.get("completion_notes") ?? "").trim();
   if (!inspectionId) throw new Error("Vistoria não informada.");
 
   const snapshot = await getInspectionExecution(inspectionId);
@@ -1107,6 +1800,30 @@ export async function completeInspection(formData: FormData) {
     throw new Error("Responda todos os itens obrigatórios antes de concluir.");
   }
 
+  const missingRequiredEvidence = snapshot.items.filter(
+    (item) =>
+      (item.evidenceRequired ||
+        item.responseType === "photo" ||
+        item.responseType === "document") &&
+      item.evidences.length === 0
+  );
+  if (missingRequiredEvidence.length > 0) {
+    throw new Error(
+      `Anexe evidência obrigatória em: ${missingRequiredEvidence
+        .slice(0, 3)
+        .map((item) => item.title)
+        .join(", ")}.`
+    );
+  }
+
+  if (snapshot.requiresGeolocation && snapshot.geolocationStatus !== "captured") {
+    throw new Error("Registre a geolocalização antes de concluir a vistoria.");
+  }
+
+  if (snapshot.requiresSignature && snapshot.signatures.length === 0) {
+    throw new Error("Colete a assinatura obrigatória ou registre a recusa justificada.");
+  }
+
   const compliant = answeredItems.filter(
     (item) => item.answer?.conformityStatus === "compliant"
   ).length;
@@ -1119,23 +1836,76 @@ export async function completeInspection(formData: FormData) {
   const applicable = Math.max(answeredItems.length - notApplicable, 0);
   const compliancePercent =
     applicable > 0 ? Number(((compliant / applicable) * 100).toFixed(2)) : 100;
+  const completedSnapshot = {
+    inspection_id: inspectionId,
+    title: snapshot.title,
+    status_before_completion: snapshot.status,
+    total_items: snapshot.items.length,
+    compliant_items: compliant,
+    noncompliant_items: noncompliant,
+    not_applicable_items: notApplicable,
+    compliance_percent: compliancePercent,
+    result: inspectionResultFromPercent(compliancePercent),
+    geolocation: {
+      status: snapshot.geolocationStatus,
+      latitude: snapshot.latitude,
+      longitude: snapshot.longitude,
+      accuracy_meters: snapshot.geolocationAccuracyMeters,
+      captured_at: snapshot.geolocationCapturedAt,
+    },
+    signatures: snapshot.signatures.map((signature) => ({
+      id: signature.id,
+      signer_name: signature.signerName,
+      signer_role: signature.signerRole,
+      hash: signature.signatureHash,
+      refused: Boolean(signature.refusalReason),
+    })),
+    completed_by: tenant.userId,
+    completed_at: new Date().toISOString(),
+  };
+  const integrityHash = hashPayload(completedSnapshot);
 
-  const { error } = await supabase
+  const completionUpdatePayload = {
+    status: "completed",
+    completed_at: new Date().toISOString(),
+    total_items: snapshot.items.length,
+    compliant_items: compliant,
+    noncompliant_items: noncompliant,
+    not_applicable_items: notApplicable,
+    compliance_percent: compliancePercent,
+    result: inspectionResultFromPercent(compliancePercent),
+    completed_by: tenant.userId,
+    completion_notes: completionNotes || null,
+    completion_integrity_hash: integrityHash,
+    completed_snapshot: completedSnapshot,
+    updated_by: tenant.userId,
+  };
+
+  let { error } = await supabase
     .from("nutrition_inspections")
-    .update({
-      status: "completed",
-      completed_at: new Date().toISOString(),
-      total_items: snapshot.items.length,
-      compliant_items: compliant,
-      noncompliant_items: noncompliant,
-      not_applicable_items: notApplicable,
-      compliance_percent: compliancePercent,
-      result: inspectionResultFromPercent(compliancePercent),
-      updated_by: tenant.userId,
-    })
+    .update(completionUpdatePayload)
     .eq("establishment_id", tenant.establishmentId)
     .eq("id", inspectionId)
     .neq("status", "completed");
+
+  if (error && isMissingNutritionTableError(error)) {
+    ({ error } = await supabase
+      .from("nutrition_inspections")
+      .update({
+        status: "completed",
+        completed_at: completionUpdatePayload.completed_at,
+        total_items: snapshot.items.length,
+        compliant_items: compliant,
+        noncompliant_items: noncompliant,
+        not_applicable_items: notApplicable,
+        compliance_percent: compliancePercent,
+        result: inspectionResultFromPercent(compliancePercent),
+        updated_by: tenant.userId,
+      })
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("id", inspectionId)
+      .neq("status", "completed"));
+  }
 
   if (error) {
     console.error("[nutrition] complete inspection error:", serializeError(error));
@@ -1144,6 +1914,58 @@ export async function completeInspection(formData: FormData) {
 
   revalidatePath("/nutricao");
   revalidatePath("/nutricao/vistorias");
+  revalidatePath(`/nutricao/vistorias/${inspectionId}`);
+}
+
+export async function createInspectionAddendum(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const inspectionId = String(formData.get("inspection_id") ?? "").trim();
+  const title = String(formData.get("title") ?? "").trim();
+  const body = String(formData.get("body") ?? "").trim();
+
+  if (!inspectionId) throw new Error("Vistoria não informada.");
+  if (!title) throw new Error("Informe o título do adendo.");
+  if (!body) throw new Error("Informe o conteúdo do adendo.");
+
+  const { data: inspection, error: inspectionError } = await supabase
+    .from("nutrition_inspections")
+    .select("id,status")
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", inspectionId)
+    .maybeSingle();
+
+  if (inspectionError || !inspection) {
+    throw new Error("Vistoria não encontrada para este estabelecimento.");
+  }
+
+  if (String((inspection as any).status) !== "completed") {
+    throw new Error("Adendos são permitidos apenas em vistorias concluídas.");
+  }
+
+  const { count } = await supabase
+    .from("nutrition_inspection_addendums")
+    .select("id", { count: "exact", head: true })
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("inspection_id", inspectionId);
+
+  const version = (count ?? 0) + 1;
+  const { error } = await supabase.from("nutrition_inspection_addendums").insert({
+    establishment_id: tenant.establishmentId,
+    inspection_id: inspectionId,
+    version,
+    title,
+    body,
+    metadata: {
+      integrity_hash: hashPayload({ inspectionId, version, title, body }),
+    },
+    created_by: tenant.userId,
+  });
+
+  if (error) {
+    console.error("[nutrition] addendum insert error:", serializeError(error));
+    throw new Error("Não foi possível registrar o adendo.");
+  }
+
   revalidatePath(`/nutricao/vistorias/${inspectionId}`);
 }
 
@@ -1275,7 +2097,7 @@ export async function getNutritionNonconformityDetail(
   const [evidencesResult, reinspectionsResult, timelineResult] = await Promise.all([
     supabase
       .from("nutrition_evidences")
-      .select("id,caption,category,file_name,created_at")
+      .select("id,caption,category,file_path,file_name,mime_type,file_size_bytes,created_at")
       .eq("establishment_id", tenant.establishmentId)
       .eq("nonconformity_id", nonconformityId)
       .is("removed_at", null)
@@ -1341,6 +2163,10 @@ export async function getNutritionNonconformityDetail(
       caption: item.caption ? String(item.caption) : null,
       category: item.category ? String(item.category) : null,
       fileName: item.file_name ? String(item.file_name) : null,
+      mimeType: String(item.mime_type ?? "application/octet-stream"),
+      fileSizeBytes:
+        item.file_size_bytes == null ? null : Number(item.file_size_bytes),
+      url: nutritionFileUrl(item.file_path ? String(item.file_path) : null) ?? "#",
       createdAt: String(item.created_at ?? ""),
     })),
     reinspections: ((reinspectionsResult.data ?? []) as any[]).map((item) => ({
@@ -1816,6 +2642,65 @@ export async function createTemperatureRecord(formData: FormData) {
   revalidatePath("/nutricao/temperaturas");
 }
 
+export async function listThermometers(): Promise<NutritionThermometerItem[]> {
+  const { tenant, supabase } = await getNutritionContext();
+  const { data, error } = await supabase
+    .from("nutrition_thermometers")
+    .select("id,name,identifier,calibration_due_at,verification_due_at,status")
+    .eq("establishment_id", tenant.establishmentId)
+    .order("calibration_due_at", { ascending: true, nullsFirst: false })
+    .limit(50);
+
+  if (error) {
+    if (isMissingNutritionTableError(error)) return [];
+    console.error("[nutrition] thermometers list error:", serializeError(error));
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    identifier: row.identifier ? String(row.identifier) : null,
+    calibrationDueAt: row.calibration_due_at
+      ? String(row.calibration_due_at)
+      : null,
+    verificationDueAt: row.verification_due_at
+      ? String(row.verification_due_at)
+      : null,
+    status: String(row.status ?? "active"),
+  }));
+}
+
+export async function createThermometer(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const name = String(formData.get("name") ?? "").trim();
+  const identifier = String(formData.get("identifier") ?? "").trim();
+  const calibrationDueAt = String(formData.get("calibration_due_at") ?? "").trim();
+  const verificationDueAt = String(formData.get("verification_due_at") ?? "").trim();
+  const notes = String(formData.get("notes") ?? "").trim();
+
+  if (!name) throw new Error("Informe o nome do termômetro.");
+
+  const { error } = await supabase.from("nutrition_thermometers").insert({
+    establishment_id: tenant.establishmentId,
+    name,
+    identifier: identifier || null,
+    calibration_due_at: calibrationDueAt || null,
+    verification_due_at: verificationDueAt || null,
+    notes: notes || null,
+    status: "active",
+    created_by: tenant.userId,
+    updated_by: tenant.userId,
+  });
+
+  if (error) {
+    console.error("[nutrition] create thermometer error:", serializeError(error));
+    throw new Error("Não foi possível cadastrar o termômetro.");
+  }
+
+  revalidatePath("/nutricao/temperaturas");
+}
+
 export async function listPops(): Promise<PopItem[]> {
   const { tenant, supabase } = await getNutritionContext();
   const { data, error } = await supabase
@@ -1897,6 +2782,39 @@ export async function listSanitationPlans(): Promise<SanitationPlanItem[]> {
     return [];
   }
 
+  const planIds = (data ?? []).map((row: any) => String(row.id));
+  const latestRecordByPlan = new Map<
+    string,
+    { id: string; status: string; result: string | null; executedAt: string | null }
+  >();
+
+  if (planIds.length > 0) {
+    const { data: records, error: recordsError } = await supabase
+      .from("nutrition_sanitation_records")
+      .select("id,sanitation_plan_id,status,result,executed_at,created_at")
+      .eq("establishment_id", tenant.establishmentId)
+      .in("sanitation_plan_id", planIds)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (recordsError && !isMissingNutritionTableError(recordsError)) {
+      console.error("[nutrition] sanitation records list error:", serializeError(recordsError));
+    }
+
+    for (const record of records ?? []) {
+      const planId = String((record as any).sanitation_plan_id ?? "");
+      if (!planId || latestRecordByPlan.has(planId)) continue;
+      latestRecordByPlan.set(planId, {
+        id: String((record as any).id),
+        status: String((record as any).status ?? "pending"),
+        result: (record as any).result ? String((record as any).result) : null,
+        executedAt: (record as any).executed_at
+          ? String((record as any).executed_at)
+          : null,
+      });
+    }
+  }
+
   return (data ?? []).map((row: any) => ({
     id: String(row.id),
     name: String(row.name ?? ""),
@@ -1905,6 +2823,7 @@ export async function listSanitationPlans(): Promise<SanitationPlanItem[]> {
     productName: row.product_name ? String(row.product_name) : null,
     status: String(row.status ?? "active"),
     evidenceRequired: Boolean(row.evidence_required),
+    latestRecord: latestRecordByPlan.get(String(row.id)) ?? null,
   }));
 }
 
@@ -1950,6 +2869,64 @@ export async function createSanitationPlan(formData: FormData) {
     throw new Error("Não foi possível criar o plano de higienização.");
   }
 
+  revalidatePath("/nutricao/higienizacao");
+}
+
+export async function executeSanitationRecord(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const planId = String(formData.get("sanitation_plan_id") ?? "").trim();
+  const result = String(formData.get("result") ?? "approved").trim();
+  const observation = String(formData.get("observation") ?? "").trim();
+
+  if (!planId) throw new Error("Selecione o plano de higienização.");
+  if (!["approved", "rejected"].includes(result)) {
+    throw new Error("Informe o resultado da higienização.");
+  }
+
+  const { data: plan, error: planError } = await supabase
+    .from("nutrition_sanitation_plans")
+    .select("id,name,evidence_required")
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", planId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (planError || !plan) {
+    throw new Error("Plano de higienização não encontrado para este estabelecimento.");
+  }
+
+  const { error } = await supabase.from("nutrition_sanitation_records").insert({
+    establishment_id: tenant.establishmentId,
+    sanitation_plan_id: planId,
+    executed_at: new Date().toISOString(),
+    executor_user_id: tenant.userId,
+    status: result === "approved" ? "executed" : "failed",
+    result,
+    observation: observation || null,
+    created_by: tenant.userId,
+    updated_by: tenant.userId,
+  });
+
+  if (error) {
+    console.error("[nutrition] execute sanitation record error:", serializeError(error));
+    throw new Error("Não foi possível registrar a execução da higienização.");
+  }
+
+  if (result === "rejected") {
+    await supabase.from("nutrition_nonconformities").insert({
+      establishment_id: tenant.establishmentId,
+      source_type: "sanitation_record",
+      source_id: planId,
+      title: `Higienização reprovada: ${String((plan as any).name ?? "")}`,
+      description: observation || "Execução de higienização reprovada.",
+      severity: "medium",
+      status: "open",
+      created_by: tenant.userId,
+      updated_by: tenant.userId,
+    });
+  }
+
+  revalidatePath("/nutricao");
   revalidatePath("/nutricao/higienizacao");
 }
 
@@ -2036,6 +3013,39 @@ export async function listTrainings(): Promise<TrainingItem[]> {
     return [];
   }
 
+  const trainingIds = (data ?? []).map((row: any) => String(row.id));
+  const latestSessionByTraining = new Map<
+    string,
+    { id: string; scheduledFor: string | null; status: string; location: string | null }
+  >();
+
+  if (trainingIds.length > 0) {
+    const { data: sessions, error: sessionsError } = await supabase
+      .from("nutrition_training_sessions")
+      .select("id,training_id,scheduled_for,status,location,created_at")
+      .eq("establishment_id", tenant.establishmentId)
+      .in("training_id", trainingIds)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (sessionsError && !isMissingNutritionTableError(sessionsError)) {
+      console.error("[nutrition] training sessions list error:", serializeError(sessionsError));
+    }
+
+    for (const session of sessions ?? []) {
+      const trainingId = String((session as any).training_id ?? "");
+      if (!trainingId || latestSessionByTraining.has(trainingId)) continue;
+      latestSessionByTraining.set(trainingId, {
+        id: String((session as any).id),
+        scheduledFor: (session as any).scheduled_for
+          ? String((session as any).scheduled_for)
+          : null,
+        status: String((session as any).status ?? "scheduled"),
+        location: (session as any).location ? String((session as any).location) : null,
+      });
+    }
+  }
+
   return (data ?? []).map((row: any) => ({
     id: String(row.id),
     title: String(row.title ?? ""),
@@ -2044,6 +3054,7 @@ export async function listTrainings(): Promise<TrainingItem[]> {
       row.workload_minutes == null ? null : Number(row.workload_minutes),
     validityDays: row.validity_days == null ? null : Number(row.validity_days),
     status: String(row.status ?? "active"),
+    latestSession: latestSessionByTraining.get(String(row.id)) ?? null,
   }));
 }
 
@@ -2080,6 +3091,50 @@ export async function createTraining(formData: FormData) {
 
     console.error("[nutrition] create training error:", serializeError(error));
     throw new Error("Não foi possível cadastrar o treinamento.");
+  }
+
+  revalidatePath("/nutricao/treinamentos");
+}
+
+export async function createTrainingSession(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const trainingId = String(formData.get("training_id") ?? "").trim();
+  const scheduledFor = String(formData.get("scheduled_for") ?? "").trim();
+  const instructor = String(formData.get("instructor") ?? "").trim();
+  const location = String(formData.get("location") ?? "").trim();
+  const sessionType = String(formData.get("session_type") ?? "in_person").trim();
+
+  if (!trainingId) throw new Error("Selecione o treinamento.");
+
+  const { data: training, error: trainingError } = await supabase
+    .from("nutrition_trainings")
+    .select("id")
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", trainingId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (trainingError || !training) {
+    throw new Error("Treinamento não encontrado para este estabelecimento.");
+  }
+
+  const { error } = await supabase.from("nutrition_training_sessions").insert({
+    establishment_id: tenant.establishmentId,
+    training_id: trainingId,
+    session_type: ["in_person", "remote", "hybrid"].includes(sessionType)
+      ? sessionType
+      : "in_person",
+    scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
+    instructor: instructor || null,
+    location: location || null,
+    status: "scheduled",
+    created_by: tenant.userId,
+    updated_by: tenant.userId,
+  });
+
+  if (error) {
+    console.error("[nutrition] create training session error:", serializeError(error));
+    throw new Error("Não foi possível agendar a turma.");
   }
 
   revalidatePath("/nutricao/treinamentos");
@@ -2202,6 +3257,311 @@ export async function createReportDraft(formData: FormData) {
     console.error("[nutrition] create report draft error:", serializeError(error));
     throw new Error("Não foi possível preparar o relatório.");
   }
+
+  revalidatePath("/nutricao/relatorios");
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function buildInspectionReportHtml(snapshot: InspectionExecutionSnapshot) {
+  const generatedAt = new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date());
+
+  const items = snapshot.items
+    .map(
+      (item, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(item.sectionTitle)}</td>
+          <td>${escapeHtml(item.title)}</td>
+          <td>${escapeHtml(item.answer?.conformityStatus ?? "sem_resposta")}</td>
+          <td>${escapeHtml(item.answer?.comment ?? "")}</td>
+          <td>${item.evidences.length}</td>
+        </tr>`
+    )
+    .join("");
+
+  const evidences = [...snapshot.evidences, ...snapshot.items.flatMap((item) => item.evidences)]
+    .map(
+      (evidence) => `
+        <li>${escapeHtml(evidence.fileName ?? evidence.id)}${
+          evidence.caption ? ` - ${escapeHtml(evidence.caption)}` : ""
+        }</li>`
+    )
+    .join("");
+
+  const signatures = snapshot.signatures
+    .map(
+      (signature) => `
+        <li>${escapeHtml(signature.signerName)} - ${escapeHtml(
+          signature.signerRole ?? "Sem função"
+        )}${signature.refusalReason ? ` - Recusa: ${escapeHtml(signature.refusalReason)}` : ""}${
+          signature.signatureHash ? ` - Hash: ${escapeHtml(signature.signatureHash)}` : ""
+        }</li>`
+    )
+    .join("");
+
+  return `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(snapshot.title)}</title>
+    <style>
+      body { font-family: Arial, sans-serif; color: #0f172a; margin: 32px; }
+      h1 { margin-bottom: 4px; }
+      .muted { color: #64748b; }
+      .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0; }
+      .box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+      th, td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; vertical-align: top; }
+      th { background: #f8fafc; }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtml(snapshot.title)}</h1>
+    <p class="muted">Relatório de vistoria gerado em ${generatedAt}</p>
+    <div class="grid">
+      <div class="box"><strong>Status</strong><br/>${escapeHtml(snapshot.status)}</div>
+      <div class="box"><strong>Resultado</strong><br/>${escapeHtml(snapshot.result ?? "-")}</div>
+      <div class="box"><strong>Conformidade</strong><br/>${snapshot.compliancePercent ?? "-"}%</div>
+      <div class="box"><strong>Hash</strong><br/>${escapeHtml(snapshot.completionIntegrityHash ?? "-")}</div>
+    </div>
+    <h2>Geolocalização</h2>
+    <p>Status: ${escapeHtml(snapshot.geolocationStatus)}. Latitude: ${snapshot.latitude ?? "-"}.
+    Longitude: ${snapshot.longitude ?? "-"}. Precisão: ${snapshot.geolocationAccuracyMeters ?? "-"} m.</p>
+    <h2>Itens avaliados</h2>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Seção</th><th>Item</th><th>Resposta</th><th>Comentário</th><th>Evidências</th></tr>
+      </thead>
+      <tbody>${items}</tbody>
+    </table>
+    <h2>Evidências</h2>
+    <ul>${evidences || "<li>Nenhuma evidência anexada.</li>"}</ul>
+    <h2>Assinaturas</h2>
+    <ul>${signatures || "<li>Nenhuma assinatura coletada.</li>"}</ul>
+  </body>
+</html>`;
+}
+
+export async function generateInspectionReport(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const inspectionId = String(formData.get("inspection_id") ?? "").trim();
+  const format = String(formData.get("format") ?? "html").trim();
+
+  if (!inspectionId) throw new Error("Vistoria não informada.");
+  if (!["html", "pdf"].includes(format)) {
+    throw new Error("No momento, gere relatório em HTML ou PDF.");
+  }
+
+  const snapshot = await getInspectionExecution(inspectionId);
+  if (!snapshot) throw new Error("Vistoria não encontrada.");
+  if (snapshot.status !== "completed") {
+    throw new Error("Conclua a vistoria antes de gerar o relatório.");
+  }
+
+  const { data: latestReport } = await supabase
+    .from("nutrition_reports")
+    .select("version")
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("source_type", "inspection")
+    .eq("source_id", inspectionId)
+    .eq("format", format)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const version = Number((latestReport as any)?.version ?? 0) + 1;
+  const html = buildInspectionReportHtml(snapshot);
+  const contentHash = hashPayload({
+    inspectionId,
+    format,
+    version,
+    html,
+    completionHash: snapshot.completionIntegrityHash,
+  });
+
+  let body: Buffer | Uint8Array;
+  let mimeType: string;
+  let extension: string;
+
+  if (format === "pdf") {
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const lines = [
+      `Relatorio de vistoria: ${snapshot.title}`,
+      `Status: ${snapshot.status}`,
+      `Resultado: ${snapshot.result ?? "-"}`,
+      `Conformidade: ${snapshot.compliancePercent ?? "-"}%`,
+      `Itens: ${snapshot.items.length}`,
+      `Nao conformes: ${snapshot.noncompliantItems}`,
+      `Hash: ${snapshot.completionIntegrityHash ?? contentHash}`,
+      "",
+      "Itens avaliados:",
+      ...snapshot.items.map(
+        (item, index) =>
+          `${index + 1}. ${item.title} - ${item.answer?.conformityStatus ?? "sem resposta"}`
+      ),
+    ];
+    doc.text(lines, 40, 48, { maxWidth: 515 });
+    body = Buffer.from(doc.output("arraybuffer"));
+    mimeType = "application/pdf";
+    extension = "pdf";
+  } else {
+    body = Buffer.from(html, "utf8");
+    mimeType = "text/html";
+    extension = "html";
+  }
+
+  const filePath = `${tenant.establishmentId}/reports/inspection/${inspectionId}/v${version}-${contentHash.slice(0, 12)}.${extension}`;
+  const { error: uploadError } = await supabase.storage
+    .from(NUTRITION_FILES_BUCKET)
+    .upload(filePath, body, {
+      contentType: mimeType,
+      upsert: false,
+    });
+
+  if (uploadError) {
+    console.error("[nutrition] report upload error:", serializeError(uploadError));
+    throw new Error("Não foi possível armazenar o relatório.");
+  }
+
+  const { error } = await supabase.from("nutrition_reports").insert({
+    establishment_id: tenant.establishmentId,
+    report_type: "inspection",
+    source_type: "inspection",
+    source_id: inspectionId,
+    title: `Relatório da vistoria - ${snapshot.title}`,
+    format,
+    file_path: filePath,
+    verification_code: contentHash.slice(0, 16).toUpperCase(),
+    content_hash: contentHash,
+    version,
+    status: "generated",
+    generated_by: tenant.userId,
+    generated_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    console.error("[nutrition] report insert error:", serializeError(error));
+    throw new Error("O relatório foi gerado, mas não foi possível registrá-lo.");
+  }
+
+  revalidatePath("/nutricao/relatorios");
+  revalidatePath(`/nutricao/vistorias/${inspectionId}`);
+}
+
+export async function enqueueNutritionReportDelivery(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const reportId = String(formData.get("report_id") ?? "").trim();
+  const channel = String(formData.get("channel") ?? "").trim();
+  const recipientName = String(formData.get("recipient_name") ?? "").trim();
+  const recipientAddress = String(formData.get("recipient_address") ?? "").trim();
+
+  if (!reportId) throw new Error("Relatório não informado.");
+  if (!["email", "whatsapp", "manual_share"].includes(channel)) {
+    throw new Error("Canal de envio inválido.");
+  }
+  if (!recipientAddress) throw new Error("Informe o destinatário.");
+
+  const { data: report, error: reportError } = await supabase
+    .from("nutrition_reports")
+    .select("id,title,file_path,status")
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", reportId)
+    .maybeSingle();
+
+  if (reportError || !report) throw new Error("Relatório não encontrado.");
+  if (String((report as any).status) !== "generated") {
+    throw new Error("Gere o relatório antes de enviar.");
+  }
+
+  const masked =
+    channel === "email"
+      ? recipientAddress.replace(/(^.).*(@.*$)/, "$1***$2")
+      : recipientAddress.replace(/\d(?=\d{4})/g, "*");
+  const idempotencyKey = hashPayload({
+    reportId,
+    channel,
+    recipientAddress,
+    filePath: (report as any).file_path,
+  });
+
+  let deliveryResult = await supabase
+    .from("nutrition_report_deliveries")
+    .upsert(
+      {
+        establishment_id: tenant.establishmentId,
+        report_id: reportId,
+        channel,
+        recipient_name: recipientName || null,
+        recipient_address_masked: masked,
+        status: "pending",
+        idempotency_key: idempotencyKey,
+        channel_payload: {
+          recipient: recipientAddress,
+          report_title: (report as any).title,
+          file_path: (report as any).file_path,
+        },
+        requested_by: tenant.userId,
+        requested_at: new Date().toISOString(),
+      },
+      { onConflict: "establishment_id,idempotency_key" }
+    )
+    .select("id")
+    .single();
+
+  if (deliveryResult.error && isMissingNutritionTableError(deliveryResult.error)) {
+    deliveryResult = await supabase
+      .from("nutrition_report_deliveries")
+      .upsert(
+        {
+          establishment_id: tenant.establishmentId,
+          report_id: reportId,
+          channel,
+          recipient_name: recipientName || null,
+          recipient_address_masked: masked,
+          status: "pending",
+          idempotency_key: idempotencyKey,
+          requested_by: tenant.userId,
+          requested_at: new Date().toISOString(),
+        },
+        { onConflict: "establishment_id,idempotency_key" }
+      )
+      .select("id")
+      .single();
+  }
+
+  const { data: delivery, error } = deliveryResult;
+
+  if (error || !delivery) {
+    console.error("[nutrition] delivery insert error:", serializeError(error));
+    throw new Error("Não foi possível registrar o envio.");
+  }
+
+  await enqueueAppJob({
+    establishmentId: tenant.establishmentId,
+    queueName: "nutrition",
+    jobType: "nutrition.report.delivery",
+    payload: {
+      delivery_id: String((delivery as any).id),
+      report_id: reportId,
+      channel,
+      recipient: recipientAddress,
+    },
+    dedupeKey: idempotencyKey,
+    maxAttempts: 5,
+  });
 
   revalidatePath("/nutricao/relatorios");
 }

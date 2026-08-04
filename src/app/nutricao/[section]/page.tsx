@@ -28,7 +28,10 @@ import {
   createSupplierAssessment,
   createTemperaturePoint,
   createTemperatureRecord,
+  createThermometer,
   createTraining,
+  createTrainingSession,
+  executeSanitationRecord,
   getNutritionSettings,
   listInspectionTemplates,
   listActionPlans,
@@ -40,6 +43,7 @@ import {
   listSanitationPlans,
   listSupplierAssessments,
   listTemperaturePoints,
+  listThermometers,
   listTrainings,
   updateNutritionSettings,
 } from "@/app/nutricao/actions";
@@ -473,7 +477,10 @@ async function NonconformidadesSection() {
 }
 
 async function TemperaturasSection() {
-  const points = await listTemperaturePoints();
+  const [points, thermometers] = await Promise.all([
+    listTemperaturePoints(),
+    listThermometers(),
+  ]);
 
   return (
     <section className="grid gap-5 xl:grid-cols-[0.82fr_1.18fr]">
@@ -564,6 +571,32 @@ async function TemperaturasSection() {
             <SubmitButton pendingLabel="Registrando...">Registrar temperatura</SubmitButton>
           </form>
         </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Termômetro e calibração
+          </h2>
+          <form action={createThermometer} className="mt-5 grid gap-4">
+            <Field label="Nome">
+              <Input name="name" placeholder="Ex.: Termômetro espeto 01" required />
+            </Field>
+            <Field label="Identificação">
+              <Input name="identifier" placeholder="Patrimônio, série ou etiqueta" />
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Próxima calibração">
+                <Input name="calibration_due_at" type="date" />
+              </Field>
+              <Field label="Próxima verificação">
+                <Input name="verification_due_at" type="date" />
+              </Field>
+            </div>
+            <Field label="Observações">
+              <Textarea name="notes" />
+            </Field>
+            <SubmitButton pendingLabel="Cadastrando...">Cadastrar termômetro</SubmitButton>
+          </form>
+        </div>
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -606,6 +639,30 @@ async function TemperaturasSection() {
                   </Pill>
                 </div>
               </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:col-span-2">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Termômetros cadastrados
+          </h2>
+          <Pill>{thermometers.length}</Pill>
+        </div>
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {thermometers.length === 0 ? (
+            <EmptyState message="Nenhum termômetro cadastrado." />
+          ) : (
+            thermometers.map((item) => (
+              <RegistryCard
+                key={item.id}
+                title={item.name}
+                description={`${item.identifier ?? "Sem identificação"} • Calibração: ${item.calibrationDueAt ?? "sem data"}`}
+                status={item.status}
+                extra={`Verificação: ${item.verificationDueAt ?? "sem data"}`}
+              />
             ))
           )}
         </div>
@@ -666,62 +723,116 @@ async function HigienizacaoSection() {
   const items = await listSanitationPlans();
 
   return (
-    <RegistrySection
-      title="Plano de higienização"
-      count={items.length}
-      form={
-        <form action={createSanitationPlan} className="grid gap-4">
-          <Field label="Nome do plano">
-            <Input name="name" placeholder="Ex.: Higienização diária da praça fria" required />
-          </Field>
-          <Field label="Ambiente, superfície ou equipamento">
-            <Input name="target_item" placeholder="Ex.: Bancada inox" required />
-          </Field>
-          <Field label="Setor">
-            <Input name="sector" />
-          </Field>
-          <Field label="Método">
-            <Textarea name="method" />
-          </Field>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Produto regularizado">
-              <Input name="product_name" />
+    <section className="grid gap-5 xl:grid-cols-[0.82fr_1.18fr]">
+      <div className="grid gap-5">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Plano de higienização
+          </h2>
+          <form action={createSanitationPlan} className="mt-5 grid gap-4">
+            <Field label="Nome do plano">
+              <Input name="name" placeholder="Ex.: Higienização diária da praça fria" required />
             </Field>
-            <Field label="Diluição/concentração aprovada">
-              <Input name="dilution_or_concentration" />
+            <Field label="Ambiente, superfície ou equipamento">
+              <Input name="target_item" placeholder="Ex.: Bancada inox" required />
             </Field>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Tempo de contato">
-              <Input name="contact_time" />
+            <Field label="Setor">
+              <Input name="sector" />
             </Field>
-            <Field label="EPI necessário">
-              <Input name="required_ppe" />
+            <Field label="Método">
+              <Textarea name="method" />
             </Field>
-          </div>
-          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-            <input name="evidence_required" type="checkbox" className="h-4 w-4" />
-            Exigir evidência na execução
-          </label>
-          <SubmitButton>Criar plano</SubmitButton>
-        </form>
-      }
-      list={
-        items.length === 0 ? (
-          <EmptyState message="Nenhum plano de higienização cadastrado." />
-        ) : (
-          items.map((item) => (
-            <RegistryCard
-              key={item.id}
-              title={item.name}
-              description={`${item.sector ?? "Sem setor"} • ${item.targetItem}${item.productName ? ` • ${item.productName}` : ""}`}
-              status={item.status}
-              extra={item.evidenceRequired ? "Exige evidência" : "Evidência opcional"}
-            />
-          ))
-        )
-      }
-    />
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Produto regularizado">
+                <Input name="product_name" />
+              </Field>
+              <Field label="Diluição/concentração aprovada">
+                <Input name="dilution_or_concentration" />
+              </Field>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Tempo de contato">
+                <Input name="contact_time" />
+              </Field>
+              <Field label="EPI necessário">
+                <Input name="required_ppe" />
+              </Field>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <input name="evidence_required" type="checkbox" className="h-4 w-4" />
+              Exigir evidência na execução
+            </label>
+            <SubmitButton>Criar plano</SubmitButton>
+          </form>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Executar higienização
+          </h2>
+          <form action={executeSanitationRecord} className="mt-5 grid gap-4">
+            <Field label="Plano">
+              <select
+                name="sanitation_plan_id"
+                className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                required
+              >
+                <option value="">Selecione</option>
+                {items.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Resultado">
+              <select
+                name="result"
+                className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                defaultValue="approved"
+              >
+                <option value="approved">Executada e aprovada</option>
+                <option value="rejected">Executada com falha</option>
+              </select>
+            </Field>
+            <Field label="Observação">
+              <Textarea name="observation" />
+            </Field>
+            <SubmitButton pendingLabel="Registrando...">Registrar execução</SubmitButton>
+          </form>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Planos cadastrados
+          </h2>
+          <Pill>{items.length}</Pill>
+        </div>
+        <div className="mt-5 grid gap-3">
+          {items.length === 0 ? (
+            <EmptyState message="Nenhum plano de higienização cadastrado." />
+          ) : (
+            items.map((item) => (
+              <RegistryCard
+                key={item.id}
+                title={item.name}
+                description={`${item.sector ?? "Sem setor"} • ${item.targetItem}${item.productName ? ` • ${item.productName}` : ""}`}
+                status={item.latestRecord?.status ?? item.status}
+                extra={
+                  item.latestRecord
+                    ? `Última execução: ${formatDateTime(item.latestRecord.executedAt)}`
+                    : item.evidenceRequired
+                      ? "Exige evidência"
+                      : "Evidência opcional"
+                }
+              />
+            ))
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -793,47 +904,112 @@ async function TreinamentosSection() {
   const items = await listTrainings();
 
   return (
-    <RegistrySection
-      title="Cadastrar treinamento"
-      count={items.length}
-      form={
-        <form action={createTraining} className="grid gap-4">
-          <Field label="Título">
-            <Input name="title" required />
-          </Field>
-          <Field label="Descrição">
-            <Textarea name="description" />
-          </Field>
-          <Field label="Instrutor">
-            <Input name="instructor" />
-          </Field>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Carga horária (min)">
-              <Input name="workload_minutes" type="number" min="1" />
+    <section className="grid gap-5 xl:grid-cols-[0.82fr_1.18fr]">
+      <div className="grid gap-5">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Cadastrar treinamento
+          </h2>
+          <form action={createTraining} className="mt-5 grid gap-4">
+            <Field label="Título">
+              <Input name="title" required />
             </Field>
-            <Field label="Validade (dias)">
-              <Input name="validity_days" type="number" min="1" />
+            <Field label="Descrição">
+              <Textarea name="description" />
             </Field>
-          </div>
-          <SubmitButton>Cadastrar treinamento</SubmitButton>
-        </form>
-      }
-      list={
-        items.length === 0 ? (
-          <EmptyState message="Nenhum treinamento cadastrado." />
-        ) : (
-          items.map((item) => (
-            <RegistryCard
-              key={item.id}
-              title={item.title}
-              description={`${item.instructor ?? "Sem instrutor"} • ${item.workloadMinutes ?? "-"} min`}
-              status={item.status}
-              extra={item.validityDays ? `Validade: ${item.validityDays} dias` : "Sem validade definida"}
-            />
-          ))
-        )
-      }
-    />
+            <Field label="Instrutor">
+              <Input name="instructor" />
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Carga horária (min)">
+                <Input name="workload_minutes" type="number" min="1" />
+              </Field>
+              <Field label="Validade (dias)">
+                <Input name="validity_days" type="number" min="1" />
+              </Field>
+            </div>
+            <SubmitButton>Cadastrar treinamento</SubmitButton>
+          </form>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Agendar turma
+          </h2>
+          <form action={createTrainingSession} className="mt-5 grid gap-4">
+            <Field label="Treinamento">
+              <select
+                name="training_id"
+                className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                required
+              >
+                <option value="">Selecione</option>
+                {items.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Data e hora">
+                <Input name="scheduled_for" type="datetime-local" />
+              </Field>
+              <Field label="Tipo">
+                <select
+                  name="session_type"
+                  className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                  defaultValue="in_person"
+                >
+                  <option value="in_person">Presencial</option>
+                  <option value="remote">Remoto</option>
+                  <option value="hybrid">Híbrido</option>
+                </select>
+              </Field>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Instrutor">
+                <Input name="instructor" />
+              </Field>
+              <Field label="Local">
+                <Input name="location" />
+              </Field>
+            </div>
+            <SubmitButton pendingLabel="Agendando...">Agendar turma</SubmitButton>
+          </form>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-slate-950 dark:text-white">
+            Treinamentos
+          </h2>
+          <Pill>{items.length}</Pill>
+        </div>
+        <div className="mt-5 grid gap-3">
+          {items.length === 0 ? (
+            <EmptyState message="Nenhum treinamento cadastrado." />
+          ) : (
+            items.map((item) => (
+              <RegistryCard
+                key={item.id}
+                title={item.title}
+                description={`${item.instructor ?? "Sem instrutor"} • ${item.workloadMinutes ?? "-"} min`}
+                status={item.latestSession?.status ?? item.status}
+                extra={
+                  item.latestSession
+                    ? `Turma: ${formatDateTime(item.latestSession.scheduledFor)} • ${item.latestSession.location ?? "sem local"}`
+                    : item.validityDays
+                      ? `Validade: ${item.validityDays} dias`
+                      : "Sem turma agendada"
+                }
+              />
+            ))
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

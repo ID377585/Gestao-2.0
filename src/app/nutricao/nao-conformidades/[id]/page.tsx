@@ -20,6 +20,10 @@ import {
   submitNutritionCorrection,
   validateNutritionCorrection,
 } from "@/app/nutricao/actions";
+import {
+  EvidenceList,
+  EvidenceUploadForm,
+} from "@/app/nutricao/vistorias/[id]/InspectionRuntimeTools";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -233,6 +237,22 @@ export default async function NonconformityPage({
                     </div>
                   ))
                 )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <h2 className="font-semibold">Evidências</h2>
+              <div className="mt-4 grid gap-3">
+                <EvidenceList
+                  evidences={item.evidences}
+                  disabled={["closed", "canceled"].includes(item.status)}
+                />
+                {!["closed", "canceled"].includes(item.status) ? (
+                  <EvidenceUploadForm
+                    nonconformityId={item.id}
+                    resourceType="nonconformity"
+                  />
+                ) : null}
               </div>
             </div>
           </aside>

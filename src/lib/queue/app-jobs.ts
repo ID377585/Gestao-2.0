@@ -236,9 +236,82 @@ async function handleAlertEmailJob(job: AppJobRow) {
   }
 }
 
+async function handleNutritionReportDeliveryJob(job: AppJobRow) {
+  const payload = job.payload ?? {};
+  const deliveryId = normalizeText(payload.delivery_id);
+  const channel = normalizeText(payload.channel);
+
+  if (!deliveryId || !channel) {
+    throw new Error("Payload inválido para envio de relatório nutricional.");
+  }
+
+  const supabaseAdmin = getSupabaseAdminClient();
+  const nowIso = new Date().toISOString();
+
+  if (channel === "manual_share") {
+    let { error } = await supabaseAdmin
+      .from("nutrition_report_deliveries")
+      .update({
+        status: "sent",
+        attempt_count: 1,
+        last_attempt_at: nowIso,
+        sent_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq("id", deliveryId);
+
+    if ((error as any)?.code === "42703" || String((error as any)?.message ?? "").includes("schema cache")) {
+      ({ error } = await supabaseAdmin
+        .from("nutrition_report_deliveries")
+        .update({
+          status: "sent",
+          sent_at: nowIso,
+        })
+        .eq("id", deliveryId));
+    }
+
+    if (error) throw error;
+    return;
+  }
+
+  let { error } = await supabaseAdmin
+    .from("nutrition_report_deliveries")
+    .update({
+      status: "failed",
+      attempt_count: 1,
+      last_attempt_at: nowIso,
+      error_message:
+        channel === "whatsapp"
+          ? "Provedor oficial de WhatsApp ainda não configurado."
+          : "Provedor de e-mail ainda não configurado para relatórios nutricionais.",
+      updated_at: nowIso,
+    })
+    .eq("id", deliveryId);
+
+  if ((error as any)?.code === "42703" || String((error as any)?.message ?? "").includes("schema cache")) {
+    ({ error } = await supabaseAdmin
+      .from("nutrition_report_deliveries")
+      .update({
+        status: "failed",
+        error_message:
+          channel === "whatsapp"
+            ? "Provedor oficial de WhatsApp ainda não configurado."
+            : "Provedor de e-mail ainda não configurado para relatórios nutricionais.",
+      })
+      .eq("id", deliveryId));
+  }
+
+  if (error) throw error;
+}
+
 async function processJob(job: AppJobRow) {
   if (job.job_type === "alert.email") {
     await handleAlertEmailJob(job);
+    return;
+  }
+
+  if (job.job_type === "nutrition.report.delivery") {
+    await handleNutritionReportDeliveryJob(job);
     return;
   }
 

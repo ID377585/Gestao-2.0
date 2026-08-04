@@ -22,11 +22,13 @@ import {
   UserRoundCheck,
   type LucideIcon,
 } from "lucide-react";
+import { NUTRICAO_SUBMODULES } from "@/lib/nutricao/navigation";
 
 export type MenuSectionKey =
   | "operacao"
   | "estoque"
   | "engenharia"
+  | "nutricao"
   | "compras"
   | "fiscal"
   | "financeiro"
@@ -181,6 +183,16 @@ export const menuSections: MenuSectionConfig[] = [
         icon: Tag,
       },
     ],
+  },
+  {
+    key: "nutricao",
+    label: "Nutrição",
+    icon: NUTRICAO_SUBMODULES[0].icon,
+    items: NUTRICAO_SUBMODULES.map((item) => ({
+      label: item.menuLabel,
+      href: item.href,
+      icon: item.icon,
+    })),
   },
   {
     key: "compras",

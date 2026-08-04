@@ -2,6 +2,7 @@ export type AccessModuleKey =
   | "operacao"
   | "estoque"
   | "engenharia"
+  | "nutricao"
   | "compras"
   | "fiscal"
   | "financeiro"
@@ -29,6 +30,11 @@ export const ACCESS_MODULES: AccessModule[] = [
     key: "engenharia",
     label: "Engenharia",
     description: "Fichas técnicas, lista rápida e etiquetas.",
+  },
+  {
+    key: "nutricao",
+    label: "Nutrição",
+    description: "Vistorias sanitárias, controles, evidências e planos de ação.",
   },
   {
     key: "compras",

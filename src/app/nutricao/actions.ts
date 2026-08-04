@@ -106,6 +106,49 @@ export type NonconformityListItem = {
   openedAt: string;
 };
 
+export type NonconformityDetail = NonconformityListItem & {
+  description: string | null;
+  sourceType: string;
+  category: string | null;
+  foodSafetyRisk: string | null;
+  immediateContainment: string | null;
+  rootCause: string | null;
+  correctiveAction: string | null;
+  correctionEvidenceSummary: string | null;
+  validationResult: string | null;
+  validationComment: string | null;
+  validationAt: string | null;
+  needsReinspection: boolean;
+  reinspectionDueAt: string | null;
+  reinspectionResult: string | null;
+  closedAt: string | null;
+  canceledAt: string | null;
+  cancelReason: string | null;
+  version: number;
+  evidences: Array<{
+    id: string;
+    caption: string | null;
+    category: string | null;
+    fileName: string | null;
+    createdAt: string;
+  }>;
+  reinspections: Array<{
+    id: string;
+    scheduledFor: string | null;
+    scope: string | null;
+    status: string;
+    result: string | null;
+    resultComment: string | null;
+    completedAt: string | null;
+  }>;
+  timeline: Array<{
+    id: string;
+    action: string;
+    reason: string | null;
+    createdAt: string;
+  }>;
+};
+
 export type TemperaturePointItem = {
   id: string;
   name: string;
@@ -267,6 +310,23 @@ function normalizePriority(value: string) {
     : "medium";
 }
 
+function normalizeNonconformityStatus(value: string) {
+  return [
+    "open",
+    "awaiting_acceptance",
+    "in_correction",
+    "awaiting_evidence",
+    "awaiting_validation",
+    "reinspection_scheduled",
+    "in_reinspection",
+    "failed_reinspection",
+    "closed",
+    "canceled",
+  ].includes(value)
+    ? value
+    : "open";
+}
+
 function parseLineItems(value: string) {
   return value
     .split(/\r?\n/)
@@ -280,6 +340,37 @@ function inspectionResultFromPercent(percent: number | null) {
   if (percent >= 90) return "approved";
   if (percent >= 70) return "approved_with_restrictions";
   return "failed";
+}
+
+async function appendNutritionAuditEvent(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  params: {
+    establishmentId: string;
+    actorUserId: string;
+    action: string;
+    resourceType: string;
+    resourceId: string;
+    beforeData?: Record<string, unknown> | null;
+    afterData?: Record<string, unknown> | null;
+    reason?: string | null;
+    metadata?: Record<string, unknown>;
+  }
+) {
+  const { error } = await supabase.from("nutrition_audit_events").insert({
+    establishment_id: params.establishmentId,
+    actor_user_id: params.actorUserId,
+    action: params.action,
+    resource_type: params.resourceType,
+    resource_id: params.resourceId,
+    before_data: params.beforeData ?? null,
+    after_data: params.afterData ?? null,
+    reason: params.reason ?? null,
+    metadata: params.metadata ?? {},
+  });
+
+  if (error && !isMissingNutritionTableError(error)) {
+    console.error("[nutrition] audit event error:", serializeError(error));
+  }
 }
 
 export async function getNutritionSummary(): Promise<NutritionSummary> {
@@ -1130,6 +1221,431 @@ export async function createNutritionNonconformity(formData: FormData) {
 
   revalidatePath("/nutricao");
   revalidatePath("/nutricao/nao-conformidades");
+}
+
+export async function getNutritionNonconformityDetail(
+  nonconformityId: string
+): Promise<NonconformityDetail | null> {
+  const { tenant, supabase } = await getNutritionContext();
+  const { data, error } = await supabase
+    .from("nutrition_nonconformities")
+    .select(
+      [
+        "id",
+        "code",
+        "source_type",
+        "title",
+        "description",
+        "sector",
+        "location",
+        "category",
+        "severity",
+        "food_safety_risk",
+        "immediate_containment",
+        "opened_at",
+        "due_at",
+        "status",
+        "root_cause",
+        "corrective_action",
+        "correction_evidence_summary",
+        "validation_result",
+        "validation_comment",
+        "validation_at",
+        "needs_reinspection",
+        "reinspection_due_at",
+        "reinspection_result",
+        "closed_at",
+        "canceled_at",
+        "cancel_reason",
+        "version",
+      ].join(",")
+    )
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", nonconformityId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingNutritionTableError(error)) return null;
+    console.error("[nutrition] nonconformity detail error:", serializeError(error));
+    return null;
+  }
+
+  if (!data) return null;
+
+  const [evidencesResult, reinspectionsResult, timelineResult] = await Promise.all([
+    supabase
+      .from("nutrition_evidences")
+      .select("id,caption,category,file_name,created_at")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("nonconformity_id", nonconformityId)
+      .is("removed_at", null)
+      .order("created_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("nutrition_reinspections")
+      .select("id,scheduled_for,scope,status,result,result_comment,completed_at")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("nonconformity_id", nonconformityId)
+      .order("created_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("nutrition_audit_events")
+      .select("id,action,reason,created_at")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("resource_type", "nonconformity")
+      .eq("resource_id", nonconformityId)
+      .order("created_at", { ascending: false })
+      .limit(30),
+  ]);
+
+  const row = data as any;
+
+  return {
+    id: String(row.id),
+    code: row.code ? String(row.code) : null,
+    title: String(row.title ?? ""),
+    description: row.description ? String(row.description) : null,
+    sourceType: String(row.source_type ?? "manual"),
+    severity: String(row.severity ?? "medium"),
+    status: String(row.status ?? "open"),
+    sector: row.sector ? String(row.sector) : null,
+    location: row.location ? String(row.location) : null,
+    category: row.category ? String(row.category) : null,
+    foodSafetyRisk: row.food_safety_risk ? String(row.food_safety_risk) : null,
+    immediateContainment: row.immediate_containment
+      ? String(row.immediate_containment)
+      : null,
+    dueAt: row.due_at ? String(row.due_at) : null,
+    openedAt: String(row.opened_at ?? ""),
+    rootCause: row.root_cause ? String(row.root_cause) : null,
+    correctiveAction: row.corrective_action ? String(row.corrective_action) : null,
+    correctionEvidenceSummary: row.correction_evidence_summary
+      ? String(row.correction_evidence_summary)
+      : null,
+    validationResult: row.validation_result ? String(row.validation_result) : null,
+    validationComment: row.validation_comment ? String(row.validation_comment) : null,
+    validationAt: row.validation_at ? String(row.validation_at) : null,
+    needsReinspection: Boolean(row.needs_reinspection),
+    reinspectionDueAt: row.reinspection_due_at
+      ? String(row.reinspection_due_at)
+      : null,
+    reinspectionResult: row.reinspection_result
+      ? String(row.reinspection_result)
+      : null,
+    closedAt: row.closed_at ? String(row.closed_at) : null,
+    canceledAt: row.canceled_at ? String(row.canceled_at) : null,
+    cancelReason: row.cancel_reason ? String(row.cancel_reason) : null,
+    version: Number(row.version ?? 1),
+    evidences: ((evidencesResult.data ?? []) as any[]).map((item) => ({
+      id: String(item.id),
+      caption: item.caption ? String(item.caption) : null,
+      category: item.category ? String(item.category) : null,
+      fileName: item.file_name ? String(item.file_name) : null,
+      createdAt: String(item.created_at ?? ""),
+    })),
+    reinspections: ((reinspectionsResult.data ?? []) as any[]).map((item) => ({
+      id: String(item.id),
+      scheduledFor: item.scheduled_for ? String(item.scheduled_for) : null,
+      scope: item.scope ? String(item.scope) : null,
+      status: String(item.status ?? "scheduled"),
+      result: item.result ? String(item.result) : null,
+      resultComment: item.result_comment ? String(item.result_comment) : null,
+      completedAt: item.completed_at ? String(item.completed_at) : null,
+    })),
+    timeline: ((timelineResult.data ?? []) as any[]).map((item) => ({
+      id: String(item.id),
+      action: String(item.action ?? ""),
+      reason: item.reason ? String(item.reason) : null,
+      createdAt: String(item.created_at ?? ""),
+    })),
+  };
+}
+
+async function updateNonconformityWorkflow(
+  formData: FormData,
+  params: {
+    action: string;
+    values: Record<string, unknown>;
+    allowedStatuses?: string[];
+    reason?: string | null;
+  }
+) {
+  const { tenant, supabase } = await getNutritionContext();
+  const id = String(formData.get("nonconformity_id") ?? "").trim();
+  const version = Number(formData.get("version") ?? 0);
+
+  if (!id) throw new Error("Não conformidade inválida.");
+  if (!Number.isFinite(version) || version < 1) {
+    throw new Error("Atualize a página antes de salvar esta ocorrência.");
+  }
+
+  const { data: current, error: currentError } = await supabase
+    .from("nutrition_nonconformities")
+    .select("id,status,version")
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", id)
+    .maybeSingle();
+
+  if (currentError || !current) {
+    console.error("[nutrition] nonconformity current error:", serializeError(currentError));
+    throw new Error("Não conformidade não encontrada para este estabelecimento.");
+  }
+
+  const beforeStatus = String((current as any).status ?? "open");
+  if (
+    params.allowedStatuses?.length &&
+    !params.allowedStatuses.includes(beforeStatus)
+  ) {
+    throw new Error("Esta ocorrência não está em um status compatível com esta ação.");
+  }
+
+  const { data: updated, error } = await supabase
+    .from("nutrition_nonconformities")
+    .update({
+      ...params.values,
+      updated_by: tenant.userId,
+      version: version + 1,
+    })
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", id)
+    .eq("version", version)
+    .select("id,status,version")
+    .maybeSingle();
+
+  if (error || !updated) {
+    console.error("[nutrition] nonconformity workflow error:", serializeError(error));
+    throw new Error(
+      "Não foi possível salvar. A ocorrência pode ter sido alterada por outra pessoa."
+    );
+  }
+
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: params.action,
+    resourceType: "nonconformity",
+    resourceId: id,
+    beforeData: { status: beforeStatus, version },
+    afterData: {
+      status: String((updated as any).status ?? ""),
+      version: Number((updated as any).version ?? version + 1),
+    },
+    reason: params.reason ?? null,
+  });
+
+  revalidatePath("/nutricao");
+  revalidatePath("/nutricao/nao-conformidades");
+  revalidatePath(`/nutricao/nao-conformidades/${id}`);
+}
+
+export async function acceptNutritionNonconformity(formData: FormData) {
+  await updateNonconformityWorkflow(formData, {
+    action: "nonconformity.accepted",
+    allowedStatuses: ["open", "awaiting_acceptance"],
+    values: {
+      status: "in_correction",
+    },
+  });
+}
+
+export async function submitNutritionCorrection(formData: FormData) {
+  const rootCause = String(formData.get("root_cause") ?? "").trim();
+  const correctiveAction = String(formData.get("corrective_action") ?? "").trim();
+  const evidenceSummary = String(
+    formData.get("correction_evidence_summary") ?? ""
+  ).trim();
+
+  if (!rootCause) throw new Error("Informe a causa raiz.");
+  if (!correctiveAction) throw new Error("Informe a ação corretiva.");
+  if (!evidenceSummary) throw new Error("Descreva a evidência da correção.");
+
+  await updateNonconformityWorkflow(formData, {
+    action: "nonconformity.correction_submitted",
+    allowedStatuses: [
+      "open",
+      "awaiting_acceptance",
+      "in_correction",
+      "awaiting_evidence",
+      "failed_reinspection",
+    ],
+    values: {
+      root_cause: rootCause,
+      corrective_action: correctiveAction,
+      correction_evidence_summary: evidenceSummary,
+      status: "awaiting_validation",
+      validation_result: null,
+      validation_comment: null,
+      validation_at: null,
+    },
+  });
+}
+
+export async function validateNutritionCorrection(formData: FormData) {
+  const result = String(formData.get("validation_result") ?? "").trim();
+  const comment = String(formData.get("validation_comment") ?? "").trim();
+  const needsReinspection = formData.get("needs_reinspection") === "on";
+
+  if (!["approved", "rejected"].includes(result)) {
+    throw new Error("Escolha o resultado da validação.");
+  }
+
+  if (result === "rejected" && !comment) {
+    throw new Error("Informe o motivo da rejeição.");
+  }
+
+  const status =
+    result === "approved"
+      ? needsReinspection
+        ? "reinspection_scheduled"
+        : "closed"
+      : "in_correction";
+
+  await updateNonconformityWorkflow(formData, {
+    action:
+      result === "approved"
+        ? "nonconformity.validation_approved"
+        : "nonconformity.validation_rejected",
+    allowedStatuses: ["awaiting_validation"],
+    reason: comment || null,
+    values: {
+      validation_result: result,
+      validation_comment: comment || null,
+      validation_at: new Date().toISOString(),
+      needs_reinspection: needsReinspection,
+      status,
+      closed_at: status === "closed" ? new Date().toISOString() : null,
+    },
+  });
+}
+
+export async function scheduleNutritionReinspection(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const nonconformityId = String(formData.get("nonconformity_id") ?? "").trim();
+  const version = Number(formData.get("version") ?? 0);
+  const scheduledFor = String(formData.get("scheduled_for") ?? "").trim();
+  const scope = String(formData.get("scope") ?? "").trim();
+
+  if (!nonconformityId) throw new Error("Não conformidade inválida.");
+  if (!scheduledFor) throw new Error("Informe a data da reinspeção.");
+
+  const { data: current, error: currentError } = await supabase
+    .from("nutrition_nonconformities")
+    .select("id,status,inspection_id,version")
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", nonconformityId)
+    .maybeSingle();
+
+  if (currentError || !current) {
+    console.error("[nutrition] schedule reinspection current error:", serializeError(currentError));
+    throw new Error("Não conformidade não encontrada para este estabelecimento.");
+  }
+
+  const { error: insertError } = await supabase.from("nutrition_reinspections").insert({
+    establishment_id: tenant.establishmentId,
+    nonconformity_id: nonconformityId,
+    original_inspection_id: (current as any).inspection_id ?? null,
+    scheduled_for: new Date(scheduledFor).toISOString(),
+    scope: scope || null,
+    status: "scheduled",
+    created_by: tenant.userId,
+    updated_by: tenant.userId,
+  });
+
+  if (insertError) {
+    console.error("[nutrition] schedule reinspection insert error:", serializeError(insertError));
+    throw new Error("Não foi possível agendar a reinspeção.");
+  }
+
+  await updateNonconformityWorkflow(formData, {
+    action: "nonconformity.reinspection_scheduled",
+    allowedStatuses: [
+      "awaiting_validation",
+      "reinspection_scheduled",
+      "failed_reinspection",
+      "in_correction",
+    ],
+    values: {
+      needs_reinspection: true,
+      reinspection_due_at: new Date(scheduledFor).toISOString(),
+      status: "reinspection_scheduled",
+      version,
+    },
+    reason: scope || null,
+  });
+}
+
+export async function completeNutritionReinspection(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const nonconformityId = String(formData.get("nonconformity_id") ?? "").trim();
+  const reinspectionId = String(formData.get("reinspection_id") ?? "").trim();
+  const version = Number(formData.get("version") ?? 0);
+  const result = String(formData.get("result") ?? "").trim();
+  const comment = String(formData.get("result_comment") ?? "").trim();
+
+  if (!nonconformityId || !reinspectionId) throw new Error("Reinspeção inválida.");
+  if (!["approved", "rejected"].includes(result)) {
+    throw new Error("Escolha o resultado da reinspeção.");
+  }
+  if (result === "rejected" && !comment) {
+    throw new Error("Informe o motivo da reprovação.");
+  }
+
+  const { error: reinspectionError } = await supabase
+    .from("nutrition_reinspections")
+    .update({
+      status: "completed",
+      result,
+      result_comment: comment || null,
+      completed_at: new Date().toISOString(),
+      updated_by: tenant.userId,
+    })
+    .eq("establishment_id", tenant.establishmentId)
+    .eq("id", reinspectionId)
+    .eq("nonconformity_id", nonconformityId);
+
+  if (reinspectionError) {
+    console.error("[nutrition] complete reinspection error:", serializeError(reinspectionError));
+    throw new Error("Não foi possível concluir a reinspeção.");
+  }
+
+  await updateNonconformityWorkflow(formData, {
+    action:
+      result === "approved"
+        ? "nonconformity.reinspection_approved"
+        : "nonconformity.reinspection_rejected",
+    allowedStatuses: ["reinspection_scheduled", "in_reinspection", "failed_reinspection"],
+    reason: comment || null,
+    values: {
+      reinspection_result: result,
+      status: result === "approved" ? "closed" : "failed_reinspection",
+      closed_at: result === "approved" ? new Date().toISOString() : null,
+      version,
+    },
+  });
+}
+
+export async function cancelNutritionNonconformity(formData: FormData) {
+  const reason = String(formData.get("cancel_reason") ?? "").trim();
+  if (!reason) throw new Error("Informe a justificativa do cancelamento.");
+
+  await updateNonconformityWorkflow(formData, {
+    action: "nonconformity.canceled",
+    allowedStatuses: [
+      "open",
+      "awaiting_acceptance",
+      "in_correction",
+      "awaiting_evidence",
+      "awaiting_validation",
+      "reinspection_scheduled",
+      "failed_reinspection",
+    ],
+    reason,
+    values: {
+      status: "canceled",
+      cancel_reason: reason,
+      canceled_at: new Date().toISOString(),
+    },
+  });
 }
 
 export async function listTemperaturePoints(): Promise<TemperaturePointItem[]> {

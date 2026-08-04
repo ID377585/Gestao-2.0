@@ -8,6 +8,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getActiveTenantOrRedirect } from "@/lib/tenant/guards";
 import { assertTenantCanAccessModule } from "@/lib/tenant/module-access";
 import { enqueueAppJob } from "@/lib/queue/app-jobs";
+import { createNotification } from "@/lib/notifications";
 
 type SupabaseErrorLike = {
   code?: string | null;
@@ -217,6 +218,7 @@ export type TemperaturePointItem = {
     measuredValue: number;
     status: string;
     measuredAt: string;
+    thermometerName: string | null;
   } | null;
 };
 
@@ -227,6 +229,8 @@ export type PopItem = {
   status: string;
   nextReviewAt: string | null;
   sectors: string[];
+  currentVersion: number;
+  fileUrl: string | null;
 };
 
 export type SanitationPlanItem = {
@@ -263,6 +267,9 @@ export type DocumentItem = {
   validUntil: string | null;
   status: string;
   visibility: string;
+  currentVersion: number;
+  fileUrl: string | null;
+  fileName: string | null;
 };
 
 export type TrainingItem = {
@@ -286,6 +293,8 @@ export type SupplierAssessmentItem = {
   assessmentDate: string;
   qualityScore: number | null;
   sanitaryStatus: string;
+  categoriesSummary: string | null;
+  documentUrl: string | null;
 };
 
 export type NutritionReportItem = {
@@ -388,6 +397,137 @@ function hashPayload(value: unknown) {
   return createHash("sha256")
     .update(typeof value === "string" ? value : JSON.stringify(value))
     .digest("hex");
+}
+
+function fileChecksum(buffer: Buffer) {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+function getFileExtension(fileName: string, mimeType: string) {
+  const explicit = fileName.match(/\.([a-zA-Z0-9]{1,12})$/)?.[1];
+  if (explicit) return explicit.toLowerCase();
+
+  const byMime: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/heic": "heic",
+    "image/heif": "heif",
+    "application/pdf": "pdf",
+    "text/html": "html",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      "docx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  };
+
+  return byMime[mimeType] ?? "bin";
+}
+
+async function uploadNutritionManagedFile(params: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  establishmentId: string;
+  resourceType: string;
+  resourceId: string;
+  file: File | null;
+  version?: number;
+}) {
+  if (!params.file || params.file.size <= 0) return null;
+
+  if (params.file.size > MAX_NUTRITION_FILE_SIZE) {
+    throw new Error("Arquivo acima do limite de 20 MB.");
+  }
+
+  if (!ALLOWED_NUTRITION_MIME_TYPES.has(params.file.type)) {
+    throw new Error("Tipo de arquivo não permitido para o módulo Nutrição.");
+  }
+
+  const buffer = Buffer.from(await params.file.arrayBuffer());
+  const checksum = fileChecksum(buffer);
+  const safeName = sanitizeFileName(params.file.name || "arquivo");
+  const extension = getFileExtension(safeName, params.file.type);
+  const version = params.version ?? 1;
+  const filePath = `${params.establishmentId}/${params.resourceType}/${params.resourceId}/v${version}/${randomUUID()}-${checksum.slice(0, 12)}.${extension}`;
+
+  const { error } = await params.supabase.storage
+    .from(NUTRITION_FILES_BUCKET)
+    .upload(filePath, buffer, {
+      contentType: params.file.type,
+      upsert: false,
+    });
+
+  if (error) {
+    console.error("[nutrition] managed file upload error:", serializeError(error));
+    throw new Error("Não foi possível armazenar o arquivo privado.");
+  }
+
+  return {
+    filePath,
+    fileName: safeName,
+    mimeType: params.file.type,
+    fileSizeBytes: params.file.size,
+    checksum,
+  };
+}
+
+async function createNutritionScopedNotification(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  params: {
+    establishmentId: string;
+    userId: string;
+    type: string;
+    priority?: "low" | "normal" | "high" | "critical";
+    title: string;
+    message: string;
+    resourceType?: string;
+    resourceId?: string;
+    href?: string;
+    dueAt?: string | null;
+    dedupeKey: string;
+    payload?: Record<string, unknown>;
+  }
+) {
+  const priority = params.priority ?? "normal";
+  const payload = {
+    ...(params.payload ?? {}),
+    establishment_id: params.establishmentId,
+    resource_type: params.resourceType ?? null,
+    resource_id: params.resourceId ?? null,
+  };
+
+  const { error } = await supabase.rpc("enqueue_nutrition_notification", {
+    p_establishment_id: params.establishmentId,
+    p_type: params.type,
+    p_priority: priority,
+    p_title: params.title,
+    p_message: params.message,
+    p_resource_type: params.resourceType ?? null,
+    p_resource_id: params.resourceId ?? null,
+    p_target_user_id: null,
+    p_due_at: params.dueAt ?? null,
+    p_dedupe_key: params.dedupeKey,
+    p_payload: payload,
+  });
+
+  if (error && !isMissingNutritionTableError(error)) {
+    console.error("[nutrition] scoped notification error:", serializeError(error));
+  }
+
+  try {
+    await createNotification({
+      title: params.title,
+      message: params.message,
+      type: params.type,
+      priority: priority === "low" ? "info" : priority,
+      establishmentId: params.establishmentId,
+      href: params.href ?? null,
+      entityType: params.resourceType ?? null,
+      entityId: params.resourceId ?? null,
+      dedupeKey: params.dedupeKey,
+      payload,
+    });
+  } catch (error) {
+    console.error("[nutrition] global notification fallback error:", serializeError(error));
+  }
 }
 
 function parseOptionalNumber(value: FormDataEntryValue | null) {
@@ -1450,28 +1590,48 @@ export async function saveInspectionAnswer(formData: FormData) {
     }
 
     if (!existingNonconformity) {
-      const { error: nonconformityError } = await supabase
-      .from("nutrition_nonconformities")
-      .insert({
-        establishment_id: tenant.establishmentId,
-        source_type: "inspection_item",
-        source_id: itemId,
-        inspection_id: inspectionId,
-        answer_id: answer.id,
-        title: `Vistoria: ${itemTitle}`,
-        description: comment || "Item marcado como não conforme.",
-        sector: (inspection as any).sector ?? null,
-        severity,
-        status: "open",
-        created_by: tenant.userId,
-        updated_by: tenant.userId,
-      });
+      const { data: nonconformity, error: nonconformityError } = await supabase
+        .from("nutrition_nonconformities")
+        .insert({
+          establishment_id: tenant.establishmentId,
+          source_type: "inspection_item",
+          source_id: itemId,
+          inspection_id: inspectionId,
+          answer_id: answer.id,
+          title: `Vistoria: ${itemTitle}`,
+          description: comment || "Item marcado como não conforme.",
+          sector: (inspection as any).sector ?? null,
+          severity,
+          status: "open",
+          created_by: tenant.userId,
+          updated_by: tenant.userId,
+        })
+        .select("id")
+        .single();
 
       if (nonconformityError) {
         console.error(
           "[nutrition] auto nonconformity error:",
           serializeError(nonconformityError)
         );
+      } else if (nonconformity) {
+        await createNutritionScopedNotification(supabase, {
+          establishmentId: tenant.establishmentId,
+          userId: tenant.userId,
+          type: "nutrition_nonconformity_created",
+          priority: severity === "critical" ? "critical" : "high",
+          title: "Não conformidade registrada",
+          message: `Item não conforme na vistoria: ${itemTitle}.`,
+          resourceType: "nutrition_nonconformity",
+          resourceId: String((nonconformity as any).id),
+          href: `/nutricao/nao-conformidades/${String((nonconformity as any).id)}`,
+          dedupeKey: `nutrition-inspection-nc:${tenant.establishmentId}:${inspectionId}:${itemId}`,
+          payload: {
+            inspection_id: inspectionId,
+            item_id: itemId,
+            severity,
+          },
+        });
       }
     }
   }
@@ -2014,23 +2174,28 @@ export async function createNutritionNonconformity(formData: FormData) {
 
   if (!title) throw new Error("Informe o título da não conformidade.");
 
-  const { error } = await supabase.from("nutrition_nonconformities").insert({
-    establishment_id: tenant.establishmentId,
-    source_type: "manual",
-    title,
-    description: description || null,
-    sector: sector || null,
-    location: location || null,
-    category: category || null,
-    severity: ["low", "medium", "high", "critical"].includes(severity)
-      ? severity
-      : "medium",
-    due_at: dueAt ? new Date(dueAt).toISOString() : null,
-    immediate_containment: immediateContainment || null,
-    status: "open",
-    created_by: tenant.userId,
-    updated_by: tenant.userId,
-  });
+  const normalizedSeverity = ["low", "medium", "high", "critical"].includes(severity)
+    ? severity
+    : "medium";
+  const { data: nonconformity, error } = await supabase
+    .from("nutrition_nonconformities")
+    .insert({
+      establishment_id: tenant.establishmentId,
+      source_type: "manual",
+      title,
+      description: description || null,
+      sector: sector || null,
+      location: location || null,
+      category: category || null,
+      severity: normalizedSeverity,
+      due_at: dueAt ? new Date(dueAt).toISOString() : null,
+      immediate_containment: immediateContainment || null,
+      status: "open",
+      created_by: tenant.userId,
+      updated_by: tenant.userId,
+    })
+    .select("id")
+    .single();
 
   if (error) {
     if (isMissingNutritionTableError(error)) {
@@ -2040,6 +2205,25 @@ export async function createNutritionNonconformity(formData: FormData) {
     console.error("[nutrition] create nonconformity error:", serializeError(error));
     throw new Error("Não foi possível abrir a não conformidade.");
   }
+
+  await createNutritionScopedNotification(supabase, {
+    establishmentId: tenant.establishmentId,
+    userId: tenant.userId,
+    type: "nutrition_nonconformity_created",
+    priority: normalizedSeverity === "critical" ? "critical" : "high",
+    title: "Não conformidade registrada",
+    message: title,
+    resourceType: "nutrition_nonconformity",
+    resourceId: String((nonconformity as any).id),
+    href: `/nutricao/nao-conformidades/${String((nonconformity as any).id)}`,
+    dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+    dedupeKey: `nutrition-manual-nc:${tenant.establishmentId}:${String((nonconformity as any).id)}`,
+    payload: {
+      severity: normalizedSeverity,
+      sector: sector || null,
+      location: location || null,
+    },
+  });
 
   revalidatePath("/nutricao");
   revalidatePath("/nutricao/nao-conformidades");
@@ -2496,13 +2680,18 @@ export async function listTemperaturePoints(): Promise<TemperaturePointItem[]> {
   const pointIds = points.map((row: any) => String(row.id)).filter(Boolean);
   const latestRecordByPointId = new Map<
     string,
-    { measuredValue: number; status: string; measuredAt: string }
+    {
+      measuredValue: number;
+      status: string;
+      measuredAt: string;
+      thermometerName: string | null;
+    }
   >();
 
   if (pointIds.length > 0) {
     const { data: records, error: recordsError } = await supabase
       .from("nutrition_temperature_records")
-      .select("point_id,measured_value,status,measured_at")
+      .select("point_id,measured_value,status,measured_at,thermometer_id")
       .eq("establishment_id", tenant.establishmentId)
       .in("point_id", pointIds)
       .order("measured_at", { ascending: false })
@@ -2515,14 +2704,47 @@ export async function listTemperaturePoints(): Promise<TemperaturePointItem[]> {
       );
     }
 
+    const thermometerIds = Array.from(
+      new Set(
+        (records ?? [])
+          .map((record: any) => String(record.thermometer_id ?? ""))
+          .filter(Boolean)
+      )
+    );
+    const thermometerNameById = new Map<string, string>();
+
+    if (thermometerIds.length > 0) {
+      const { data: thermometers, error: thermometerError } = await supabase
+        .from("nutrition_thermometers")
+        .select("id,name")
+        .eq("establishment_id", tenant.establishmentId)
+        .in("id", thermometerIds);
+
+      if (thermometerError && !isMissingNutritionTableError(thermometerError)) {
+        console.error(
+          "[nutrition] thermometer names list error:",
+          serializeError(thermometerError)
+        );
+      }
+
+      for (const thermometer of thermometers ?? []) {
+        thermometerNameById.set(
+          String((thermometer as any).id),
+          String((thermometer as any).name ?? "")
+        );
+      }
+    }
+
     for (const record of records ?? []) {
       const pointId = String((record as any).point_id ?? "");
       if (!pointId || latestRecordByPointId.has(pointId)) continue;
+      const thermometerId = String((record as any).thermometer_id ?? "");
 
       latestRecordByPointId.set(pointId, {
         measuredValue: Number((record as any).measured_value),
         status: String((record as any).status ?? "within_limits"),
         measuredAt: String((record as any).measured_at ?? ""),
+        thermometerName: thermometerNameById.get(thermometerId) ?? null,
       });
     }
   }
@@ -2594,16 +2816,19 @@ export async function createTemperaturePoint(formData: FormData) {
 export async function createTemperatureRecord(formData: FormData) {
   const { tenant, supabase } = await getNutritionContext();
   const pointId = String(formData.get("point_id") ?? "").trim();
+  const thermometerId = String(formData.get("thermometer_id") ?? "").trim();
   const measuredValue = Number(formData.get("measured_value") ?? NaN);
   const observation = String(formData.get("observation") ?? "").trim();
   const immediateAction = String(formData.get("immediate_action") ?? "").trim();
+  const idempotencyKey =
+    String(formData.get("idempotency_key") ?? "").trim() || randomUUID();
 
   if (!pointId) throw new Error("Selecione o ponto de controle.");
   if (!Number.isFinite(measuredValue)) throw new Error("Informe a temperatura.");
 
   const { data: point, error: pointError } = await supabase
     .from("nutrition_temperature_points")
-    .select("id,min_value,max_value,unit")
+    .select("id,name,min_value,max_value,unit,default_corrective_action")
     .eq("establishment_id", tenant.establishmentId)
     .eq("id", pointId)
     .single();
@@ -2622,20 +2847,87 @@ export async function createTemperatureRecord(formData: FormData) {
     (minValue != null && measuredValue < minValue) ||
     (maxValue != null && measuredValue > maxValue);
 
-  const { error } = await supabase.from("nutrition_temperature_records").insert({
-    establishment_id: tenant.establishmentId,
-    point_id: pointId,
-    measured_value: measuredValue,
-    unit: point?.unit ?? "C",
-    status: outOfLimits ? "out_of_limits" : "within_limits",
-    observed_by: tenant.userId,
-    observation: observation || null,
-    immediate_action: immediateAction || null,
-  });
+  const immediateActionValue =
+    immediateAction ||
+    (outOfLimits ? String((point as any).default_corrective_action ?? "") : "") ||
+    null;
+
+  const { data: record, error } = await supabase
+    .from("nutrition_temperature_records")
+    .upsert(
+      {
+        establishment_id: tenant.establishmentId,
+        point_id: pointId,
+        thermometer_id: thermometerId || null,
+        measured_value: measuredValue,
+        unit: point?.unit ?? "C",
+        status: outOfLimits ? "out_of_limits" : "within_limits",
+        observed_by: tenant.userId,
+        observation: observation || null,
+        immediate_action: immediateActionValue,
+        idempotency_key: idempotencyKey,
+      },
+      { onConflict: "establishment_id,idempotency_key" }
+    )
+    .select("id,nonconformity_id")
+    .single();
 
   if (error) {
     console.error("[nutrition] create temperature record error:", serializeError(error));
     throw new Error("Não foi possível registrar a temperatura.");
+  }
+
+  if (outOfLimits && !(record as any)?.nonconformity_id) {
+    const { data: nonconformity, error: nonconformityError } = await supabase
+      .from("nutrition_nonconformities")
+      .insert({
+        establishment_id: tenant.establishmentId,
+        source_type: "temperature_record",
+        source_id: String((record as any).id),
+        title: `Temperatura fora do limite: ${String((point as any).name ?? "")}`,
+        description:
+          observation ||
+          `Medição registrada: ${measuredValue} ${point?.unit ?? "C"}.`,
+        severity: "high",
+        status: "open",
+        immediate_containment: immediateActionValue,
+        created_by: tenant.userId,
+        updated_by: tenant.userId,
+      })
+      .select("id")
+      .single();
+
+    if (nonconformityError) {
+      console.error(
+        "[nutrition] temperature nonconformity error:",
+        serializeError(nonconformityError)
+      );
+    } else if (nonconformity) {
+      await supabase
+        .from("nutrition_temperature_records")
+        .update({ nonconformity_id: String((nonconformity as any).id) })
+        .eq("establishment_id", tenant.establishmentId)
+        .eq("id", String((record as any).id));
+
+      await createNutritionScopedNotification(supabase, {
+        establishmentId: tenant.establishmentId,
+        userId: tenant.userId,
+        type: "nutrition_temperature_out_of_limits",
+        priority: "high",
+        title: "Temperatura fora do limite",
+        message: `${String((point as any).name ?? "Ponto de controle")} registrou ${measuredValue} ${point?.unit ?? "C"}.`,
+        resourceType: "nutrition_nonconformity",
+        resourceId: String((nonconformity as any).id),
+        href: `/nutricao/nao-conformidades/${String((nonconformity as any).id)}`,
+        dedupeKey: `nutrition-temperature:${tenant.establishmentId}:${String((record as any).id)}`,
+        payload: {
+          point_id: pointId,
+          temperature_record_id: String((record as any).id),
+          measured_value: measuredValue,
+          unit: point?.unit ?? "C",
+        },
+      });
+    }
   }
 
   revalidatePath("/nutricao");
@@ -2705,7 +2997,7 @@ export async function listPops(): Promise<PopItem[]> {
   const { tenant, supabase } = await getNutritionContext();
   const { data, error } = await supabase
     .from("nutrition_pops")
-    .select("id,code,title,status,next_review_at,applicable_sectors")
+    .select("id,code,title,status,next_review_at,applicable_sectors,current_version")
     .eq("establishment_id", tenant.establishmentId)
     .order("updated_at", { ascending: false })
     .limit(50);
@@ -2714,6 +3006,32 @@ export async function listPops(): Promise<PopItem[]> {
     if (isMissingNutritionTableError(error)) return [];
     console.error("[nutrition] pops list error:", serializeError(error));
     return [];
+  }
+
+  const popIds = (data ?? []).map((row: any) => String(row.id));
+  const versionByPop = new Map<string, string | null>();
+
+  if (popIds.length > 0) {
+    const { data: versions, error: versionsError } = await supabase
+      .from("nutrition_pop_versions")
+      .select("pop_id,file_path,version")
+      .eq("establishment_id", tenant.establishmentId)
+      .in("pop_id", popIds)
+      .order("version", { ascending: false })
+      .limit(100);
+
+    if (versionsError && !isMissingNutritionTableError(versionsError)) {
+      console.error("[nutrition] pop versions list error:", serializeError(versionsError));
+    }
+
+    for (const version of versions ?? []) {
+      const popId = String((version as any).pop_id ?? "");
+      if (!popId || versionByPop.has(popId)) continue;
+      versionByPop.set(
+        popId,
+        (version as any).file_path ? String((version as any).file_path) : null
+      );
+    }
   }
 
   return (data ?? []).map((row: any) => ({
@@ -2725,6 +3043,8 @@ export async function listPops(): Promise<PopItem[]> {
     sectors: Array.isArray(row.applicable_sectors)
       ? row.applicable_sectors.map(String)
       : [],
+    currentVersion: Number(row.current_version ?? 1),
+    fileUrl: nutritionFileUrl(versionByPop.get(String(row.id))),
   }));
 }
 
@@ -2739,21 +3059,28 @@ export async function createPop(formData: FormData) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+  const fileValue = formData.get("file");
+  const file = fileValue instanceof File ? fileValue : null;
 
   if (!title) throw new Error("Informe o título do POP.");
 
-  const { error } = await supabase.from("nutrition_pops").insert({
-    establishment_id: tenant.establishmentId,
-    code: code || null,
-    title,
-    objective: objective || null,
-    scope: scope || null,
-    applicable_sectors: sectors,
-    next_review_at: nextReviewAt || null,
-    status: "draft",
-    created_by: tenant.userId,
-    updated_by: tenant.userId,
-  });
+  const { data: pop, error } = await supabase
+    .from("nutrition_pops")
+    .insert({
+      establishment_id: tenant.establishmentId,
+      code: code || null,
+      title,
+      objective: objective || null,
+      scope: scope || null,
+      applicable_sectors: sectors,
+      next_review_at: nextReviewAt || null,
+      status: "draft",
+      current_version: 1,
+      created_by: tenant.userId,
+      updated_by: tenant.userId,
+    })
+    .select("id")
+    .single();
 
   if (error) {
     if (isMissingNutritionTableError(error)) {
@@ -2763,6 +3090,60 @@ export async function createPop(formData: FormData) {
     console.error("[nutrition] create pop error:", serializeError(error));
     throw new Error("Não foi possível criar o POP.");
   }
+
+  let uploaded: Awaited<ReturnType<typeof uploadNutritionManagedFile>> = null;
+  if (pop && file) {
+    uploaded = await uploadNutritionManagedFile({
+      supabase,
+      establishmentId: tenant.establishmentId,
+      resourceType: "pops",
+      resourceId: String((pop as any).id),
+      file,
+      version: 1,
+    });
+  }
+
+  if (pop) {
+    const { error: versionError } = await supabase
+      .from("nutrition_pop_versions")
+      .insert({
+        establishment_id: tenant.establishmentId,
+        pop_id: String((pop as any).id),
+        version: 1,
+        content: {
+          title,
+          objective: objective || null,
+          scope: scope || null,
+          applicable_sectors: sectors,
+        },
+        file_path: uploaded?.filePath ?? null,
+        file_name: uploaded?.fileName ?? null,
+        mime_type: uploaded?.mimeType ?? null,
+        file_size_bytes: uploaded?.fileSizeBytes ?? null,
+        checksum: uploaded?.checksum ?? null,
+        status: "draft",
+        next_review_at: nextReviewAt || null,
+        author_user_id: tenant.userId,
+      });
+
+    if (versionError) {
+      console.error("[nutrition] create pop version error:", serializeError(versionError));
+      throw new Error("POP criado, mas não foi possível registrar a versão.");
+    }
+  }
+
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: "pop.created",
+    resourceType: "nutrition_pop",
+    resourceId: String((pop as any)?.id ?? "unknown"),
+    afterData: {
+      title,
+      code: code || null,
+      has_file: Boolean(uploaded),
+    },
+  });
 
   revalidatePath("/nutricao/pops");
 }
@@ -2877,6 +3258,10 @@ export async function executeSanitationRecord(formData: FormData) {
   const planId = String(formData.get("sanitation_plan_id") ?? "").trim();
   const result = String(formData.get("result") ?? "approved").trim();
   const observation = String(formData.get("observation") ?? "").trim();
+  const idempotencyKey =
+    String(formData.get("idempotency_key") ?? "").trim() || randomUUID();
+  const fileValue = formData.get("file");
+  const file = fileValue instanceof File ? fileValue : null;
 
   if (!planId) throw new Error("Selecione o plano de higienização.");
   if (!["approved", "rejected"].includes(result)) {
@@ -2895,35 +3280,115 @@ export async function executeSanitationRecord(formData: FormData) {
     throw new Error("Plano de higienização não encontrado para este estabelecimento.");
   }
 
-  const { error } = await supabase.from("nutrition_sanitation_records").insert({
-    establishment_id: tenant.establishmentId,
-    sanitation_plan_id: planId,
-    executed_at: new Date().toISOString(),
-    executor_user_id: tenant.userId,
-    status: result === "approved" ? "executed" : "failed",
-    result,
-    observation: observation || null,
-    created_by: tenant.userId,
-    updated_by: tenant.userId,
-  });
+  if ((plan as any).evidence_required && !file) {
+    throw new Error("Este plano exige evidência da execução.");
+  }
+
+  const { data: record, error } = await supabase
+    .from("nutrition_sanitation_records")
+    .upsert(
+      {
+        establishment_id: tenant.establishmentId,
+        sanitation_plan_id: planId,
+        executed_at: new Date().toISOString(),
+        executor_user_id: tenant.userId,
+        status: result === "approved" ? "executed" : "failed",
+        result,
+        observation: observation || null,
+        idempotency_key: idempotencyKey,
+        created_by: tenant.userId,
+        updated_by: tenant.userId,
+      },
+      { onConflict: "establishment_id,idempotency_key" }
+    )
+    .select("id,evidence_id,nonconformity_id")
+    .single();
 
   if (error) {
     console.error("[nutrition] execute sanitation record error:", serializeError(error));
     throw new Error("Não foi possível registrar a execução da higienização.");
   }
 
-  if (result === "rejected") {
-    await supabase.from("nutrition_nonconformities").insert({
-      establishment_id: tenant.establishmentId,
-      source_type: "sanitation_record",
-      source_id: planId,
-      title: `Higienização reprovada: ${String((plan as any).name ?? "")}`,
-      description: observation || "Execução de higienização reprovada.",
-      severity: "medium",
-      status: "open",
-      created_by: tenant.userId,
-      updated_by: tenant.userId,
+  if (file && !(record as any)?.evidence_id) {
+    const uploaded = await uploadNutritionManagedFile({
+      supabase,
+      establishmentId: tenant.establishmentId,
+      resourceType: "sanitation",
+      resourceId: String((record as any).id),
+      file,
+      version: 1,
     });
+
+    if (uploaded) {
+      const { data: evidence } = await supabase
+        .from("nutrition_evidences")
+        .insert({
+          establishment_id: tenant.establishmentId,
+          resource_type: "sanitation_record",
+          resource_id: String((record as any).id),
+          file_path: uploaded.filePath,
+          file_name: uploaded.fileName,
+          mime_type: uploaded.mimeType,
+          file_size_bytes: uploaded.fileSizeBytes,
+          caption: observation || null,
+          category: "higienizacao",
+          metadata: { sanitation_plan_id: planId, checksum: uploaded.checksum },
+          uploaded_by: tenant.userId,
+        })
+        .select("id")
+        .single();
+
+      if (evidence) {
+        await supabase
+          .from("nutrition_sanitation_records")
+          .update({ evidence_id: String((evidence as any).id) })
+          .eq("establishment_id", tenant.establishmentId)
+          .eq("id", String((record as any).id));
+      }
+    }
+  }
+
+  if (result === "rejected" && !(record as any)?.nonconformity_id) {
+    const { data: nonconformity } = await supabase
+      .from("nutrition_nonconformities")
+      .insert({
+        establishment_id: tenant.establishmentId,
+        source_type: "sanitation_record",
+        source_id: String((record as any).id),
+        title: `Higienização reprovada: ${String((plan as any).name ?? "")}`,
+        description: observation || "Execução de higienização reprovada.",
+        severity: "medium",
+        status: "open",
+        created_by: tenant.userId,
+        updated_by: tenant.userId,
+      })
+      .select("id")
+      .single();
+
+    if (nonconformity) {
+      await supabase
+        .from("nutrition_sanitation_records")
+        .update({ nonconformity_id: String((nonconformity as any).id) })
+        .eq("establishment_id", tenant.establishmentId)
+        .eq("id", String((record as any).id));
+
+      await createNutritionScopedNotification(supabase, {
+        establishmentId: tenant.establishmentId,
+        userId: tenant.userId,
+        type: "nutrition_sanitation_failed",
+        priority: "high",
+        title: "Higienização reprovada",
+        message: String((plan as any).name ?? "Plano de higienização"),
+        resourceType: "nutrition_nonconformity",
+        resourceId: String((nonconformity as any).id),
+        href: `/nutricao/nao-conformidades/${String((nonconformity as any).id)}`,
+        dedupeKey: `nutrition-sanitation:${tenant.establishmentId}:${String((record as any).id)}`,
+        payload: {
+          sanitation_record_id: String((record as any).id),
+          sanitation_plan_id: planId,
+        },
+      });
+    }
   }
 
   revalidatePath("/nutricao");
@@ -2934,7 +3399,7 @@ export async function listDocuments(): Promise<DocumentItem[]> {
   const { tenant, supabase } = await getNutritionContext();
   const { data, error } = await supabase
     .from("nutrition_documents")
-    .select("id,document_type,title,document_number,issuer,valid_until,status,visibility")
+    .select("id,document_type,title,document_number,issuer,valid_until,status,visibility,current_version")
     .eq("establishment_id", tenant.establishmentId)
     .order("valid_until", { ascending: true, nullsFirst: false })
     .limit(50);
@@ -2945,7 +3410,45 @@ export async function listDocuments(): Promise<DocumentItem[]> {
     return [];
   }
 
-  return (data ?? []).map((row: any) => ({
+  const documentIds = (data ?? []).map((row: any) => String(row.id));
+  const versionByDocument = new Map<
+    string,
+    { filePath: string | null; fileName: string | null }
+  >();
+
+  if (documentIds.length > 0) {
+    const { data: versions, error: versionsError } = await supabase
+      .from("nutrition_document_versions")
+      .select("document_id,file_path,file_name,version")
+      .eq("establishment_id", tenant.establishmentId)
+      .in("document_id", documentIds)
+      .order("version", { ascending: false })
+      .limit(100);
+
+    if (versionsError && !isMissingNutritionTableError(versionsError)) {
+      console.error(
+        "[nutrition] document versions list error:",
+        serializeError(versionsError)
+      );
+    }
+
+    for (const version of versions ?? []) {
+      const documentId = String((version as any).document_id ?? "");
+      if (!documentId || versionByDocument.has(documentId)) continue;
+      versionByDocument.set(documentId, {
+        filePath: (version as any).file_path
+          ? String((version as any).file_path)
+          : null,
+        fileName: (version as any).file_name
+          ? String((version as any).file_name)
+          : null,
+      });
+    }
+  }
+
+  return (data ?? []).map((row: any) => {
+    const version = versionByDocument.get(String(row.id));
+    return {
     id: String(row.id),
     documentType: String(row.document_type ?? ""),
     title: String(row.title ?? ""),
@@ -2954,7 +3457,11 @@ export async function listDocuments(): Promise<DocumentItem[]> {
     validUntil: row.valid_until ? String(row.valid_until) : null,
     status: String(row.status ?? "active"),
     visibility: String(row.visibility ?? "internal"),
-  }));
+      currentVersion: Number(row.current_version ?? 1),
+      fileUrl: nutritionFileUrl(version?.filePath),
+      fileName: version?.fileName ?? null,
+    };
+  });
 }
 
 export async function createDocument(formData: FormData) {
@@ -2966,25 +3473,32 @@ export async function createDocument(formData: FormData) {
   const issuedAt = String(formData.get("issued_at") ?? "").trim();
   const validUntil = String(formData.get("valid_until") ?? "").trim();
   const visibility = String(formData.get("visibility") ?? "internal").trim();
+  const fileValue = formData.get("file");
+  const file = fileValue instanceof File ? fileValue : null;
 
   if (!documentType) throw new Error("Informe o tipo do documento.");
   if (!title) throw new Error("Informe o título do documento.");
 
-  const { error } = await supabase.from("nutrition_documents").insert({
-    establishment_id: tenant.establishmentId,
-    document_type: documentType,
-    title,
-    document_number: documentNumber || null,
-    issuer: issuer || null,
-    issued_at: issuedAt || null,
-    valid_until: validUntil || null,
-    visibility: ["internal", "restricted", "external_share"].includes(visibility)
-      ? visibility
-      : "internal",
-    status: "active",
-    created_by: tenant.userId,
-    updated_by: tenant.userId,
-  });
+  const { data: document, error } = await supabase
+    .from("nutrition_documents")
+    .insert({
+      establishment_id: tenant.establishmentId,
+      document_type: documentType,
+      title,
+      document_number: documentNumber || null,
+      issuer: issuer || null,
+      issued_at: issuedAt || null,
+      valid_until: validUntil || null,
+      visibility: ["internal", "restricted", "external_share"].includes(visibility)
+        ? visibility
+        : "internal",
+      status: "active",
+      current_version: 1,
+      created_by: tenant.userId,
+      updated_by: tenant.userId,
+    })
+    .select("id")
+    .single();
 
   if (error) {
     if (isMissingNutritionTableError(error)) {
@@ -2994,6 +3508,54 @@ export async function createDocument(formData: FormData) {
     console.error("[nutrition] create document error:", serializeError(error));
     throw new Error("Não foi possível cadastrar o documento.");
   }
+
+  if (document && file) {
+    const uploaded = await uploadNutritionManagedFile({
+      supabase,
+      establishmentId: tenant.establishmentId,
+      resourceType: "documents",
+      resourceId: String((document as any).id),
+      file,
+      version: 1,
+    });
+
+    if (uploaded) {
+      const { error: versionError } = await supabase
+        .from("nutrition_document_versions")
+        .insert({
+          establishment_id: tenant.establishmentId,
+          document_id: String((document as any).id),
+          version: 1,
+          file_path: uploaded.filePath,
+          file_name: uploaded.fileName,
+          mime_type: uploaded.mimeType,
+          file_size_bytes: uploaded.fileSizeBytes,
+          checksum: uploaded.checksum,
+          created_by: tenant.userId,
+        });
+
+      if (versionError) {
+        console.error(
+          "[nutrition] document version insert error:",
+          serializeError(versionError)
+        );
+        throw new Error("Documento cadastrado, mas a versão do arquivo não foi registrada.");
+      }
+    }
+  }
+
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: "document.created",
+    resourceType: "nutrition_document",
+    resourceId: String((document as any)?.id ?? "unknown"),
+    afterData: {
+      document_type: documentType,
+      title,
+      has_file: Boolean(file),
+    },
+  });
 
   revalidatePath("/nutricao/documentos");
 }
@@ -3144,7 +3706,9 @@ export async function listSupplierAssessments(): Promise<SupplierAssessmentItem[
   const { tenant, supabase } = await getNutritionContext();
   const { data, error } = await supabase
     .from("nutrition_supplier_assessments")
-    .select("id,supplier_name,assessment_date,quality_score,sanitary_status")
+    .select(
+      "id,supplier_name,assessment_date,quality_score,sanitary_status,supplied_categories,categories_summary,supplier_document_path"
+    )
     .eq("establishment_id", tenant.establishmentId)
     .order("assessment_date", { ascending: false })
     .limit(50);
@@ -3161,6 +3725,15 @@ export async function listSupplierAssessments(): Promise<SupplierAssessmentItem[
     assessmentDate: String(row.assessment_date ?? ""),
     qualityScore: row.quality_score == null ? null : Number(row.quality_score),
     sanitaryStatus: String(row.sanitary_status ?? "pending"),
+    categoriesSummary:
+      row.categories_summary ||
+      (Array.isArray(row.supplied_categories)
+        ? row.supplied_categories.map(String).join(", ")
+        : "") ||
+      null,
+    documentUrl: nutritionFileUrl(
+      row.supplier_document_path ? String(row.supplier_document_path) : null
+    ),
   }));
 }
 
@@ -3171,10 +3744,29 @@ export async function createSupplierAssessment(formData: FormData) {
   const qualityScore = Number(formData.get("quality_score") ?? NaN);
   const sanitaryStatus = String(formData.get("sanitary_status") ?? "pending").trim();
   const notes = String(formData.get("notes") ?? "").trim();
+  const suppliedCategories = String(formData.get("supplied_categories") ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const fileValue = formData.get("file");
+  const file = fileValue instanceof File ? fileValue : null;
 
   if (!supplierName) throw new Error("Informe o fornecedor.");
 
+  const assessmentId = randomUUID();
+  const uploaded = file
+    ? await uploadNutritionManagedFile({
+        supabase,
+        establishmentId: tenant.establishmentId,
+        resourceType: "suppliers",
+        resourceId: assessmentId,
+        file,
+        version: 1,
+      })
+    : null;
+
   const { error } = await supabase.from("nutrition_supplier_assessments").insert({
+    id: assessmentId,
     establishment_id: tenant.establishmentId,
     supplier_name: supplierName,
     assessment_date: assessmentDate || new Date().toISOString().slice(0, 10),
@@ -3188,6 +3780,13 @@ export async function createSupplierAssessment(formData: FormData) {
     ].includes(sanitaryStatus)
       ? sanitaryStatus
       : "pending",
+    supplied_categories: suppliedCategories,
+    categories_summary: suppliedCategories.join(", ") || null,
+    supplier_document_path: uploaded?.filePath ?? null,
+    document_file_name: uploaded?.fileName ?? null,
+    document_mime_type: uploaded?.mimeType ?? null,
+    document_file_size_bytes: uploaded?.fileSizeBytes ?? null,
+    document_checksum: uploaded?.checksum ?? null,
     notes: notes || null,
     created_by: tenant.userId,
     updated_by: tenant.userId,
@@ -3200,6 +3799,27 @@ export async function createSupplierAssessment(formData: FormData) {
 
     console.error("[nutrition] create supplier assessment error:", serializeError(error));
     throw new Error("Não foi possível cadastrar a avaliação sanitária.");
+  }
+
+  if (["suspended", "rejected"].includes(sanitaryStatus)) {
+    await createNutritionScopedNotification(supabase, {
+      establishmentId: tenant.establishmentId,
+      userId: tenant.userId,
+      type: "nutrition_supplier_risk",
+      priority: sanitaryStatus === "rejected" ? "high" : "normal",
+      title: "Fornecedor com restrição sanitária",
+      message: `${supplierName} foi marcado como ${
+        sanitaryStatus === "rejected" ? "reprovado" : "suspenso"
+      }.`,
+      resourceType: "nutrition_supplier_assessment",
+      resourceId: assessmentId,
+      href: "/nutricao/fornecedores",
+      dedupeKey: `nutrition-supplier:${tenant.establishmentId}:${assessmentId}`,
+      payload: {
+        supplier_name: supplierName,
+        sanitary_status: sanitaryStatus,
+      },
+    });
   }
 
   revalidatePath("/nutricao/fornecedores");
@@ -3268,6 +3888,152 @@ function escapeHtml(value: unknown) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function escapeXml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function crc32(buffer: Buffer) {
+  let crc = -1;
+
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let index = 0; index < 8; index += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+
+  return (crc ^ -1) >>> 0;
+}
+
+function createZip(entries: Array<{ name: string; data: Buffer }>) {
+  const fileParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name, "utf8");
+    const data = entry.data;
+    const checksum = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(0, 8);
+    local.writeUInt16LE(0, 10);
+    local.writeUInt16LE(0, 12);
+    local.writeUInt32LE(checksum, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    local.writeUInt16LE(0, 28);
+    fileParts.push(local, name, data);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(0, 10);
+    central.writeUInt16LE(0, 12);
+    central.writeUInt16LE(0, 14);
+    central.writeUInt32LE(checksum, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt16LE(0, 30);
+    central.writeUInt16LE(0, 32);
+    central.writeUInt16LE(0, 34);
+    central.writeUInt16LE(0, 36);
+    central.writeUInt32LE(0, 38);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, name);
+
+    offset += local.length + name.length + data.length;
+  }
+
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+
+  return Buffer.concat([...fileParts, centralDirectory, end]);
+}
+
+function paragraphXml(value: unknown) {
+  return `<w:p><w:r><w:t xml:space="preserve">${escapeXml(value)}</w:t></w:r></w:p>`;
+}
+
+function buildInspectionReportDocx(snapshot: InspectionExecutionSnapshot) {
+  const body = [
+    paragraphXml(`Relatório de vistoria - ${snapshot.title}`),
+    paragraphXml(`Código: ${snapshot.inspectionCode ?? "-"}`),
+    paragraphXml(`Status: ${snapshot.status}`),
+    paragraphXml(`Resultado: ${snapshot.result ?? "-"}`),
+    paragraphXml(`Conformidade: ${snapshot.compliancePercent ?? "-"}%`),
+    paragraphXml(`Geolocalização: ${snapshot.geolocationStatus}`),
+    paragraphXml(
+      `Latitude: ${snapshot.latitude ?? "-"} | Longitude: ${snapshot.longitude ?? "-"} | Precisão: ${snapshot.geolocationAccuracyMeters ?? "-"} m`
+    ),
+    paragraphXml(`Hash de integridade: ${snapshot.completionIntegrityHash ?? "-"}`),
+    paragraphXml("Itens avaliados"),
+    ...snapshot.items.flatMap((item, index) => [
+      paragraphXml(
+        `${index + 1}. ${item.sectionTitle} - ${item.title} - ${
+          item.answer?.conformityStatus ?? "sem resposta"
+        }`
+      ),
+      paragraphXml(`Observação: ${item.answer?.comment ?? "-"}`),
+      paragraphXml(`Evidências: ${item.evidences.length}`),
+    ]),
+    paragraphXml("Assinaturas"),
+    ...snapshot.signatures.map((signature) =>
+      paragraphXml(
+        `${signature.signerName} - ${signature.signerRole ?? "Sem função"} - ${
+          signature.refusalReason
+            ? `Recusa: ${signature.refusalReason}`
+            : `Hash: ${signature.signatureHash ?? "-"}`
+        }`
+      )
+    ),
+    "<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\"/></w:sectPr>",
+  ].join("");
+
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`;
+
+  return createZip([
+    {
+      name: "[Content_Types].xml",
+      data: Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
+        "utf8"
+      ),
+    },
+    {
+      name: "_rels/.rels",
+      data: Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
+        "utf8"
+      ),
+    },
+    {
+      name: "word/document.xml",
+      data: Buffer.from(documentXml, "utf8"),
+    },
+  ]);
 }
 
 function buildInspectionReportHtml(snapshot: InspectionExecutionSnapshot) {
@@ -3360,8 +4126,8 @@ export async function generateInspectionReport(formData: FormData) {
   const format = String(formData.get("format") ?? "html").trim();
 
   if (!inspectionId) throw new Error("Vistoria não informada.");
-  if (!["html", "pdf"].includes(format)) {
-    throw new Error("No momento, gere relatório em HTML ou PDF.");
+  if (!["html", "pdf", "docx"].includes(format)) {
+    throw new Error("No momento, gere relatório em HTML, PDF ou DOCX.");
   }
 
   const snapshot = await getInspectionExecution(inspectionId);
@@ -3417,6 +4183,11 @@ export async function generateInspectionReport(formData: FormData) {
     body = Buffer.from(doc.output("arraybuffer"));
     mimeType = "application/pdf";
     extension = "pdf";
+  } else if (format === "docx") {
+    body = buildInspectionReportDocx(snapshot);
+    mimeType =
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    extension = "docx";
   } else {
     body = Buffer.from(html, "utf8");
     mimeType = "text/html";

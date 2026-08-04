@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { randomUUID } from "node:crypto";
 import type { ReactNode } from "react";
 import { notFound, redirect } from "next/navigation";
 import {
@@ -545,6 +546,7 @@ async function TemperaturasSection() {
             Registrar medição
           </h2>
           <form action={createTemperatureRecord} className="mt-5 grid gap-4">
+            <input name="idempotency_key" type="hidden" value={randomUUID()} />
             <Field label="Ponto de controle">
               <select
                 name="point_id"
@@ -555,6 +557,20 @@ async function TemperaturasSection() {
                 {points.map((point) => (
                   <option key={point.id} value={point.id}>
                     {point.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Termômetro utilizado">
+              <select
+                name="thermometer_id"
+                className="h-9 rounded-md border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700"
+                defaultValue=""
+              >
+                <option value="">Não informado</option>
+                {thermometers.map((thermometer) => (
+                  <option key={thermometer.id} value={thermometer.id}>
+                    {thermometer.name}
                   </option>
                 ))}
               </select>
@@ -629,6 +645,9 @@ async function TemperaturasSection() {
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         Última medição: {point.latestRecord.measuredValue} {point.unit} em{" "}
                         {formatDateTime(point.latestRecord.measuredAt)}
+                        {point.latestRecord.thermometerName
+                          ? ` • ${point.latestRecord.thermometerName}`
+                          : ""}
                       </p>
                     ) : null}
                   </div>
@@ -698,6 +717,13 @@ async function PopsSection() {
           <Field label="Próxima revisão">
             <Input name="next_review_at" type="date" />
           </Field>
+          <Field label="Arquivo do POP">
+            <Input
+              name="file"
+              type="file"
+              accept="application/pdf,.docx,text/html"
+            />
+          </Field>
           <SubmitButton>Criar POP</SubmitButton>
         </form>
       }
@@ -709,8 +735,10 @@ async function PopsSection() {
             <RegistryCard
               key={item.id}
               title={item.title}
-              description={`${item.code ?? "Sem código"} • Revisão: ${item.nextReviewAt ?? "sem data"}`}
+              description={`${item.code ?? "Sem código"} • v${item.currentVersion} • Revisão: ${item.nextReviewAt ?? "sem data"}`}
               status={item.status}
+              extra={item.fileUrl ? "Arquivo privado disponível" : "Sem arquivo anexado"}
+              href={item.fileUrl}
             />
           ))
         )
@@ -771,6 +799,7 @@ async function HigienizacaoSection() {
             Executar higienização
           </h2>
           <form action={executeSanitationRecord} className="mt-5 grid gap-4">
+            <input name="idempotency_key" type="hidden" value={randomUUID()} />
             <Field label="Plano">
               <select
                 name="sanitation_plan_id"
@@ -797,6 +826,13 @@ async function HigienizacaoSection() {
             </Field>
             <Field label="Observação">
               <Textarea name="observation" />
+            </Field>
+            <Field label="Evidência da execução">
+              <Input
+                name="file"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+              />
             </Field>
             <SubmitButton pendingLabel="Registrando...">Registrar execução</SubmitButton>
           </form>
@@ -878,6 +914,13 @@ async function DocumentosSection() {
               <option value="external_share">Compartilhável</option>
             </select>
           </Field>
+          <Field label="Arquivo do documento">
+            <Input
+              name="file"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.docx,.xlsx"
+            />
+          </Field>
           <SubmitButton>Cadastrar documento</SubmitButton>
         </form>
       }
@@ -889,9 +932,10 @@ async function DocumentosSection() {
             <RegistryCard
               key={item.id}
               title={item.title}
-              description={`${item.documentType} • Validade: ${item.validUntil ?? "sem data"}`}
+              description={`${item.documentType} • v${item.currentVersion} • Validade: ${item.validUntil ?? "sem data"}`}
               status={item.status}
-              extra={item.issuer ?? item.visibility}
+              extra={item.fileName ?? item.issuer ?? item.visibility}
+              href={item.fileUrl}
             />
           ))
         )
@@ -1025,6 +1069,12 @@ async function FornecedoresSection() {
           <Field label="Fornecedor">
             <Input name="supplier_name" required />
           </Field>
+          <Field label="Categorias fornecidas">
+            <Input
+              name="supplied_categories"
+              placeholder="Ex.: Carnes, laticínios, hortifruti"
+            />
+          </Field>
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Data">
               <Input name="assessment_date" type="date" />
@@ -1049,6 +1099,13 @@ async function FornecedoresSection() {
           <Field label="Observações">
             <Textarea name="notes" />
           </Field>
+          <Field label="Documento sanitário do fornecedor">
+            <Input
+              name="file"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.docx,.xlsx"
+            />
+          </Field>
           <SubmitButton>Cadastrar avaliação</SubmitButton>
         </form>
       }
@@ -1060,9 +1117,10 @@ async function FornecedoresSection() {
             <RegistryCard
               key={item.id}
               title={item.supplierName}
-              description={`Avaliado em ${item.assessmentDate}`}
+              description={`Avaliado em ${item.assessmentDate}${item.categoriesSummary ? ` • ${item.categoriesSummary}` : ""}`}
               status={item.sanitaryStatus}
               extra={item.qualityScore == null ? "Sem pontuação" : `${item.qualityScore}/100`}
+              href={item.documentUrl}
             />
           ))
         )
@@ -1456,11 +1514,13 @@ function RegistryCard({
   description,
   status,
   extra,
+  href,
 }: {
   title: string;
   description: string;
   status: string;
   extra?: string;
+  href?: string | null;
 }) {
   return (
     <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
@@ -1474,6 +1534,16 @@ function RegistryCard({
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               {extra}
             </p>
+          ) : null}
+          {href ? (
+            <a
+              className="mt-2 inline-flex text-xs font-semibold text-blue-700 hover:underline dark:text-blue-300"
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Abrir arquivo privado
+            </a>
           ) : null}
         </div>
         <Pill>{statusLabels[status] ?? status}</Pill>

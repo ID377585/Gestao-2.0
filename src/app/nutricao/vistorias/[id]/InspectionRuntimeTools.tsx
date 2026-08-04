@@ -1,7 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Camera, Check, Clock, FileUp, LocateFixed, PenLine, Trash2 } from "lucide-react";
+import {
+  Camera,
+  Check,
+  Clock,
+  FileUp,
+  LocateFixed,
+  PenLine,
+  Trash2,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 
 import {
   removeNutritionEvidence,
@@ -59,6 +69,50 @@ function formatDuration(ms: number) {
   return `${hours.toString().padStart(2, "0")}:${minutes
     .toString()
     .padStart(2, "0")}`;
+}
+
+export function InspectionConnectivityStatus() {
+  const [isOnline, setIsOnline] = useState(true);
+  const [draftCount, setDraftCount] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => {
+      setIsOnline(window.navigator.onLine);
+      const count = Number(
+        window.localStorage.getItem("nutrition:offline-draft-count") ?? "0"
+      );
+      setDraftCount(Number.isFinite(count) ? count : 0);
+    };
+
+    refresh();
+    window.addEventListener("online", refresh);
+    window.addEventListener("offline", refresh);
+    window.addEventListener("storage", refresh);
+
+    return () => {
+      window.removeEventListener("online", refresh);
+      window.removeEventListener("offline", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+      {isOnline ? (
+        <Wifi className="h-4 w-4 text-emerald-700 dark:text-emerald-300" />
+      ) : (
+        <WifiOff className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+      )}
+      <span className="font-medium">
+        {isOnline ? "Online" : "Sem conexão"}
+      </span>
+      <span className="text-slate-500 dark:text-slate-400">
+        {draftCount > 0
+          ? `${draftCount} registro${draftCount === 1 ? "" : "s"} pendente${draftCount === 1 ? "" : "s"}`
+          : "Sem pendências locais"}
+      </span>
+    </div>
+  );
 }
 
 async function compressImage(file: File) {

@@ -24,6 +24,7 @@ import { SubmitButton } from "@/app/nutricao/SubmitButton";
 import {
   EvidenceList,
   EvidenceUploadForm,
+  InspectionConnectivityStatus,
   InspectionGeolocation,
   InspectionTimer,
   SignaturePad,
@@ -209,7 +210,7 @@ export default async function VistoriaExecutionPage({
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+      <section className="grid gap-4 xl:grid-cols-[1.1fr_0.8fr_0.8fr]">
         <InspectionGeolocation
           inspectionId={inspection.id}
           status={inspection.geolocationStatus}
@@ -224,6 +225,7 @@ export default async function VistoriaExecutionPage({
           completedAt={inspection.completedAt}
           expectedDurationMinutes={inspection.expectedDurationMinutes}
         />
+        <InspectionConnectivityStatus />
       </section>
 
       <section className="grid gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -416,6 +418,11 @@ export default async function VistoriaExecutionPage({
             <input name="inspection_id" type="hidden" value={inspection.id} />
             <input name="format" type="hidden" value="pdf" />
             <SubmitButton pendingLabel="Gerando...">Gerar PDF</SubmitButton>
+          </form>
+          <form action={generateInspectionReport}>
+            <input name="inspection_id" type="hidden" value={inspection.id} />
+            <input name="format" type="hidden" value="docx" />
+            <SubmitButton pendingLabel="Gerando...">Gerar DOCX</SubmitButton>
           </form>
         </div>
       </section>

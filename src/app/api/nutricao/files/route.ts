@@ -24,9 +24,11 @@ export async function GET(request: NextRequest) {
   }
 
   let establishmentId = "";
+  let userId = "";
   try {
-    const { tenant } = await getAuthenticatedTenantUserOrThrow();
+    const { tenant, user } = await getAuthenticatedTenantUserOrThrow();
     establishmentId = tenant.establishmentId;
+    userId = user.id;
   } catch (error: any) {
     return new NextResponse(error?.message ?? "Não autenticado.", {
       status: error?.message === "Não autenticado." ? 401 : 403,
@@ -60,7 +62,16 @@ export async function GET(request: NextRequest) {
       .maybeSingle(),
   ]);
 
-  if (!evidenceResult.data && !signatureResult.data && !reportResult.data) {
+  const matchedResource =
+    evidenceResult.data
+      ? { type: "nutrition_evidence", id: String(evidenceResult.data.id) }
+      : signatureResult.data
+        ? { type: "nutrition_signature", id: String(signatureResult.data.id) }
+        : reportResult.data
+          ? { type: "nutrition_report", id: String(reportResult.data.id) }
+          : null;
+
+  if (!matchedResource) {
     return new NextResponse("Arquivo não encontrado.", { status: 404 });
   }
 
@@ -71,6 +82,26 @@ export async function GET(request: NextRequest) {
   if (error || !data?.signedUrl) {
     console.error("[nutrition-file] signed url error:", error);
     return new NextResponse("Arquivo indisponível.", { status: 404 });
+  }
+
+  if (matchedResource.type === "nutrition_report") {
+    const { error: auditError } = await supabaseAdmin
+      .from("nutrition_audit_events")
+      .insert({
+        establishment_id: establishmentId,
+        actor_user_id: userId,
+        action: "report.download_requested",
+        resource_type: matchedResource.type,
+        resource_id: matchedResource.id,
+        metadata: {
+          file_path: filePath,
+          signed_url_ttl_seconds: 60 * 10,
+        },
+      });
+
+    if (auditError) {
+      console.error("[nutrition-file] audit error:", auditError);
+    }
   }
 
   return NextResponse.redirect(data.signedUrl);

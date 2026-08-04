@@ -17,6 +17,14 @@
     {
       "path": "/api/fiscal/sync",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/jobs/process?limit=20",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/nutricao/notifications/sweep",
+      "schedule": "15 * * * *"
     }
   ]
 }

@@ -456,6 +456,11 @@ async function NonconformidadesSection() {
                       {severityLabels[item.severity] ?? item.severity}
                     </Pill>
                     <Pill>{statusLabels[item.status] ?? item.status}</Pill>
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/nutricao/nao-conformidades/${item.id}`}>
+                        Tratar
+                      </Link>
+                    </Button>
                   </div>
                 </div>
               </div>

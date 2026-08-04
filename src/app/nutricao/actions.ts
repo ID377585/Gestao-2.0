@@ -9,6 +9,7 @@ import { getActiveTenantOrRedirect } from "@/lib/tenant/guards";
 import { assertTenantCanAccessModule } from "@/lib/tenant/module-access";
 import { enqueueAppJob } from "@/lib/queue/app-jobs";
 import { createNotification } from "@/lib/notifications";
+import { sweepNutritionOperationalNotifications } from "@/lib/nutricao/operational-notifications";
 
 type SupabaseErrorLike = {
   code?: string | null;
@@ -4771,189 +4772,14 @@ export async function enqueueNutritionReportDelivery(formData: FormData) {
 
 export async function queueNutritionOperationalNotifications() {
   const { tenant, supabase } = await getNutritionContext();
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const next24hIso = new Date(now.getTime() + 24 * 60 * 60_000).toISOString();
-  const next7Days = new Date(now.getTime() + 7 * 24 * 60 * 60_000);
-  const next30DaysDate = next7Days;
-  next30DaysDate.setDate(next30DaysDate.getDate() + 23);
-  const next30Days = next30DaysDate.toISOString().slice(0, 10);
-  let created = 0;
-
-  const [
-    overdueInspections,
-    upcomingInspections,
-    overdueNonconformities,
-    dueSoonNonconformities,
-    expiringDocuments,
-    upcomingTrainingSessions,
-  ] = await Promise.all([
-    supabase
-      .from("nutrition_inspections")
-      .select("id,title,scheduled_for")
-      .eq("establishment_id", tenant.establishmentId)
-      .in("status", ["scheduled", "paused", "in_progress"])
-      .lt("scheduled_for", nowIso)
-      .limit(50),
-    supabase
-      .from("nutrition_inspections")
-      .select("id,title,scheduled_for")
-      .eq("establishment_id", tenant.establishmentId)
-      .eq("status", "scheduled")
-      .gte("scheduled_for", nowIso)
-      .lte("scheduled_for", next24hIso)
-      .limit(50),
-    supabase
-      .from("nutrition_nonconformities")
-      .select("id,title,severity,due_at")
-      .eq("establishment_id", tenant.establishmentId)
-      .not("status", "in", "(closed,canceled)")
-      .lt("due_at", nowIso)
-      .limit(50),
-    supabase
-      .from("nutrition_nonconformities")
-      .select("id,title,severity,due_at")
-      .eq("establishment_id", tenant.establishmentId)
-      .not("status", "in", "(closed,canceled)")
-      .gte("due_at", nowIso)
-      .lte("due_at", next24hIso)
-      .limit(50),
-    supabase
-      .from("nutrition_documents")
-      .select("id,title,valid_until")
-      .eq("establishment_id", tenant.establishmentId)
-      .eq("status", "active")
-      .lte("valid_until", next30Days)
-      .limit(50),
-    supabase
-      .from("nutrition_training_sessions")
-      .select("id,scheduled_for,nutrition_trainings(title)")
-      .eq("establishment_id", tenant.establishmentId)
-      .eq("status", "scheduled")
-      .gte("scheduled_for", nowIso)
-      .lte("scheduled_for", next24hIso)
-      .limit(50),
-  ]);
-
-  const maybeNotify = async (
-    result:
-      | typeof overdueInspections
-      | typeof upcomingInspections
-      | typeof overdueNonconformities
-      | typeof dueSoonNonconformities
-      | typeof expiringDocuments
-      | typeof upcomingTrainingSessions,
-    handler: (row: any) => Promise<void>
-  ) => {
-    if (result.error && !isMissingNutritionTableError(result.error)) {
-      console.error("[nutrition] notification sweep query error:", serializeError(result.error));
-      return;
+  const result = await sweepNutritionOperationalNotifications(
+    supabase,
+    tenant.establishmentId,
+    {
+      actorUserId: tenant.userId,
+      source: "manual",
     }
-
-    for (const row of result.data ?? []) {
-      await handler(row);
-      created += 1;
-    }
-  };
-
-  await maybeNotify(overdueInspections, async (row) => {
-    await createNutritionScopedNotification(supabase, {
-      establishmentId: tenant.establishmentId,
-      userId: tenant.userId,
-      type: "nutrition_inspection_overdue",
-      priority: "high",
-      title: "Vistoria atrasada",
-      message: String(row.title ?? "Vistoria agendada"),
-      resourceType: "nutrition_inspection",
-      resourceId: String(row.id),
-      href: `/nutricao/vistorias/${String(row.id)}`,
-      dueAt: row.scheduled_for ? String(row.scheduled_for) : null,
-      dedupeKey: `nutrition-inspection-overdue:${tenant.establishmentId}:${String(row.id)}`,
-    });
-  });
-
-  await maybeNotify(upcomingInspections, async (row) => {
-    await createNutritionScopedNotification(supabase, {
-      establishmentId: tenant.establishmentId,
-      userId: tenant.userId,
-      type: "nutrition_inspection_upcoming",
-      priority: "normal",
-      title: "Vistoria próxima",
-      message: String(row.title ?? "Vistoria agendada"),
-      resourceType: "nutrition_inspection",
-      resourceId: String(row.id),
-      href: `/nutricao/vistorias/${String(row.id)}`,
-      dueAt: row.scheduled_for ? String(row.scheduled_for) : null,
-      dedupeKey: `nutrition-inspection-upcoming:${tenant.establishmentId}:${String(row.id)}`,
-    });
-  });
-
-  await maybeNotify(overdueNonconformities, async (row) => {
-    await createNutritionScopedNotification(supabase, {
-      establishmentId: tenant.establishmentId,
-      userId: tenant.userId,
-      type: "nutrition_nonconformity_overdue",
-      priority: String(row.severity ?? "") === "critical" ? "critical" : "high",
-      title: "Não conformidade vencida",
-      message: String(row.title ?? "Ocorrência em aberto"),
-      resourceType: "nutrition_nonconformity",
-      resourceId: String(row.id),
-      href: `/nutricao/nao-conformidades/${String(row.id)}`,
-      dueAt: row.due_at ? String(row.due_at) : null,
-      dedupeKey: `nutrition-nc-overdue:${tenant.establishmentId}:${String(row.id)}`,
-    });
-  });
-
-  await maybeNotify(dueSoonNonconformities, async (row) => {
-    await createNutritionScopedNotification(supabase, {
-      establishmentId: tenant.establishmentId,
-      userId: tenant.userId,
-      type: "nutrition_nonconformity_due_soon",
-      priority: String(row.severity ?? "") === "critical" ? "critical" : "normal",
-      title: "Prazo de não conformidade próximo",
-      message: String(row.title ?? "Ocorrência em aberto"),
-      resourceType: "nutrition_nonconformity",
-      resourceId: String(row.id),
-      href: `/nutricao/nao-conformidades/${String(row.id)}`,
-      dueAt: row.due_at ? String(row.due_at) : null,
-      dedupeKey: `nutrition-nc-due-soon:${tenant.establishmentId}:${String(row.id)}`,
-    });
-  });
-
-  await maybeNotify(expiringDocuments, async (row) => {
-    await createNutritionScopedNotification(supabase, {
-      establishmentId: tenant.establishmentId,
-      userId: tenant.userId,
-      type: "nutrition_document_expiring",
-      priority: "normal",
-      title: "Documento sanitário próximo do vencimento",
-      message: String(row.title ?? "Documento sanitário"),
-      resourceType: "nutrition_document",
-      resourceId: String(row.id),
-      href: "/nutricao/documentos",
-      dueAt: row.valid_until ? `${String(row.valid_until)}T12:00:00.000Z` : null,
-      dedupeKey: `nutrition-document-expiring:${tenant.establishmentId}:${String(row.id)}`,
-    });
-  });
-
-  await maybeNotify(upcomingTrainingSessions, async (row) => {
-    const training = Array.isArray(row.nutrition_trainings)
-      ? row.nutrition_trainings[0]
-      : row.nutrition_trainings;
-    await createNutritionScopedNotification(supabase, {
-      establishmentId: tenant.establishmentId,
-      userId: tenant.userId,
-      type: "nutrition_training_upcoming",
-      priority: "normal",
-      title: "Treinamento próximo",
-      message: String(training?.title ?? "Treinamento agendado"),
-      resourceType: "nutrition_training_session",
-      resourceId: String(row.id),
-      href: "/nutricao/treinamentos",
-      dueAt: row.scheduled_for ? String(row.scheduled_for) : null,
-      dedupeKey: `nutrition-training-upcoming:${tenant.establishmentId}:${String(row.id)}`,
-    });
-  });
+  );
 
   await appendNutritionAuditEvent(supabase, {
     establishmentId: tenant.establishmentId,
@@ -4961,7 +4787,11 @@ export async function queueNutritionOperationalNotifications() {
     action: "notifications.sweep",
     resourceType: "nutrition_notifications",
     resourceId: tenant.establishmentId,
-    afterData: { generated_or_refreshed: created },
+    afterData: {
+      generated_or_refreshed: result.generatedOrRefreshed,
+      scanned: result.scanned,
+      errors: result.errors.length,
+    },
   });
 
   revalidatePath("/nutricao");

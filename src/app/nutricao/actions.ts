@@ -640,6 +640,58 @@ function inspectionResultFromPercent(percent: number | null) {
   return "failed";
 }
 
+function formatReportDateTime(value?: string | null) {
+  if (!value) return "-";
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date(value));
+}
+
+function formatReportDuration(startedAt?: string | null, completedAt?: string | null) {
+  if (!startedAt || !completedAt) return "-";
+  const elapsed = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+  if (!Number.isFinite(elapsed) || elapsed < 0) return "-";
+  const totalMinutes = Math.floor(elapsed / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${minutes.toString().padStart(2, "0")}min`;
+}
+
+function formatReportOvertime(snapshot: InspectionExecutionSnapshot) {
+  if (!snapshot.startedAt || !snapshot.completedAt || !snapshot.expectedDurationMinutes) {
+    return "-";
+  }
+
+  const elapsedMinutes = Math.floor(
+    (new Date(snapshot.completedAt).getTime() - new Date(snapshot.startedAt).getTime()) /
+      60_000
+  );
+  const overtimeMinutes = elapsedMinutes - snapshot.expectedDurationMinutes;
+  if (!Number.isFinite(overtimeMinutes)) return "-";
+  if (overtimeMinutes <= 0) return "Dentro do previsto";
+  const hours = Math.floor(overtimeMinutes / 60);
+  const minutes = overtimeMinutes % 60;
+  return `${hours}h ${minutes.toString().padStart(2, "0")}min excedidos`;
+}
+
+function flattenInspectionEvidences(snapshot: InspectionExecutionSnapshot) {
+  return [
+    ...snapshot.evidences.map((evidence) => ({
+      ...evidence,
+      context: "Vistoria",
+    })),
+    ...snapshot.items.flatMap((item) =>
+      item.evidences.map((evidence) => ({
+        ...evidence,
+        context: item.title,
+      }))
+    ),
+  ];
+}
+
 async function appendNutritionAuditEvent(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   params: {
@@ -1824,6 +1876,27 @@ export async function uploadNutritionEvidence(formData: FormData) {
     throw new Error("O arquivo foi enviado, mas não foi possível registrar a evidência.");
   }
 
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: "evidence.uploaded",
+    resourceType: target.resourceType,
+    resourceId: target.resourceId,
+    afterData: {
+      file_name: file.name || originalName,
+      mime_type: mimeType,
+      file_size_bytes: file.size,
+      caption: caption || null,
+      category: category || null,
+    },
+    metadata: {
+      inspection_id: target.inspectionId,
+      answer_id: target.answerId,
+      nonconformity_id: target.nonconformityId,
+      checksum_hint: filePath.split("-").at(-1) ?? null,
+    },
+  });
+
   for (const path of target.revalidatePaths) revalidatePath(path);
 }
 
@@ -1861,6 +1934,22 @@ export async function removeNutritionEvidence(formData: FormData) {
     console.error("[nutrition] remove evidence error:", serializeError(error));
     throw new Error("Não foi possível remover a evidência.");
   }
+
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: "evidence.removed",
+    resourceType: "nutrition_evidence",
+    resourceId: evidenceId,
+    reason,
+    afterData: {
+      removed_at: new Date().toISOString(),
+    },
+    metadata: {
+      inspection_id: (evidence as any).inspection_id ?? null,
+      nonconformity_id: (evidence as any).nonconformity_id ?? null,
+    },
+  });
 
   revalidatePath("/nutricao");
   if ((evidence as any).inspection_id) {
@@ -1952,6 +2041,26 @@ export async function saveNutritionSignature(formData: FormData) {
     console.error("[nutrition] signature insert error:", serializeError(error));
     throw new Error("Não foi possível registrar a assinatura.");
   }
+
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: refusalReason ? "signature.refused" : "signature.collected",
+    resourceType: inspectionId ? "inspection" : "reinspection",
+    resourceId: inspectionId || reinspectionId,
+    reason: refusalReason || null,
+    afterData: {
+      signer_name: signerName,
+      signer_role: signerRole || null,
+      has_signature: Boolean(signaturePath),
+      signature_hash: signatureHash,
+      refusal_reason: refusalReason || null,
+      witness_name: witnessName || null,
+    },
+    metadata: {
+      declaration_hash: hashPayload(declarationText),
+    },
+  });
 
   revalidatePath("/nutricao");
   if (inspectionId) revalidatePath(`/nutricao/vistorias/${inspectionId}`);
@@ -2088,6 +2197,22 @@ export async function completeInspection(formData: FormData) {
     throw new Error("Não foi possível concluir a vistoria.");
   }
 
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: "inspection.completed",
+    resourceType: "inspection",
+    resourceId: inspectionId,
+    beforeData: {
+      status: snapshot.status,
+    },
+    afterData: completedSnapshot,
+    reason: completionNotes || null,
+    metadata: {
+      integrity_hash: integrityHash,
+    },
+  });
+
   revalidatePath("/nutricao");
   revalidatePath("/nutricao/vistorias");
   revalidatePath(`/nutricao/vistorias/${inspectionId}`);
@@ -2141,6 +2266,19 @@ export async function createInspectionAddendum(formData: FormData) {
     console.error("[nutrition] addendum insert error:", serializeError(error));
     throw new Error("Não foi possível registrar o adendo.");
   }
+
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: "inspection.addendum_created",
+    resourceType: "inspection",
+    resourceId: inspectionId,
+    afterData: {
+      version,
+      title,
+      body_hash: hashPayload(body),
+    },
+  });
 
   revalidatePath(`/nutricao/vistorias/${inspectionId}`);
 }
@@ -4173,16 +4311,29 @@ function paragraphXml(value: unknown) {
 }
 
 function buildInspectionReportDocx(snapshot: InspectionExecutionSnapshot) {
+  const allEvidences = flattenInspectionEvidences(snapshot);
   const body = [
     paragraphXml(`Relatório de vistoria - ${snapshot.title}`),
     paragraphXml(`Código: ${snapshot.inspectionCode ?? "-"}`),
+    paragraphXml(`Tipo: ${snapshot.inspectionType}`),
+    paragraphXml(`Setor: ${snapshot.sector ?? "-"}`),
+    paragraphXml(`Agendada para: ${formatReportDateTime(snapshot.scheduledFor)}`),
+    paragraphXml(`Início: ${formatReportDateTime(snapshot.startedAt)}`),
+    paragraphXml(`Conclusão: ${formatReportDateTime(snapshot.completedAt)}`),
+    paragraphXml(`Duração: ${formatReportDuration(snapshot.startedAt, snapshot.completedAt)}`),
+    paragraphXml(`Tempo excedido: ${formatReportOvertime(snapshot)}`),
     paragraphXml(`Status: ${snapshot.status}`),
     paragraphXml(`Resultado: ${snapshot.result ?? "-"}`),
     paragraphXml(`Conformidade: ${snapshot.compliancePercent ?? "-"}%`),
+    paragraphXml(`Itens: ${snapshot.totalItems}`),
+    paragraphXml(`Conformes: ${snapshot.compliantItems}`),
+    paragraphXml(`Não conformes: ${snapshot.noncompliantItems}`),
+    paragraphXml(`Não aplicáveis: ${snapshot.notApplicableItems}`),
     paragraphXml(`Geolocalização: ${snapshot.geolocationStatus}`),
     paragraphXml(
       `Latitude: ${snapshot.latitude ?? "-"} | Longitude: ${snapshot.longitude ?? "-"} | Precisão: ${snapshot.geolocationAccuracyMeters ?? "-"} m`
     ),
+    paragraphXml(`Falha/recusa de localização: ${snapshot.geolocationFailureReason ?? "-"}`),
     paragraphXml(`Hash de integridade: ${snapshot.completionIntegrityHash ?? "-"}`),
     paragraphXml("Itens avaliados"),
     ...snapshot.items.flatMap((item, index) => [
@@ -4194,16 +4345,28 @@ function buildInspectionReportDocx(snapshot: InspectionExecutionSnapshot) {
       paragraphXml(`Observação: ${item.answer?.comment ?? "-"}`),
       paragraphXml(`Evidências: ${item.evidences.length}`),
     ]),
+    paragraphXml("Evidências"),
+    ...(allEvidences.length > 0
+      ? allEvidences.map((evidence) =>
+          paragraphXml(
+            `${evidence.context} - ${evidence.fileName ?? evidence.id} - ${
+              evidence.caption ?? "Sem legenda"
+            }`
+          )
+        )
+      : [paragraphXml("Nenhuma evidência anexada.")]),
     paragraphXml("Assinaturas"),
-    ...snapshot.signatures.map((signature) =>
-      paragraphXml(
-        `${signature.signerName} - ${signature.signerRole ?? "Sem função"} - ${
-          signature.refusalReason
-            ? `Recusa: ${signature.refusalReason}`
-            : `Hash: ${signature.signatureHash ?? "-"}`
-        }`
+    ...(snapshot.signatures.length > 0
+      ? snapshot.signatures.map((signature) =>
+          paragraphXml(
+            `${signature.signerName} - ${signature.signerRole ?? "Sem função"} - ${
+              signature.refusalReason
+                ? `Recusa: ${signature.refusalReason}`
+                : `Hash: ${signature.signatureHash ?? "-"}`
+            }`
+          )
       )
-    ),
+      : [paragraphXml("Nenhuma assinatura coletada.")]),
     "<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\"/></w:sectPr>",
   ].join("");
 
@@ -4233,11 +4396,8 @@ function buildInspectionReportDocx(snapshot: InspectionExecutionSnapshot) {
 }
 
 function buildInspectionReportHtml(snapshot: InspectionExecutionSnapshot) {
-  const generatedAt = new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: "America/Sao_Paulo",
-  }).format(new Date());
+  const generatedAt = formatReportDateTime(new Date().toISOString());
+  const allEvidences = flattenInspectionEvidences(snapshot);
 
   const items = snapshot.items
     .map(
@@ -4253,10 +4413,10 @@ function buildInspectionReportHtml(snapshot: InspectionExecutionSnapshot) {
     )
     .join("");
 
-  const evidences = [...snapshot.evidences, ...snapshot.items.flatMap((item) => item.evidences)]
+  const evidences = allEvidences
     .map(
       (evidence) => `
-        <li>${escapeHtml(evidence.fileName ?? evidence.id)}${
+        <li><strong>${escapeHtml(evidence.context)}</strong> - ${escapeHtml(evidence.fileName ?? evidence.id)}${
           evidence.caption ? ` - ${escapeHtml(evidence.caption)}` : ""
         }</li>`
     )
@@ -4284,6 +4444,7 @@ function buildInspectionReportHtml(snapshot: InspectionExecutionSnapshot) {
       .muted { color: #64748b; }
       .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0; }
       .box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
+      .wide { grid-column: span 2; }
       table { width: 100%; border-collapse: collapse; margin-top: 16px; }
       th, td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; vertical-align: top; }
       th { background: #f8fafc; }
@@ -4293,14 +4454,24 @@ function buildInspectionReportHtml(snapshot: InspectionExecutionSnapshot) {
     <h1>${escapeHtml(snapshot.title)}</h1>
     <p class="muted">Relatório de vistoria gerado em ${generatedAt}</p>
     <div class="grid">
+      <div class="box"><strong>Código</strong><br/>${escapeHtml(snapshot.inspectionCode ?? "-")}</div>
+      <div class="box"><strong>Tipo</strong><br/>${escapeHtml(snapshot.inspectionType)}</div>
+      <div class="box"><strong>Setor</strong><br/>${escapeHtml(snapshot.sector ?? "-")}</div>
       <div class="box"><strong>Status</strong><br/>${escapeHtml(snapshot.status)}</div>
       <div class="box"><strong>Resultado</strong><br/>${escapeHtml(snapshot.result ?? "-")}</div>
       <div class="box"><strong>Conformidade</strong><br/>${snapshot.compliancePercent ?? "-"}%</div>
-      <div class="box"><strong>Hash</strong><br/>${escapeHtml(snapshot.completionIntegrityHash ?? "-")}</div>
+      <div class="box"><strong>Itens</strong><br/>${snapshot.totalItems}</div>
+      <div class="box"><strong>Não conformes</strong><br/>${snapshot.noncompliantItems}</div>
+      <div class="box"><strong>Início</strong><br/>${formatReportDateTime(snapshot.startedAt)}</div>
+      <div class="box"><strong>Conclusão</strong><br/>${formatReportDateTime(snapshot.completedAt)}</div>
+      <div class="box"><strong>Duração</strong><br/>${formatReportDuration(snapshot.startedAt, snapshot.completedAt)}</div>
+      <div class="box"><strong>Tempo excedido</strong><br/>${formatReportOvertime(snapshot)}</div>
+      <div class="box wide"><strong>Hash</strong><br/>${escapeHtml(snapshot.completionIntegrityHash ?? "-")}</div>
     </div>
     <h2>Geolocalização</h2>
     <p>Status: ${escapeHtml(snapshot.geolocationStatus)}. Latitude: ${snapshot.latitude ?? "-"}.
-    Longitude: ${snapshot.longitude ?? "-"}. Precisão: ${snapshot.geolocationAccuracyMeters ?? "-"} m.</p>
+    Longitude: ${snapshot.longitude ?? "-"}. Precisão: ${snapshot.geolocationAccuracyMeters ?? "-"} m.
+    Falha/recusa: ${escapeHtml(snapshot.geolocationFailureReason ?? "-")}.</p>
     <h2>Itens avaliados</h2>
     <table>
       <thead>
@@ -4362,11 +4533,23 @@ export async function generateInspectionReport(formData: FormData) {
     const doc = new jsPDF({ unit: "pt", format: "a4" });
     const lines = [
       `Relatorio de vistoria: ${snapshot.title}`,
+      `Codigo: ${snapshot.inspectionCode ?? "-"}`,
+      `Tipo: ${snapshot.inspectionType}`,
+      `Setor: ${snapshot.sector ?? "-"}`,
+      `Agendada para: ${formatReportDateTime(snapshot.scheduledFor)}`,
+      `Inicio: ${formatReportDateTime(snapshot.startedAt)}`,
+      `Conclusao: ${formatReportDateTime(snapshot.completedAt)}`,
+      `Duracao: ${formatReportDuration(snapshot.startedAt, snapshot.completedAt)}`,
+      `Tempo excedido: ${formatReportOvertime(snapshot)}`,
       `Status: ${snapshot.status}`,
       `Resultado: ${snapshot.result ?? "-"}`,
       `Conformidade: ${snapshot.compliancePercent ?? "-"}%`,
       `Itens: ${snapshot.items.length}`,
+      `Conformes: ${snapshot.compliantItems}`,
       `Nao conformes: ${snapshot.noncompliantItems}`,
+      `Nao aplicaveis: ${snapshot.notApplicableItems}`,
+      `Geolocalizacao: ${snapshot.geolocationStatus}`,
+      `Coordenadas: ${snapshot.latitude ?? "-"}, ${snapshot.longitude ?? "-"} (${snapshot.geolocationAccuracyMeters ?? "-"} m)`,
       `Hash: ${snapshot.completionIntegrityHash ?? contentHash}`,
       "",
       "Itens avaliados:",
@@ -4374,6 +4557,26 @@ export async function generateInspectionReport(formData: FormData) {
         (item, index) =>
           `${index + 1}. ${item.title} - ${item.answer?.conformityStatus ?? "sem resposta"}`
       ),
+      "",
+      "Evidencias:",
+      ...(flattenInspectionEvidences(snapshot).length > 0
+        ? flattenInspectionEvidences(snapshot).map(
+            (evidence) =>
+              `${evidence.context}: ${evidence.fileName ?? evidence.id}${evidence.caption ? ` - ${evidence.caption}` : ""}`
+          )
+        : ["Nenhuma evidencia anexada."]),
+      "",
+      "Assinaturas:",
+      ...(snapshot.signatures.length > 0
+        ? snapshot.signatures.map(
+            (signature) =>
+              `${signature.signerName} - ${signature.signerRole ?? "Sem funcao"} - ${
+                signature.refusalReason
+                  ? `Recusa: ${signature.refusalReason}`
+                  : `Hash: ${signature.signatureHash ?? "-"}`
+              }`
+          )
+        : ["Nenhuma assinatura coletada."]),
     ];
     doc.text(lines, 40, 48, { maxWidth: 515 });
     body = Buffer.from(doc.output("arraybuffer"));
@@ -4423,6 +4626,25 @@ export async function generateInspectionReport(formData: FormData) {
     console.error("[nutrition] report insert error:", serializeError(error));
     throw new Error("O relatório foi gerado, mas não foi possível registrá-lo.");
   }
+
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: "report.generated",
+    resourceType: "inspection",
+    resourceId: inspectionId,
+    afterData: {
+      format,
+      version,
+      file_path: filePath,
+      content_hash: contentHash,
+      verification_code: contentHash.slice(0, 16).toUpperCase(),
+    },
+    metadata: {
+      source_type: "inspection",
+      source_id: inspectionId,
+    },
+  });
 
   revalidatePath("/nutricao/relatorios");
   revalidatePath(`/nutricao/vistorias/${inspectionId}`);
@@ -4528,6 +4750,20 @@ export async function enqueueNutritionReportDelivery(formData: FormData) {
     },
     dedupeKey: idempotencyKey,
     maxAttempts: 5,
+  });
+
+  await appendNutritionAuditEvent(supabase, {
+    establishmentId: tenant.establishmentId,
+    actorUserId: tenant.userId,
+    action: "report.delivery_queued",
+    resourceType: "nutrition_report",
+    resourceId: reportId,
+    afterData: {
+      channel,
+      recipient_name: recipientName || null,
+      recipient_address_masked: masked,
+      delivery_id: String((delivery as any).id),
+    },
   });
 
   revalidatePath("/nutricao/relatorios");

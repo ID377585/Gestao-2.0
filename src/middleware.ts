@@ -23,6 +23,8 @@ const API_CORS_HEADERS = [
   "x-cron-secret",
   "x-fiscal-sync-secret",
   "x-job-worker-secret",
+  "x-nutrition-cron-secret",
+  "x-operational-readiness-secret",
 ].join(", ");
 
 function getAllowedCorsOrigins(req: NextRequest) {

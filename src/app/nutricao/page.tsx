@@ -24,31 +24,89 @@ export default async function NutricaoPage() {
       title: "Vistorias hoje",
       value: summary.inspectionsToday,
       detail: "Agendadas para o dia atual no estabelecimento ativo.",
+      href: "/nutricao/vistorias",
     },
     {
       title: "Em andamento",
       value: summary.inspectionsInProgress,
       detail: "Vistorias iniciadas ou pausadas aguardando conclusão.",
+      href: "/nutricao/vistorias",
+    },
+    {
+      title: "Vistorias atrasadas",
+      value: summary.overdueInspections,
+      detail: "Agendamentos vencidos que ainda precisam ser iniciados.",
+      href: "/nutricao/vistorias",
     },
     {
       title: "Não conformidades",
       value: summary.openNonconformities,
       detail: "Ocorrências abertas, em correção ou validação.",
+      href: "/nutricao/nao-conformidades",
     },
     {
       title: "Críticas",
       value: summary.criticalNonconformities,
       detail: "Ocorrências críticas que exigem prioridade operacional.",
+      href: "/nutricao/nao-conformidades",
+    },
+    {
+      title: "Prazos próximos",
+      value: summary.dueSoonNonconformities,
+      detail: "Não conformidades com prazo nos próximos 7 dias.",
+      href: "/nutricao/nao-conformidades",
     },
     {
       title: "Ações vencidas",
       value: summary.overdueActions,
       detail: "Itens de plano de ação fora do prazo configurado.",
+      href: "/nutricao/planos-de-acao",
+    },
+    {
+      title: "Higienizações pendentes",
+      value: summary.pendingSanitationRecords,
+      detail: "Execuções pendentes, vencidas ou reprovadas.",
+      href: "/nutricao/higienizacao",
+    },
+    {
+      title: "Treinamentos pendentes",
+      value: summary.pendingTrainingAttendees,
+      detail: "Participantes ainda sem presença confirmada.",
+      href: "/nutricao/treinamentos",
     },
     {
       title: "Documentos a vencer",
       value: summary.expiringDocuments,
       detail: "Documentos com validade nos próximos 30 dias.",
+      href: "/nutricao/documentos",
+    },
+    {
+      title: "Envios com falha",
+      value: summary.failedReportDeliveries,
+      detail: "Relatórios que precisam de revisão ou reprocessamento.",
+      href: "/nutricao/relatorios",
+    },
+  ];
+  const readinessItems = [
+    {
+      title: "Controle multiempresa",
+      detail: "Consultas e arquivos usam estabelecimento ativo e bucket privado.",
+      status: "Em validação contínua",
+    },
+    {
+      title: "Fluxo de vistoria",
+      detail: "Início, geolocalização, respostas, evidências, assinatura e conclusão.",
+      status: "Operacional",
+    },
+    {
+      title: "Relatórios",
+      detail: "Geração versionada com hash e download por URL assinada.",
+      status: "Parcial avançado",
+    },
+    {
+      title: "Offline completo",
+      detail: "Indicador de conexão existe; fila local completa ainda exige fase dedicada.",
+      status: "Pendente",
     },
   ];
 
@@ -108,8 +166,9 @@ export default async function NutricaoPage() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {summaryCards.map((card) => (
-          <div
+          <Link
             key={card.title}
+            href={card.href}
             className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
           >
             <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
@@ -121,8 +180,46 @@ export default async function NutricaoPage() {
             <p className="mt-2 text-sm leading-5 text-slate-600 dark:text-slate-300">
               {card.detail}
             </p>
-          </div>
+          </Link>
         ))}
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-slate-950 dark:text-white">
+              Prontidão operacional
+            </h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+              Estado prático dos principais requisitos da especificação.
+            </p>
+          </div>
+          <Link
+            href="/nutricao/configuracoes"
+            className="text-sm font-semibold text-emerald-700 hover:underline dark:text-emerald-300"
+          >
+            Ajustar configurações
+          </Link>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {readinessItems.map((item) => (
+            <div
+              key={item.title}
+              className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950"
+            >
+              <p className="font-semibold text-slate-950 dark:text-white">
+                {item.title}
+              </p>
+              <p className="mt-2 leading-5 text-slate-600 dark:text-slate-300">
+                {item.detail}
+              </p>
+              <p className="mt-3 text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                {item.status}
+              </p>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">

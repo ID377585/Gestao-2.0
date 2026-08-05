@@ -23,11 +23,16 @@ export type NutritionSummary = {
   inspectionsToday: number;
   inspectionsInProgress: number;
   inspectionsCompleted: number;
+  overdueInspections: number;
   openNonconformities: number;
   criticalNonconformities: number;
+  dueSoonNonconformities: number;
   overdueActions: number;
+  pendingSanitationRecords: number;
   pendingTemperatureRecords: number;
+  pendingTrainingAttendees: number;
   expiringDocuments: number;
+  failedReportDeliveries: number;
   message?: string;
 };
 
@@ -594,11 +599,16 @@ function emptySummary(message?: string): NutritionSummary {
     inspectionsToday: 0,
     inspectionsInProgress: 0,
     inspectionsCompleted: 0,
+    overdueInspections: 0,
     openNonconformities: 0,
     criticalNonconformities: 0,
+    dueSoonNonconformities: 0,
     overdueActions: 0,
+    pendingSanitationRecords: 0,
     pendingTemperatureRecords: 0,
+    pendingTrainingAttendees: 0,
     expiringDocuments: 0,
+    failedReportDeliveries: 0,
     message,
   };
 }
@@ -732,15 +742,23 @@ export async function getNutritionSummary(): Promise<NutritionSummary> {
   tomorrow.setDate(tomorrow.getDate() + 1);
   const nextThirtyDays = new Date(today);
   nextThirtyDays.setDate(nextThirtyDays.getDate() + 30);
+  const nextSevenDays = new Date(today);
+  nextSevenDays.setDate(nextSevenDays.getDate() + 7);
+  const nowIso = new Date().toISOString();
 
   const [
     inspectionsToday,
     inspectionsInProgress,
     inspectionsCompleted,
+    overdueInspections,
     openNonconformities,
     criticalNonconformities,
+    dueSoonNonconformities,
     overdueActions,
+    pendingSanitationRecords,
+    pendingTrainingAttendees,
     expiringDocuments,
+    failedReportDeliveries,
   ] = await Promise.all([
     supabase
       .from("nutrition_inspections")
@@ -759,6 +777,12 @@ export async function getNutritionSummary(): Promise<NutritionSummary> {
       .eq("establishment_id", tenant.establishmentId)
       .eq("status", "completed"),
     supabase
+      .from("nutrition_inspections")
+      .select("id", { count: "exact", head: true })
+      .eq("establishment_id", tenant.establishmentId)
+      .lt("scheduled_for", nowIso)
+      .in("status", ["scheduled", "overdue"]),
+    supabase
       .from("nutrition_nonconformities")
       .select("id", { count: "exact", head: true })
       .eq("establishment_id", tenant.establishmentId)
@@ -770,27 +794,53 @@ export async function getNutritionSummary(): Promise<NutritionSummary> {
       .eq("severity", "critical")
       .not("status", "in", "(closed,canceled)"),
     supabase
+      .from("nutrition_nonconformities")
+      .select("id", { count: "exact", head: true })
+      .eq("establishment_id", tenant.establishmentId)
+      .lte("due_at", nextSevenDays.toISOString())
+      .not("status", "in", "(closed,canceled)"),
+    supabase
       .from("nutrition_action_items")
       .select("id", { count: "exact", head: true })
       .eq("establishment_id", tenant.establishmentId)
       .lt("due_at", new Date().toISOString())
       .not("status", "in", "(completed,canceled)"),
     supabase
+      .from("nutrition_sanitation_records")
+      .select("id", { count: "exact", head: true })
+      .eq("establishment_id", tenant.establishmentId)
+      .in("status", ["pending", "overdue", "failed"]),
+    supabase
+      .from("nutrition_training_attendees")
+      .select("id", { count: "exact", head: true })
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("attendance_status", "pending"),
+    supabase
       .from("nutrition_documents")
       .select("id", { count: "exact", head: true })
       .eq("establishment_id", tenant.establishmentId)
       .lte("valid_until", nextThirtyDays.toISOString().slice(0, 10))
       .not("status", "in", "(canceled,replaced)"),
+    supabase
+      .from("nutrition_report_deliveries")
+      .select("id", { count: "exact", head: true })
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("status", "failed"),
   ]);
 
   const firstError = [
     inspectionsToday.error,
     inspectionsInProgress.error,
     inspectionsCompleted.error,
+    overdueInspections.error,
     openNonconformities.error,
     criticalNonconformities.error,
+    dueSoonNonconformities.error,
     overdueActions.error,
+    pendingSanitationRecords.error,
+    pendingTrainingAttendees.error,
     expiringDocuments.error,
+    failedReportDeliveries.error,
   ].find(Boolean);
 
   if (firstError) {
@@ -810,11 +860,16 @@ export async function getNutritionSummary(): Promise<NutritionSummary> {
     inspectionsToday: inspectionsToday.count ?? 0,
     inspectionsInProgress: inspectionsInProgress.count ?? 0,
     inspectionsCompleted: inspectionsCompleted.count ?? 0,
+    overdueInspections: overdueInspections.count ?? 0,
     openNonconformities: openNonconformities.count ?? 0,
     criticalNonconformities: criticalNonconformities.count ?? 0,
+    dueSoonNonconformities: dueSoonNonconformities.count ?? 0,
     overdueActions: overdueActions.count ?? 0,
+    pendingSanitationRecords: pendingSanitationRecords.count ?? 0,
     pendingTemperatureRecords: 0,
+    pendingTrainingAttendees: pendingTrainingAttendees.count ?? 0,
     expiringDocuments: expiringDocuments.count ?? 0,
+    failedReportDeliveries: failedReportDeliveries.count ?? 0,
   };
 }
 
@@ -1973,6 +2028,7 @@ export async function saveNutritionSignature(formData: FormData) {
   const signatureData = String(formData.get("signature_data") ?? "").trim();
   const refusalReason = String(formData.get("refusal_reason") ?? "").trim();
   const witnessName = String(formData.get("witness_name") ?? "").trim();
+  const declarationAccepted = formData.get("declaration_accepted") === "on";
   const declarationText =
     String(formData.get("declaration_text") ?? "").trim() ||
     "Declaro ciência sobre o conteúdo e os registros desta vistoria.";
@@ -1981,8 +2037,17 @@ export async function saveNutritionSignature(formData: FormData) {
     throw new Error("Vistoria ou reinspeção não informada.");
   }
   if (!signerName) throw new Error("Informe o nome do assinante.");
+  if (!declarationAccepted) {
+    throw new Error("Confirme a declaração antes de registrar assinatura ou recusa.");
+  }
+  if (signatureData && refusalReason) {
+    throw new Error("Escolha apenas uma opção: assinatura coletada ou recusa justificada.");
+  }
   if (!signatureData && !refusalReason) {
     throw new Error("Colete a assinatura ou registre a recusa com justificativa.");
+  }
+  if (refusalReason && !witnessName) {
+    throw new Error("Informe uma testemunha para registrar a recusa de assinatura.");
   }
 
   if (inspectionId) {
@@ -2646,9 +2711,13 @@ export async function submitNutritionCorrection(formData: FormData) {
 }
 
 export async function validateNutritionCorrection(formData: FormData) {
+  const { tenant, supabase } = await getNutritionContext();
+  const nonconformityId = String(formData.get("nonconformity_id") ?? "").trim();
   const result = String(formData.get("validation_result") ?? "").trim();
   const comment = String(formData.get("validation_comment") ?? "").trim();
   const needsReinspection = formData.get("needs_reinspection") === "on";
+
+  if (!nonconformityId) throw new Error("Não conformidade inválida.");
 
   if (!["approved", "rejected"].includes(result)) {
     throw new Error("Escolha o resultado da validação.");
@@ -2656,6 +2725,43 @@ export async function validateNutritionCorrection(formData: FormData) {
 
   if (result === "rejected" && !comment) {
     throw new Error("Informe o motivo da rejeição.");
+  }
+
+  if (result === "approved") {
+    const { data: current, error: currentError } = await supabase
+      .from("nutrition_nonconformities")
+      .select("id,severity,updated_by")
+      .eq("establishment_id", tenant.establishmentId)
+      .eq("id", nonconformityId)
+      .maybeSingle();
+
+    if (currentError || !current) {
+      throw new Error("Não conformidade não encontrada para este estabelecimento.");
+    }
+
+    if (String((current as any).severity ?? "") === "critical") {
+      const { data: latestCorrection } = await supabase
+        .from("nutrition_audit_events")
+        .select("actor_user_id")
+        .eq("establishment_id", tenant.establishmentId)
+        .eq("resource_type", "nonconformity")
+        .eq("resource_id", nonconformityId)
+        .eq("action", "nonconformity.correction_submitted")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const correctionActorId = String(
+        (latestCorrection as any)?.actor_user_id ??
+          (current as any).updated_by ??
+          ""
+      );
+
+      if (correctionActorId && correctionActorId === tenant.userId) {
+        throw new Error(
+          "Ocorrência crítica precisa ser validada por outra pessoa autorizada."
+        );
+      }
+    }
   }
 
   const status =

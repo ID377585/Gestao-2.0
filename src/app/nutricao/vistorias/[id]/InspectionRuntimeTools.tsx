@@ -435,10 +435,28 @@ export function SignaturePad({ inspectionId, disabled, signatures }: SignaturePa
         <form action={saveNutritionSignature} className="grid gap-3">
           <input name="inspection_id" type="hidden" value={inspectionId} />
           <input name="signature_data" type="hidden" value={signatureData} />
+          <input
+            name="declaration_text"
+            type="hidden"
+            value="Declaro ciência sobre o conteúdo e os registros desta vistoria."
+          />
           <div className="grid gap-3 md:grid-cols-2">
             <Input name="signer_name" placeholder="Nome do responsável" required />
             <Input name="signer_role" placeholder="Função" />
           </div>
+          <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+            <input
+              name="declaration_accepted"
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-300"
+              required
+            />
+            <span>
+              Declaro ciência sobre o conteúdo e os registros desta vistoria.
+              Em caso de recusa, a justificativa e a testemunha serão registradas
+              na trilha de auditoria.
+            </span>
+          </label>
           <canvas
             ref={canvasRef}
             width={700}
@@ -460,7 +478,7 @@ export function SignaturePad({ inspectionId, disabled, signatures }: SignaturePa
           </div>
           <div className="grid gap-2 border-t border-slate-200 pt-3 dark:border-slate-800">
             <Textarea name="refusal_reason" placeholder="Em caso de recusa, informe a justificativa." />
-            <Input name="witness_name" placeholder="Testemunha, se houver" />
+            <Input name="witness_name" placeholder="Testemunha obrigatória em caso de recusa" />
           </div>
         </form>
       ) : null}

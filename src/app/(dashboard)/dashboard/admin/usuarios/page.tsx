@@ -259,7 +259,7 @@ export default async function UsuariosPage({
 
   const collaborators = await listCollaborators();
   const accessPermissionsByUser = await listCollaboratorModulePermissions(
-    collaborators.map((colab) => colab.id)
+    collaborators.map((colab) => ({ id: colab.id, role: colab.role }))
   );
   const auditLogs = await listUserAccessAuditLogs(30);
   const invitations = await listTenantInvitationsInternalAction();

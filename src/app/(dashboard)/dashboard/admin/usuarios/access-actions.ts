@@ -88,15 +88,26 @@ export function getDefaultModulesForRole(role: ProfileRole): UserModulePermissio
   return permissions;
 }
 
-export async function listCollaboratorModulePermissions(userIds: string[]) {
+export async function listCollaboratorModulePermissions(
+  collaborators: { id: string; role: ProfileRole }[]
+) {
   const ctx = await getContextOrThrow();
   const supabaseAdmin = getSupabaseAdminClient();
-  const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
 
+  const roleByUserId = new Map<string, ProfileRole>();
+  for (const colab of collaborators) {
+    if (colab.id) roleByUserId.set(colab.id, colab.role);
+  }
+  const uniqueUserIds = Array.from(roleByUserId.keys());
+
+  // Sem linha explícita em user_module_permissions, o acesso efetivo do usuário
+  // é o default por papel (mesma regra usada em module-access.ts para liberar
+  // rotas). Semear o mapa com esse default evita que a tela mostre um módulo
+  // como "sem acesso" quando na prática o usuário já acessa via fallback —
+  // o que levaria a revogar acesso por engano num salvamento não relacionado.
   const result = new Map<string, UserModulePermissionMap>();
-
-  for (const userId of uniqueUserIds) {
-    result.set(userId, emptyModulePermissionMap());
+  for (const [userId, role] of roleByUserId) {
+    result.set(userId, getDefaultModulesForRole(role));
   }
 
   if (uniqueUserIds.length === 0) {

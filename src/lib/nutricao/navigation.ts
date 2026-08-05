@@ -44,7 +44,7 @@ export const NUTRICAO_SUBMODULES: NutricaoSubmodule[] = [
     description: "Modelos versionados, agendamentos, execução e assinaturas.",
     icon: ClipboardCheck,
     tone: "border-emerald-200 bg-emerald-50",
-    status: "next",
+    status: "foundation",
   },
   {
     slug: "temperaturas",
@@ -54,7 +54,7 @@ export const NUTRICAO_SUBMODULES: NutricaoSubmodule[] = [
     description: "Medições, limites, histórico e alertas de variação.",
     icon: Thermometer,
     tone: "border-sky-200 bg-sky-50",
-    status: "next",
+    status: "foundation",
   },
   {
     slug: "pops",
@@ -64,7 +64,7 @@ export const NUTRICAO_SUBMODULES: NutricaoSubmodule[] = [
     description: "Procedimentos, versões, aprovação e consulta operacional.",
     icon: FileCheck2,
     tone: "border-violet-200 bg-violet-50",
-    status: "next",
+    status: "foundation",
   },
   {
     slug: "higienizacao",
@@ -74,7 +74,7 @@ export const NUTRICAO_SUBMODULES: NutricaoSubmodule[] = [
     description: "Rotinas, responsáveis, evidências e atrasos.",
     icon: ListChecks,
     tone: "border-cyan-200 bg-cyan-50",
-    status: "next",
+    status: "foundation",
   },
   {
     slug: "nao-conformidades",
@@ -84,7 +84,7 @@ export const NUTRICAO_SUBMODULES: NutricaoSubmodule[] = [
     description: "Gravidade, responsável, prazo, evidência e reinspeção.",
     icon: AlertTriangle,
     tone: "border-rose-200 bg-rose-50",
-    status: "next",
+    status: "foundation",
   },
   {
     slug: "planos-de-acao",
@@ -94,7 +94,7 @@ export const NUTRICAO_SUBMODULES: NutricaoSubmodule[] = [
     description: "Correções atribuídas, vencimentos e aprovações.",
     icon: CalendarClock,
     tone: "border-amber-200 bg-amber-50",
-    status: "next",
+    status: "foundation",
   },
   {
     slug: "treinamentos",
@@ -104,7 +104,7 @@ export const NUTRICAO_SUBMODULES: NutricaoSubmodule[] = [
     description: "Participantes, validade, anexos e pendências.",
     icon: GraduationCap,
     tone: "border-indigo-200 bg-indigo-50",
-    status: "next",
+    status: "foundation",
   },
   {
     slug: "documentos",
@@ -114,7 +114,7 @@ export const NUTRICAO_SUBMODULES: NutricaoSubmodule[] = [
     description: "Arquivos sanitários, validade, evidências e histórico.",
     icon: FileText,
     tone: "border-slate-200 bg-slate-50",
-    status: "next",
+    status: "foundation",
   },
   {
     slug: "fornecedores",
@@ -124,7 +124,7 @@ export const NUTRICAO_SUBMODULES: NutricaoSubmodule[] = [
     description: "Avaliação sanitária, documentos e reincidências.",
     icon: Truck,
     tone: "border-orange-200 bg-orange-50",
-    status: "next",
+    status: "foundation",
   },
   {
     slug: "relatorios",
@@ -134,7 +134,7 @@ export const NUTRICAO_SUBMODULES: NutricaoSubmodule[] = [
     description: "Conformidade, pendências, reincidências e exportações.",
     icon: Sparkles,
     tone: "border-lime-200 bg-lime-50",
-    status: "next",
+    status: "foundation",
   },
   {
     slug: "configuracoes",

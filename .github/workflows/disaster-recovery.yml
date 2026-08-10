@@ -1,0 +1,304 @@
+name: Disaster recovery drill
+
+"on":
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/dr/**"
+      - "scripts/audit-disaster-recovery.mjs"
+      - ".github/workflows/disaster-recovery.yml"
+      - "package.json"
+      - "package-lock.json"
+  push:
+    branches:
+      - main
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/dr/**"
+      - "scripts/audit-disaster-recovery.mjs"
+      - ".github/workflows/disaster-recovery.yml"
+      - "package.json"
+      - "package-lock.json"
+  schedule:
+    # Defense-in-depth logical copy. This does not replace PITR/WAL backups.
+    - cron: "17 4 * * *"
+    # Quarterly round-trip: off-site download plus restore into disposable local stack.
+    - cron: "47 4 1 1,4,7,10 *"
+  workflow_dispatch:
+    inputs:
+      run_live_backup:
+        description: "Criar e enviar uma cópia lógica criptografada real"
+        required: false
+        default: false
+        type: boolean
+      run_restore_drill:
+        description: "Baixar a cópia enviada e testar restore local descartável"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gestify-disaster-recovery-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fixture-restore:
+    name: Fixture backup and restore
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify container runtime
+        run: |
+          docker version
+          docker info >/dev/null
+
+      - name: Run encrypted fixture restore drill
+        id: fixture
+        env:
+          SUPABASE_TELEMETRY_DISABLED: "1"
+        run: npm run dr:fixture
+
+      - name: Upload fixture restore report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestify-dr-fixture-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/dr-fixture/restore-report-*.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  live-encrypted-backup:
+    name: Encrypted off-site backup and optional restore
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      vars.GESTIFY_DR_ENABLED == 'true' &&
+      (
+        github.event_name == 'schedule' ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          (inputs.run_live_backup == true || inputs.run_restore_drill == true)
+        )
+      )
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - gestify-dr
+    environment: disaster-recovery
+    timeout-minutes: 120
+
+    env:
+      SUPABASE_DB_URL: ${{ secrets.GESTIFY_DR_SOURCE_DB_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.GESTIFY_DR_BACKUP_PASSPHRASE }}
+      GESTIFY_DR_S3_ENDPOINT: ${{ secrets.GESTIFY_DR_S3_ENDPOINT }}
+      GESTIFY_DR_S3_BUCKET: ${{ secrets.GESTIFY_DR_S3_BUCKET }}
+      GESTIFY_DR_S3_ACCESS_KEY_ID: ${{ secrets.GESTIFY_DR_S3_ACCESS_KEY_ID }}
+      GESTIFY_DR_S3_SECRET_ACCESS_KEY: ${{ secrets.GESTIFY_DR_S3_SECRET_ACCESS_KEY }}
+      GESTIFY_DR_S3_REGION: ${{ secrets.GESTIFY_DR_S3_REGION }}
+      GESTIFY_DR_S3_PREFIX: ${{ vars.GESTIFY_DR_S3_PREFIX }}
+      GESTIFY_DR_INCLUDE_STORAGE: ${{ vars.GESTIFY_DR_INCLUDE_STORAGE }}
+      SUPABASE_STORAGE_S3_ENDPOINT: ${{ secrets.SUPABASE_STORAGE_S3_ENDPOINT }}
+      SUPABASE_STORAGE_S3_ACCESS_KEY_ID: ${{ secrets.SUPABASE_STORAGE_S3_ACCESS_KEY_ID }}
+      SUPABASE_STORAGE_S3_SECRET_ACCESS_KEY: ${{ secrets.SUPABASE_STORAGE_S3_SECRET_ACCESS_KEY }}
+      SUPABASE_STORAGE_S3_REGION: ${{ secrets.SUPABASE_STORAGE_S3_REGION }}
+      EVENT_SCHEDULE: ${{ github.event.schedule }}
+      INPUT_RUN_RESTORE: ${{ inputs.run_restore_drill }}
+      SUPABASE_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Select live DR mode
+        id: mode
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          restore=false
+          if [[ "$EVENT_SCHEDULE" == "47 4 1 1,4,7,10 *" ]]; then
+            restore=true
+          fi
+          if [[ "${INPUT_RUN_RESTORE:-false}" == "true" ]]; then
+            restore=true
+          fi
+          echo "restore=$restore" >> "$GITHUB_OUTPUT"
+
+      - name: Preflight DR runner and secrets
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          required=(
+            SUPABASE_DB_URL
+            BACKUP_PASSPHRASE
+            GESTIFY_DR_S3_BUCKET
+            GESTIFY_DR_S3_ACCESS_KEY_ID
+            GESTIFY_DR_S3_SECRET_ACCESS_KEY
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required DR secret: $name" >&2
+              exit 1
+            fi
+          done
+
+          if [[ ${#BACKUP_PASSPHRASE} -lt 32 ]]; then
+            echo "GESTIFY_DR_BACKUP_PASSPHRASE must have at least 32 characters" >&2
+            exit 1
+          fi
+
+          if [[ "${GESTIFY_DR_INCLUDE_STORAGE:-false}" == "true" ]]; then
+            storage_required=(
+              SUPABASE_STORAGE_S3_ENDPOINT
+              SUPABASE_STORAGE_S3_ACCESS_KEY_ID
+              SUPABASE_STORAGE_S3_SECRET_ACCESS_KEY
+            )
+            for name in "${storage_required[@]}"; do
+              if [[ -z "${!name:-}" ]]; then
+                echo "Missing required Storage DR secret: $name" >&2
+                exit 1
+              fi
+            done
+          fi
+
+          command -v docker >/dev/null
+          command -v gpg >/dev/null
+          command -v aws >/dev/null
+          docker info >/dev/null
+
+      - name: Create encrypted backup
+        id: backup
+        shell: bash
+        env:
+          BACKUP_OUTPUT_DIR: ${{ runner.temp }}/gestify-dr-created
+          BACKUP_PREFIX: gestify-production
+        run: bash scripts/dr/create-encrypted-backup.sh
+
+      - name: Upload encrypted bundle to off-site storage
+        id: offsite
+        shell: bash
+        env:
+          BACKUP_FILE: ${{ steps.backup.outputs.backup_file }}
+          CHECKSUM_FILE: ${{ steps.backup.outputs.checksum_file }}
+          METADATA_FILE: ${{ steps.backup.outputs.metadata_file }}
+          BACKUP_NAME: ${{ steps.backup.outputs.backup_name }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          export AWS_ACCESS_KEY_ID="$GESTIFY_DR_S3_ACCESS_KEY_ID"
+          export AWS_SECRET_ACCESS_KEY="$GESTIFY_DR_S3_SECRET_ACCESS_KEY"
+          export AWS_DEFAULT_REGION="${GESTIFY_DR_S3_REGION:-us-east-1}"
+
+          endpoint_args=()
+          if [[ -n "$GESTIFY_DR_S3_ENDPOINT" ]]; then
+            endpoint_args=(--endpoint-url "$GESTIFY_DR_S3_ENDPOINT")
+          fi
+
+          prefix="${GESTIFY_DR_S3_PREFIX:-gestify/daily}"
+          prefix="${prefix#/}"
+          prefix="${prefix%/}"
+          object_key="$prefix/$BACKUP_NAME"
+
+          aws "${endpoint_args[@]}" s3 cp "$BACKUP_FILE" \
+            "s3://$GESTIFY_DR_S3_BUCKET/$object_key" \
+            --only-show-errors
+          aws "${endpoint_args[@]}" s3 cp "$CHECKSUM_FILE" \
+            "s3://$GESTIFY_DR_S3_BUCKET/$object_key.sha256" \
+            --only-show-errors
+          aws "${endpoint_args[@]}" s3 cp "$METADATA_FILE" \
+            "s3://$GESTIFY_DR_S3_BUCKET/$object_key.metadata.json" \
+            --only-show-errors
+
+          echo "object_key=$object_key" >> "$GITHUB_OUTPUT"
+
+      - name: Download the off-site copy for round-trip verification
+        if: ${{ steps.mode.outputs.restore == 'true' }}
+        id: download
+        shell: bash
+        env:
+          OBJECT_KEY: ${{ steps.offsite.outputs.object_key }}
+          BACKUP_NAME: ${{ steps.backup.outputs.backup_name }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          export AWS_ACCESS_KEY_ID="$GESTIFY_DR_S3_ACCESS_KEY_ID"
+          export AWS_SECRET_ACCESS_KEY="$GESTIFY_DR_S3_SECRET_ACCESS_KEY"
+          export AWS_DEFAULT_REGION="${GESTIFY_DR_S3_REGION:-us-east-1}"
+
+          endpoint_args=()
+          if [[ -n "$GESTIFY_DR_S3_ENDPOINT" ]]; then
+            endpoint_args=(--endpoint-url "$GESTIFY_DR_S3_ENDPOINT")
+          fi
+
+          download_dir="${RUNNER_TEMP}/gestify-dr-downloaded"
+          mkdir -p "$download_dir"
+          downloaded_backup="$download_dir/$BACKUP_NAME"
+          downloaded_checksum="$downloaded_backup.sha256"
+
+          aws "${endpoint_args[@]}" s3 cp \
+            "s3://$GESTIFY_DR_S3_BUCKET/$OBJECT_KEY" \
+            "$downloaded_backup" \
+            --only-show-errors
+          aws "${endpoint_args[@]}" s3 cp \
+            "s3://$GESTIFY_DR_S3_BUCKET/$OBJECT_KEY.sha256" \
+            "$downloaded_checksum" \
+            --only-show-errors
+
+          echo "backup_file=$downloaded_backup" >> "$GITHUB_OUTPUT"
+          echo "checksum_file=$downloaded_checksum" >> "$GITHUB_OUTPUT"
+
+      - name: Restore downloaded backup into an ephemeral local Supabase stack
+        if: ${{ steps.mode.outputs.restore == 'true' }}
+        id: restore
+        shell: bash
+        env:
+          BACKUP_FILE: ${{ steps.download.outputs.backup_file }}
+          BACKUP_CHECKSUM_FILE: ${{ steps.download.outputs.checksum_file }}
+          DR_REPORT_DIR: ${{ runner.temp }}/gestify-dr-reports
+        run: bash scripts/dr/restore-encrypted-backup.sh
+
+      - name: Upload DR evidence only
+        if: ${{ always() && steps.mode.outputs.restore == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestify-live-dr-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gestify-dr-reports/restore-report-*.json
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Remove backup material from runner
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf \
+            "${RUNNER_TEMP}/gestify-dr-created" \
+            "${RUNNER_TEMP}/gestify-dr-downloaded" \
+            "${RUNNER_TEMP}/gestify-dr-reports"

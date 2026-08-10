@@ -197,6 +197,17 @@ assertFileContains(
   ]
 );
 
+assertFileContains(
+  "supabase/migrations/20260810181000_expand_gestify_core_security_audit.sql",
+  [
+    "information_schema.table_privileges",
+    "g.grantee in ('anon', 'PUBLIC')",
+    "p.prosecdef = true",
+    "anon_security_definer_functions",
+    "'gestify-core-v1.1'",
+  ]
+);
+
 assertFileContains("scripts/check-supabase-contract.mjs", [
   '"gestify_core_security_audit"',
   '"Contrato de segurança Gestify Core"',
@@ -248,6 +259,7 @@ notes.push("privilégios anônimos do módulo de nutrição permanecem revogados
 notes.push("bucket technical-sheets permanece privado");
 notes.push("Supabase Auth Helpers legado está ausente do código e do lockfile");
 notes.push("contrato vivo de segurança Supabase está versionado e ligado ao CI");
+notes.push("grants herdados de PUBLIC e RPCs SECURITY DEFINER anônimas estão cobertos");
 notes.push("arquivos temporários do Supabase estão fora da árvore rastreada");
 
 console.log("[core-security] Auditoria aprovada:");

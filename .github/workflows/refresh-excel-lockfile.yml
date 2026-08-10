@@ -1,0 +1,72 @@
+name: Refresh Excel dependency lockfile
+
+on:
+  push:
+    branches:
+      - agent/gestify-core-v1
+    paths:
+      - package.json
+      - scripts/test-excel-export.mjs
+      - .github/workflows/refresh-excel-lockfile.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-excel-lockfile-agent-gestify-core-v1
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    if: github.repository == 'ID377585/Gestao-2.0' && github.ref == 'refs/heads/agent/gestify-core-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/gestify-core-v1
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Regenerate package lock only
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Refuse unrelated generated changes
+        shell: bash
+        run: |
+          unexpected="$(git diff --name-only | grep -v '^package-lock.json$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected generated files:"
+            echo "$unexpected"
+            exit 1
+          fi
+
+      - name: Install regenerated dependency graph
+        run: npm ci --ignore-scripts
+
+      - name: Validate Excel round-trip
+        run: npm run excel:smoke
+
+      - name: Enforce production dependency audit
+        run: npm run audit
+
+      - name: Commit regenerated lockfile
+        shell: bash
+        run: |
+          git add package-lock.json
+          if git diff --cached --quiet; then
+            echo "package-lock.json already matches package.json"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: refresh lockfile for patched uuid"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

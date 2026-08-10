@@ -12,6 +12,7 @@ import process from "node:process";
 const root = process.cwd();
 const failures = [];
 const notes = [];
+const LEGACY_SUPABASE_AUTH_HELPERS = "@supabase/auth-helpers-nextjs";
 
 function addFailure(message) {
   failures.push(message);
@@ -122,6 +123,12 @@ for (const absolutePath of executableFiles) {
     addFailure(`${path}: possível senha hardcoded encontrada.`);
   }
 
+  if (source.includes(LEGACY_SUPABASE_AUTH_HELPERS)) {
+    addFailure(
+      `${path}: pacote Supabase Auth Helpers legado encontrado; use @supabase/ssr.`
+    );
+  }
+
   const isClientModule = /^\s*["']use client["'];?/m.test(source);
   if (isClientModule && source.includes("SUPABASE_SERVICE_ROLE_KEY")) {
     addFailure(`${path}: service role referenciada em módulo client-side.`);
@@ -183,6 +190,29 @@ if (packageJson.engines?.node !== "22.x") {
 if (!String(packageJson.scripts?.ci ?? "").includes("core:security:audit")) {
   addFailure("package.json scripts.ci deve executar core:security:audit.");
 }
+if (
+  packageJson.dependencies?.[LEGACY_SUPABASE_AUTH_HELPERS] ||
+  packageJson.devDependencies?.[LEGACY_SUPABASE_AUTH_HELPERS]
+) {
+  addFailure(
+    `package.json não pode declarar ${LEGACY_SUPABASE_AUTH_HELPERS}; o projeto usa @supabase/ssr.`
+  );
+}
+
+const packageLockPath = resolve(root, "package-lock.json");
+if (!existsSync(packageLockPath)) {
+  addFailure("package-lock.json é obrigatório para builds reproduzíveis com npm ci.");
+} else {
+  const packageLock = readText("package-lock.json");
+  if (
+    packageLock.includes(`"${LEGACY_SUPABASE_AUTH_HELPERS}":`) ||
+    packageLock.includes(`"node_modules/${LEGACY_SUPABASE_AUTH_HELPERS}"`)
+  ) {
+    addFailure(
+      `package-lock.json ainda contém ${LEGACY_SUPABASE_AUTH_HELPERS}; regenere o lockfile.`
+    );
+  }
+}
 
 if (failures.length > 0) {
   console.error("[core-security] Auditoria reprovada:");
@@ -197,6 +227,7 @@ notes.push("rota legada /entradas não acessa o Supabase diretamente");
 notes.push("migrations de hardening do módulo de nutrição estão versionadas");
 notes.push("privilégios anônimos do módulo de nutrição permanecem revogados");
 notes.push("bucket technical-sheets permanece privado");
+notes.push("Supabase Auth Helpers legado está ausente do código e do lockfile");
 notes.push("arquivos temporários do Supabase estão fora da árvore rastreada");
 
 console.log("[core-security] Auditoria aprovada:");

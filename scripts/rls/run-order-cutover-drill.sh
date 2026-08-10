@@ -37,21 +37,43 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+print_container_logs() {
+  printf '[order-rls-drill] Logs do PostgreSQL descartável:\n' >&2
+  docker logs "$DB_CONTAINER" >&2 || true
+}
+
 printf '[order-rls-drill] Iniciando PostgreSQL descartável (%s).\n' "$POSTGRES_IMAGE"
 docker run --detach --name "$DB_CONTAINER" \
   --env POSTGRES_PASSWORD=postgres \
   --env POSTGRES_DB=postgres \
   "$POSTGRES_IMAGE" >/dev/null
 
-for _ in $(seq 1 60); do
-  if docker exec "$DB_CONTAINER" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
-    break
+# During first initialization the official image briefly starts a temporary
+# PostgreSQL process, stops it and then launches the final server. One successful
+# pg_isready is therefore not sufficient; require three consecutive successes.
+ready_count=0
+for _ in $(seq 1 90); do
+  if [[ "$(docker inspect --format '{{.State.Running}}' "$DB_CONTAINER" 2>/dev/null || true)" != "true" ]]; then
+    print_container_logs
+    fail "container PostgreSQL encerrou durante a inicialização"
   fi
+
+  if docker exec "$DB_CONTAINER" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+    ready_count=$((ready_count + 1))
+    if [[ "$ready_count" -ge 3 ]]; then
+      break
+    fi
+  else
+    ready_count=0
+  fi
+
   sleep 1
 done
 
-docker exec "$DB_CONTAINER" pg_isready -U postgres -d postgres >/dev/null 2>&1 \
-  || fail "PostgreSQL descartável não ficou pronto"
+if [[ "$ready_count" -lt 3 ]]; then
+  print_container_logs
+  fail "PostgreSQL descartável não atingiu prontidão estável"
+fi
 
 run_sql_file() {
   local file_path="$1"

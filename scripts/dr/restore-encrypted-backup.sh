@@ -12,6 +12,7 @@ DR_TARGET_CONFIRMATION="${DR_TARGET_CONFIRMATION:-}"
 DR_VERIFY_SQL="${DR_VERIFY_SQL:-}"
 DR_REPORT_DIR="${DR_REPORT_DIR:-$ROOT_DIR/.artifacts/disaster-recovery}"
 SUPABASE_TELEMETRY_DISABLED=1
+SUPABASE_EXCLUDED_SERVICES="${SUPABASE_EXCLUDED_SERVICES:-gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor}"
 export SUPABASE_TELEMETRY_DISABLED
 
 fail() {
@@ -138,7 +139,7 @@ if [[ -z "$TARGET_URL" ]]; then
     project_id="gestify-dr-$RANDOM-$(date +%s)"
     sed -i.bak -E "s/^project_id = .*/project_id = \"$project_id\"/" supabase/config.toml
     rm -f supabase/config.toml.bak
-    "${SUPABASE_CMD[@]}" start >/dev/null
+    "${SUPABASE_CMD[@]}" start -x "$SUPABASE_EXCLUDED_SERVICES" >/dev/null
   )
   LOCAL_TARGET_STARTED=true
   TARGET_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"

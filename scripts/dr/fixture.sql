@@ -1,5 +1,3 @@
-\set ON_ERROR_STOP on
-
 create schema if not exists private;
 
 create type public.gestify_dr_order_status as enum (

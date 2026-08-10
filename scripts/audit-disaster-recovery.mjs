@@ -67,6 +67,8 @@ requireSnippets("scripts/dr/restore-encrypted-backup.sh", [
   "set -Eeuo pipefail",
   "set +x",
   "umask 077",
+  "SUPABASE_EXCLUDED_SERVICES",
+  'start -x "$SUPABASE_EXCLUDED_SERVICES"',
   "checksum SHA-256 divergente",
   "RESTORE_TO_DISPOSABLE_TARGET",
   "origem e destino do restore são o mesmo banco",
@@ -79,6 +81,8 @@ requireSnippets("scripts/dr/restore-encrypted-backup.sh", [
 requireSnippets("scripts/dr/run-fixture-drill.sh", [
   "SUPABASE_TELEMETRY_DISABLED",
   "MIGRATION_VERSION",
+  "SUPABASE_EXCLUDED_SERVICES",
+  'start -x "$SUPABASE_EXCLUDED_SERVICES"',
   "supabase/migrations/${MIGRATION_VERSION}_dr_fixture.sql",
   "supabase_migrations.schema_migrations",
   "fixture não foi aplicada como migration versionada",
@@ -97,6 +101,19 @@ requireSnippets("scripts/dr/fixture.sql", [
   "Tenant B",
   "revoke all on function public.gestify_core_security_audit()",
 ]);
+
+if (requireFile("scripts/dr/fixture.sql")) {
+  const fixture = readText("scripts/dr/fixture.sql");
+  const psqlMetaCommand = fixture
+    .split(/\r?\n/)
+    .find((line) => line.trimStart().startsWith("\\"));
+
+  if (psqlMetaCommand) {
+    fail(
+      `scripts/dr/fixture.sql: migration não pode conter meta-comando psql: ${psqlMetaCommand.trim()}`
+    );
+  }
+}
 
 requireSnippets("scripts/dr/verify-restore.sql", [
   "request.jwt.claim.sub",
@@ -207,6 +224,8 @@ if (failures.length > 0) {
 
 notes.push("drill com fixture isolada e dados fictícios está versionado");
 notes.push("fixture é aplicada como migration real e preserva supabase_migrations");
+notes.push("fixture é SQL puro, sem meta-comandos psql incompatíveis com migrations");
+notes.push("drill inicia apenas o PostgreSQL necessário e reduz dependências de imagens");
 notes.push("backup lógico usa dumps separados de roles, schema, data e histórico");
 notes.push("bundle é criptografado antes da cópia off-site e validado por SHA-256");
 notes.push("restore externo exige confirmação explícita e destino descartável");

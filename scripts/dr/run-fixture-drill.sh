@@ -8,6 +8,7 @@ POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:17-alpine}"
 DR_ARTIFACT_DIR="${DR_ARTIFACT_DIR:-$ROOT_DIR/.artifacts/dr-fixture}"
 SUPABASE_TELEMETRY_DISABLED=1
 MIGRATION_VERSION="20260810000000"
+SUPABASE_EXCLUDED_SERVICES="${SUPABASE_EXCLUDED_SERVICES:-gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor}"
 export SUPABASE_TELEMETRY_DISABLED
 
 fail() {
@@ -66,7 +67,7 @@ mkdir -p "$SOURCE_DIR"
     "$ROOT_DIR/scripts/dr/fixture.sql" \
     "supabase/migrations/${MIGRATION_VERSION}_dr_fixture.sql"
 
-  "${SUPABASE_CMD[@]}" start >/dev/null
+  "${SUPABASE_CMD[@]}" start -x "$SUPABASE_EXCLUDED_SERVICES" >/dev/null
 )
 SOURCE_STARTED=true
 
@@ -109,6 +110,7 @@ BACKUP_CHECKSUM_FILE="$CHECKSUM_FILE" \
 BACKUP_PASSPHRASE="$FIXTURE_PASSPHRASE" \
 DR_VERIFY_SQL="$ROOT_DIR/scripts/dr/verify-restore.sql" \
 DR_REPORT_DIR="$DR_ARTIFACT_DIR" \
+SUPABASE_EXCLUDED_SERVICES="$SUPABASE_EXCLUDED_SERVICES" \
 GITHUB_OUTPUT="$RESTORE_OUTPUT_FILE" \
   bash "$ROOT_DIR/scripts/dr/restore-encrypted-backup.sh"
 

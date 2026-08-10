@@ -134,8 +134,8 @@ Nesta fase, `apps/web`, `apps/api` e `apps/worker` não serão criados apenas pa
 - Preview deployments são criados para branches e PRs.
 - O repositório e o CI exigem Node.js 22.
 - Os logs de build confirmam que a Vercel usa Node.js 22 por causa de `engines.node`, mesmo que o painel ainda mostre 24.x.
-- O Preview do commit `55cef08` compilou as 115 páginas e terminou como `READY`.
-- O GitHub Actions do commit `55cef08` terminou com sucesso no run 387.
+- O Preview do commit `c10732b` compilou as 115 páginas e terminou como `READY`.
+- O GitHub Actions do commit `c10732b` terminou com sucesso no run 388.
 
 ### Pendente no painel
 

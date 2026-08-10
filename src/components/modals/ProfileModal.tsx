@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, Loader2, Trash2 } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { clearCurrentUserInfoCache } from "@/lib/auth/current-user";
 import { supabase } from "@/lib/supabase";
 
 const MAX_ORIGINAL_AVATAR_BYTES = 25 * 1024 * 1024;
@@ -42,6 +43,11 @@ interface ProfileModalProps {
     lastSignInAt?: string | null;
   };
 }
+
+type AvatarMutationResponse = {
+  avatar?: string | null;
+  error?: string;
+};
 
 function getRoleLabel(role?: string | null) {
   switch (String(role ?? "").trim()) {
@@ -106,10 +112,6 @@ function isSupportedAvatarFile(file: File) {
   const extension = getFileExtension(file);
   const supportedExtensions = ["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"];
   return file.type.startsWith("image/") || supportedExtensions.includes(extension);
-}
-
-function getAvatarPath(userId: string) {
-  return `${userId}/avatar-${Date.now()}.jpg`;
 }
 
 async function convertHeicToJpeg(file: File) {
@@ -206,6 +208,16 @@ async function prepareAvatarFile(file: File) {
   return compressAvatarFile(readableFile);
 }
 
+async function readAvatarResponse(response: Response) {
+  const payload = (await response.json().catch(() => ({}))) as AvatarMutationResponse;
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? "Não foi possível atualizar a foto.");
+  }
+
+  return payload;
+}
+
 export function ProfileModal({
   open,
   onClose,
@@ -217,41 +229,21 @@ export function ProfileModal({
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (open) setAvatarUrl(user.avatar ?? null);
+  }, [open, user.avatar]);
+
   if (!open) return null;
 
-  const getCurrentUserId = async () => {
-    if (user.id) return user.id;
-
-    const {
-      data: { user: authUser },
-      error,
-    } = await supabase.auth.getUser();
-
-    if (error || !authUser?.id) {
-      throw error ?? new Error("Usuário não autenticado.");
-    }
-
-    return authUser.id;
-  };
-
-  const updateAvatar = async (nextAvatarUrl: string | null) => {
-    const userId = await getCurrentUserId();
-
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .update({ avatar_url: nextAvatarUrl })
-      .eq("id", userId);
-
-    if (profileError) throw profileError;
-
-    const { error: metadataError } = await supabase.auth.updateUser({
-      data: { avatar_url: nextAvatarUrl },
-    });
-
-    if (metadataError) throw metadataError;
-
+  const publishAvatarChange = async (nextAvatarUrl: string | null) => {
     setAvatarUrl(nextAvatarUrl);
     onAvatarUpdated?.(nextAvatarUrl);
+    clearCurrentUserInfoCache();
+
+    const { error } = await supabase.auth.refreshSession();
+    if (error) {
+      console.warn("Foto atualizada, mas a sessão visual não foi recarregada.");
+    }
   };
 
   const handleAvatarUpload = async (file?: File | null) => {
@@ -271,21 +263,23 @@ export function ProfileModal({
       setUploadingAvatar(true);
       setAvatarError(null);
 
-      const userId = await getCurrentUserId();
       const preparedFile = await prepareAvatarFile(file);
-      const filePath = getAvatarPath(userId);
-      const { error: uploadError } = await supabase.storage
-        .from("avatars")
-        .upload(filePath, preparedFile, {
-          cacheControl: "3600",
-          contentType: "image/jpeg",
-          upsert: true,
-        });
+      if (preparedFile.size > MAX_UPLOAD_AVATAR_BYTES) {
+        throw new Error("Não foi possível reduzir a imagem para até 2 MB.");
+      }
 
-      if (uploadError) throw uploadError;
+      const formData = new FormData();
+      formData.set("file", preparedFile, "avatar.jpg");
 
-      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
-      await updateAvatar(data.publicUrl);
+      const response = await fetch("/api/user/avatar", {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+
+      const payload = await readAvatarResponse(response);
+      await publishAvatarChange(payload.avatar ?? null);
     } catch (error: any) {
       console.error("Erro ao atualizar foto de perfil:", error);
       setAvatarError(error?.message ?? "Não foi possível atualizar a foto.");
@@ -301,7 +295,15 @@ export function ProfileModal({
     try {
       setUploadingAvatar(true);
       setAvatarError(null);
-      await updateAvatar(null);
+
+      const response = await fetch("/api/user/avatar", {
+        method: "DELETE",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+
+      const payload = await readAvatarResponse(response);
+      await publishAvatarChange(payload.avatar ?? null);
     } catch (error: any) {
       console.error("Erro ao remover foto de perfil:", error);
       setAvatarError(error?.message ?? "Não foi possível remover a foto.");

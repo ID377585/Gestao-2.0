@@ -208,6 +208,19 @@ assertFileContains(
   ]
 );
 
+assertFileContains(
+  "supabase/migrations/20260810183000_enforce_append_only_audit_logs.sql",
+  [
+    "private.gestify_reject_audit_mutation",
+    "before update or delete",
+    "before truncate",
+    "mutable_audit_grants",
+    "audit_tables_missing_row_guard",
+    "audit_tables_missing_truncate_guard",
+    "'gestify-core-v1.2'",
+  ]
+);
+
 assertFileContains("scripts/check-supabase-contract.mjs", [
   '"gestify_core_security_audit"',
   '"Contrato de segurança Gestify Core"',
@@ -260,6 +273,7 @@ notes.push("bucket technical-sheets permanece privado");
 notes.push("Supabase Auth Helpers legado está ausente do código e do lockfile");
 notes.push("contrato vivo de segurança Supabase está versionado e ligado ao CI");
 notes.push("grants herdados de PUBLIC e RPCs SECURITY DEFINER anônimas estão cobertos");
+notes.push("tabelas de auditoria críticas estão protegidas como append-only");
 notes.push("arquivos temporários do Supabase estão fora da árvore rastreada");
 
 console.log("[core-security] Auditoria aprovada:");

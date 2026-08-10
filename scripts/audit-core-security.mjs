@@ -108,6 +108,7 @@ for (const absolutePath of executableFiles) {
 }
 
 assertFileContains(".gitignore", [".env.*", "supabase/.temp/", ".vercel"]);
+assertFileContains(".vercelignore", [".env.*", "!.env.example"]);
 assertFileContains(".env.example", [
   "SUPABASE_SERVICE_ROLE_KEY=",
   "CRON_SECRET=",
@@ -140,6 +141,15 @@ assertFileContains(
   ]
 );
 
+assertFileContains(
+  "supabase/migrations/20260810172000_revoke_anon_nutrition_privileges.sql",
+  [
+    "revoke all privileges on table",
+    "from anon",
+    "nutrition\\_%",
+  ]
+);
+
 const packageJson = JSON.parse(readText("package.json"));
 if (packageJson.engines?.node !== "22.x") {
   addFailure("package.json deve fixar engines.node em 22.x.");
@@ -158,7 +168,8 @@ if (failures.length > 0) {
 
 notes.push("segredos não aparecem hardcoded no código executável verificado");
 notes.push("rota legada /entradas não acessa o Supabase diretamente");
-notes.push("migration endurecida de notificações está versionada");
+notes.push("migrations de hardening do módulo de nutrição estão versionadas");
+notes.push("privilégios anônimos do módulo de nutrição permanecem revogados");
 notes.push("arquivos temporários do Supabase estão fora da árvore rastreada");
 
 console.log("[core-security] Auditoria aprovada:");

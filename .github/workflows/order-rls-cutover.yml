@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   cutover-drill:
-    name: Two-tenant order RLS cutover
+    name: Two-tenant read-only order RLS cutover
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -43,9 +43,45 @@ jobs:
           docker version
           docker info >/dev/null
 
-      - name: Run isolated order RLS cutover drill
+      - name: Run isolated read-only order RLS v3 cutover drill
         id: cutover
         run: bash scripts/rls/run-order-cutover-drill.sh
+
+      - name: Verify read-only contract evidence
+        run: |
+          node <<'NODE'
+          const { readdirSync, readFileSync } = require('node:fs')
+          const { join } = require('node:path')
+
+          const reportDir = '.artifacts/order-rls-cutover'
+          const reportName = readdirSync(reportDir)
+            .filter((name) => name.startsWith('order-rls-cutover-report-') && name.endsWith('.json'))
+            .sort()
+            .at(-1)
+
+          if (!reportName) {
+            throw new Error('Relatório do cutover RLS não foi gerado.')
+          }
+
+          const report = JSON.parse(readFileSync(join(reportDir, reportName), 'utf8'))
+          const updateColumns = Array.isArray(report.authenticatedOrderUpdateColumns)
+            ? report.authenticatedOrderUpdateColumns
+            : []
+
+          if (
+            report.ok !== true ||
+            report.auditVersion !== 'gestify-order-rls-v3' ||
+            Number(report.ordersPolicies) !== 1 ||
+            Number(report.eventPolicies) !== 1 ||
+            updateColumns.length !== 0
+          ) {
+            throw new Error(`Contrato RLS v3 divergente: ${JSON.stringify(report)}`)
+          }
+
+          console.log(
+            `[order-rls-cutover] contrato v3 aprovado: ordersPolicies=${report.ordersPolicies} eventPolicies=${report.eventPolicies} authenticatedOrderUpdateColumns=0`
+          )
+          NODE
 
       - name: Upload cutover report
         if: ${{ always() }}

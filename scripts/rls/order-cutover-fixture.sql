@@ -2,7 +2,69 @@
 -- It reproduces the relevant historical risks: duplicate permissive policies,
 -- duplicate timeline triggers and broad authenticated table privileges.
 
+create extension if not exists pgcrypto;
+
+-- Reproduce the database roles and auth.uid() contract used by Supabase without
+-- starting the full local Supabase service stack.
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'anon') then
+    create role anon nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+    create role authenticated nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then
+    create role service_role nologin bypassrls;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'supabase_admin') then
+    create role supabase_admin nologin superuser;
+  end if;
+end $$;
+
+create schema if not exists auth;
 create schema if not exists private;
+
+create or replace function auth.uid()
+returns uuid
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+  select nullif(
+    coalesce(
+      current_setting('request.jwt.claim.sub', true),
+      (
+        nullif(current_setting('request.jwt.claims', true), '')::jsonb
+        ->> 'sub'
+      )
+    ),
+    ''
+  )::uuid
+$$;
+
+create or replace function auth.role()
+returns text
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+  select nullif(
+    coalesce(
+      current_setting('request.jwt.claim.role', true),
+      (
+        nullif(current_setting('request.jwt.claims', true), '')::jsonb
+        ->> 'role'
+      )
+    ),
+    ''
+  )
+$$;
+
+grant usage on schema auth, public, private
+  to anon, authenticated, service_role;
+grant execute on function auth.uid(), auth.role()
+  to anon, authenticated, service_role;
 
 create type public.app_role as enum (
   'admin',
@@ -190,8 +252,8 @@ begin
 end;
 $$;
 
--- Two historical initial-event functions and one status-change function are
--- intentionally installed so the cutover must remove duplication.
+-- Two initial-event functions and one status-change function are deliberately
+-- installed so the cutover must remove duplicate timeline writes.
 create or replace function public.on_order_created_add_status_event()
 returns trigger
 language plpgsql
@@ -299,7 +361,7 @@ create trigger trg_orders_status_change_event
 alter table public.orders enable row level security;
 alter table public.order_status_events enable row level security;
 
--- Deliberately duplicated permissive policies, matching the historical risk.
+-- Deliberately duplicated permissive policies matching the historical risk.
 create policy orders_select_by_membership
   on public.orders
   for select
@@ -382,7 +444,6 @@ create policy order_events_insert_authenticated
   to authenticated
   with check (true);
 
-grant usage on schema public, private to authenticated, service_role;
 grant all privileges on table public.orders to authenticated, service_role;
 grant all privileges on table public.order_status_events to authenticated, service_role;
 grant select on table

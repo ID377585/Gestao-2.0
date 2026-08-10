@@ -6,9 +6,6 @@ umask 077
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:17-alpine}"
 ARTIFACT_DIR="${ORDER_RLS_ARTIFACT_DIR:-$ROOT_DIR/.artifacts/order-rls-cutover}"
-SUPABASE_EXCLUDED_SERVICES="${SUPABASE_EXCLUDED_SERVICES:-gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor}"
-SUPABASE_TELEMETRY_DISABLED=1
-export SUPABASE_TELEMETRY_DISABLED
 
 fail() {
   printf '[order-rls-drill] ERRO: %s\n' "$*" >&2
@@ -20,15 +17,6 @@ require_command() {
 }
 
 require_command docker
-require_command node
-
-if [[ -x "$ROOT_DIR/node_modules/.bin/supabase" ]]; then
-  SUPABASE_CMD=("$ROOT_DIR/node_modules/.bin/supabase")
-elif command -v supabase >/dev/null 2>&1; then
-  SUPABASE_CMD=(supabase)
-else
-  fail "Supabase CLI ausente. Execute npm ci antes do drill."
-fi
 
 FIXTURE_SQL="$ROOT_DIR/scripts/rls/order-cutover-fixture.sql"
 VERIFY_SQL="$ROOT_DIR/scripts/rls/verify-order-cutover.sql"
@@ -42,56 +30,48 @@ mkdir -p "$ARTIFACT_DIR"
 ARTIFACT_DIR="$(cd "$ARTIFACT_DIR" && pwd)"
 rm -f "$ARTIFACT_DIR"/order-rls-cutover-report-*.json
 
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gestify-order-rls.XXXXXX")"
-PROJECT_DIR="$WORK_DIR/project"
-STACK_STARTED=false
+DB_CONTAINER="gestify-order-rls-${GITHUB_RUN_ID:-local}-${RANDOM}"
 
 cleanup() {
-  if [[ "$STACK_STARTED" == "true" ]]; then
-    (
-      cd "$PROJECT_DIR"
-      "${SUPABASE_CMD[@]}" stop --no-backup >/dev/null 2>&1 || true
-    )
-  fi
-  rm -rf "$WORK_DIR"
+  docker rm -f "$DB_CONTAINER" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
-mkdir -p "$PROJECT_DIR"
-(
-  cd "$PROJECT_DIR"
-  "${SUPABASE_CMD[@]}" init >/dev/null
-  project_id="gestify-order-rls-$RANDOM-$(date +%s)"
-  sed -i.bak -E "s/^project_id = .*/project_id = \"$project_id\"/" supabase/config.toml
-  rm -f supabase/config.toml.bak
+printf '[order-rls-drill] Iniciando PostgreSQL descartável (%s).\n' "$POSTGRES_IMAGE"
+docker run --detach --name "$DB_CONTAINER" \
+  --env POSTGRES_PASSWORD=postgres \
+  --env POSTGRES_DB=postgres \
+  "$POSTGRES_IMAGE" >/dev/null
 
-  mkdir -p supabase/migrations
-  cp "$FIXTURE_SQL" \
-    supabase/migrations/20260810000000_order_cutover_fixture.sql
-  cp "$CUTOVER_SQL" \
-    supabase/migrations/20260810000001_order_cutover.sql
+for _ in $(seq 1 60); do
+  if docker exec "$DB_CONTAINER" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
 
-  "${SUPABASE_CMD[@]}" start -x "$SUPABASE_EXCLUDED_SERVICES" >/dev/null
-)
-STACK_STARTED=true
+docker exec "$DB_CONTAINER" pg_isready -U postgres -d postgres >/dev/null 2>&1 \
+  || fail "PostgreSQL descartável não ficou pronto"
 
-DB_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+run_sql_file() {
+  local file_path="$1"
+  docker exec --interactive "$DB_CONTAINER" \
+    psql -U postgres -d postgres -X --variable ON_ERROR_STOP=1 \
+    < "$file_path"
+}
 
-# Run the full authorization matrix as actual authenticated SQL sessions.
-docker run --rm --network host \
-  -v "$ROOT_DIR:/workspace:ro" \
-  "$POSTGRES_IMAGE" \
-  psql "$DB_URL" \
-  -X \
-  --variable ON_ERROR_STOP=1 \
-  --file /workspace/scripts/rls/verify-order-cutover.sql
+printf '[order-rls-drill] Aplicando fixture pré-cutover insegura.\n'
+run_sql_file "$FIXTURE_SQL"
+
+printf '[order-rls-drill] Aplicando migration real de cutover.\n'
+run_sql_file "$CUTOVER_SQL"
+
+printf '[order-rls-drill] Executando matriz real de autorização entre dois tenants.\n'
+run_sql_file "$VERIFY_SQL"
 
 REPORT_FILE="$ARTIFACT_DIR/order-rls-cutover-report-$(date -u +%Y%m%dT%H%M%SZ).json"
-REPORT_JSON="$(docker run --rm --network host \
-  "$POSTGRES_IMAGE" \
-  psql "$DB_URL" \
-  -X -A -t \
-  --variable ON_ERROR_STOP=1 \
+REPORT_JSON="$(docker exec "$DB_CONTAINER" \
+  psql -U postgres -d postgres -X -A -t --variable ON_ERROR_STOP=1 \
   --command "
     select jsonb_pretty(jsonb_build_object(
       'format', 'gestify-order-rls-cutover-report-v1',
@@ -154,5 +134,5 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   printf 'order_rls_report=%s\n' "$REPORT_FILE" >> "$GITHUB_OUTPUT"
 fi
 
-printf '[order-rls-drill] Cutover validado com dois tenants, duas fontes de membership e timeline sem duplicação. relatório=%s\n' \
+printf '[order-rls-drill] Cutover aprovado. relatório=%s\n' \
   "$(basename "$REPORT_FILE")"

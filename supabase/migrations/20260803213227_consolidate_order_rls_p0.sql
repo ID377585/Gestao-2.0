@@ -1,9 +1,8 @@
--- P0: consolidate order RLS, reduce table privileges and force order lifecycle
--- mutations through the approved server/RPC flows.
+-- P0: consolidate order RLS, reduce table privileges and enforce lifecycle
+-- mutations through server-side/RPC flows.
 --
--- This migration intentionally does not update or delete order data. It is
--- prepared for an isolated staging cutover and must not be applied directly to
--- production without the automated drill and the manual smoke matrix.
+-- DATA SAFETY: this migration does not update or delete order rows. Apply it
+-- only in isolated staging after the automated two-tenant cutover drill passes.
 
 begin;
 
@@ -11,7 +10,7 @@ create schema if not exists private;
 grant usage on schema private to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- Canonical tenant/role helpers
+-- Canonical tenant and role helpers
 -- ---------------------------------------------------------------------------
 
 create or replace function private.gestify_order_role_for_scope(
@@ -60,24 +59,6 @@ as $$
     candidate.source_priority,
     candidate.created_at desc
   limit 1
-$$;
-
-create or replace function private.gestify_order_customer_in_scope(
-  p_establishment_id uuid,
-  p_customer_user_id uuid
-)
-returns boolean
-language sql
-stable
-security definer
-set search_path = pg_catalog, public, auth, pg_temp
-as $$
-  select exists (
-    select 1
-    from public.customers customer
-    where customer.user_id = p_customer_user_id
-      and customer.establishment_id = p_establishment_id
-  )
 $$;
 
 create or replace function private.gestify_order_is_staff(
@@ -205,8 +186,6 @@ $$;
 
 revoke all on function private.gestify_order_role_for_scope(uuid)
   from public, anon, authenticated;
-revoke all on function private.gestify_order_customer_in_scope(uuid, uuid)
-  from public, anon, authenticated;
 revoke all on function private.gestify_order_is_staff(uuid)
   from public, anon, authenticated;
 revoke all on function private.gestify_order_can_read(uuid, uuid, uuid)
@@ -215,12 +194,13 @@ revoke all on function private.gestify_order_can_read_event(uuid, uuid, uuid, bo
   from public, anon, authenticated;
 revoke all on function private.gestify_order_can_update_metadata(uuid)
   from public, anon, authenticated;
-revoke all on function private.gestify_order_role_can_transition(text, public.order_status, public.order_status)
-  from public, anon, authenticated;
+revoke all on function private.gestify_order_role_can_transition(
+  text,
+  public.order_status,
+  public.order_status
+) from public, anon, authenticated;
 
 grant execute on function private.gestify_order_role_for_scope(uuid)
-  to authenticated, service_role;
-grant execute on function private.gestify_order_customer_in_scope(uuid, uuid)
   to authenticated, service_role;
 grant execute on function private.gestify_order_is_staff(uuid)
   to authenticated, service_role;
@@ -230,12 +210,14 @@ grant execute on function private.gestify_order_can_read_event(uuid, uuid, uuid,
   to authenticated, service_role;
 grant execute on function private.gestify_order_can_update_metadata(uuid)
   to authenticated, service_role;
-grant execute on function private.gestify_order_role_can_transition(text, public.order_status, public.order_status)
-  to authenticated, service_role;
+grant execute on function private.gestify_order_role_can_transition(
+  text,
+  public.order_status,
+  public.order_status
+) to authenticated, service_role;
 
--- This expression is the actual lookup performed by the canonical helper. The
--- existing indexes do not cover unit_id fallback, so this is additive and is
--- not a removal of any historical index.
+-- Covers the exact active-membership lookup used by the canonical helper.
+-- This is additive; no historical index is removed by this migration.
 create index if not exists memberships_user_active_scope_role_idx
   on public.memberships (
     user_id,
@@ -631,8 +613,11 @@ revoke all on function private.accept_order_impl(uuid)
   from public, anon, authenticated;
 revoke all on function public.accept_order(uuid)
   from public, anon, authenticated;
-revoke all on function public.advance_order_status(uuid, public.order_status, text)
-  from public, anon, authenticated;
+revoke all on function public.advance_order_status(
+  uuid,
+  public.order_status,
+  text
+) from public, anon, authenticated;
 revoke all on function public.cancel_order(uuid, text)
   from public, anon, authenticated;
 revoke all on function public.reopen_order(uuid, text)
@@ -642,60 +627,18 @@ grant execute on function private.accept_order_impl(uuid)
   to service_role;
 grant execute on function public.accept_order(uuid)
   to authenticated, service_role;
-grant execute on function public.advance_order_status(uuid, public.order_status, text)
-  to authenticated, service_role;
+grant execute on function public.advance_order_status(
+  uuid,
+  public.order_status,
+  text
+) to authenticated, service_role;
 grant execute on function public.cancel_order(uuid, text)
   to authenticated, service_role;
 grant execute on function public.reopen_order(uuid, text)
   to authenticated, service_role;
 
-alter function public.accept_order(uuid)
-  set app.order_status_flow to 'on';
-alter function public.advance_order_status(uuid, public.order_status, text)
-  set app.order_status_flow to 'on';
-alter function public.cancel_order(uuid, text)
-  set app.order_status_flow to 'on';
-alter function public.reopen_order(uuid, text)
-  set app.order_status_flow to 'on';
-
--- Existing service-side flows that legitimately move order status and write a
--- corresponding timeline event. Missing legacy functions are ignored.
-do $$
-declare
-  v_signature text;
-begin
-  for v_signature in
-    select signature
-    from (
-      values
-        ('public.advance_order(uuid)'),
-        ('public.create_invoice_from_separation(uuid)'),
-        ('public.create_pre_invoice_from_separation(uuid, uuid, text)'),
-        ('public.finalize_faturamento(uuid, text, text)'),
-        ('public.finish_order_separation(uuid, text)'),
-        ('public.mark_as_delivered(uuid)'),
-        ('public.mark_order_delivered(uuid)'),
-        ('public.reject_order(uuid, text)'),
-        ('public.send_order_to_transport(uuid, text, text)'),
-        ('public.send_to_transport(uuid)'),
-        ('public.set_order_status(uuid, public.order_status, text, boolean)'),
-        ('public.start_faturamento(uuid)'),
-        ('public.start_preparo(uuid)'),
-        ('public.start_separacao(uuid)')
-    ) as known_flows(signature)
-  loop
-    if to_regprocedure(v_signature) is not null then
-      execute format(
-        'alter function %s set app.order_status_flow to %L',
-        v_signature,
-        'on'
-      );
-    end if;
-  end loop;
-end $$;
-
 -- ---------------------------------------------------------------------------
--- Guards and canonical timeline trigger
+-- Database guards and a single canonical initial timeline trigger
 -- ---------------------------------------------------------------------------
 
 create or replace function public.gestify_require_order_status_flow()
@@ -704,8 +647,11 @@ language plpgsql
 set search_path = pg_catalog, public, pg_temp
 as $$
 begin
+  -- All approved lifecycle RPCs and legacy operational RPCs are SECURITY
+  -- DEFINER functions owned by postgres. Direct authenticated table updates
+  -- therefore fail closed, while trusted RPCs and service maintenance pass.
   if new.status is distinct from old.status
-    and coalesce(current_setting('app.order_status_flow', true), '') <> 'on'
+    and current_user not in ('postgres', 'supabase_admin', 'service_role')
   then
     raise exception 'Status de pedido deve ser alterado pela RPC oficial'
       using errcode = '42501';
@@ -721,7 +667,7 @@ language plpgsql
 set search_path = pg_catalog, public, pg_temp
 as $$
 begin
-  if coalesce(current_setting('app.order_status_flow', true), '') <> 'on' then
+  if current_user not in ('postgres', 'supabase_admin', 'service_role') then
     raise exception 'Timeline de pedido deve ser registrada pela RPC oficial'
       using errcode = '42501';
   end if;
@@ -738,11 +684,8 @@ as $$
 declare
   v_uid uuid := (select auth.uid());
   v_role text;
-  v_current_role text := current_role;
 begin
-  -- Database owners and service-role maintenance are still expected to use the
-  -- official lifecycle functions, but they may repair metadata when needed.
-  if v_current_role in ('postgres', 'supabase_admin', 'service_role') then
+  if current_user in ('postgres', 'supabase_admin', 'service_role') then
     return new;
   end if;
 
@@ -824,9 +767,6 @@ revoke all on function public.gestify_validate_order_metadata_update()
 revoke all on function public.on_order_created_add_status_event()
   from public, anon, authenticated;
 
-alter function public.on_order_created_add_status_event()
-  set app.order_status_flow to 'on';
-
 drop trigger if exists gestify_require_order_status_flow on public.orders;
 create trigger gestify_require_order_status_flow
   before update of status on public.orders
@@ -847,9 +787,9 @@ create trigger gestify_require_order_event_flow
   for each row
   execute function public.gestify_require_order_event_flow();
 
--- Historical schema layers created duplicate initial and status-change events.
--- Keep exactly one initial event trigger and require each lifecycle RPC to write
--- exactly one explicit status event.
+-- Historical schema layers created duplicate initial events and duplicated
+-- status events already written by lifecycle RPCs. Keep one initial trigger;
+-- every status RPC writes its own explicit event.
 drop trigger if exists trg_orders_insert_event on public.orders;
 drop trigger if exists trg_orders_status_change_event on public.orders;
 drop trigger if exists trg_order_created_event on public.orders;
@@ -903,8 +843,9 @@ create policy orders_select_canonical
     )
   );
 
--- Creation remains service-side through create_order_with_items. Direct table
--- INSERT and DELETE are intentionally not exposed to authenticated clients.
+-- Temporary bridge for the existing server actions after the cancellation and
+-- reopen RPC already committed their metadata. Identity and lifecycle status
+-- columns are not directly updatable by authenticated users.
 create policy orders_update_metadata_canonical
   on public.orders
   for update
@@ -939,20 +880,17 @@ create policy order_status_events_select_canonical
   );
 
 -- ---------------------------------------------------------------------------
--- Least-privilege table grants
+-- Least-privilege Data API grants
 -- ---------------------------------------------------------------------------
 
 revoke all privileges on table public.orders from anon, public;
 revoke all privileges on table public.order_status_events from anon, public;
-
 revoke all privileges on table public.orders from authenticated;
 revoke all privileges on table public.order_status_events from authenticated;
 
 grant select on table public.orders to authenticated;
 grant select on table public.order_status_events to authenticated;
 
--- Compatibility bridge for the current server actions. Status and the rest of
--- the operational columns remain RPC-only.
 grant update (
   canceled_by,
   canceled_at,
@@ -965,7 +903,7 @@ grant all privileges on table public.orders to service_role;
 grant all privileges on table public.order_status_events to service_role;
 
 -- ---------------------------------------------------------------------------
--- Extended, service-role-only audit contract
+-- Service-role-only audit contract
 -- ---------------------------------------------------------------------------
 
 create or replace function public.gestify_order_rls_audit()
@@ -989,22 +927,6 @@ as $$
     where policy.schemaname = 'public'
       and policy.tablename in ('orders', 'order_status_events')
   ),
-  policy_summary as (
-    select
-      grouped.tablename,
-      count(*)::integer as total,
-      jsonb_object_agg(
-        grouped.cmd,
-        grouped.command_count
-        order by grouped.cmd
-      ) as by_command
-    from (
-      select tablename, cmd, count(*)::integer as command_count
-      from policy_rows
-      group by tablename, cmd
-    ) grouped
-    group by grouped.tablename
-  ),
   function_rows as (
     select
       namespace.nspname as schema,
@@ -1013,14 +935,24 @@ as $$
       procedure.prosecdef as security_definer,
       pg_catalog.pg_get_functiondef(procedure.oid) as definition,
       coalesce(
-        array_agg(distinct role.rolname order by role.rolname)
-          filter (where role.rolname is not null),
-        array[]::name[]
+        array_agg(
+          distinct case
+            when privilege.grantee = 0 then 'PUBLIC'
+            else role.rolname
+          end
+          order by case
+            when privilege.grantee = 0 then 'PUBLIC'
+            else role.rolname
+          end
+        ) filter (
+          where privilege.privilege_type = 'EXECUTE'
+        ),
+        array[]::text[]
       ) as executable_by
     from pg_catalog.pg_proc procedure
     join pg_catalog.pg_namespace namespace
       on namespace.oid = procedure.pronamespace
-    left join pg_catalog.aclexplode(
+    left join lateral pg_catalog.aclexplode(
       coalesce(
         procedure.proacl,
         pg_catalog.acldefault('f', procedure.proowner)
@@ -1038,7 +970,9 @@ as $$
         'gestify_order_role_for_scope',
         'gestify_order_can_read',
         'gestify_order_can_read_event',
-        'gestify_order_can_update_metadata'
+        'gestify_order_can_update_metadata',
+        'gestify_ensure_stock_balance_for_product',
+        'claim_app_jobs'
       )
     group by
       namespace.nspname,
@@ -1092,17 +1026,6 @@ as $$
         from policy_rows
       ),
       '[]'::jsonb
-    ),
-    'policySummary', coalesce(
-      (
-        select jsonb_object_agg(
-          tablename,
-          jsonb_build_object('total', total, 'byCommand', by_command)
-          order by tablename
-        )
-        from policy_summary
-      ),
-      '{}'::jsonb
     ),
     'functions', coalesce(
       (

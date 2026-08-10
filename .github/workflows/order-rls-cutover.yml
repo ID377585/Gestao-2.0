@@ -9,7 +9,6 @@ name: Order RLS cutover drill
       - "scripts/rls/**"
       - ".github/workflows/order-rls-cutover.yml"
       - "package.json"
-      - "package-lock.json"
   push:
     branches:
       - main
@@ -18,7 +17,6 @@ name: Order RLS cutover drill
       - "scripts/rls/**"
       - ".github/workflows/order-rls-cutover.yml"
       - "package.json"
-      - "package-lock.json"
   workflow_dispatch:
 
 permissions:
@@ -32,20 +30,11 @@ jobs:
   cutover-drill:
     name: Two-tenant order RLS cutover
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Verify container runtime
         run: |
@@ -54,9 +43,7 @@ jobs:
 
       - name: Run isolated order RLS cutover drill
         id: cutover
-        env:
-          SUPABASE_TELEMETRY_DISABLED: "1"
-        run: npm run orders:rls:drill
+        run: bash scripts/rls/run-order-cutover-drill.sh
 
       - name: Upload cutover report
         if: ${{ always() }}

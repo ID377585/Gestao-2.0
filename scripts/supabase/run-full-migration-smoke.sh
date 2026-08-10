@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ARTIFACT_DIR="${GESTIFY_SUPABASE_SMOKE_ARTIFACT_DIR:-${ROOT_DIR}/.artifacts/supabase-migration-smoke}"
+STATUS_ENV_FILE="${ARTIFACT_DIR}/supabase-status.env"
+START_LOG="${ARTIFACT_DIR}/supabase-start.log"
+LINT_LOG="${ARTIFACT_DIR}/supabase-db-lint.log"
+CONTRACT_LOG="${ARTIFACT_DIR}/supabase-contract.log"
+ORDER_AUDIT_LOG="${ARTIFACT_DIR}/order-rls-audit.log"
+REPORT_FILE="${ARTIFACT_DIR}/supabase-migration-smoke-report.json"
+
+supabase_cli() {
+  if command -v supabase >/dev/null 2>&1; then
+    supabase "$@"
+    return
+  fi
+
+  npx --no-install supabase "$@"
+}
+
+cleanup() {
+  supabase_cli stop --no-backup >/dev/null 2>&1 || true
+}
+
+trap cleanup EXIT
+
+cd "${ROOT_DIR}"
+rm -rf "${ARTIFACT_DIR}"
+mkdir -p "${ARTIFACT_DIR}"
+
+if [[ ! -f "supabase/config.toml" ]]; then
+  echo "[supabase-migration-smoke] supabase/config.toml is missing." >&2
+  exit 1
+fi
+
+if [[ ! -d "supabase/migrations" ]]; then
+  echo "[supabase-migration-smoke] supabase/migrations is missing." >&2
+  exit 1
+fi
+
+MIGRATION_COUNT="$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
+if [[ "${MIGRATION_COUNT}" -eq 0 ]]; then
+  echo "[supabase-migration-smoke] No SQL migrations found." >&2
+  exit 1
+fi
+
+CLI_VERSION="$(supabase_cli --version | tr -d '\r')"
+echo "[supabase-migration-smoke] Supabase CLI ${CLI_VERSION}; migrations=${MIGRATION_COUNT}."
+
+# Start a disposable local stack. Nonessential UI, analytics and media services
+# are excluded, while Auth, Storage metadata, PostgREST and Kong remain present.
+supabase_cli start \
+  --exclude studio,imgproxy,mailpit,edge-runtime,logflare,vector,realtime \
+  2>&1 | tee "${START_LOG}"
+
+supabase_cli db lint --local --level error --fail-on error \
+  2>&1 | tee "${LINT_LOG}"
+
+supabase_cli status -o env > "${STATUS_ENV_FILE}"
+
+set -a
+# shellcheck disable=SC1090
+source "${STATUS_ENV_FILE}"
+set +a
+
+: "${API_URL:?Supabase status did not export API_URL}"
+: "${SERVICE_ROLE_KEY:?Supabase status did not export SERVICE_ROLE_KEY}"
+
+NEXT_PUBLIC_SUPABASE_URL="${API_URL}" \
+SUPABASE_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY}" \
+npm run supabase:contract 2>&1 | tee "${CONTRACT_LOG}"
+
+NEXT_PUBLIC_SUPABASE_URL="${API_URL}" \
+SUPABASE_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY}" \
+npm run orders:rls:audit 2>&1 | tee "${ORDER_AUDIT_LOG}"
+
+GESTIFY_SMOKE_CLI_VERSION="${CLI_VERSION}" \
+GESTIFY_SMOKE_MIGRATION_COUNT="${MIGRATION_COUNT}" \
+GESTIFY_SMOKE_REPORT_FILE="${REPORT_FILE}" \
+node <<'NODE'
+import { writeFileSync } from "node:fs";
+
+const payload = {
+  format: "gestify-supabase-migration-smoke-v1",
+  ok: true,
+  commit: process.env.GITHUB_SHA ?? null,
+  ref: process.env.GITHUB_REF_NAME ?? null,
+  supabaseCliVersion: process.env.GESTIFY_SMOKE_CLI_VERSION,
+  migrationCount: Number(process.env.GESTIFY_SMOKE_MIGRATION_COUNT ?? 0),
+  postgresMajorVersion: 17,
+  contractValidated: true,
+  orderRlsAuditValidated: true,
+  generatedAt: new Date().toISOString(),
+};
+
+writeFileSync(
+  process.env.GESTIFY_SMOKE_REPORT_FILE,
+  `${JSON.stringify(payload, null, 2)}\n`,
+  "utf8"
+);
+
+console.log(JSON.stringify(payload, null, 2));
+NODE
+
+echo "[supabase-migration-smoke] Full migration chain and local contracts passed."

@@ -9,36 +9,37 @@ const actionsPath = resolve(
   "src/app/(dashboard)/dashboard/pedidos/actions.ts"
 );
 
-function replaceOnce(content, before, after, label) {
-  const first = content.indexOf(before);
-  if (first < 0) throw new Error(`[order-rls-v3] Padrao ausente: ${label}`);
-  if (content.indexOf(before, first + before.length) >= 0) {
-    throw new Error(`[order-rls-v3] Padrao duplicado: ${label}`);
+function replaceExactly(content, before, after, expectedCount, label) {
+  const parts = content.split(before);
+  const actualCount = parts.length - 1;
+
+  if (actualCount !== expectedCount) {
+    throw new Error(
+      `[order-rls-v3] Contagem inesperada para ${label}: esperada=${expectedCount} atual=${actualCount}`
+    );
   }
-  return content.slice(0, first) + after + content.slice(first + before.length);
+
+  return parts.join(after);
 }
 
 let source = readFileSync(actionsPath, "utf8");
 
-source = replaceOnce(
+source = replaceExactly(
   source,
   `        const supabaseAdmin = createSupabaseAdminClient();\n        const { data: legacyUpdatedOrder, error: legacyUpdateErr } =\n          await supabaseAdmin\n            .from("orders")`,
   `        const { data: legacyUpdatedOrder, error: legacyUpdateErr } =\n          await supabase\n            .from("orders")`,
-  "fallback de cancelamento"
-);
-
-source = replaceOnce(
-  source,
-  `        const supabaseAdmin = createSupabaseAdminClient();\n        const { data: legacyUpdatedOrder, error: legacyUpdateErr } =\n          await supabaseAdmin\n            .from("orders")`,
-  `        const { data: legacyUpdatedOrder, error: legacyUpdateErr } =\n          await supabase\n            .from("orders")`,
-  "fallback de reabertura"
+  2,
+  "fallbacks de cancelamento e reabertura"
 );
 
 source = source
   .replaceAll("A RPC canonica grava", "A RPC canônica grava")
   .replaceAll("na mesma transacao.", "na mesma transação.")
   .replaceAll("Pedido nao encontrado apos", "Pedido não encontrado após")
-  .replaceAll('OBS: no banco deixamos "so admin". Aqui tambem deixo so admin pra UX.', 'OBS: no banco deixamos "só admin". Aqui também deixo só admin pra UX.');
+  .replaceAll(
+    'OBS: no banco deixamos "so admin". Aqui tambem deixo so admin pra UX.',
+    'OBS: no banco deixamos "só admin". Aqui também deixo só admin pra UX.'
+  );
 
 writeFileSync(actionsPath, source, "utf8");
 
@@ -53,4 +54,6 @@ for (const relativePath of [
   }
 }
 
-console.log("[order-rls-v3] Fallback legado corrigido sem nova dependencia de secret.");
+console.log(
+  "[order-rls-v3] Fallback legado corrigido sem nova dependência de secret."
+);

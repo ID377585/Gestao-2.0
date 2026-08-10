@@ -183,6 +183,25 @@ assertFileContains(
   ["set public = false", "technical-sheets"]
 );
 
+assertFileContains(
+  "supabase/migrations/20260810175000_add_gestify_core_security_audit.sql",
+  [
+    "gestify_core_security_audit",
+    "public_tables_without_rls",
+    "anon_table_grants",
+    "internal_table_exposure",
+    "unexpected_public_buckets",
+    "critical_anon_rpcs",
+    "from public, anon, authenticated",
+    "to service_role",
+  ]
+);
+
+assertFileContains("scripts/check-supabase-contract.mjs", [
+  '"gestify_core_security_audit"',
+  '"Contrato de segurança Gestify Core"',
+]);
+
 const packageJson = JSON.parse(readText("package.json"));
 if (packageJson.engines?.node !== "22.x") {
   addFailure("package.json deve fixar engines.node em 22.x.");
@@ -228,6 +247,7 @@ notes.push("migrations de hardening do módulo de nutrição estão versionadas"
 notes.push("privilégios anônimos do módulo de nutrição permanecem revogados");
 notes.push("bucket technical-sheets permanece privado");
 notes.push("Supabase Auth Helpers legado está ausente do código e do lockfile");
+notes.push("contrato vivo de segurança Supabase está versionado e ligado ao CI");
 notes.push("arquivos temporários do Supabase estão fora da árvore rastreada");
 
 console.log("[core-security] Auditoria aprovada:");

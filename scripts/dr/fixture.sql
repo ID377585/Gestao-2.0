@@ -182,6 +182,33 @@ grant select on public.establishments, public.profiles, public.memberships, publ
   public.orders, public.audit_logs to authenticated;
 grant update (status, note) on public.orders to authenticated;
 
+-- Supabase local grants broad table privileges to anon through default
+-- privileges. The production Gestify explicitly removes that surface, so the
+-- fixture must reproduce the same fail-closed posture before it is backed up.
+revoke all privileges on table
+  public.establishments,
+  public.profiles,
+  public.memberships,
+  public.products,
+  public.orders,
+  public.audit_logs
+from anon;
+
+revoke all privileges on table
+  public.establishments,
+  public.profiles,
+  public.memberships,
+  public.products,
+  public.orders,
+  public.audit_logs
+from PUBLIC;
+
+alter default privileges in schema public
+  revoke all privileges on tables from anon;
+
+alter default privileges in schema public
+  revoke all privileges on tables from PUBLIC;
+
 create or replace function private.gestify_dr_reject_audit_mutation()
 returns trigger
 language plpgsql

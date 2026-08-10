@@ -96,6 +96,10 @@ requireSnippets("scripts/dr/fixture.sql", [
   "alter table public.orders enable row level security",
   "create policy orders_tenant_select",
   "create policy orders_tenant_update",
+  "revoke all privileges on table",
+  "from anon",
+  "from PUBLIC",
+  "alter default privileges in schema public",
   "gestify_dr_audit_logs_append_only",
   "Tenant A",
   "Tenant B",
@@ -112,6 +116,24 @@ if (requireFile("scripts/dr/fixture.sql")) {
     fail(
       `scripts/dr/fixture.sql: migration não pode conter meta-comando psql: ${psqlMetaCommand.trim()}`
     );
+  }
+
+  const explicitAnonRevoke = /revoke\s+all\s+privileges\s+on\s+table[\s\S]+?from\s+anon\s*;/i;
+  const explicitPublicRevoke = /revoke\s+all\s+privileges\s+on\s+table[\s\S]+?from\s+PUBLIC\s*;/;
+  const anonDefaultRevoke = /alter\s+default\s+privileges\s+in\s+schema\s+public\s+revoke\s+all\s+privileges\s+on\s+tables\s+from\s+anon\s*;/i;
+  const publicDefaultRevoke = /alter\s+default\s+privileges\s+in\s+schema\s+public\s+revoke\s+all\s+privileges\s+on\s+tables\s+from\s+PUBLIC\s*;/;
+
+  if (!explicitAnonRevoke.test(fixture)) {
+    fail("scripts/dr/fixture.sql: revogação explícita das tabelas para anon ausente.");
+  }
+  if (!explicitPublicRevoke.test(fixture)) {
+    fail("scripts/dr/fixture.sql: revogação explícita das tabelas para PUBLIC ausente.");
+  }
+  if (!anonDefaultRevoke.test(fixture)) {
+    fail("scripts/dr/fixture.sql: default privileges de anon não estão fechados.");
+  }
+  if (!publicDefaultRevoke.test(fixture)) {
+    fail("scripts/dr/fixture.sql: default privileges de PUBLIC não estão fechados.");
   }
 }
 
@@ -225,6 +247,7 @@ if (failures.length > 0) {
 notes.push("drill com fixture isolada e dados fictícios está versionado");
 notes.push("fixture é aplicada como migration real e preserva supabase_migrations");
 notes.push("fixture é SQL puro, sem meta-comandos psql incompatíveis com migrations");
+notes.push("fixture revoga privilégios de anon/PUBLIC atuais e futuros");
 notes.push("drill inicia apenas o PostgreSQL necessário e reduz dependências de imagens");
 notes.push("backup lógico usa dumps separados de roles, schema, data e histórico");
 notes.push("bundle é criptografado antes da cópia off-site e validado por SHA-256");

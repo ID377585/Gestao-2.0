@@ -54,24 +54,31 @@ Nesta fase, `apps/web`, `apps/api` e `apps/worker` não serão criados apenas pa
 4. Registrado um runbook específico para o incidente de credenciais.
 5. A rota legada `/entradas`, que acessava tabelas diretamente pelo cliente, agora redireciona para `/dashboard/entradas`.
 6. A RPC `enqueue_nutrition_notification` passou a validar autenticação, tenant, permissão do módulo, destinatário, tamanho dos inputs e payload.
-7. A migration aplicada no Supabase foi versionada para eliminar drift entre banco e repositório.
-8. Adicionada auditoria automática contra:
-   - JWTs ou senhas hardcoded;
-   - segredos em `NEXT_PUBLIC_*`;
-   - service role em módulos client-side;
-   - retorno da rota legada insegura;
-   - arquivos temporários do Supabase rastreados;
-   - ausência da migration crítica.
-9. O contrato de variáveis de ambiente passou a documentar todos os endpoints operacionais protegidos.
-10. O CI passou a executar a auditoria do Core antes do build.
+7. As migrations aplicadas no Supabase foram versionadas para eliminar drift entre banco e repositório.
+8. Todos os privilégios SQL de `anon` sobre tabelas `nutrition_*` foram removidos; o módulo continua disponível para usuários autenticados pelas policies existentes.
+9. O bucket legado `technical-sheets`, que contém PDFs de empresas, passou de público para privado.
+10. Adicionada auditoria automática contra:
+    - JWTs ou senhas hardcoded;
+    - segredos em `NEXT_PUBLIC_*`;
+    - service role em módulos client-side;
+    - retorno da rota legada insegura;
+    - arquivos temporários do Supabase rastreados;
+    - ausência das migrations críticas;
+    - reabertura pública do bucket de fichas técnicas.
+11. O contrato de variáveis de ambiente passou a documentar todos os endpoints operacionais protegidos.
+12. O CI passou a executar a auditoria do Core antes do build.
 
 ## Estado do Supabase
 
 ### Confirmado
 
+- Todas as tabelas do schema `public` estão com RLS habilitada.
+- Nenhuma tabela do schema `public` mantém grants SQL para `anon`.
 - `api_idempotency_keys` e `app_job_queue` têm RLS habilitada e não possuem policies para usuários finais.
 - Essas duas tabelas são internas do backend; criar policy para `authenticated` apenas para remover um aviso reduziria a segurança.
 - A RPC de notificações nutricionais está endurecida e versionada.
+- O bucket `technical-sheets` está privado.
+- O bucket `avatars` permanece público como exceção explícita, pois a UI atual usa URL pública. A migração para URL assinada fica para uma etapa própria.
 
 ### Pendente no painel
 
@@ -86,12 +93,13 @@ Nesta fase, `apps/web`, `apps/api` e `apps/worker` não serão criados apenas pa
 ### Confirmado
 
 - Projeto `gestao-2-0` conectado ao GitHub.
-- Preview deployments são criados para branches.
+- Preview deployments são criados para branches e PRs.
 - O repositório e o CI exigem Node.js 22.
+- Os logs de build confirmam que a Vercel usa Node.js 22 por causa de `engines.node`, mesmo que o painel ainda mostre 24.x.
 
 ### Pendente no painel
 
-- O projeto Vercel ainda está configurado com Node.js 24; alinhar para Node.js 22 antes da promoção.
+- Alinhar a configuração visual do projeto para Node.js 22 e eliminar o aviso de divergência.
 - Atualizar `SUPABASE_SERVICE_ROLE_KEY` em Production, Preview e Development após a rotação.
 - Confirmar os secrets de cron, worker, nutrição, readiness e e-mail em cada ambiente.
 
@@ -130,9 +138,8 @@ Somente URL e chave publicável do Supabase podem usar `NEXT_PUBLIC_*`.
 - teste de `/dashboard/entradas` em pelo menos dois tenants;
 - credencial administrativa rotacionada;
 - senha exposta invalidada e sessões revogadas;
-- Node da Vercel alinhado para 22;
 - nenhum segredo presente no diff ou nos logs.
 
 ## Próxima etapa após a promoção
 
-Consolidar clientes Supabase browser/server/admin, reduzir acesso direto do frontend ao banco, ampliar auditoria imutável, formalizar backup externo e teste automatizado de restore. Somente depois avaliar API dedicada, Redis/BullMQ ou self-hosting.
+Consolidar clientes Supabase browser/server/admin, reduzir acesso direto do frontend ao banco, migrar avatares para URL assinada, ampliar auditoria imutável, formalizar backup externo e teste automatizado de restore. Somente depois avaliar API dedicada, Redis/BullMQ ou self-hosting.

@@ -125,7 +125,30 @@ if (manifest.format !== 'gestify-supabase-logical-backup-v1') {
 if (!manifest.source || !manifest.source.criticalRowCounts) {
   throw new Error('Manifesto não contém contagens críticas')
 }
+for (const field of ['publicTablesWithoutRls', 'anonymousPublicTableGrants']) {
+  if (!Number.isInteger(manifest.source[field]) || manifest.source[field] < 0) {
+    throw new Error(`Manifesto não contém o campo de segurança válido: ${field}`)
+  }
+}
 NODE
+
+SOURCE_PUBLIC_TABLES_WITHOUT_RLS="$(node - "$SANITIZED_DIR/manifest.json" <<'NODE'
+const fs = require('node:fs')
+const manifest = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
+process.stdout.write(String(manifest.source.publicTablesWithoutRls))
+NODE
+)"
+SOURCE_ANONYMOUS_PUBLIC_TABLE_GRANTS="$(node - "$SANITIZED_DIR/manifest.json" <<'NODE'
+const fs = require('node:fs')
+const manifest = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
+process.stdout.write(String(manifest.source.anonymousPublicTableGrants))
+NODE
+)"
+
+[[ "$SOURCE_PUBLIC_TABLES_WITHOUT_RLS" == "0" ]] || \
+  fail "backup de origem contém tabelas públicas sem RLS: $SOURCE_PUBLIC_TABLES_WITHOUT_RLS"
+[[ "$SOURCE_ANONYMOUS_PUBLIC_TABLE_GRANTS" == "0" ]] || \
+  fail "backup de origem contém grants de tabela para anon/PUBLIC: $SOURCE_ANONYMOUS_PUBLIC_TABLE_GRANTS"
 
 TARGET_MODE="external"
 TARGET_URL="$DR_TARGET_DB_URL"
@@ -187,6 +210,14 @@ psql_docker "$TARGET_URL" \
   --variable ON_ERROR_STOP=1 \
   --command 'TRUNCATE TABLE supabase_migrations.schema_migrations' \
   --file /restore/history-data.sql
+
+cp \
+  "$ROOT_DIR/scripts/dr/reconcile-public-table-privileges.sql" \
+  "$SANITIZED_DIR/reconcile-public-table-privileges.sql"
+psql_docker "$TARGET_URL" \
+  -X \
+  --variable ON_ERROR_STOP=1 \
+  --file /restore/reconcile-public-table-privileges.sql >/dev/null
 
 cp "$ROOT_DIR/scripts/dr/verify-live-restore.sql" "$SANITIZED_DIR/verify-live-restore.sql"
 VERIFY_RESULT="$(psql_docker "$TARGET_URL" \

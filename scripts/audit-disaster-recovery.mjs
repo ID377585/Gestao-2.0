@@ -41,6 +41,7 @@ const requiredFiles = [
   "scripts/dr/restore-encrypted-backup.sh",
   "scripts/dr/run-fixture-drill.sh",
   "scripts/dr/sanitize-supabase-backup.mjs",
+  "scripts/dr/reconcile-public-table-privileges.sql",
   "scripts/dr/fixture.sql",
   "scripts/dr/verify-restore.sql",
   "scripts/dr/verify-live-restore.sql",
@@ -58,6 +59,8 @@ requireSnippets("scripts/dr/create-encrypted-backup.sh", [
   "--use-copy",
   "--data-only",
   "--schema supabase_migrations",
+  "ANONYMOUS_PUBLIC_TABLE_GRANTS",
+  "anonymousPublicTableGrants",
   "--cipher-algo AES256",
   "sha256sum",
   "GESTIFY_DR_INCLUDE_STORAGE",
@@ -72,8 +75,11 @@ requireSnippets("scripts/dr/restore-encrypted-backup.sh", [
   "checksum SHA-256 divergente",
   "RESTORE_TO_DISPOSABLE_TARGET",
   "origem e destino do restore são o mesmo banco",
+  "backup de origem contém tabelas públicas sem RLS",
+  "backup de origem contém grants de tabela para anon/PUBLIC",
   "session_replication_role = replica",
   "TRUNCATE TABLE supabase_migrations.schema_migrations",
+  "reconcile-public-table-privileges.sql",
   "verify-live-restore.sql",
   "Objetos foram recuperados do bundle e validados",
 ]);
@@ -86,6 +92,9 @@ requireSnippets("scripts/dr/run-fixture-drill.sh", [
   "supabase/migrations/${MIGRATION_VERSION}_dr_fixture.sql",
   "supabase_migrations.schema_migrations",
   "fixture não foi aplicada como migration versionada",
+  "SOURCE_TABLES_WITHOUT_RLS",
+  "SOURCE_ANONYMOUS_GRANT_COUNT",
+  "fixture de origem ainda expõe grants de tabela para anon/PUBLIC",
   "create-encrypted-backup.sh",
   "restore-encrypted-backup.sh",
   "verify-restore.sql",
@@ -104,6 +113,13 @@ requireSnippets("scripts/dr/fixture.sql", [
   "Tenant A",
   "Tenant B",
   "revoke all on function public.gestify_core_security_audit()",
+]);
+
+requireSnippets("scripts/dr/reconcile-public-table-privileges.sql", [
+  "revoke all privileges on all tables in schema public from anon",
+  "revoke all privileges on all tables in schema public from PUBLIC",
+  "revoke all privileges on all sequences in schema public from anon",
+  "alter default privileges in schema public",
 ]);
 
 if (requireFile("scripts/dr/fixture.sql")) {
@@ -248,6 +264,8 @@ notes.push("drill com fixture isolada e dados fictícios está versionado");
 notes.push("fixture é aplicada como migration real e preserva supabase_migrations");
 notes.push("fixture é SQL puro, sem meta-comandos psql incompatíveis com migrations");
 notes.push("fixture revoga privilégios de anon/PUBLIC atuais e futuros");
+notes.push("manifesto registra RLS e grants anônimos da origem");
+notes.push("restore reconcilia default privileges do destino somente para origem endurecida");
 notes.push("drill inicia apenas o PostgreSQL necessário e reduz dependências de imagens");
 notes.push("backup lógico usa dumps separados de roles, schema, data e histórico");
 notes.push("bundle é criptografado antes da cópia off-site e validado por SHA-256");

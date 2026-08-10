@@ -84,6 +84,43 @@ MIGRATION_HISTORY_COUNT="$(docker run --rm --network host \
 [[ "$MIGRATION_HISTORY_COUNT" == "1" ]] || \
   fail "fixture não foi aplicada como migration versionada"
 
+SOURCE_TABLES_WITHOUT_RLS="$(docker run --rm --network host \
+  "$POSTGRES_IMAGE" \
+  psql "$SOURCE_DB_URL" \
+  -X -A -t \
+  --variable ON_ERROR_STOP=1 \
+  --command "
+    select count(*)
+    from pg_catalog.pg_class relation
+    join pg_catalog.pg_namespace namespace
+      on namespace.oid = relation.relnamespace
+    where namespace.nspname = 'public'
+      and relation.relkind = 'r'
+      and relation.relrowsecurity = false;
+  " \
+  | tr -d '\r' \
+  | tail -n 1)"
+
+[[ "$SOURCE_TABLES_WITHOUT_RLS" == "0" ]] || \
+  fail "fixture de origem possui tabelas públicas sem RLS"
+
+SOURCE_ANONYMOUS_GRANT_COUNT="$(docker run --rm --network host \
+  "$POSTGRES_IMAGE" \
+  psql "$SOURCE_DB_URL" \
+  -X -A -t \
+  --variable ON_ERROR_STOP=1 \
+  --command "
+    select count(*)
+    from information_schema.table_privileges privilege
+    where privilege.table_schema = 'public'
+      and privilege.grantee in ('anon', 'PUBLIC');
+  " \
+  | tr -d '\r' \
+  | tail -n 1)"
+
+[[ "$SOURCE_ANONYMOUS_GRANT_COUNT" == "0" ]] || \
+  fail "fixture de origem ainda expõe grants de tabela para anon/PUBLIC"
+
 FIXTURE_PASSPHRASE="$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))")"
 BACKUP_OUTPUT_FILE="$WORK_DIR/backup-output.txt"
 : > "$BACKUP_OUTPUT_FILE"

@@ -124,6 +124,17 @@ PUBLIC_TABLES_WITHOUT_RLS="$(psql_exec "$SUPABASE_DB_URL" -X -A -t -v ON_ERROR_S
     and relation.relkind = 'r'
     and relation.relrowsecurity = false;
 " | tr -d '\r' | tail -n 1)"
+ANONYMOUS_PUBLIC_TABLE_GRANTS="$(psql_exec "$SUPABASE_DB_URL" -X -A -t -v ON_ERROR_STOP=1 -c "
+  select count(*)
+  from information_schema.table_privileges privilege
+  where privilege.table_schema = 'public'
+    and privilege.grantee in ('anon', 'PUBLIC');
+" | tr -d '\r' | tail -n 1)"
+
+if [[ "$ANONYMOUS_PUBLIC_TABLE_GRANTS" != "0" ]]; then
+  printf '[dr-backup] AVISO: origem possui %s grants de tabela para anon/PUBLIC; o restore seguro exigirá correção da origem.\n' \
+    "$ANONYMOUS_PUBLIC_TABLE_GRANTS" >&2
+fi
 
 COUNTS_FILE="$WORK_DIR/critical-counts.tsv"
 : > "$COUNTS_FILE"
@@ -183,6 +194,7 @@ export DR_MANIFEST_TIMESTAMP="$TIMESTAMP"
 export DR_MANIFEST_SOURCE_VERSION="$SOURCE_VERSION"
 export DR_MANIFEST_SOURCE_DATABASE_SIZE="$SOURCE_DATABASE_SIZE"
 export DR_MANIFEST_PUBLIC_TABLES_WITHOUT_RLS="$PUBLIC_TABLES_WITHOUT_RLS"
+export DR_MANIFEST_ANONYMOUS_PUBLIC_TABLE_GRANTS="$ANONYMOUS_PUBLIC_TABLE_GRANTS"
 export DR_MANIFEST_COUNTS_FILE="$COUNTS_FILE"
 export DR_MANIFEST_STORAGE_INCLUDED="$STORAGE_INCLUDED"
 export DR_MANIFEST_STORAGE_FILE_COUNT="$STORAGE_FILE_COUNT"
@@ -215,6 +227,7 @@ const manifest = {
     databaseSizeBytes: Number(process.env.DR_MANIFEST_SOURCE_DATABASE_SIZE),
     fingerprintSha256: sourceFingerprint,
     publicTablesWithoutRls: Number(process.env.DR_MANIFEST_PUBLIC_TABLES_WITHOUT_RLS),
+    anonymousPublicTableGrants: Number(process.env.DR_MANIFEST_ANONYMOUS_PUBLIC_TABLE_GRANTS),
     criticalRowCounts: counts,
   },
   storage: {

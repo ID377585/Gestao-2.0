@@ -1,0 +1,68 @@
+name: Order RLS cutover drill
+
+"on":
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "supabase/migrations/20260803213227_consolidate_order_rls_p0.sql"
+      - "scripts/rls/**"
+      - ".github/workflows/order-rls-cutover.yml"
+      - "package.json"
+      - "package-lock.json"
+  push:
+    branches:
+      - main
+    paths:
+      - "supabase/migrations/20260803213227_consolidate_order_rls_p0.sql"
+      - "scripts/rls/**"
+      - ".github/workflows/order-rls-cutover.yml"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gestify-order-rls-cutover-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cutover-drill:
+    name: Two-tenant order RLS cutover
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify container runtime
+        run: |
+          docker version
+          docker info >/dev/null
+
+      - name: Run isolated order RLS cutover drill
+        id: cutover
+        env:
+          SUPABASE_TELEMETRY_DISABLED: "1"
+        run: npm run orders:rls:drill
+
+      - name: Upload cutover report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestify-order-rls-cutover-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/order-rls-cutover/order-rls-cutover-report-*.json
+          if-no-files-found: ignore
+          retention-days: 30

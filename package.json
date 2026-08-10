@@ -27,6 +27,7 @@
     "supabase:contract": "node scripts/check-supabase-contract.mjs",
     "orders:rls:audit": "node scripts/audit-order-rls.mjs",
     "orders:rls:ci": "node scripts/audit-order-rls.mjs --baseline scripts/order-rls-baseline.json --fail-on-worse",
+    "orders:rls:drill": "bash scripts/rls/run-order-cutover-drill.sh",
     "supabase:legacy-tenant:audit": "node scripts/audit-legacy-tenant.mjs",
     "supabase:legacy-tenant:backfill": "node scripts/audit-legacy-tenant.mjs --apply",
     "tenant:writes:audit": "node scripts/audit-tenant-writes.mjs",

@@ -30,6 +30,14 @@ function loadEnvFile(fileName) {
   }
 }
 
+function isMissingRpcError(error) {
+  const message = String(error?.message ?? "");
+  return (
+    message.includes("Could not find the function") ||
+    message.includes("schema cache")
+  );
+}
+
 loadEnvFile(".env.local");
 loadEnvFile(".env");
 
@@ -43,9 +51,7 @@ if (!supabaseUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL");
 if (!serviceRoleKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
 
 if (missing.length > 0) {
-  console.error(
-    `[supabase-contract] ENV ausente: ${missing.join(", ")}.`
-  );
+  console.error(`[supabase-contract] ENV ausente: ${missing.join(", ")}.`);
   process.exit(1);
 }
 
@@ -56,29 +62,40 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
   },
 });
 
-const { data, error } = await supabase.rpc("gestify_contract_check");
+async function runContract(rpcName, label) {
+  const { data, error } = await supabase.rpc(rpcName);
 
-if (error) {
-  console.error(
-    `[supabase-contract] RPC gestify_contract_check falhou: ${error.message}`
-  );
+  if (error) {
+    console.error(`[supabase-contract] RPC ${rpcName} falhou: ${error.message}`);
 
-  if (
-    String(error.message ?? "").includes("Could not find the function") ||
-    String(error.message ?? "").includes("schema cache")
-  ) {
-    console.error(
-      "[supabase-contract] Aplique as migrations Supabase antes de rodar o contrato neste banco."
-    );
+    if (isMissingRpcError(error)) {
+      console.error(
+        `[supabase-contract] Aplique as migrations Supabase antes de validar ${label}.`
+      );
+    }
+
+    process.exit(1);
   }
 
-  process.exit(1);
+  if (!data?.ok) {
+    console.error(`[supabase-contract] ${label} inválido:`);
+    console.error(JSON.stringify(data, null, 2));
+    process.exit(1);
+  }
+
+  console.log(`[supabase-contract] ${label} OK.`);
+  return data;
 }
 
-if (!data?.ok) {
-  console.error("[supabase-contract] Contrato Supabase inválido:");
-  console.error(JSON.stringify(data, null, 2));
-  process.exit(1);
-}
+await runContract("gestify_contract_check", "Contrato funcional Supabase");
+const securityContract = await runContract(
+  "gestify_core_security_audit",
+  "Contrato de segurança Gestify Core"
+);
 
-console.log("[supabase-contract] Contrato Supabase OK.");
+console.log(
+  `[supabase-contract] Core ${securityContract.contract_version ?? "desconhecido"}; ` +
+    `buckets públicos permitidos=${JSON.stringify(
+      securityContract.allowed_public_buckets ?? []
+    )}.`
+);

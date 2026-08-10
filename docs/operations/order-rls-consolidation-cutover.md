@@ -51,28 +51,34 @@ is deleted or rewritten by the cutover.
 
 ### Orders
 
-Authenticated users receive only:
+Authenticated sessions are read-only on `public.orders`.
 
-- `SELECT`, filtered by tenant and role;
-- column-level `UPDATE` on the temporary server-action compatibility fields:
-  `canceled_by`, `canceled_at`, `cancel_reason`, `reopened_by`, `reopened_at`.
+They receive only:
 
-There is no direct authenticated `INSERT` or `DELETE` policy. Order creation
-continues through the service-role-only `create_order_with_items` server flow.
-Order lifecycle status changes continue through approved RPCs.
+- `SELECT`, filtered by tenant, role and ownership.
+
+They do not receive direct authenticated policies or grants for:
+
+- `INSERT`;
+- `UPDATE`, including lifecycle metadata;
+- `DELETE`.
+
+Order creation continues through the service-role-only
+`create_order_with_items` server flow. Status, cancellation and reopen mutations
+continue through reviewed SECURITY DEFINER RPCs.
 
 The canonical row rules are:
 
 - staff roles can read all orders in a tenant where they have active membership;
 - clients can read only orders they created or that belong to their customer
   identity;
-- only `admin` and `operacao` can perform the limited metadata compatibility
-  update;
-- identity fields and direct status changes remain guarded by database triggers.
+- identity, lifecycle status and metadata cannot be changed directly by an
+  authenticated Data API session;
+- every lifecycle mutation must pass through a reviewed RPC.
 
 ### Timeline
 
-Authenticated users receive `SELECT` only.
+Authenticated users receive `SELECT` only on `order_status_events`.
 
 - staff can read tenant timeline events;
 - clients can read only events for their own orders where
@@ -107,7 +113,7 @@ reopen_order
 The database validates the order tenant, active membership, role, transition,
 input length and current status under a row lock.
 
-`cancel_order` now commits these values atomically:
+`cancel_order` commits these values atomically:
 
 ```text
 status = cancelado
@@ -117,7 +123,7 @@ cancel_reason
 timeline event
 ```
 
-`reopen_order` atomically commits:
+`reopen_order` commits atomically:
 
 ```text
 status = aceitou_pedido
@@ -126,10 +132,29 @@ reopened_at
 timeline event
 ```
 
-The migration removes the duplicate historical triggers and keeps one canonical
+The migration removes duplicate historical triggers and keeps one canonical
 initial-order event trigger. Status changes no longer depend on an automatic
 `AFTER UPDATE` event trigger; every approved lifecycle function must write its
 own explicit event.
+
+## Compatibility with the connected pre-cutover database
+
+The connected project still exposes the older `cancel_order` and `reopen_order`
+implementations, which change status and timeline but do not persist all
+lifecycle metadata.
+
+Until staging receives this migration, the current Server Actions:
+
+1. call the official RPC;
+2. read the order back;
+3. accept the operation immediately when the RPC persisted the metadata;
+4. use a session-scoped legacy metadata fallback only when the old RPC did not.
+
+The fallback does not use `service_role` and does not add a new Preview secret
+dependency. After the v3 cutover, the RPC persists the metadata atomically and
+the fallback is not executed. Because authenticated sessions then have no
+`UPDATE` policy or grant, a regression that tries to use the fallback fails
+closed.
 
 ## Automated two-tenant drill
 
@@ -144,17 +169,17 @@ The workflow creates a disposable PostgreSQL 17 database and applies:
 1. a Supabase-compatible pre-cutover fixture containing duplicate policies,
    broad grants and duplicate timeline triggers;
 2. the real cutover migration from the repository;
-3. a SQL authorization matrix using actual `authenticated` database sessions.
+3. a SQL authorization matrix using actual `authenticated` database sessions;
+4. a report-level contract check that opens the generated JSON evidence.
 
 The drill fails unless it proves all of the following:
 
-- exactly two policies on `orders`: SELECT and controlled UPDATE;
+- exactly one SELECT policy on `orders`;
 - exactly one SELECT policy on `order_status_events`;
-- no direct authenticated order INSERT or DELETE;
-- no direct authenticated status update;
+- no direct authenticated order INSERT, UPDATE or DELETE;
+- no authenticated column-level UPDATE privilege on `orders`;
 - no direct authenticated timeline write;
 - no table grants for `anon` or `PUBLIC`;
-- only the five compatibility metadata columns are directly updatable;
 - exactly one initial event per order;
 - no duplicate status event trigger;
 - hidden events are invisible to clients;
@@ -162,7 +187,17 @@ The drill fails unless it proves all of the following:
 - a user present only in `establishment_memberships` is authorized correctly;
 - client lifecycle and cross-tenant RPC attempts are rejected;
 - cancel/reopen metadata and events are persisted by their RPC transaction;
-- the extended audit contract reports `gestify-order-rls-v2`.
+- the extended audit contract reports `gestify-order-rls-v3`.
+
+The workflow then parses the report and independently requires:
+
+```text
+ok = true
+ordersPolicies = 1
+eventPolicies = 1
+auditVersion = gestify-order-rls-v3
+authenticatedOrderUpdateColumns = []
+```
 
 The workflow publishes only a small JSON report; it never uses production data
 or production secrets.
@@ -193,10 +228,12 @@ or production secrets.
    - create an order with and without items;
    - accept, advance, cancel and reopen;
    - verify one timeline entry per lifecycle action;
+   - confirm cancel/reopen metadata is written by the RPC;
+   - confirm no legacy-fallback warning appears after the cutover;
    - confirm client-only event visibility;
    - test two tenants and a multi-tenant user;
    - confirm production, separation, billing and delivery transitions;
-   - verify realtime updates and all server-action compatibility writes.
+   - verify realtime updates and current Server Actions.
 
 6. Re-run Supabase security and performance advisors.
 7. Compare representative query plans with `EXPLAIN (ANALYZE, BUFFERS)`.
@@ -213,7 +250,8 @@ Do not promote while any of these remain unresolved:
 - incomplete Vercel server-side secrets;
 - failed backup/restore evidence;
 - an unexpected increase in RLS audit findings;
-- any timeline duplication or cross-tenant visibility.
+- any timeline duplication or cross-tenant visibility;
+- any legacy metadata fallback observed after applying v3.
 
 ## Rollback principle
 

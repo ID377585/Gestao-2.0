@@ -82,8 +82,29 @@ const executableFiles = [
 const jwtPattern = /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/;
 const publicSecretPattern =
   /NEXT_PUBLIC_[A-Z0-9_]*(?:SECRET|SERVICE_ROLE|PRIVATE|PASSWORD|TOKEN)/;
+// Require a real identifier boundary before password/newPassword. This catches
+// assignments such as `const password = "..."` and `{ password: "..." }`
+// without flagging labels such as `reset_password: "Redefinição de senha"`.
 const hardcodedPasswordPattern =
-  /(?:newPassword|password)\s*[:=]\s*["'][^"'\n]{8,}["']/i;
+  /(?<![A-Za-z0-9_])(?:newPassword|password)\s*[:=]\s*["'][^"'\n]{8,}["']/i;
+
+const passwordPatternCases = [
+  { source: 'const password = "secret-value";', expected: true },
+  { source: '{ newPassword: "secret-value" }', expected: true },
+  { source: 'reset_password: "Redefinição de senha"', expected: false },
+  {
+    source: '<Input name="password" type="password" placeholder="••••••••" />',
+    expected: false,
+  },
+];
+
+for (const testCase of passwordPatternCases) {
+  hardcodedPasswordPattern.lastIndex = 0;
+  if (hardcodedPasswordPattern.test(testCase.source) !== testCase.expected) {
+    addFailure("auditoria interna: detector de senha hardcoded apresentou regressão.");
+    break;
+  }
+}
 
 for (const absolutePath of executableFiles) {
   const path = relative(root, absolutePath).replaceAll("\\", "/");

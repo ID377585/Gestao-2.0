@@ -4,18 +4,19 @@ Date: 2026-08-10
 
 ## Status
 
-The order RLS consolidation passed an isolated two-tenant database drill. The
-migration remains **unapplied** to the connected Supabase production project.
+The read-only order RLS consolidation passed an isolated two-tenant database
+drill. The migration remains **unapplied** to the connected Supabase production
+project.
 
 ```text
 Branch: agent/gestify-core-v1
-Validated commit: 5a0db2c44360c49187f3496f412ee93c33a47c44
+Validated commit: 9386e1f57db2bd0232717f989e5deee39bb0bc9b
 Workflow: Order RLS cutover drill
-Run: 31436002223
-Run number: 3
+Run: 31439017695
+Run number: 13
 Conclusion: success
-Artifact: gestify-order-rls-cutover-31436002223-1
-Artifact digest: sha256:43acb19104669f8df415d2975392bab6fcfdff0e460a39761141edf7c744d7ac
+Artifact: gestify-order-rls-cutover-31439017695-1
+Artifact digest: sha256:ce2b9995b9be6784578c51b83ba8ffaef841ed3cd8d77f6c019974d000750fbf
 ```
 
 ## Live inventory that motivated the cutover
@@ -59,6 +60,9 @@ sessions under `SET LOCAL ROLE authenticated` for:
 - Tenant A customer;
 - Tenant B customer.
 
+A second workflow step opens the generated report and fails unless the final
+surface is strictly read-only for authenticated order-table access.
+
 ## Approved report
 
 ```json
@@ -67,28 +71,23 @@ sessions under `SET LOCAL ROLE authenticated` for:
   "events": 8,
   "format": "gestify-order-rls-cutover-report-v1",
   "orders": 3,
-  "auditVersion": "gestify-order-rls-v2",
+  "auditVersion": "gestify-order-rls-v3",
   "eventPolicies": 1,
-  "ordersPolicies": 2,
+  "ordersPolicies": 1,
   "anonymousTableGrants": 0,
   "duplicateEventTriggers": 0,
   "membershipSourcesValidated": [
     "memberships",
     "establishment_memberships"
   ],
-  "authenticatedOrderUpdateColumns": [
-    "cancel_reason",
-    "canceled_at",
-    "canceled_by",
-    "reopened_at",
-    "reopened_by"
-  ]
+  "authenticatedOrderUpdateColumns": []
 }
 ```
 
-The matrix also proved:
+The matrix proved:
 
-- direct authenticated order creation and deletion are denied;
+- direct authenticated order creation, update and deletion are denied;
+- authenticated has no column-level UPDATE privilege on `orders`;
 - direct status changes are denied;
 - direct timeline writes are denied;
 - clients only see their own orders and client-visible events;
@@ -97,22 +96,50 @@ The matrix also proved:
 - customer lifecycle RPC attempts are rejected;
 - cancellation and reopen metadata are committed atomically with status and
   timeline events;
+- direct metadata updates remain denied before and after those RPCs;
 - each inserted order creates exactly one initial timeline event;
 - no existing index is removed by the migration.
 
+## Application compatibility during the pre-cutover period
+
+The connected production project still exposes older `cancel_order` and
+`reopen_order` functions that do not persist every lifecycle metadata field.
+Removing the application fallback immediately would therefore break the current
+system before staging receives the new migration.
+
+The Server Actions now use a bounded transition strategy:
+
+1. execute the official RPC;
+2. read the order back;
+3. finish when the v3 RPC persisted the metadata;
+4. use the current authenticated server session for the legacy metadata update
+   only when the connected old RPC did not.
+
+The fallback does not use `service_role`, does not place a privileged key in the
+browser and does not create a new Preview-secret dependency. After v3, the RPC
+persists the fields atomically and the fallback is not executed. Even if a code
+regression attempts it, the database has no authenticated UPDATE policy or
+grant and fails closed.
+
 ## Failures caught before approval
 
-The drill failed twice before passing, without touching production:
+The drill and publication flow caught several issues without touching
+production:
 
 1. the first implementation tried to store a custom per-function GUC, which is
    not a portable migration mechanism for this purpose;
 2. the official PostgreSQL image briefly reported readiness during its temporary
-   initialization server and restarted before the test connected.
+   initialization server and restarted before the test connected;
+3. the first least-privilege application bridge would have introduced an
+   unnecessary `service_role` dependency in Preview;
+4. the deterministic correction initially rejected an expected duplicate source
+   pattern and was tightened to require exactly two occurrences before writing.
 
 The migration now identifies trusted lifecycle writes by the effective function
-role, and the runner requires three consecutive readiness checks before applying
-SQL. These failures are evidence that the workflow is exercising the cutover,
-not merely checking static text.
+role, the runner requires stable readiness, the compatibility fallback remains
+session-scoped, and the report-level gate verifies the effective privileges.
+These failures are evidence that the workflow exercises the cutover rather than
+checking static text.
 
 ## Limits and remaining gates
 
@@ -124,7 +151,9 @@ still needs:
 - login/session and two-tenant browser smoke tests;
 - order creation with items;
 - production, separation, billing, fiscal, transport and delivery flows;
-- realtime behavior and current server-action compatibility writes;
+- cancellation and reopen smoke tests proving no legacy-fallback warning after
+  v3;
+- realtime behavior and current Server Action validation;
 - Supabase security/performance advisors after staging cutover;
 - representative `EXPLAIN (ANALYZE, BUFFERS)` measurements;
 - verified backup and rollback decision;

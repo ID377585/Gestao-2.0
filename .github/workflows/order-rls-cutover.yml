@@ -7,6 +7,7 @@ name: Order RLS cutover drill
     paths:
       - "supabase/migrations/20260803213227_consolidate_order_rls_p0.sql"
       - "scripts/rls/**"
+      - "docs/operations/order-rls-*.md"
       - ".github/workflows/order-rls-cutover.yml"
       - "package.json"
   push:
@@ -15,6 +16,7 @@ name: Order RLS cutover drill
     paths:
       - "supabase/migrations/20260803213227_consolidate_order_rls_p0.sql"
       - "scripts/rls/**"
+      - "docs/operations/order-rls-*.md"
       - ".github/workflows/order-rls-cutover.yml"
       - "package.json"
   workflow_dispatch:

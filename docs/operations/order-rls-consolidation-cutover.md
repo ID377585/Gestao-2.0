@@ -16,8 +16,16 @@ Automated drill:
 npm run orders:rls:drill
 ```
 
-The cutover must first run in an isolated Supabase staging project or disposable
-local stack. Do not apply it directly to the production database.
+The cutover must first run in an isolated Supabase staging project. The repository
+drill uses a disposable PostgreSQL instance with Supabase-compatible database
+roles and `auth.uid()`/`auth.role()` semantics; it does not use production data
+or credentials. Do not apply the migration directly to production.
+
+Latest approved automated evidence:
+
+```text
+docs/operations/order-rls-cutover-evidence.md
+```
 
 ## Why the original draft was revised
 
@@ -131,10 +139,10 @@ Workflow:
 .github/workflows/order-rls-cutover.yml
 ```
 
-The workflow creates a disposable Supabase database and applies:
+The workflow creates a disposable PostgreSQL 17 database and applies:
 
-1. a pre-cutover fixture containing duplicate policies, broad grants and
-   duplicate timeline triggers;
+1. a Supabase-compatible pre-cutover fixture containing duplicate policies,
+   broad grants and duplicate timeline triggers;
 2. the real cutover migration from the repository;
 3. a SQL authorization matrix using actual `authenticated` database sessions.
 

@@ -712,7 +712,7 @@ export async function advanceOrder(
 
 /**
  * ✅ Cancelar pedido
- * A RPC canonica grava status, metadados e timeline na mesma transacao.
+ * A RPC canônica grava status, metadados e timeline na mesma transação.
  * O fallback server-side existe apenas enquanto o banco conectado usa a RPC legada.
  */
 export async function cancelOrder(
@@ -767,7 +767,7 @@ export async function cancelOrder(
 
       if (persistedErr || !persistedOrder) {
         throw new Error(
-          persistedErr?.message ?? "Pedido nao encontrado apos cancelamento."
+          persistedErr?.message ?? "Pedido não encontrado após cancelamento."
         );
       }
 
@@ -778,9 +778,8 @@ export async function cancelOrder(
         persistedOrder.cancel_reason === trimmed;
 
       if (!rpcPersistedMetadata) {
-        const supabaseAdmin = createSupabaseAdminClient();
         const { data: legacyUpdatedOrder, error: legacyUpdateErr } =
-          await supabaseAdmin
+          await supabase
             .from("orders")
             .update({
               canceled_by: userData.user.id,
@@ -831,10 +830,10 @@ export async function cancelOrder(
 
 /**
  * ✅ Reabrir pedido (cancelado -> aceitou_pedido)
- * A RPC canonica grava status, metadados e timeline na mesma transacao.
+ * A RPC canônica grava status, metadados e timeline na mesma transação.
  * O fallback server-side existe apenas enquanto o banco conectado usa a RPC legada.
  *
- * OBS: no banco deixamos "so admin". Aqui tambem deixo so admin pra UX.
+ * OBS: no banco deixamos "só admin". Aqui também deixo só admin pra UX.
  */
 export async function reopenOrder(
   orderId: string,
@@ -886,7 +885,7 @@ export async function reopenOrder(
 
       if (persistedErr || !persistedOrder) {
         throw new Error(
-          persistedErr?.message ?? "Pedido nao encontrado apos reabertura."
+          persistedErr?.message ?? "Pedido não encontrado após reabertura."
         );
       }
 
@@ -896,9 +895,8 @@ export async function reopenOrder(
         persistedOrder.reopened_at !== order.reopened_at;
 
       if (!rpcPersistedMetadata) {
-        const supabaseAdmin = createSupabaseAdminClient();
         const { data: legacyUpdatedOrder, error: legacyUpdateErr } =
-          await supabaseAdmin
+          await supabase
             .from("orders")
             .update({
               reopened_by: userData.user.id,

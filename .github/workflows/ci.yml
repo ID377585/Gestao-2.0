@@ -47,6 +47,9 @@ jobs:
       - name: Production dependency audit
         run: npm run audit
 
+      - name: Excel export compatibility smoke test
+        run: npm run excel:smoke
+
       - name: Tenant write audit
         run: npm run tenant:writes:ci
 

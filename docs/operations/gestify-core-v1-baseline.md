@@ -64,9 +64,13 @@ Nesta fase, `apps/web`, `apps/api` e `apps/worker` não serão criados apenas pa
     - retorno da rota legada insegura;
     - arquivos temporários do Supabase rastreados;
     - ausência das migrations críticas;
-    - reabertura pública do bucket de fichas técnicas.
+    - reabertura pública do bucket de fichas técnicas;
+    - retorno do pacote descontinuado `@supabase/auth-helpers-nextjs`.
 11. O contrato de variáveis de ambiente passou a documentar todos os endpoints operacionais protegidos.
 12. O CI passou a executar a auditoria do Core antes do build.
+13. O pacote `@supabase/auth-helpers-nextjs` foi removido; o projeto permanece em `@supabase/ssr`.
+14. O lockfile foi regenerado sem `--force`, com `npm ci` reproduzível e correções não destrutivas de dependências.
+15. A RPC `gestify_core_security_audit` foi criada como contrato vivo, executável apenas por `service_role`, e ligada ao `supabase:contract`.
 
 ## Estado do Supabase
 
@@ -79,6 +83,13 @@ Nesta fase, `apps/web`, `apps/api` e `apps/worker` não serão criados apenas pa
 - A RPC de notificações nutricionais está endurecida e versionada.
 - O bucket `technical-sheets` está privado.
 - O bucket `avatars` permanece público como exceção explícita, pois a UI atual usa URL pública. A migração para URL assinada fica para uma etapa própria.
+- O contrato vivo `gestify_core_security_audit` retorna `ok=true` e verifica:
+  - tabelas públicas sem RLS;
+  - grants de tabela para `anon`;
+  - exposição de `api_idempotency_keys` e `app_job_queue` a usuários finais;
+  - buckets públicos fora da exceção documentada de avatares;
+  - execução anônima de RPCs críticas.
+- A função de auditoria é `SECURITY DEFINER`, possui `search_path` fixo e só concede `EXECUTE` a `service_role`.
 
 ### Pendente no painel
 
@@ -87,6 +98,21 @@ Nesta fase, `apps/web`, `apps/api` e `apps/worker` não serão criados apenas pa
 - Invalidar a senha exposta e revogar as sessões do usuário afetado.
 - Revisar logs de Auth, API, Storage e banco no período anterior à contenção.
 - Planejar a migração da chave legada e do JWT para chaves independentes/assinatura assimétrica.
+
+## Estado das dependências
+
+### Confirmado
+
+- `@supabase/auth-helpers-nextjs` foi removido do `package.json` e do `package-lock.json`.
+- Não havia importações do pacote legado no código da aplicação.
+- O lockfile atualizado passou em `npm ci`.
+- As correções sem breaking change removeram os achados de produção de severidade alta associados ao estado anterior do lockfile.
+
+### Pendente controlado
+
+- Permanecem dois achados moderados de `uuid` transitivo via `exceljs`.
+- O `npm audit` só propõe uma alteração potencialmente incompatível do ExcelJS para resolver esse caminho.
+- Não foi usado `npm audit fix --force`; a substituição ou atualização do mecanismo de planilhas será validada separadamente antes de elevar o gate do CI para `high`.
 
 ## Estado da Vercel
 
@@ -127,11 +153,13 @@ Somente URL e chave publicável do Supabase podem usar `NEXT_PUBLIC_*`.
 
 - lint aprovado;
 - typecheck aprovado;
-- dependency audit aprovado;
+- dependency audit aprovado no nível definido, com exceções moderadas documentadas;
 - tenant write audit aprovado;
 - runtime import audit aprovado;
 - Gestify Core security audit aprovado;
-- contrato Supabase aprovado;
+- sintaxe do executor do contrato Supabase aprovada em todo build;
+- contrato funcional Supabase aprovado;
+- contrato vivo de segurança Supabase aprovado;
 - auditoria RLS/RPC aprovada;
 - build e Preview Vercel aprovados;
 - teste de login, logout, troca de tenant e acesso negado;

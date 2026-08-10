@@ -1,9 +1,98 @@
 begin;
 
 -- Phase 2 hardening:
+-- - restore hosted tables that predated complete migration history;
 -- - remove anonymous SQL access from operational tables that still had broad grants;
 -- - restrict legacy PUBLIC policies to authenticated users;
 -- - convert direct auth.uid()/auth.role() calls in policy expressions to initPlan-friendly SELECT calls.
+
+-- Shipping and billing were originally created out of band in the hosted
+-- project. Recreate their exact structural contract before later RLS
+-- consolidation so a clean staging bootstrap is self-contained.
+create table if not exists public.shipping_carriers (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null references public.establishments(id) on delete cascade,
+  name text not null,
+  phone text,
+  email text,
+  address text,
+  vehicle_type text,
+  has_refrigeration boolean not null default false,
+  initial_temp_c numeric,
+  delivery_temp_c numeric,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_shipping_carriers_establishment_id
+  on public.shipping_carriers(establishment_id);
+
+alter table public.shipping_carriers enable row level security;
+alter table public.shipping_carriers force row level security;
+
+drop policy if exists shipping_carriers_select on public.shipping_carriers;
+create policy shipping_carriers_select
+  on public.shipping_carriers
+  for select
+  to authenticated
+  using ((select private.gestify_is_establishment_member(establishment_id)));
+
+drop policy if exists shipping_carriers_insert on public.shipping_carriers;
+create policy shipping_carriers_insert
+  on public.shipping_carriers
+  for insert
+  to authenticated
+  with check ((select private.gestify_is_establishment_member(establishment_id)));
+
+drop policy if exists shipping_carriers_update on public.shipping_carriers;
+create policy shipping_carriers_update
+  on public.shipping_carriers
+  for update
+  to authenticated
+  using ((select private.gestify_is_establishment_member(establishment_id)))
+  with check ((select private.gestify_is_establishment_member(establishment_id)));
+
+create table if not exists public.order_billing_drafts (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null references public.establishments(id),
+  order_id uuid not null unique references public.orders(id) on delete cascade,
+  base_cost numeric not null,
+  markup_percent numeric not null,
+  total_value numeric not null,
+  items jsonb not null,
+  created_by uuid not null references auth.users(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  subtotal numeric not null default 0,
+  total_with_markup numeric not null default 0,
+  freight_value numeric not null default 0,
+  carrier_id uuid references public.shipping_carriers(id)
+);
+
+create index if not exists idx_order_billing_drafts_establishment_id
+  on public.order_billing_drafts(establishment_id);
+create index if not exists idx_order_billing_drafts_created_by
+  on public.order_billing_drafts(created_by);
+create index if not exists idx_order_billing_drafts_carrier_id
+  on public.order_billing_drafts(carrier_id);
+
+alter table public.order_billing_drafts enable row level security;
+alter table public.order_billing_drafts force row level security;
+
+revoke all privileges on table public.shipping_carriers
+  from anon, authenticated, public;
+grant select, insert, update, delete
+  on table public.shipping_carriers
+  to authenticated;
+grant all privileges on table public.shipping_carriers to service_role;
+
+revoke all privileges on table public.order_billing_drafts
+  from anon, authenticated, public;
+grant select, insert, update, delete
+  on table public.order_billing_drafts
+  to authenticated;
+grant all privileges on table public.order_billing_drafts to service_role;
 
 do $$
 declare

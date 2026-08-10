@@ -1,6 +1,17 @@
 begin;
 
-create or replace function public.fn_upsert_stock_balance(
+-- The earlier migration creates this exact signature returning
+-- SETOF public.stock_balances. PostgreSQL cannot change a function return type
+-- with CREATE OR REPLACE, so a clean bootstrap must replace the signature
+-- explicitly. No CASCADE is used: unexpected dependencies fail closed.
+drop function if exists public.fn_upsert_stock_balance(
+  uuid,
+  uuid,
+  numeric,
+  text
+);
+
+create function public.fn_upsert_stock_balance(
   p_establishment_id uuid,
   p_product_id uuid,
   p_qty_delta numeric,
@@ -64,10 +75,27 @@ begin
 end;
 $function$;
 
+-- Functions are executable by PUBLIC by default. Stock mutations must never be
+-- callable by anonymous sessions, while authenticated application flows and
+-- service maintenance retain explicit access.
+revoke all on function public.fn_upsert_stock_balance(
+  uuid,
+  uuid,
+  numeric,
+  text
+) from public, anon, authenticated;
+
+grant execute on function public.fn_upsert_stock_balance(
+  uuid,
+  uuid,
+  numeric,
+  text
+) to authenticated, service_role;
+
 insert into public.gestify_security_migration_audit (migration_name, notes)
 values (
   '20260709014000_allow_negative_stock_balance_rpc',
-  'Updated fn_upsert_stock_balance to allow existing stock balance rows to become negative, enabling authorized invoice reversals after stock consumption.'
+  'Recreated fn_upsert_stock_balance with its new table return type, allowed existing stock balance rows to become negative for authorized reversals, and removed anonymous execution.'
 )
 on conflict (migration_name) do nothing;
 

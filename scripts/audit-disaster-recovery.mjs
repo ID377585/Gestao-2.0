@@ -78,7 +78,10 @@ requireSnippets("scripts/dr/restore-encrypted-backup.sh", [
 
 requireSnippets("scripts/dr/run-fixture-drill.sh", [
   "SUPABASE_TELEMETRY_DISABLED",
-  "fixture.sql",
+  "MIGRATION_VERSION",
+  "supabase/migrations/${MIGRATION_VERSION}_dr_fixture.sql",
+  "supabase_migrations.schema_migrations",
+  "fixture não foi aplicada como migration versionada",
   "create-encrypted-backup.sh",
   "restore-encrypted-backup.sh",
   "verify-restore.sql",
@@ -203,6 +206,7 @@ if (failures.length > 0) {
 }
 
 notes.push("drill com fixture isolada e dados fictícios está versionado");
+notes.push("fixture é aplicada como migration real e preserva supabase_migrations");
 notes.push("backup lógico usa dumps separados de roles, schema, data e histórico");
 notes.push("bundle é criptografado antes da cópia off-site e validado por SHA-256");
 notes.push("restore externo exige confirmação explícita e destino descartável");

@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:17-alpine}"
 DR_ARTIFACT_DIR="${DR_ARTIFACT_DIR:-$ROOT_DIR/.artifacts/dr-fixture}"
 SUPABASE_TELEMETRY_DISABLED=1
+MIGRATION_VERSION="20260810000000"
 export SUPABASE_TELEMETRY_DISABLED
 
 fail() {
@@ -59,18 +60,28 @@ mkdir -p "$SOURCE_DIR"
   project_id="gestify-dr-source-$RANDOM-$(date +%s)"
   sed -i.bak -E "s/^project_id = .*/project_id = \"$project_id\"/" supabase/config.toml
   rm -f supabase/config.toml.bak
+
+  mkdir -p supabase/migrations
+  cp \
+    "$ROOT_DIR/scripts/dr/fixture.sql" \
+    "supabase/migrations/${MIGRATION_VERSION}_dr_fixture.sql"
+
   "${SUPABASE_CMD[@]}" start >/dev/null
 )
 SOURCE_STARTED=true
 
 SOURCE_DB_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-docker run --rm --network host \
-  -v "$ROOT_DIR/scripts/dr:/dr:ro" \
+MIGRATION_HISTORY_COUNT="$(docker run --rm --network host \
   "$POSTGRES_IMAGE" \
   psql "$SOURCE_DB_URL" \
-  -X \
+  -X -A -t \
   --variable ON_ERROR_STOP=1 \
-  --file /dr/fixture.sql >/dev/null
+  --command "select count(*) from supabase_migrations.schema_migrations where version = '${MIGRATION_VERSION}';" \
+  | tr -d '\r' \
+  | tail -n 1)"
+
+[[ "$MIGRATION_HISTORY_COUNT" == "1" ]] || \
+  fail "fixture não foi aplicada como migration versionada"
 
 FIXTURE_PASSPHRASE="$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))")"
 BACKUP_OUTPUT_FILE="$WORK_DIR/backup-output.txt"

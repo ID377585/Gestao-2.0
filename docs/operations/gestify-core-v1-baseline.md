@@ -121,8 +121,9 @@ Nesta fase, `apps/web`, `apps/api` e `apps/worker` não serão criados apenas pa
 
 ### Pendente controlado
 
-- Permanecem dois achados moderados de `uuid` transitivo via `exceljs`.
-- O `npm audit` só propõe uma alteração potencialmente incompatível do ExcelJS para resolver esse caminho.
+- O audit de produção (`--omit=dev`) mantém dois achados moderados de `uuid` transitivo via `exceljs`.
+- A instalação completa, incluindo ferramentas de desenvolvimento, ainda apresenta achados adicionais no resumo do npm e permanece acompanhada pela issue de dependências.
+- O `npm audit` só propõe uma alteração potencialmente incompatível do ExcelJS para resolver o caminho de produção.
 - Não foi usado `npm audit fix --force`; a substituição ou atualização do mecanismo de planilhas será validada separadamente antes de elevar o gate do CI para `high`.
 
 ## Estado da Vercel
@@ -133,6 +134,7 @@ Nesta fase, `apps/web`, `apps/api` e `apps/worker` não serão criados apenas pa
 - Preview deployments são criados para branches e PRs.
 - O repositório e o CI exigem Node.js 22.
 - Os logs de build confirmam que a Vercel usa Node.js 22 por causa de `engines.node`, mesmo que o painel ainda mostre 24.x.
+- O Preview do commit `3fb47d3` compilou as 115 páginas e terminou como `READY`.
 
 ### Pendente no painel
 

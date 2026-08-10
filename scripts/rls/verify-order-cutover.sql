@@ -138,25 +138,6 @@ exception
 end;
 $$;
 
-create or replace function private.test_repeat_cancel_metadata_allowed(p_order_id uuid)
-returns boolean
-language plpgsql
-set search_path = pg_catalog, public, private, auth, pg_temp
-as $$
-declare
-  v_rows integer;
-begin
-  update public.orders
-  set
-    canceled_by = (select auth.uid()),
-    canceled_at = now(),
-    cancel_reason = 'cancelamento confirmado pelo server action'
-  where id = p_order_id;
-  get diagnostics v_rows = row_count;
-  return v_rows = 1;
-end;
-$$;
-
 create or replace function private.test_metadata_update_blocked(p_order_id uuid)
 returns boolean
 language plpgsql
@@ -210,7 +191,6 @@ grant execute on function private.test_direct_event_insert_denied(uuid) to authe
 grant execute on function private.test_direct_order_insert_denied(uuid, uuid) to authenticated;
 grant execute on function private.test_direct_order_delete_denied(uuid) to authenticated;
 grant execute on function private.test_invalid_cancel_metadata_denied(uuid) to authenticated;
-grant execute on function private.test_repeat_cancel_metadata_allowed(uuid) to authenticated;
 grant execute on function private.test_metadata_update_blocked(uuid) to authenticated;
 grant execute on function private.test_advance_denied(uuid, public.order_status) to authenticated;
 
@@ -219,9 +199,9 @@ grant execute on function private.test_advance_denied(uuid, public.order_status)
 -- ---------------------------------------------------------------------------
 
 select private.test_assert(
-  (select count(*) = 2 from pg_catalog.pg_policies
+  (select count(*) = 1 from pg_catalog.pg_policies
    where schemaname = 'public' and tablename = 'orders'),
-  'orders must have exactly SELECT and metadata UPDATE policies'
+  'orders must have exactly one SELECT policy'
 );
 
 select private.test_assert(
@@ -236,9 +216,9 @@ select private.test_assert(
     from pg_catalog.pg_policies
     where schemaname = 'public'
       and tablename = 'orders'
-      and cmd not in ('SELECT', 'UPDATE')
+      and cmd <> 'SELECT'
   ),
-  'orders exposes an unexpected direct command policy'
+  'orders exposes a direct write policy'
 );
 
 select private.test_assert(
@@ -276,24 +256,15 @@ select private.test_assert(
 );
 
 select private.test_assert(
-  coalesce(
-    (
-      select array_agg(privilege.column_name::text order by privilege.column_name)
-      from information_schema.column_privileges privilege
-      where privilege.table_schema = 'public'
-        and privilege.table_name = 'orders'
-        and privilege.grantee = 'authenticated'
-        and privilege.privilege_type = 'UPDATE'
-    ),
-    array[]::text[]
-  ) = array[
-    'cancel_reason',
-    'canceled_at',
-    'canceled_by',
-    'reopened_at',
-    'reopened_by'
-  ]::text[],
-  'orders authenticated UPDATE columns differ from the compatibility bridge'
+  not exists (
+    select 1
+    from information_schema.column_privileges privilege
+    where privilege.table_schema = 'public'
+      and privilege.table_name = 'orders'
+      and privilege.grantee = 'authenticated'
+      and privilege.privilege_type = 'UPDATE'
+  ),
+  'authenticated still has order UPDATE column privileges'
 );
 
 select private.test_assert(
@@ -347,6 +318,20 @@ select private.test_assert(
      and relation.relname = 'orders'
      and trigger.tgname = 'gestify_require_order_status_flow'),
   'direct status guard is missing'
+);
+
+select private.test_assert(
+  not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger
+    join pg_catalog.pg_class relation on relation.oid = trigger.tgrelid
+    join pg_catalog.pg_namespace namespace on namespace.oid = relation.relnamespace
+    where trigger.tgisinternal = false
+      and namespace.nspname = 'public'
+      and relation.relname = 'orders'
+      and trigger.tgname = 'gestify_validate_order_metadata_update'
+  ),
+  'legacy metadata update trigger remains installed'
 );
 
 select private.test_assert(
@@ -547,8 +532,8 @@ select private.test_assert(
 );
 
 select private.test_assert(
-  private.test_repeat_cancel_metadata_allowed('a1111111-1111-4111-8111-111111111111'),
-  'current server-action cancellation metadata compatibility update failed'
+  private.test_invalid_cancel_metadata_denied('a1111111-1111-4111-8111-111111111111'),
+  'direct cancellation metadata update remained available after the RPC'
 );
 
 select public.reopen_order(
@@ -753,7 +738,7 @@ select private.test_assert(
 );
 
 select private.test_assert(
-  (public.gestify_order_rls_audit() ->> 'version') = 'gestify-order-rls-v2',
+  (public.gestify_order_rls_audit() ->> 'version') = 'gestify-order-rls-v3',
   'extended order RLS audit contract is not installed'
 );
 

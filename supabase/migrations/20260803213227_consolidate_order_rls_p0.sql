@@ -133,24 +133,6 @@ as $$
   )
 $$;
 
-create or replace function private.gestify_order_can_update_metadata(
-  p_establishment_id uuid
-)
-returns boolean
-language sql
-stable
-security definer
-set search_path = pg_catalog, public, auth, pg_temp
-as $$
-  select coalesce(
-    private.gestify_order_role_for_scope(p_establishment_id) in (
-      'admin',
-      'operacao'
-    ),
-    false
-  )
-$$;
-
 create or replace function private.gestify_order_role_can_transition(
   p_role text,
   p_from public.order_status,
@@ -192,8 +174,6 @@ revoke all on function private.gestify_order_can_read(uuid, uuid, uuid)
   from public, anon, authenticated;
 revoke all on function private.gestify_order_can_read_event(uuid, uuid, uuid, boolean)
   from public, anon, authenticated;
-revoke all on function private.gestify_order_can_update_metadata(uuid)
-  from public, anon, authenticated;
 revoke all on function private.gestify_order_role_can_transition(
   text,
   public.order_status,
@@ -207,8 +187,6 @@ grant execute on function private.gestify_order_is_staff(uuid)
 grant execute on function private.gestify_order_can_read(uuid, uuid, uuid)
   to authenticated, service_role;
 grant execute on function private.gestify_order_can_read_event(uuid, uuid, uuid, boolean)
-  to authenticated, service_role;
-grant execute on function private.gestify_order_can_update_metadata(uuid)
   to authenticated, service_role;
 grant execute on function private.gestify_order_role_can_transition(
   text,
@@ -676,53 +654,6 @@ begin
 end;
 $$;
 
-create or replace function public.gestify_validate_order_metadata_update()
-returns trigger
-language plpgsql
-set search_path = pg_catalog, public, private, auth, pg_temp
-as $$
-declare
-  v_uid uuid := (select auth.uid());
-  v_role text;
-begin
-  if current_user in ('postgres', 'supabase_admin', 'service_role') then
-    return new;
-  end if;
-
-  v_role := private.gestify_order_role_for_scope(old.establishment_id);
-
-  if new.canceled_by is distinct from old.canceled_by
-    or new.canceled_at is distinct from old.canceled_at
-    or new.cancel_reason is distinct from old.cancel_reason
-  then
-    if coalesce(v_role, '') not in ('admin', 'operacao')
-      or new.status <> 'cancelado'::public.order_status
-      or new.canceled_by is distinct from v_uid
-      or new.canceled_at is null
-      or nullif(btrim(coalesce(new.cancel_reason, '')), '') is null
-    then
-      raise exception 'Metadados de cancelamento inválidos'
-        using errcode = '42501';
-    end if;
-  end if;
-
-  if new.reopened_by is distinct from old.reopened_by
-    or new.reopened_at is distinct from old.reopened_at
-  then
-    if v_role <> 'admin'
-      or new.status <> 'aceitou_pedido'::public.order_status
-      or new.reopened_by is distinct from v_uid
-      or new.reopened_at is null
-    then
-      raise exception 'Metadados de reabertura inválidos'
-        using errcode = '42501';
-    end if;
-  end if;
-
-  return new;
-end;
-$$;
-
 create or replace function public.on_order_created_add_status_event()
 returns trigger
 language plpgsql
@@ -762,8 +693,6 @@ revoke all on function public.gestify_require_order_status_flow()
   from public, anon, authenticated;
 revoke all on function public.gestify_require_order_event_flow()
   from public, anon, authenticated;
-revoke all on function public.gestify_validate_order_metadata_update()
-  from public, anon, authenticated;
 revoke all on function public.on_order_created_add_status_event()
   from public, anon, authenticated;
 
@@ -774,11 +703,7 @@ create trigger gestify_require_order_status_flow
   execute function public.gestify_require_order_status_flow();
 
 drop trigger if exists gestify_validate_order_metadata_update on public.orders;
-create trigger gestify_validate_order_metadata_update
-  before update of canceled_by, canceled_at, cancel_reason, reopened_by, reopened_at
-  on public.orders
-  for each row
-  execute function public.gestify_validate_order_metadata_update();
+drop function if exists public.gestify_validate_order_metadata_update();
 
 drop trigger if exists gestify_require_order_event_flow
   on public.order_status_events;
@@ -843,19 +768,8 @@ create policy orders_select_canonical
     )
   );
 
--- Temporary bridge for the existing server actions after the cancellation and
--- reopen RPC already committed their metadata. Identity and lifecycle status
--- columns are not directly updatable by authenticated users.
-create policy orders_update_metadata_canonical
-  on public.orders
-  for update
-  to authenticated
-  using (
-    private.gestify_order_can_update_metadata(establishment_id)
-  )
-  with check (
-    private.gestify_order_can_update_metadata(establishment_id)
-  );
+-- Authenticated sessions are intentionally read-only on public.orders.
+-- Every lifecycle mutation must pass through a reviewed RPC.
 
 create policy order_status_events_select_canonical
   on public.order_status_events
@@ -890,14 +804,6 @@ revoke all privileges on table public.order_status_events from authenticated;
 
 grant select on table public.orders to authenticated;
 grant select on table public.order_status_events to authenticated;
-
-grant update (
-  canceled_by,
-  canceled_at,
-  cancel_reason,
-  reopened_by,
-  reopened_at
-) on public.orders to authenticated;
 
 grant all privileges on table public.orders to service_role;
 grant all privileges on table public.order_status_events to service_role;
@@ -970,7 +876,6 @@ as $$
         'gestify_order_role_for_scope',
         'gestify_order_can_read',
         'gestify_order_can_read_event',
-        'gestify_order_can_update_metadata',
         'gestify_ensure_stock_balance_for_product',
         'claim_app_jobs'
       )
@@ -1016,7 +921,7 @@ as $$
       and privilege.grantee in ('anon', 'PUBLIC', 'authenticated', 'service_role')
   )
   select jsonb_build_object(
-    'version', 'gestify-order-rls-v2',
+    'version', 'gestify-order-rls-v3',
     'policies', coalesce(
       (
         select jsonb_agg(

@@ -12,7 +12,7 @@ alter policy select_timeline_events
       from public.orders o
       where o.id = order_status_events.order_id
         and (
-          (select public.gestify_has_establishment_role(
+          (select private.gestify_has_establishment_role(
             o.establishment_id,
             array[
               'admin',
@@ -38,7 +38,7 @@ alter policy pre_invoices_select
       from public.orders o
       where o.id = pre_invoices.order_id
         and (
-          (select public.gestify_has_establishment_role(
+          (select private.gestify_has_establishment_role(
             o.establishment_id,
             array['admin', 'operacao', 'estoque', 'fiscal']::text[]
           ))
@@ -58,7 +58,7 @@ alter policy pre_invoice_items_select
       join public.orders o on o.id = pi.order_id
       where pi.id = pre_invoice_items.pre_invoice_id
         and (
-          (select public.gestify_has_establishment_role(
+          (select private.gestify_has_establishment_role(
             o.establishment_id,
             array['admin', 'operacao', 'estoque', 'fiscal']::text[]
           ))
@@ -82,7 +82,7 @@ end $$;
 insert into public.gestify_security_migration_audit (migration_name, notes)
 values (
   '20260709050231_remove_public_order_helper_from_rls_policies',
-  'Removed global is_staff/can_faturar checks from order and invoice RLS, replaced them with establishment-scoped role checks, and restricted the optional legacy billing helper to service_role.'
+  'Removed global is_staff/can_faturar checks from order and invoice RLS, replaced them with private establishment-scoped role checks, and restricted the optional legacy billing helper to service_role.'
 )
 on conflict (migration_name) do nothing;
 

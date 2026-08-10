@@ -221,6 +221,65 @@ assertFileContains(
   ]
 );
 
+assertFileContains(
+  "supabase/migrations/20260810184500_prepare_private_avatar_storage.sql",
+  [
+    "avatar_path",
+    "avatar_updated_at",
+    "2097152",
+    "array['image/jpeg']",
+    'policy "Users can read own avatars"',
+    "production branch",
+  ]
+);
+
+assertFileContains("src/app/api/user/avatar/route.ts", [
+  "isSameOriginMutation",
+  "MAX_AVATAR_BYTES",
+  "createSignedUrl",
+  'file.type.toLowerCase() !== "image/jpeg"',
+  "signature[0] !== 0xff",
+  "avatar_path: avatarPath",
+  "avatar_url: null",
+  "removeAvatarObjects",
+]);
+
+assertFileContains("src/app/api/user/me/route.ts", [
+  "avatar_path",
+  "avatar_updated_at",
+  "buildAvatarProxyUrl",
+  'return `/api/user/avatar?v=${version}`',
+]);
+
+assertFileContains("src/components/modals/ProfileModal.tsx", [
+  'fetch("/api/user/avatar"',
+  "prepareAvatarFile",
+  "supabase.auth.refreshSession()",
+  "clearCurrentUserInfoCache()",
+]);
+
+if (existsSync(resolve(root, "src/components/modals/ProfileModal.tsx"))) {
+  const profileModal = readText("src/components/modals/ProfileModal.tsx");
+  const forbiddenClientAvatarOperations = [
+    '.storage.from("avatars")',
+    '.from("profiles")',
+    "getPublicUrl(",
+  ];
+
+  for (const operation of forbiddenClientAvatarOperations) {
+    if (profileModal.includes(operation)) {
+      addFailure(
+        `src/components/modals/ProfileModal.tsx: operação de avatar proibida no cliente: ${operation}`
+      );
+    }
+  }
+}
+
+assertFileContains("src/lib/auth/current-user.ts", [
+  "avatar?: string | null",
+  "avatar: data.avatar ?? null",
+]);
+
 assertFileContains("scripts/check-supabase-contract.mjs", [
   '"gestify_core_security_audit"',
   '"Contrato de segurança Gestify Core"',
@@ -274,6 +333,8 @@ notes.push("Supabase Auth Helpers legado está ausente do código e do lockfile"
 notes.push("contrato vivo de segurança Supabase está versionado e ligado ao CI");
 notes.push("grants herdados de PUBLIC e RPCs SECURITY DEFINER anônimas estão cobertos");
 notes.push("tabelas de auditoria críticas estão protegidas como append-only");
+notes.push("operações de avatar saíram do cliente e usam rota autenticada com URL assinada");
+notes.push("migração compatível prepara o corte seguro do bucket de avatares para privado");
 notes.push("arquivos temporários do Supabase estão fora da árvore rastreada");
 
 console.log("[core-security] Auditoria aprovada:");

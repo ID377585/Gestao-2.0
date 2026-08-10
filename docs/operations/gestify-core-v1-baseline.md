@@ -71,25 +71,36 @@ Nesta fase, `apps/web`, `apps/api` e `apps/worker` não serão criados apenas pa
 13. O pacote `@supabase/auth-helpers-nextjs` foi removido; o projeto permanece em `@supabase/ssr`.
 14. O lockfile foi regenerado sem `--force`, com `npm ci` reproduzível e correções não destrutivas de dependências.
 15. A RPC `gestify_core_security_audit` foi criada como contrato vivo, executável apenas por `service_role`, e ligada ao `supabase:contract`.
+16. As tabelas críticas de auditoria passaram a ser append-only, com grants mínimos e triggers que recusam `UPDATE`, `DELETE` e `TRUNCATE` para papéis da aplicação.
 
 ## Estado do Supabase
 
 ### Confirmado
 
 - Todas as tabelas do schema `public` estão com RLS habilitada.
-- Nenhuma tabela do schema `public` mantém grants SQL para `anon`.
+- Nenhuma tabela do schema `public` mantém grants SQL para `anon` ou `PUBLIC`.
 - `api_idempotency_keys` e `app_job_queue` têm RLS habilitada e não possuem policies para usuários finais.
 - Essas duas tabelas são internas do backend; criar policy para `authenticated` apenas para remover um aviso reduziria a segurança.
 - A RPC de notificações nutricionais está endurecida e versionada.
 - O bucket `technical-sheets` está privado.
 - O bucket `avatars` permanece público como exceção explícita, pois a UI atual usa URL pública. A migração para URL assinada fica para uma etapa própria.
-- O contrato vivo `gestify_core_security_audit` retorna `ok=true` e verifica:
+- O contrato vivo `gestify_core_security_audit` está na versão `gestify-core-v1.2`, retorna `ok=true` e verifica:
   - tabelas públicas sem RLS;
-  - grants de tabela para `anon`;
+  - grants de tabela herdados por `anon` ou `PUBLIC`;
   - exposição de `api_idempotency_keys` e `app_job_queue` a usuários finais;
   - buckets públicos fora da exceção documentada de avatares;
-  - execução anônima de RPCs críticas.
+  - execução anônima de RPCs críticas;
+  - funções `SECURITY DEFINER` do schema público executáveis por `anon`;
+  - privilégios de mutação nas tabelas críticas de auditoria;
+  - ausência dos triggers de proteção de linhas e de `TRUNCATE`.
 - A função de auditoria é `SECURITY DEFINER`, possui `search_path` fixo e só concede `EXECUTE` a `service_role`.
+- As seguintes tabelas estão protegidas como append-only:
+  - `audit_logs`;
+  - `user_access_audit_logs`;
+  - `nutrition_audit_events`;
+  - `gestify_security_migration_audit`;
+  - `stock_balance_audit`.
+- Um teste transacional controlado concedeu `UPDATE` temporário ao `service_role`; o trigger recusou a alteração e o privilégio foi revogado novamente, sem mudança persistente de dados.
 
 ### Pendente no painel
 
@@ -170,4 +181,4 @@ Somente URL e chave publicável do Supabase podem usar `NEXT_PUBLIC_*`.
 
 ## Próxima etapa após a promoção
 
-Consolidar clientes Supabase browser/server/admin, reduzir acesso direto do frontend ao banco, migrar avatares para URL assinada, ampliar auditoria imutável, formalizar backup externo e teste automatizado de restore. Somente depois avaliar API dedicada, Redis/BullMQ ou self-hosting.
+Consolidar clientes Supabase browser/server/admin, reduzir acesso direto do frontend ao banco, migrar avatares para URL assinada, expandir a cobertura append-only para outros registros operacionais relevantes, formalizar backup externo e teste automatizado de restore. Somente depois avaliar API dedicada, Redis/BullMQ ou self-hosting.

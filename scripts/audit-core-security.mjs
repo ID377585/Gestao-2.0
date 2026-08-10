@@ -150,6 +150,11 @@ assertFileContains(
   ]
 );
 
+assertFileContains(
+  "supabase/migrations/20260810173500_make_technical_sheets_bucket_private.sql",
+  ["set public = false", "technical-sheets"]
+);
+
 const packageJson = JSON.parse(readText("package.json"));
 if (packageJson.engines?.node !== "22.x") {
   addFailure("package.json deve fixar engines.node em 22.x.");
@@ -170,6 +175,7 @@ notes.push("segredos não aparecem hardcoded no código executável verificado")
 notes.push("rota legada /entradas não acessa o Supabase diretamente");
 notes.push("migrations de hardening do módulo de nutrição estão versionadas");
 notes.push("privilégios anônimos do módulo de nutrição permanecem revogados");
+notes.push("bucket technical-sheets permanece privado");
 notes.push("arquivos temporários do Supabase estão fora da árvore rastreada");
 
 console.log("[core-security] Auditoria aprovada:");

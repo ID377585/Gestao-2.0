@@ -275,9 +275,7 @@ begin
     label_code,
     stock_before,
     stock_after,
-    label_id,
-    label_balance_before,
-    label_balance_after
+    label_id
   ) values (
     p_establishment_id,
     v_user_id,
@@ -293,9 +291,7 @@ begin
     v_label_code,
     v_stock_before,
     v_expected_stock_after,
-    v_label_id,
-    v_label_before,
-    v_label_after
+    v_label_id
   )
   returning id into v_loss_id;
 

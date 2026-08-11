@@ -8,6 +8,8 @@ START_LOG="${ARTIFACT_DIR}/supabase-start.log"
 LINT_LOG="${ARTIFACT_DIR}/supabase-db-lint.log"
 CONTRACT_LOG="${ARTIFACT_DIR}/supabase-contract.log"
 ORDER_AUDIT_LOG="${ARTIFACT_DIR}/order-rls-audit.log"
+MEMBERSHIP_UNIQUENESS_LOG="${ARTIFACT_DIR}/membership-uniqueness.log"
+MEMBERSHIP_UNIQUENESS_REPORT_FILE="${ARTIFACT_DIR}/membership-uniqueness-report.json"
 APP_LOG="${ARTIFACT_DIR}/gestify-app.log"
 AUTHENTICATED_LOSSES_LOG="${ARTIFACT_DIR}/authenticated-losses.log"
 AUTHENTICATED_LOSSES_REPORT_FILE="${ARTIFACT_DIR}/authenticated-losses-report.json"
@@ -46,6 +48,11 @@ fi
 
 if [[ ! -d "supabase/migrations" ]]; then
   echo "[supabase-migration-smoke] supabase/migrations is missing." >&2
+  exit 1
+fi
+
+if [[ ! -f "scripts/supabase/test-membership-uniqueness.mjs" ]]; then
+  echo "[supabase-migration-smoke] Membership uniqueness contract script is missing." >&2
   exit 1
 fi
 
@@ -99,6 +106,12 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="${PUBLIC_KEY}" \
 NEXT_PUBLIC_SUPABASE_ANON_KEY="${PUBLIC_KEY}" \
 SUPABASE_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY}" \
 npm run orders:rls:audit 2>&1 | tee "${ORDER_AUDIT_LOG}"
+
+NEXT_PUBLIC_SUPABASE_URL="${API_URL}" \
+SUPABASE_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY}" \
+GESTIFY_MEMBERSHIP_UNIQUENESS_REPORT_FILE="${MEMBERSHIP_UNIQUENESS_REPORT_FILE}" \
+node scripts/supabase/test-membership-uniqueness.mjs \
+  2>&1 | tee "${MEMBERSHIP_UNIQUENESS_LOG}"
 
 NEXT_TELEMETRY_DISABLED=1 \
 NEXT_PUBLIC_SUPABASE_URL="${API_URL}" \
@@ -160,6 +173,7 @@ const payload = {
   postgresMajorVersion: 17,
   contractValidated: true,
   orderRlsAuditValidated: true,
+  membershipUniquenessValidated: true,
   authenticatedLossesValidated: true,
   generatedAt: new Date().toISOString(),
 };
@@ -173,4 +187,4 @@ writeFileSync(
 console.log(JSON.stringify(payload, null, 2));
 NODE
 
-echo "[supabase-migration-smoke] Full migration chain, local contracts and authenticated losses flow passed."
+echo "[supabase-migration-smoke] Full migration chain, local contracts, membership uniqueness and authenticated losses flow passed."

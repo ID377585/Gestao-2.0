@@ -30,14 +30,26 @@ before update on public.orders
 for each row
 execute function public.gestify_prevent_order_identity_change();
 
--- These RPCs validate auth.uid(), active membership, role and tenant internally.
--- They are called by server actions with the authenticated Supabase client.
-grant execute on function public.advance_order_status(uuid, public.order_status, text)
-  to authenticated, service_role;
-grant execute on function public.cancel_order(uuid, text)
-  to authenticated, service_role;
-grant execute on function public.reopen_order(uuid, text)
-  to authenticated, service_role;
+-- Hosted environments may already contain these RPCs, while a clean replay
+-- creates their canonical, tenant-safe definitions in a later migration.
+-- Harden grants only for signatures that exist at this point in history.
+do $$
+begin
+  if to_regprocedure('public.advance_order_status(uuid, public.order_status, text)') is not null then
+    execute 'revoke all on function public.advance_order_status(uuid, public.order_status, text) from public, anon';
+    execute 'grant execute on function public.advance_order_status(uuid, public.order_status, text) to authenticated, service_role';
+  end if;
+
+  if to_regprocedure('public.cancel_order(uuid, text)') is not null then
+    execute 'revoke all on function public.cancel_order(uuid, text) from public, anon';
+    execute 'grant execute on function public.cancel_order(uuid, text) to authenticated, service_role';
+  end if;
+
+  if to_regprocedure('public.reopen_order(uuid, text)') is not null then
+    execute 'revoke all on function public.reopen_order(uuid, text) from public, anon';
+    execute 'grant execute on function public.reopen_order(uuid, text) to authenticated, service_role';
+  end if;
+end $$;
 
 -- Remove only the broadest legacy policies. This does not replace the whole
 -- orders/timeline RLS matrix during active production use.

@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const TENANT_COOKIE_NAME = "gestify_current_establishment_id";
 const CURRENT_TERMS_VERSION_ID = "saas-v1.3-2026-04-23";
+const DASHBOARD_PATH = "/dashboard/perdas";
 
 function requiredEnv(name, fallbacks = []) {
   for (const candidate of [name, ...fallbacks]) {
@@ -64,17 +65,15 @@ async function upsertRows(table, rows, onConflict) {
   }
 }
 
-function createCookieAuthenticatedClient() {
-  const cookieJar = new Map();
-
-  const client = createServerClient(supabaseUrl, publicKey, {
+function buildCookieClient(cookieJar) {
+  return createServerClient(supabaseUrl, publicKey, {
     cookies: {
       getAll() {
         return Array.from(cookieJar, ([name, value]) => ({ name, value }));
       },
       setAll(cookiesToSet) {
         for (const cookie of cookiesToSet) {
-          if (cookie.options?.maxAge === 0) {
+          if (cookie.options?.maxAge === 0 || !cookie.value) {
             cookieJar.delete(cookie.name);
           } else {
             cookieJar.set(cookie.name, cookie.value);
@@ -88,10 +87,16 @@ function createCookieAuthenticatedClient() {
       detectSessionInUrl: false,
     },
   });
+}
+
+function createCookieSession() {
+  const cookieJar = new Map();
 
   return {
-    client,
     cookieJar,
+    client() {
+      return buildCookieClient(cookieJar);
+    },
     setTenant(establishmentId) {
       cookieJar.set(TENANT_COOKIE_NAME, establishmentId);
     },
@@ -99,6 +104,38 @@ function createCookieAuthenticatedClient() {
       return Array.from(cookieJar, ([name, value]) => `${name}=${value}`).join(
         "; "
       );
+    },
+    absorbSetCookies(response) {
+      const getSetCookie = response.headers.getSetCookie;
+      const serializedCookies =
+        typeof getSetCookie === "function"
+          ? getSetCookie.call(response.headers)
+          : [response.headers.get("set-cookie")].filter(Boolean);
+
+      for (const serializedCookie of serializedCookies) {
+        const parts = String(serializedCookie)
+          .split(";")
+          .map((part) => part.trim());
+        const firstPart = parts[0] ?? "";
+        const separatorIndex = firstPart.indexOf("=");
+
+        if (separatorIndex <= 0) continue;
+
+        const name = firstPart.slice(0, separatorIndex);
+        const value = firstPart.slice(separatorIndex + 1);
+        const mustDelete =
+          !value ||
+          parts.some((part) => /^max-age=0$/i.test(part)) ||
+          parts.some((part) => /^expires=thu, 01 jan 1970/i.test(part));
+
+        if (mustDelete) {
+          cookieJar.delete(name);
+        } else {
+          cookieJar.set(name, value);
+        }
+      }
+
+      return serializedCookies.length;
     },
   };
 }
@@ -119,17 +156,23 @@ async function appRequest(path, options = {}) {
   return { response, body };
 }
 
-async function postCompliance(payload, accessToken) {
+async function postCompliance(payload, accessToken, cookieHeader) {
   return appRequest("/api/auth/compliance", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
+      Cookie: cookieHeader,
       "Content-Type": "application/json",
       "User-Agent": "gestify-auth-compliance-smoke/1.0",
       "X-Forwarded-For": "127.0.0.1",
     },
     body: JSON.stringify(payload),
   });
+}
+
+function readComplianceState(user) {
+  const state = user?.app_metadata?.gestify_compliance;
+  return state && typeof state === "object" ? state : null;
 }
 
 async function main() {
@@ -210,9 +253,10 @@ async function main() {
     )} ${JSON.stringify(contractBefore.data)}`
   );
 
-  const session = createCookieAuthenticatedClient();
+  const browserSession = createCookieSession();
+  const initialClient = browserSession.client();
   const { data: signInData, error: signInError } =
-    await session.client.auth.signInWithPassword({ email, password });
+    await initialClient.auth.signInWithPassword({ email, password });
 
   if (
     signInError ||
@@ -222,23 +266,66 @@ async function main() {
     throw new Error(`Falha ao autenticar fixture: ${formatError(signInError)}`);
   }
 
-  session.setTenant(establishmentId);
+  const initialAccessToken = signInData.session.access_token;
+  browserSession.setTenant(establishmentId);
 
   const acceptancePayload = {
     acceptTerms: true,
     source: "login_auth_compliance_smoke",
     path: "/login",
-    redirectPath: "/dashboard/pedidos",
+    redirectPath: DASHBOARD_PATH,
   };
 
   const firstAcceptance = await postCompliance(
     acceptancePayload,
-    signInData.session.access_token
+    initialAccessToken,
+    browserSession.cookieHeader()
   );
   assert(
     firstAcceptance.response.status === 200 && firstAcceptance.body?.ok === true,
     `Primeiro aceite falhou: HTTP ${firstAcceptance.response.status} ${JSON.stringify(
       firstAcceptance.body
+    )}`
+  );
+  assert(
+    firstAcceptance.body?.sessionRefreshAttempted === true &&
+      firstAcceptance.body?.sessionRefreshed === true,
+    `API não renovou a sessão baseada em cookie: ${JSON.stringify(
+      firstAcceptance.body
+    )}`
+  );
+
+  const setCookieCount = browserSession.absorbSetCookies(
+    firstAcceptance.response
+  );
+  assert(
+    setCookieCount > 0,
+    "A renovação da sessão não devolveu cookies atualizados ao navegador."
+  );
+
+  const refreshedClient = browserSession.client();
+  const { data: refreshedSessionData, error: refreshedSessionError } =
+    await refreshedClient.auth.getSession();
+  const refreshedSession = refreshedSessionData.session;
+  const refreshedCompliance = readComplianceState(refreshedSession?.user);
+
+  assert(
+    !refreshedSessionError &&
+      refreshedSession?.access_token &&
+      refreshedSession.user?.id === userId,
+    `Cookies renovados não reconstruíram uma sessão válida: ${formatError(
+      refreshedSessionError
+    )}`
+  );
+  assert(
+    refreshedSession.access_token !== initialAccessToken,
+    "A API declarou renovação, mas manteve o access token antigo."
+  );
+  assert(
+    refreshedCompliance?.current_terms_version === CURRENT_TERMS_VERSION_ID &&
+      refreshedCompliance?.current_terms_accepted_at,
+    `JWT renovado não contém o aceite atual: ${JSON.stringify(
+      refreshedCompliance
     )}`
   );
 
@@ -269,11 +356,13 @@ async function main() {
 
   const secondAcceptance = await postCompliance(
     acceptancePayload,
-    signInData.session.access_token
+    refreshedSession.access_token,
+    browserSession.cookieHeader()
   );
   assert(
     secondAcceptance.response.status === 200 &&
-      secondAcceptance.body?.ok === true,
+      secondAcceptance.body?.ok === true &&
+      secondAcceptance.body?.skipped === true,
     `Segundo aceite idempotente falhou: HTTP ${secondAcceptance.response.status} ${JSON.stringify(
       secondAcceptance.body
     )}`
@@ -296,7 +385,7 @@ async function main() {
     )} ${JSON.stringify(repeatedEvidence)}`
   );
 
-  const directTermsRead = await session.client
+  const directTermsRead = await refreshedClient
     .from("user_terms_acceptances")
     .select("id");
   assert(
@@ -304,7 +393,7 @@ async function main() {
     "Sessão authenticated conseguiu ler evidência de aceite diretamente."
   );
 
-  const directTermsInsert = await session.client
+  const directTermsInsert = await refreshedClient
     .from("user_terms_acceptances")
     .insert({
       user_id: userId,
@@ -327,21 +416,22 @@ async function main() {
     "service_role conseguiu alterar uma evidência append-only."
   );
 
-  const dashboardResponse = await fetch(
-    new URL("/dashboard/pedidos", appUrl),
-    {
-      headers: {
-        Cookie: session.cookieHeader(),
-        "User-Agent": "gestify-auth-compliance-dashboard-smoke/1.0",
-        "X-Forwarded-For": "127.0.0.1",
-      },
-      redirect: "follow",
-    }
-  );
+  const dashboardResponse = await fetch(new URL(DASHBOARD_PATH, appUrl), {
+    headers: {
+      Cookie: browserSession.cookieHeader(),
+      "User-Agent": "gestify-auth-compliance-dashboard-smoke/1.0",
+      "X-Forwarded-For": "127.0.0.1",
+    },
+    redirect: "manual",
+  });
+  const dashboardLocation = dashboardResponse.headers.get("location");
   const dashboardBody = await dashboardResponse.text();
+
   assert(
-    dashboardResponse.status < 500,
-    `Página autenticada falhou ao registrar acesso: HTTP ${dashboardResponse.status} ${dashboardBody.slice(
+    dashboardResponse.status === 200,
+    `Middleware não liberou o módulo autorizado após renovar o JWT: HTTP ${
+      dashboardResponse.status
+    }; location=${dashboardLocation ?? "nenhuma"}; body=${dashboardBody.slice(
       0,
       300
     )}`
@@ -357,7 +447,9 @@ async function main() {
 
   assert(
     !accessRowsError && accessRows?.length >= 1,
-    `Página autenticada não gerou registro de acesso: ${formatError(accessRowsError)}`
+    `Página autenticada não gerou registro de acesso: ${formatError(
+      accessRowsError
+    )}`
   );
   assert(
     accessRows.some(
@@ -366,10 +458,14 @@ async function main() {
         row.path === "/dashboard" &&
         row.event_type === "authenticated_access"
     ),
-    `Registro de acesso não preservou tenant/caminho: ${JSON.stringify(accessRows)}`
+    `Registro de acesso não preservou tenant/caminho: ${JSON.stringify(
+      accessRows
+    )}`
   );
 
-  const directAccessRead = await session.client.from("user_access_logs").select("id");
+  const directAccessRead = await refreshedClient
+    .from("user_access_logs")
+    .select("id");
   assert(
     directAccessRead.error,
     "Sessão authenticated conseguiu ler telemetria de acesso diretamente."
@@ -395,7 +491,7 @@ async function main() {
   );
 
   const report = {
-    format: "gestify-auth-compliance-evidence-smoke-v1",
+    format: "gestify-auth-compliance-evidence-smoke-v2",
     ok: true,
     commit: process.env.GITHUB_SHA ?? null,
     ref: process.env.GITHUB_REF_NAME ?? null,
@@ -405,6 +501,10 @@ async function main() {
     authenticatedReadDenied: true,
     authenticatedForgeryDenied: true,
     serviceRoleMutationDenied: true,
+    cookieSessionRefreshValidated: true,
+    jwtClaimsRefreshValidated: true,
+    middlewareTermsGateValidated: true,
+    authorizedModuleGateValidated: true,
     dashboardAccessTelemetryValidated: true,
     accessTelemetryReadDenied: true,
     accessTelemetryMutationDenied: true,

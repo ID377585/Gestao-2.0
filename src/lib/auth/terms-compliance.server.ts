@@ -44,6 +44,33 @@ type AuthAdminUser = {
   app_metadata?: Record<string, unknown>;
 };
 
+type SupabaseOperationError = {
+  message?: string | null;
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+};
+
+function formatSupabaseError(error: SupabaseOperationError | null | undefined) {
+  return [error?.message, error?.code, error?.details, error?.hint]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function throwSupabaseOperationError(
+  context: string,
+  error: SupabaseOperationError
+): never {
+  const details = formatSupabaseError(error) || "erro sem detalhes";
+  console.error(`[terms-compliance] ${context}: ${details}`, error);
+
+  if (process.env.NODE_ENV !== "production") {
+    throw new Error(`${context}: ${details}`);
+  }
+
+  throw new Error("Não foi possível registrar a conformidade da conta.");
+}
+
 function getHeader(headersList: Headers, key: string) {
   return headersList.get(key)?.trim() || null;
 }
@@ -152,7 +179,7 @@ async function getAuthAdminUser(
 
 async function getPrimaryEstablishmentId(userId: string) {
   const supabaseAdmin = getSupabaseAdminClient();
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("memberships")
     .select("establishment_id")
     .eq("user_id", userId)
@@ -160,6 +187,13 @@ async function getPrimaryEstablishmentId(userId: string) {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (error) {
+    throwSupabaseOperationError(
+      "Falha ao resolver a empresa principal do usuário",
+      error
+    );
+  }
 
   return data?.establishment_id ?? null;
 }
@@ -185,34 +219,58 @@ export async function recordTermsAcceptance(
     current_terms_accepted_at: acceptedAt,
     first_access_at: previousState?.first_access_at ?? acceptedAt,
     last_access_at: acceptedAt,
-    first_login_at: previousState?.first_login_at ?? (isLoginSource(params.source) ? acceptedAt : null),
-    last_login_at: isLoginSource(params.source) ? acceptedAt : previousState?.last_login_at ?? null,
-    last_access_path: params.path ?? params.redirectPath ?? previousState?.last_access_path ?? null,
+    first_login_at:
+      previousState?.first_login_at ??
+      (isLoginSource(params.source) ? acceptedAt : null),
+    last_login_at: isLoginSource(params.source)
+      ? acceptedAt
+      : previousState?.last_login_at ?? null,
+    last_access_path:
+      params.path ?? params.redirectPath ?? previousState?.last_access_path ?? null,
     last_compliance_event_at: acceptedAt,
   };
 
   const supabaseAdmin = getSupabaseAdminClient();
 
-  await supabaseAdmin.auth.admin.updateUserById(params.userId, {
-    app_metadata: {
-      [TERMS_COMPLIANCE_METADATA_KEY]: nextState,
-      current_establishment_id: primaryEstablishmentId,
-    },
-  });
+  const { error: evidenceError } = await supabaseAdmin
+    .from("user_terms_acceptances")
+    .insert({
+      user_id: params.userId,
+      terms_version_id: CURRENT_TERMS_VERSION_ID,
+      document_slug: CURRENT_TERMS_DOCUMENT_SLUG,
+      document_title: CURRENT_TERMS_DOCUMENT_TITLE,
+      accepted_at: acceptedAt,
+      accepted_from_path: params.path ?? params.redirectPath ?? null,
+      accepted_source: params.source,
+      ip_address: telemetry.ipAddress,
+      user_agent: telemetry.userAgent,
+      auth_session_id: telemetry.authSessionId,
+      establishment_id: primaryEstablishmentId,
+    });
 
-  await supabaseAdmin.from("user_terms_acceptances").insert({
-    user_id: params.userId,
-    terms_version_id: CURRENT_TERMS_VERSION_ID,
-    document_slug: CURRENT_TERMS_DOCUMENT_SLUG,
-    document_title: CURRENT_TERMS_DOCUMENT_TITLE,
-    accepted_at: acceptedAt,
-    accepted_from_path: params.path ?? params.redirectPath ?? null,
-    accepted_source: params.source,
-    ip_address: telemetry.ipAddress,
-    user_agent: telemetry.userAgent,
-    auth_session_id: telemetry.authSessionId,
-    establishment_id: primaryEstablishmentId,
-  });
+  if (evidenceError) {
+    throwSupabaseOperationError(
+      "Falha ao persistir a evidência de aceite dos termos",
+      evidenceError
+    );
+  }
+
+  const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(
+    params.userId,
+    {
+      app_metadata: {
+        [TERMS_COMPLIANCE_METADATA_KEY]: nextState,
+        current_establishment_id: primaryEstablishmentId,
+      },
+    }
+  );
+
+  if (metadataError) {
+    throwSupabaseOperationError(
+      "A evidência foi persistida, mas a sessão de conformidade não pôde ser atualizada",
+      metadataError
+    );
+  }
 
   return nextState;
 }
@@ -229,28 +287,50 @@ export async function touchUserAccess(params: TouchUserAccessParams) {
   const supabaseAdmin = getSupabaseAdminClient();
   const previousState = await getUserTermsComplianceState(params.userId);
 
-  await supabaseAdmin.from("user_access_logs").insert({
-    user_id: params.userId,
-    path: params.path ?? null,
-    ip_address: telemetry.ipAddress,
-    user_agent: telemetry.userAgent,
-    auth_session_id: telemetry.authSessionId,
-  });
+  const { error: accessLogError } = await supabaseAdmin
+    .from("user_access_logs")
+    .insert({
+      user_id: params.userId,
+      path: params.path ?? null,
+      ip_address: telemetry.ipAddress,
+      user_agent: telemetry.userAgent,
+      auth_session_id: telemetry.authSessionId,
+    });
 
-  await supabaseAdmin.auth.admin.updateUserById(params.userId, {
-    app_metadata: {
-      [TERMS_COMPLIANCE_METADATA_KEY]: {
-        ...previousState,
-        first_access_at: previousState?.first_access_at ?? now,
-        last_access_at: now,
-        last_access_path: params.path ?? previousState?.last_access_path ?? null,
-        last_compliance_event_at: now,
+  if (accessLogError) {
+    throwSupabaseOperationError(
+      "Falha ao persistir o registro de acesso do usuário",
+      accessLogError
+    );
+  }
+
+  const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(
+    params.userId,
+    {
+      app_metadata: {
+        [TERMS_COMPLIANCE_METADATA_KEY]: {
+          ...previousState,
+          first_access_at: previousState?.first_access_at ?? now,
+          last_access_at: now,
+          last_access_path:
+            params.path ?? previousState?.last_access_path ?? null,
+          last_compliance_event_at: now,
+        },
       },
-    },
-  });
+    }
+  );
+
+  if (metadataError) {
+    throwSupabaseOperationError(
+      "O acesso foi registrado, mas os metadados da sessão não puderam ser atualizados",
+      metadataError
+    );
+  }
 }
 
-export async function touchUserAuthenticatedAccess(params: TouchUserAccessParams) {
+export async function touchUserAuthenticatedAccess(
+  params: TouchUserAccessParams
+) {
   return touchUserAccess(params);
 }
 

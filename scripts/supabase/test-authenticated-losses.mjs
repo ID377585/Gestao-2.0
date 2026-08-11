@@ -7,14 +7,14 @@ import { createClient } from "@supabase/supabase-js";
 const TENANT_COOKIE_NAME = "gestify_current_establishment_id";
 
 function requiredEnv(name, fallbacks = []) {
-  const names = [name, ...fallbacks];
-
-  for (const candidate of names) {
+  for (const candidate of [name, ...fallbacks]) {
     const value = process.env[candidate];
     if (value) return value;
   }
 
-  throw new Error(`Variável obrigatória ausente: ${names.join(" ou ")}`);
+  throw new Error(
+    `Variável obrigatória ausente: ${[name, ...fallbacks].join(" ou ")}`
+  );
 }
 
 const supabaseUrl = requiredEnv("NEXT_PUBLIC_SUPABASE_URL", ["SUPABASE_URL"]);
@@ -38,9 +38,7 @@ const admin = createClient(supabaseUrl, serviceRoleKey, {
 });
 
 function assert(condition, message) {
-  if (!condition) {
-    throw new Error(message);
-  }
+  if (!condition) throw new Error(message);
 }
 
 function asNumber(value) {
@@ -62,12 +60,29 @@ function formatError(error) {
     .join(" | ");
 }
 
-async function insertRows(table, rows, options = undefined) {
-  const query = options
-    ? admin.from(table).upsert(rows, options)
-    : admin.from(table).insert(rows);
-  const { error } = await query;
+function assertAccessDenied(error, message) {
+  const code = String(error?.code ?? "");
+  const text = formatError(error).toLowerCase();
+  const denied =
+    code === "42501" ||
+    code === "PGRST202" ||
+    text.includes("permission denied") ||
+    text.includes("row-level security") ||
+    text.includes("could not find the function") ||
+    text.includes("schema cache");
 
+  assert(denied, `${message}: ${formatError(error)}`);
+}
+
+async function insertRows(table, rows) {
+  const { error } = await admin.from(table).insert(rows);
+  if (error) {
+    throw new Error(`Falha ao preparar ${table}: ${formatError(error)}`);
+  }
+}
+
+async function upsertRows(table, rows, onConflict) {
+  const { error } = await admin.from(table).upsert(rows, { onConflict });
   if (error) {
     throw new Error(`Falha ao preparar ${table}: ${formatError(error)}`);
   }
@@ -168,7 +183,6 @@ async function signIn(email, password, establishmentId) {
 
   session.setTenant(establishmentId);
   assert(session.cookieJar.size > 1, "Sessão autenticada não gerou cookies SSR.");
-
   return session;
 }
 
@@ -202,9 +216,7 @@ async function postLoss(session, payload, idempotencyKey) {
 
 async function getLosses(session) {
   return appRequest("/api/losses?limit=20", {
-    headers: {
-      Cookie: session.cookieHeader(),
-    },
+    headers: { Cookie: session.cookieHeader() },
   });
 }
 
@@ -213,12 +225,8 @@ async function createFixtureUser({ email, password, fullName, role }) {
     email,
     password,
     email_confirm: true,
-    user_metadata: {
-      full_name: fullName,
-    },
-    app_metadata: {
-      role,
-    },
+    user_metadata: { full_name: fullName },
+    app_metadata: { role },
   });
 
   if (error || !data.user) {
@@ -257,90 +265,78 @@ async function main() {
     { id: establishmentB, name: "Gestify Smoke Tenant B", is_active: true },
   ]);
 
-  await insertRows(
+  // Auth hooks may already create the profile, so this is the only fixture
+  // write that intentionally uses UPSERT. Every other identifier is unique in
+  // the disposable database and therefore uses INSERT without assuming an
+  // optional historical unique constraint.
+  await upsertRows(
     "profiles",
     [
       { id: userA.id, full_name: "Gestify Smoke Estoque A", role: "estoque" },
       { id: userB.id, full_name: "Gestify Smoke Estoque B", role: "estoque" },
     ],
-    { onConflict: "id" }
+    "id"
   );
 
-  await insertRows(
-    "memberships",
-    [
-      {
-        user_id: userA.id,
-        establishment_id: establishmentA,
-        role: "estoque",
-        is_active: true,
-      },
-      {
-        user_id: userB.id,
-        establishment_id: establishmentB,
-        role: "estoque",
-        is_active: true,
-      },
-    ],
-    { onConflict: "establishment_id,user_id" }
-  );
+  await insertRows("memberships", [
+    {
+      user_id: userA.id,
+      establishment_id: establishmentA,
+      role: "estoque",
+      is_active: true,
+    },
+    {
+      user_id: userB.id,
+      establishment_id: establishmentB,
+      role: "estoque",
+      is_active: true,
+    },
+  ]);
 
-  await insertRows(
-    "establishment_memberships",
-    [
-      {
-        user_id: userA.id,
-        establishment_id: establishmentA,
-        role: "estoque",
-        is_active: true,
-      },
-      {
-        user_id: userB.id,
-        establishment_id: establishmentB,
-        role: "estoque",
-        is_active: true,
-      },
-    ],
-    { onConflict: "establishment_id,user_id" }
-  );
+  await insertRows("establishment_memberships", [
+    {
+      user_id: userA.id,
+      establishment_id: establishmentA,
+      role: "estoque",
+      is_active: true,
+    },
+    {
+      user_id: userB.id,
+      establishment_id: establishmentB,
+      role: "estoque",
+      is_active: true,
+    },
+  ]);
 
-  await insertRows(
-    "fiscal_company_profiles",
-    [
-      {
-        establishment_id: establishmentA,
-        razao_social: "Gestify Smoke Tenant A LTDA",
-        nome_fantasia: "Smoke A",
-        cnpj: `900000${suffix.replace(/[^0-9]/g, "").padEnd(8, "0")}`.slice(0, 14),
-      },
-      {
-        establishment_id: establishmentB,
-        razao_social: "Gestify Smoke Tenant B LTDA",
-        nome_fantasia: "Smoke B",
-        cnpj: `910000${suffix.replace(/[^0-9]/g, "").padEnd(8, "1")}`.slice(0, 14),
-      },
-    ],
-    { onConflict: "establishment_id" }
-  );
+  await insertRows("fiscal_company_profiles", [
+    {
+      establishment_id: establishmentA,
+      razao_social: "Gestify Smoke Tenant A LTDA",
+      nome_fantasia: "Smoke A",
+      cnpj: "90000000000001",
+    },
+    {
+      establishment_id: establishmentB,
+      razao_social: "Gestify Smoke Tenant B LTDA",
+      nome_fantasia: "Smoke B",
+      cnpj: "90000000000002",
+    },
+  ]);
 
-  await insertRows(
-    "user_module_permissions",
-    [
-      {
-        establishment_id: establishmentA,
-        user_id: userA.id,
-        module_key: "estoque",
-        can_access: true,
-      },
-      {
-        establishment_id: establishmentB,
-        user_id: userB.id,
-        module_key: "estoque",
-        can_access: false,
-      },
-    ],
-    { onConflict: "establishment_id,user_id,module_key" }
-  );
+  await insertRows("user_module_permissions", [
+    {
+      establishment_id: establishmentA,
+      user_id: userA.id,
+      module_key: "estoque",
+      can_access: true,
+    },
+    {
+      establishment_id: establishmentB,
+      user_id: userB.id,
+      module_key: "estoque",
+      can_access: false,
+    },
+  ]);
 
   await insertRows("products", [
     {
@@ -415,9 +411,9 @@ async function main() {
     p_user_id: userA.id,
     p_allow_negative: false,
   });
-  assert(
-    Boolean(directRpcAttempt.error),
-    "RPC register_loss ficou executável diretamente por authenticated."
+  assertAccessDenied(
+    directRpcAttempt.error,
+    "RPC register_loss ficou executável diretamente por authenticated"
   );
 
   const directInsertAttempt = await sessionA.client.from("losses").insert({
@@ -430,9 +426,9 @@ async function main() {
     qty: 0.1,
     reason: "Quebra",
   });
-  assert(
-    Boolean(directInsertAttempt.error),
-    "Tabela losses aceitou INSERT direto de authenticated."
+  assertAccessDenied(
+    directInsertAttempt.error,
+    "Tabela losses aceitou INSERT direto de authenticated"
   );
 
   const noLabelPayload = {

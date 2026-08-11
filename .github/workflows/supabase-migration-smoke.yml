@@ -10,6 +10,7 @@ name: Supabase full migration smoke
       - "scripts/check-supabase-contract.mjs"
       - "scripts/audit-order-rls.mjs"
       - ".github/workflows/supabase-migration-smoke.yml"
+      - ".github/workflows/supabase-staging.yml"
       - "package.json"
       - "package-lock.json"
   workflow_dispatch:
@@ -39,6 +40,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Test staging target guard
+        run: node scripts/supabase/test-validate-staging-target.mjs
 
       - name: Setup pinned Supabase CLI
         uses: supabase/setup-cli@v1

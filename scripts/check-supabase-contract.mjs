@@ -92,10 +92,20 @@ const securityContract = await runContract(
   "gestify_core_security_audit",
   "Contrato de segurança Gestify Core"
 );
+const authComplianceContract = await runContract(
+  "gestify_auth_compliance_audit",
+  "Contrato de evidência de autenticação e conformidade"
+);
 
 console.log(
   `[supabase-contract] Core ${securityContract.contract_version ?? "desconhecido"}; ` +
     `buckets públicos permitidos=${JSON.stringify(
       securityContract.allowed_public_buckets ?? []
     )}.`
+);
+console.log(
+  `[supabase-contract] Auth compliance ${
+    authComplianceContract.contract_version ?? "desconhecido"
+  }; backfill=${authComplianceContract.metadata_backfill_rows ?? 0}; ` +
+    `evidências diretas=${authComplianceContract.direct_evidence_rows ?? 0}.`
 );

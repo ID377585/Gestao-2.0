@@ -28,6 +28,49 @@ function getBearerToken(request: Request) {
   return authorization.slice(7).trim() || null;
 }
 
+function hasCookieBackedAuthSession(request: Request) {
+  const cookieHeader = request.headers.get("cookie") ?? "";
+
+  return cookieHeader
+    .split(";")
+    .map((entry) => entry.trim().split("=", 1)[0] ?? "")
+    .some((name) => name.startsWith("sb-") && name.includes("auth-token"));
+}
+
+async function refreshCookieBackedSession(request: Request) {
+  if (!hasCookieBackedAuthSession(request)) {
+    return {
+      attempted: false,
+      refreshed: false,
+    };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.auth.refreshSession();
+  const refreshedUser = data.user ?? data.session?.user ?? null;
+
+  if (error || !data.session?.access_token || !refreshedUser) {
+    throw new Error(
+      "O aceite foi registrado, mas a sessão do navegador não pôde ser renovada. Faça login novamente para continuar."
+    );
+  }
+
+  const refreshedState = readTermsComplianceFromMetadata(
+    refreshedUser.app_metadata as Record<string, unknown> | undefined
+  );
+
+  if (!hasAcceptedCurrentTerms(refreshedState)) {
+    throw new Error(
+      "O aceite foi registrado, mas o novo token ainda não contém a versão contratual atual."
+    );
+  }
+
+  return {
+    attempted: true,
+    refreshed: true,
+  };
+}
+
 async function resolveAuthenticatedUser(request: Request) {
   const bearerToken = getBearerToken(request);
 
@@ -92,11 +135,18 @@ export async function GET(request: Request) {
     const state = hasAcceptedCurrentTerms(sessionState)
       ? sessionState
       : await getUserTermsComplianceState(user.id);
+    const acceptedCurrentTerms = hasAcceptedCurrentTerms(state);
+    const sessionRefresh =
+      acceptedCurrentTerms && !hasAcceptedCurrentTerms(sessionState)
+        ? await refreshCookieBackedSession(request)
+        : { attempted: false, refreshed: false };
 
     return NextResponse.json(
       {
         authenticated: true,
-        acceptedCurrentTerms: hasAcceptedCurrentTerms(state),
+        acceptedCurrentTerms,
+        sessionRefreshAttempted: sessionRefresh.attempted,
+        sessionRefreshed: sessionRefresh.refreshed,
         currentTermsTitle: CURRENT_TERMS_DOCUMENT_TITLE,
         currentTermsVersion: CURRENT_TERMS_DOCUMENT_VERSION,
         currentTermsUpdatedAt: CURRENT_TERMS_UPDATED_AT,
@@ -143,7 +193,9 @@ export async function POST(request: Request) {
         ? body.source.trim()
         : "login";
     const path =
-      typeof body?.path === "string" && body.path.trim() ? body.path.trim() : "/login";
+      typeof body?.path === "string" && body.path.trim()
+        ? body.path.trim()
+        : "/login";
     const redirectPath =
       typeof body?.redirectPath === "string" && body.redirectPath.trim()
         ? body.redirectPath.trim()
@@ -165,6 +217,8 @@ export async function POST(request: Request) {
         {
           ok: true,
           skipped: true,
+          sessionRefreshAttempted: false,
+          sessionRefreshed: false,
           acceptedAt: sessionState?.current_terms_accepted_at ?? null,
           currentTermsTitle: CURRENT_TERMS_DOCUMENT_TITLE,
           currentTermsVersion: CURRENT_TERMS_DOCUMENT_VERSION,
@@ -182,10 +236,13 @@ export async function POST(request: Request) {
       accessToken,
       headersOverride: request.headers,
     });
+    const sessionRefresh = await refreshCookieBackedSession(request);
 
     return NextResponse.json(
       {
         ok: true,
+        sessionRefreshAttempted: sessionRefresh.attempted,
+        sessionRefreshed: sessionRefresh.refreshed,
         acceptedAt: result.current_terms_accepted_at ?? null,
         currentTermsTitle: CURRENT_TERMS_DOCUMENT_TITLE,
         currentTermsVersion: CURRENT_TERMS_DOCUMENT_VERSION,

@@ -207,9 +207,14 @@ export async function recordTermsAcceptance(
   params: RecordTermsAcceptanceParams
 ): Promise<TermsComplianceState> {
   const telemetry = await getTelemetry(params);
-  const acceptedAt = new Date().toISOString();
+  const eventAt = new Date().toISOString();
   const primaryEstablishmentId = await getPrimaryEstablishmentId(params.userId);
   const previousState = await getUserTermsComplianceState(params.userId);
+  const acceptedAt =
+    hasAcceptedCurrentTerms(previousState) &&
+    previousState?.current_terms_accepted_at
+      ? previousState.current_terms_accepted_at
+      : eventAt;
 
   const nextState: TermsComplianceState = {
     ...previousState,
@@ -218,35 +223,42 @@ export async function recordTermsAcceptance(
     current_terms_version: CURRENT_TERMS_VERSION_ID,
     current_terms_accepted_at: acceptedAt,
     first_access_at: previousState?.first_access_at ?? acceptedAt,
-    last_access_at: acceptedAt,
+    last_access_at: eventAt,
     first_login_at:
       previousState?.first_login_at ??
-      (isLoginSource(params.source) ? acceptedAt : null),
+      (isLoginSource(params.source) ? eventAt : null),
     last_login_at: isLoginSource(params.source)
-      ? acceptedAt
+      ? eventAt
       : previousState?.last_login_at ?? null,
     last_access_path:
       params.path ?? params.redirectPath ?? previousState?.last_access_path ?? null,
-    last_compliance_event_at: acceptedAt,
+    last_compliance_event_at: eventAt,
   };
 
   const supabaseAdmin = getSupabaseAdminClient();
 
   const { error: evidenceError } = await supabaseAdmin
     .from("user_terms_acceptances")
-    .insert({
-      user_id: params.userId,
-      terms_version_id: CURRENT_TERMS_VERSION_ID,
-      document_slug: CURRENT_TERMS_DOCUMENT_SLUG,
-      document_title: CURRENT_TERMS_DOCUMENT_TITLE,
-      accepted_at: acceptedAt,
-      accepted_from_path: params.path ?? params.redirectPath ?? null,
-      accepted_source: params.source,
-      ip_address: telemetry.ipAddress,
-      user_agent: telemetry.userAgent,
-      auth_session_id: telemetry.authSessionId,
-      establishment_id: primaryEstablishmentId,
-    });
+    .upsert(
+      {
+        user_id: params.userId,
+        terms_version_id: CURRENT_TERMS_VERSION_ID,
+        document_slug: CURRENT_TERMS_DOCUMENT_SLUG,
+        document_title: CURRENT_TERMS_DOCUMENT_TITLE,
+        accepted_at: acceptedAt,
+        accepted_from_path: params.path ?? params.redirectPath ?? null,
+        accepted_source: params.source,
+        ip_address: telemetry.ipAddress,
+        user_agent: telemetry.userAgent,
+        auth_session_id: telemetry.authSessionId,
+        establishment_id: primaryEstablishmentId,
+        evidence_origin: "direct",
+      },
+      {
+        onConflict: "user_id,terms_version_id",
+        ignoreDuplicates: true,
+      }
+    );
 
   if (evidenceError) {
     throwSupabaseOperationError(
@@ -286,15 +298,18 @@ export async function touchUserAccess(params: TouchUserAccessParams) {
   const now = new Date().toISOString();
   const supabaseAdmin = getSupabaseAdminClient();
   const previousState = await getUserTermsComplianceState(params.userId);
+  const primaryEstablishmentId = await getPrimaryEstablishmentId(params.userId);
 
   const { error: accessLogError } = await supabaseAdmin
     .from("user_access_logs")
     .insert({
       user_id: params.userId,
+      establishment_id: primaryEstablishmentId,
       path: params.path ?? null,
       ip_address: telemetry.ipAddress,
       user_agent: telemetry.userAgent,
       auth_session_id: telemetry.authSessionId,
+      event_type: "authenticated_access",
     });
 
   if (accessLogError) {

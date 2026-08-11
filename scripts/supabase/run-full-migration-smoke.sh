@@ -11,6 +11,8 @@ ORDER_AUDIT_LOG="${ARTIFACT_DIR}/order-rls-audit.log"
 MEMBERSHIP_UNIQUENESS_LOG="${ARTIFACT_DIR}/membership-uniqueness.log"
 MEMBERSHIP_UNIQUENESS_REPORT_FILE="${ARTIFACT_DIR}/membership-uniqueness-report.json"
 APP_LOG="${ARTIFACT_DIR}/gestify-app.log"
+AUTH_SESSION_LOG="${ARTIFACT_DIR}/auth-session-tenancy.log"
+AUTH_SESSION_REPORT_FILE="${ARTIFACT_DIR}/auth-session-tenancy-report.json"
 AUTHENTICATED_LOSSES_LOG="${ARTIFACT_DIR}/authenticated-losses.log"
 AUTHENTICATED_LOSSES_REPORT_FILE="${ARTIFACT_DIR}/authenticated-losses-report.json"
 REPORT_FILE="${ARTIFACT_DIR}/supabase-migration-smoke-report.json"
@@ -53,6 +55,11 @@ fi
 
 if [[ ! -f "scripts/supabase/test-membership-uniqueness.mjs" ]]; then
   echo "[supabase-migration-smoke] Membership uniqueness contract script is missing." >&2
+  exit 1
+fi
+
+if [[ ! -f "scripts/supabase/test-auth-session-tenancy.mjs" ]]; then
+  echo "[supabase-migration-smoke] Auth session and tenancy smoke script is missing." >&2
   exit 1
 fi
 
@@ -153,6 +160,15 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="${PUBLIC_KEY}" \
 NEXT_PUBLIC_SUPABASE_ANON_KEY="${PUBLIC_KEY}" \
 SUPABASE_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY}" \
 GESTIFY_APP_URL="${APP_URL}" \
+GESTIFY_AUTH_SESSION_REPORT_FILE="${AUTH_SESSION_REPORT_FILE}" \
+node scripts/supabase/test-auth-session-tenancy.mjs \
+  2>&1 | tee "${AUTH_SESSION_LOG}"
+
+NEXT_PUBLIC_SUPABASE_URL="${API_URL}" \
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="${PUBLIC_KEY}" \
+NEXT_PUBLIC_SUPABASE_ANON_KEY="${PUBLIC_KEY}" \
+SUPABASE_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY}" \
+GESTIFY_APP_URL="${APP_URL}" \
 GESTIFY_LOSSES_SMOKE_REPORT_FILE="${AUTHENTICATED_LOSSES_REPORT_FILE}" \
 node scripts/supabase/test-authenticated-losses.mjs \
   2>&1 | tee "${AUTHENTICATED_LOSSES_LOG}"
@@ -164,7 +180,7 @@ node <<'NODE'
 import { writeFileSync } from "node:fs";
 
 const payload = {
-  format: "gestify-supabase-migration-smoke-v2",
+  format: "gestify-supabase-migration-smoke-v3",
   ok: true,
   commit: process.env.GITHUB_SHA ?? null,
   ref: process.env.GITHUB_REF_NAME ?? null,
@@ -174,6 +190,7 @@ const payload = {
   contractValidated: true,
   orderRlsAuditValidated: true,
   membershipUniquenessValidated: true,
+  authSessionTenancyValidated: true,
   authenticatedLossesValidated: true,
   generatedAt: new Date().toISOString(),
 };
@@ -187,4 +204,4 @@ writeFileSync(
 console.log(JSON.stringify(payload, null, 2));
 NODE
 
-echo "[supabase-migration-smoke] Full migration chain, local contracts, membership uniqueness and authenticated losses flow passed."
+echo "[supabase-migration-smoke] Full migration chain, local contracts, membership uniqueness, auth/session tenancy and authenticated losses flows passed."

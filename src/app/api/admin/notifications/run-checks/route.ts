@@ -64,6 +64,21 @@ async function getAuthorizedUserContext() {
     };
   }
 
+  if (membership.role === "admin") {
+    const { data: aal, error: aalError } =
+      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+    if (aalError || aal.currentLevel !== "aal2") {
+      return {
+        supabase,
+        error: NextResponse.json(
+          { error: "MFA AAL2 é obrigatório para ações administrativas." },
+          { status: 403 }
+        ),
+      };
+    }
+  }
+
   return { supabase, user, membership, error: null };
 }
 

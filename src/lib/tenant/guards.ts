@@ -4,6 +4,19 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentTenant, listCurrentUserTenants } from "@/lib/tenant/get-current-tenant";
 import type { TenantContext, TenantMembershipRole } from "@/lib/tenant/types";
 
+async function assertAdminAal2IfRequired(role: TenantMembershipRole) {
+  if (role !== "admin") return;
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+  if (error || data.currentLevel !== "aal2") {
+    throw new Error(
+      "Autenticação em dois fatores é obrigatória para ações administrativas."
+    );
+  }
+}
+
 export async function getActiveTenantOrRedirect(options?: {
   redirectTo?: string;
 }): Promise<TenantContext> {
@@ -77,6 +90,8 @@ export async function assertActiveTenantRole(
   if (!allowedRoles.includes(tenant.role)) {
     throw new Error("Você não tem permissão para executar esta ação.");
   }
+
+  await assertAdminAal2IfRequired(tenant.role);
 
   return tenant;
 }

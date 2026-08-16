@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ type TotpSetup = {
   secret: string;
 };
 
-export default function MfaPage() {
+function MfaFlow() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = useMemo(
@@ -257,5 +257,24 @@ export default function MfaPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function MfaPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
+          <div className="mx-auto w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl sm:p-8">
+            <div className="mb-8 flex justify-center">
+              <GestifyLogo />
+            </div>
+            <div className="text-sm text-slate-300">Carregando verificação em duas etapas...</div>
+          </div>
+        </main>
+      }
+    >
+      <MfaFlow />
+    </Suspense>
   );
 }

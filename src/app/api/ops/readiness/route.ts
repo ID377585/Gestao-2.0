@@ -18,11 +18,7 @@ type ReadinessCheck = {
   present?: string[];
 };
 
-const MODERN_SUPABASE_ADMIN_KEYS = [
-  "SUPABASE_SECRET_KEY_PREVIEW",
-  "SUPABASE_SECRET_KEY_NEW",
-  "SUPABASE_SECRET_KEY",
-];
+const MODERN_SUPABASE_ADMIN_KEYS = ["SUPABASE_SECRET_KEY"];
 
 function envPresent(name: string) {
   return Boolean(process.env[name]?.trim());

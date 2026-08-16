@@ -47,13 +47,10 @@ export function getRequiredSupabasePublicEnv() {
 }
 
 export function getRequiredSupabaseServiceRoleKey() {
-  // Security baseline: only modern sb_secret_* credentials are accepted.
-  // SUPABASE_SERVICE_ROLE_KEY is a legacy JWT-based credential and must never
-  // be used as a runtime fallback after the incident migration.
-  const adminKey =
-    process.env.SUPABASE_SECRET_KEY_PREVIEW ??
-    process.env.SUPABASE_SECRET_KEY_NEW ??
-    process.env.SUPABASE_SECRET_KEY;
+  // Security baseline: only the canonical modern sb_secret_* credential is
+  // accepted. Legacy aliases and JWT-based service_role fallbacks are
+  // intentionally unsupported after the incident migration.
+  const adminKey = process.env.SUPABASE_SECRET_KEY;
 
   if (!adminKey) {
     throw new Error(

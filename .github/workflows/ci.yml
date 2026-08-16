@@ -19,10 +19,9 @@ jobs:
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co' }}
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_ci_placeholder' }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'ci_anon_placeholder' }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'ci_service_role_placeholder' }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY || 'sb_secret_ci_placeholder' }}
       FISCAL_SYNC_SECRET: ${{ secrets.FISCAL_SYNC_SECRET || 'ci_fiscal_sync_placeholder' }}
-      HAS_SUPABASE_CONTRACT_SECRETS: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL != '' && secrets.SUPABASE_SERVICE_ROLE_KEY != '' }}
+      HAS_SUPABASE_CONTRACT_SECRETS: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL != '' && secrets.SUPABASE_SECRET_KEY != '' }}
       GESTIFY_NEW_SIGNUPS_ENABLED: 'false'
 
     steps:
@@ -57,21 +56,23 @@ jobs:
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_SUPABASE_CONTRACT_SECRETS != 'true' }}
         run: |
           echo "Supabase contract secrets are required for main."
-          echo "Configure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in GitHub Actions secrets."
+          echo "Configure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY in GitHub Actions secrets."
           exit 1
 
       - name: Supabase contract
         if: ${{ env.HAS_SUPABASE_CONTRACT_SECRETS == 'true' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: npm run supabase:contract
 
       - name: Order RLS/RPC audit
         if: ${{ env.HAS_SUPABASE_CONTRACT_SECRETS == 'true' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Temporary compatibility alias for the audit script. The value is a
+          # modern sb_secret_* key, not the legacy JWT-based service_role key.
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: npm run orders:rls:ci
 
       - name: Build

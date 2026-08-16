@@ -70,9 +70,7 @@ jobs:
         if: ${{ env.HAS_SUPABASE_CONTRACT_SECRETS == 'true' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          # Temporary compatibility alias for the audit script. The value is a
-          # modern sb_secret_* key, not the legacy JWT-based service_role key.
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: npm run orders:rls:ci
 
       - name: Build

@@ -13,13 +13,19 @@ const envFile = envFileArg ? envFileArg.slice("--env-file=".length) : ".env.loca
 
 const requiredProductionEnv = [
   "NEXT_PUBLIC_SUPABASE_URL",
-  "SUPABASE_SERVICE_ROLE_KEY",
+  "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
   "CRON_SECRET",
   "FISCAL_SYNC_SECRET",
   "JOB_WORKER_SECRET",
   "RESEND_API_KEY",
   "RESEND_FROM_EMAIL",
   "NEXT_PUBLIC_APP_URL",
+];
+
+const modernAdminEnv = [
+  "SUPABASE_SECRET_KEY_PREVIEW",
+  "SUPABASE_SECRET_KEY_NEW",
+  "SUPABASE_SECRET_KEY",
 ];
 
 const recommendedProductionEnv = [
@@ -32,8 +38,7 @@ const recommendedProductionEnv = [
 const requiredExampleKeys = [
   ...requiredProductionEnv,
   ...recommendedProductionEnv,
-  "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "SUPABASE_SECRET_KEY",
   "GESTIFY_NEW_SIGNUPS_ENABLED",
   "GESTIFY_SECURITY_HARDENING_CONFIRMED",
   "GESTIFY_ALERT_EMAIL_QUEUE_ENABLED",
@@ -106,6 +111,12 @@ for (const key of requiredProductionEnv) {
   );
 }
 
+addCheck(
+  `${envFile} define uma SUPABASE_SECRET_KEY moderna`,
+  modernAdminEnv.some((key) => Boolean(localEnv[key] || process.env[key])),
+  `Defina uma destas credenciais server-side: ${modernAdminEnv.join(", ")}. Chaves JWT legadas não são aceitas.`
+);
+
 for (const key of recommendedProductionEnv) {
   addCheck(
     `${envFile} recomenda ${key}`,
@@ -126,7 +137,14 @@ addCheck(
   publicSecretNames.length === 0,
   publicSecretNames.length
     ? `Revise: ${publicSecretNames.join(", ")}`
-    : "Chaves públicas Supabase são permitidas; segredos reais ficam server-side."
+    : "A publishable key do Supabase é pública; credenciais administrativas ficam server-side."
+);
+
+addCheck(
+  "Chaves Supabase JWT legadas não são requisito de runtime",
+  !Object.prototype.hasOwnProperty.call(envExample, "SUPABASE_SERVICE_ROLE_KEY") &&
+    !Object.prototype.hasOwnProperty.call(envExample, "NEXT_PUBLIC_SUPABASE_ANON_KEY"),
+  "O Gestify deve operar apenas com publishable/secret keys modernas."
 );
 
 addCheck(

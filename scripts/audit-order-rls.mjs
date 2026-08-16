@@ -87,17 +87,17 @@ function loadEnv() {
 
   const supabaseUrl =
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const adminKey = process.env.SUPABASE_SECRET_KEY;
   const missing = [];
 
   if (!supabaseUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL");
-  if (!serviceRoleKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  if (!adminKey) missing.push("SUPABASE_SECRET_KEY");
 
   if (missing.length > 0) {
     throw new Error(`[order-rls-audit] ENV ausente: ${missing.join(", ")}.`);
   }
 
-  return { supabaseUrl, serviceRoleKey };
+  return { supabaseUrl, adminKey };
 }
 
 function roleList(value) {
@@ -135,8 +135,8 @@ function formatCounts(counts) {
 
 const args = parseArgs(process.argv.slice(2));
 const baseline = loadBaseline(args.baselinePath);
-const { supabaseUrl, serviceRoleKey } = loadEnv();
-const supabase = createClient(supabaseUrl, serviceRoleKey, {
+const { supabaseUrl, adminKey } = loadEnv();
+const supabase = createClient(supabaseUrl, adminKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,

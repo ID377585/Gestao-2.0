@@ -35,21 +35,22 @@ loadEnvFile(".env");
 
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const adminKey =
+  process.env.SUPABASE_SECRET_KEY_PREVIEW ??
+  process.env.SUPABASE_SECRET_KEY_NEW ??
+  process.env.SUPABASE_SECRET_KEY;
 
 const missing = [];
 
 if (!supabaseUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL");
-if (!serviceRoleKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+if (!adminKey) missing.push("SUPABASE_SECRET_KEY");
 
 if (missing.length > 0) {
-  console.error(
-    `[supabase-contract] ENV ausente: ${missing.join(", ")}.`
-  );
+  console.error(`[supabase-contract] ENV ausente: ${missing.join(", ")}.`);
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, serviceRoleKey, {
+const supabase = createClient(supabaseUrl, adminKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,

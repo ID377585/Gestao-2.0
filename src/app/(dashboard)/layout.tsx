@@ -63,6 +63,23 @@ export default async function DashboardLayout({
     redirect("/sem-acesso");
   }
 
+  if (role === "admin") {
+    const supabase = await createSupabaseServerClient();
+    const { data: aal, error: aalError } =
+      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+    if (aalError) {
+      console.error("[admin-mfa] failed to inspect assurance level:", {
+        message: aalError.message,
+      });
+      redirect("/mfa?redirect=%2Fdashboard%2Fpedidos");
+    }
+
+    if (aal.currentLevel !== "aal2") {
+      redirect("/mfa?redirect=%2Fdashboard%2Fpedidos");
+    }
+  }
+
   const allowedSectionKeys = await getAllowedMenuSectionKeysForTenant(tenant);
 
   return (

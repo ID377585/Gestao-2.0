@@ -35,10 +35,7 @@ loadEnvFile(".env");
 
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
-const adminKey =
-  process.env.SUPABASE_SECRET_KEY_PREVIEW ??
-  process.env.SUPABASE_SECRET_KEY_NEW ??
-  process.env.SUPABASE_SECRET_KEY;
+const adminKey = process.env.SUPABASE_SECRET_KEY;
 
 const missing = [];
 

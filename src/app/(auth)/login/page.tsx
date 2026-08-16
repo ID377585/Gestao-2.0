@@ -251,21 +251,6 @@ function LoginInner() {
         return;
       }
 
-      const currentRole =
-        data.user.user_metadata?.role || data.user.app_metadata?.role;
-
-      if (!currentRole) {
-        const { error: updateErr } = await supabase.auth.updateUser({
-          data: { role: "admin" },
-        });
-
-        if (updateErr) {
-          console.error("Falha ao setar role no user_metadata:", updateErr);
-        }
-
-        await supabase.auth.getSession();
-      }
-
       const sessionState = readTermsComplianceFromMetadata(
         data.user.app_metadata as Record<string, unknown> | undefined
       );

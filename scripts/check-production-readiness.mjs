@@ -22,11 +22,7 @@ const requiredProductionEnv = [
   "NEXT_PUBLIC_APP_URL",
 ];
 
-const modernAdminEnv = [
-  "SUPABASE_SECRET_KEY_PREVIEW",
-  "SUPABASE_SECRET_KEY_NEW",
-  "SUPABASE_SECRET_KEY",
-];
+const modernAdminEnv = ["SUPABASE_SECRET_KEY"];
 
 const recommendedProductionEnv = [
   "ALERTS_FROM_EMAIL",
@@ -112,9 +108,9 @@ for (const key of requiredProductionEnv) {
 }
 
 addCheck(
-  `${envFile} define uma SUPABASE_SECRET_KEY moderna`,
+  `${envFile} define SUPABASE_SECRET_KEY`,
   modernAdminEnv.some((key) => Boolean(localEnv[key] || process.env[key])),
-  `Defina uma destas credenciais server-side: ${modernAdminEnv.join(", ")}. Chaves JWT legadas não são aceitas.`
+  "Defina a credencial server-side canônica SUPABASE_SECRET_KEY. Aliases antigos e chaves JWT legadas não são aceitos."
 );
 
 for (const key of recommendedProductionEnv) {

@@ -49,12 +49,13 @@ export function getRequiredSupabasePublicEnv() {
 export function getRequiredSupabaseServiceRoleKey() {
   const adminKey =
     process.env.SUPABASE_SECRET_KEY_PREVIEW ??
+    process.env.SUPABASE_SECRET_KEY_NEW ??
     process.env.SUPABASE_SECRET_KEY ??
     process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!adminKey) {
     throw new Error(
-      "Configuração Supabase admin incompleta. Defina SUPABASE_SECRET_KEY_PREVIEW (validação), SUPABASE_SECRET_KEY (preferencial) ou SUPABASE_SERVICE_ROLE_KEY apenas em ambiente server-side seguro."
+      "Configuração Supabase admin incompleta. Defina uma credencial administrativa Supabase apenas em ambiente server-side seguro."
     );
   }
 

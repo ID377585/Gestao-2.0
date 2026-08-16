@@ -2,10 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 function getSupabaseKey() {
-  return (
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
+  return process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 }
 
 export function createClient(request: NextRequest) {
@@ -14,7 +11,7 @@ export function createClient(request: NextRequest) {
 
   if (!supabaseUrl || !supabaseKey) {
     throw new Error(
-      "NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ou NEXT_PUBLIC_SUPABASE_ANON_KEY são obrigatórias."
+      "NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY são obrigatórias."
     );
   }
 

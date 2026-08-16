@@ -18,8 +18,18 @@ type ReadinessCheck = {
   present?: string[];
 };
 
+const MODERN_SUPABASE_ADMIN_KEYS = [
+  "SUPABASE_SECRET_KEY_PREVIEW",
+  "SUPABASE_SECRET_KEY_NEW",
+  "SUPABASE_SECRET_KEY",
+];
+
 function envPresent(name: string) {
   return Boolean(process.env[name]?.trim());
+}
+
+function hasModernSupabaseAdminKey() {
+  return MODERN_SUPABASE_ADMIN_KEYS.some(envPresent);
 }
 
 function envGroupCheck(params: {
@@ -54,14 +64,14 @@ function envGroupCheck(params: {
 }
 
 async function databaseReadiness(): Promise<ReadinessCheck[]> {
-  if (!envPresent("SUPABASE_SERVICE_ROLE_KEY")) {
+  if (!hasModernSupabaseAdminKey()) {
     return [
       {
         key: "database.admin-client",
         status: "critical",
         message:
-          "Cliente administrativo Supabase indisponível: SUPABASE_SERVICE_ROLE_KEY não configurada.",
-        missing: ["SUPABASE_SERVICE_ROLE_KEY"],
+          "Cliente administrativo Supabase indisponível: configure uma SUPABASE_SECRET_KEY moderna.",
+        missing: MODERN_SUPABASE_ADMIN_KEYS,
       },
     ];
   }
@@ -131,16 +141,15 @@ function runtimeReadiness(): ReadinessCheck[] {
     envGroupCheck({
       key: "supabase.public",
       label: "Supabase público",
-      requiredAll: ["NEXT_PUBLIC_SUPABASE_URL"],
-      requiredAny: [
+      requiredAll: [
+        "NEXT_PUBLIC_SUPABASE_URL",
         "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
       ],
     }),
     envGroupCheck({
-      key: "supabase.service-role",
-      label: "Supabase service role",
-      requiredAll: ["SUPABASE_SERVICE_ROLE_KEY"],
+      key: "supabase.admin-secret",
+      label: "Supabase secret key moderna",
+      requiredAny: MODERN_SUPABASE_ADMIN_KEYS,
     }),
     envGroupCheck({
       key: "cron.secrets",

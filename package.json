@@ -30,7 +30,8 @@
     "runtime:imports:check": "node scripts/audit-runtime-imports.mjs",
     "readiness:check": "node scripts/check-production-readiness.mjs",
     "readiness:strict": "node scripts/check-production-readiness.mjs --strict",
-    "ci": "npm run lint && npm run typecheck && npm run audit && npm run tenant:writes:ci && npm run runtime:imports:check && npm run readiness:check && npm run build",
+    "readiness:deployment": "node scripts/check-deployment-readiness.mjs",
+    "ci": "npm run lint && npm run typecheck && npm run audit && npm run tenant:writes:ci && npm run runtime:imports:check && npm run readiness:check && npm run readiness:deployment && npm run build",
     "postinstall": "node scripts/enforce-production-freeze.js"
   },
   "dependencies": {

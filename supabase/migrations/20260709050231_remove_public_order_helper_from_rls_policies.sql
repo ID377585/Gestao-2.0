@@ -1,5 +1,33 @@
 begin;
 
+-- Fresh environments did not yet have public.is_staff() when these policies
+-- were rewritten. Define the same invoker helper used by the current contract
+-- before referencing it; the later hardening migration may safely replace it.
+create or replace function public.is_staff()
+returns boolean
+language sql
+stable
+set search_path to 'public', 'auth', 'pg_temp'
+as $function$
+  select exists (
+    select 1
+    from public.establishment_memberships em
+    where em.user_id = (select auth.uid())
+      and em.is_active = true
+      and em.role in (
+        'admin'::public.app_role,
+        'operacao'::public.app_role,
+        'producao'::public.app_role,
+        'estoque'::public.app_role,
+        'fiscal'::public.app_role,
+        'entrega'::public.app_role
+      )
+  );
+$function$;
+
+revoke all on function public.is_staff() from public, anon;
+grant execute on function public.is_staff() to authenticated, service_role;
+
 -- Avoid permission errors from RLS policies calling a SECURITY DEFINER helper
 -- that is intentionally not executable by authenticated users with arbitrary ids.
 alter policy select_timeline_events

@@ -10,6 +10,7 @@ import {
 } from "@/lib/idempotency/server";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { getAuthenticatedTenantUserOrThrow } from "@/lib/tenant/guards";
+import { getTenantModulePermissions } from "@/lib/tenant/module-access";
 
 const LOSS_PHOTO_BUCKET = "loss-photos";
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -87,6 +88,7 @@ async function getAuthAndEstablishment() {
     return {
       supabase,
       user,
+      tenant,
       establishment_id: tenant.establishmentId,
       error: null,
     };
@@ -94,6 +96,7 @@ async function getAuthAndEstablishment() {
     return {
       supabase,
       user: null,
+      tenant: null,
       establishment_id: null,
       error: NextResponse.json(
         { error: error?.message ?? "Estabelecimento não encontrado." },
@@ -104,11 +107,19 @@ async function getAuthAndEstablishment() {
 }
 
 export async function GET(req: Request) {
-  const { supabase, user, error, establishment_id } =
+  const { supabase, user, tenant, error, establishment_id } =
     await getAuthAndEstablishment();
-  if (error || !establishment_id) return error!;
+  if (error || !establishment_id || !tenant) return error!;
   if (!user) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
+
+  const modulePermissions = await getTenantModulePermissions(tenant);
+  if (!modulePermissions.estoque) {
+    return NextResponse.json(
+      { error: "Você não tem permissão para acessar o módulo de estoque." },
+      { status: 403 }
+    );
   }
 
   const url = new URL(req.url);
@@ -151,11 +162,19 @@ export async function POST(req: Request) {
   });
   if (limited) return limited;
 
-  const { supabase, user, error, establishment_id } =
+  const { user, tenant, error, establishment_id } =
     await getAuthAndEstablishment();
-  if (error || !establishment_id) return error!;
+  if (error || !establishment_id || !tenant) return error!;
   if (!user) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
+
+  const modulePermissions = await getTenantModulePermissions(tenant);
+  if (!modulePermissions.estoque) {
+    return NextResponse.json(
+      { error: "Você não tem permissão para acessar o módulo de estoque." },
+      { status: 403 }
+    );
   }
 
   const body = await req.json();
@@ -194,6 +213,7 @@ export async function POST(req: Request) {
     );
   }
 
+  const supabaseAdmin = createSupabaseAdminClient();
   let result: any = null;
   let replayed = false;
 
@@ -213,18 +233,21 @@ export async function POST(req: Request) {
         qrcode: labelCodeTrim || null,
       },
       execute: async () => {
-        const { data, error: rpcErr } = await supabase.rpc("register_loss", {
-          p_establishment_id: establishment_id,
-          p_product_id: product_id,
-          p_qty: qtyNumber,
-          p_unit_label: unit_label,
-          p_reason: reasonTrim,
-          p_reason_detail: reasonDetailTrim || null,
-          p_lot: lotTrim || null,
-          p_label_code: labelCodeTrim || null,
-          p_user_id: user.id,
-          p_allow_negative: false,
-        });
+        const { data, error: rpcErr } = await supabaseAdmin.rpc(
+          "register_loss",
+          {
+            p_establishment_id: establishment_id,
+            p_product_id: product_id,
+            p_qty: qtyNumber,
+            p_unit_label: unit_label,
+            p_reason: reasonTrim,
+            p_reason_detail: reasonDetailTrim || null,
+            p_lot: lotTrim || null,
+            p_label_code: labelCodeTrim || null,
+            p_user_id: user.id,
+            p_allow_negative: false,
+          }
+        );
 
         if (rpcErr) {
           console.error("POST /api/losses rpc error:", rpcErr);
@@ -265,7 +288,6 @@ export async function POST(req: Request) {
         throw new Error("Perda registrada sem identificador para anexar foto.");
       }
 
-      const supabaseAdmin = createSupabaseAdminClient();
       const extension = extensionForMimeType(parsedPhoto.mimeType);
       const photoPath = `${establishment_id}/${lossId}/${Date.now()}-${parsedPhoto.fileName}.${extension}`;
 

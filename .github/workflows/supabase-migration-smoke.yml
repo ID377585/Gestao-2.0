@@ -1,0 +1,68 @@
+name: Supabase full migration smoke
+
+"on":
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "supabase/**"
+      - "scripts/supabase/**"
+      - "scripts/check-supabase-contract.mjs"
+      - "scripts/audit-order-rls.mjs"
+      - ".github/workflows/supabase-migration-smoke.yml"
+      - ".github/workflows/supabase-staging.yml"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gestify-supabase-migration-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migration-smoke:
+    name: Bootstrap full Supabase schema from migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test staging target guard
+        run: node scripts/supabase/test-validate-staging-target.mjs
+
+      - name: Setup pinned Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify container runtime
+        run: |
+          docker version
+          docker info >/dev/null
+          supabase --version
+
+      - name: Run disposable full migration smoke
+        run: bash scripts/supabase/run-full-migration-smoke.sh
+
+      - name: Upload migration smoke evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestify-supabase-migration-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/supabase-migration-smoke/**
+          if-no-files-found: warn
+          retention-days: 30

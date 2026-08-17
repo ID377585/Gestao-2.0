@@ -40,6 +40,15 @@ supabase/.temp/
 supabase/.branches/
 
 # =========================
+# Generated disaster-recovery material
+# =========================
+.artifacts/
+.backups/
+*.tar.gz.gpg
+*.gpg.sha256
+*.gpg.metadata.json
+
+# =========================
 # Editor directories & files
 # =========================
 .vscode/*

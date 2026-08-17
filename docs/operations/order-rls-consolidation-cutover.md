@@ -1,101 +1,264 @@
-# Order RLS Consolidation Cutover
+# Order RLS consolidation cutover
 
-Status: prepared, not applied automatically.
+## Status
 
-This runbook covers the P0 hardening for `public.orders` and
-`public.order_status_events`. It is intentionally separated from regular app
-deploy work because it changes RLS behavior on live order flows.
+**Prepared and automatically tested; not applied to the connected production project.**
 
-## Current Risk
+Migration:
 
-The production database currently has many permissive policies on the same
-tables and commands:
-
-- `orders`: multiple `SELECT`, `INSERT`, and `UPDATE` policies.
-- `order_status_events`: multiple `SELECT` and `INSERT` policies.
-
-Permissive RLS policies are combined with `OR`, so one old broad policy can
-authorize access that a newer stricter policy intended to block.
-
-## Target Matrix
-
-`orders`:
-
-- `SELECT`: authenticated active member in the order establishment.
-- `INSERT`: authenticated active member in the order establishment, with
-  `created_by = auth.uid()`.
-- `UPDATE`: staff in the order establishment, or customer updating only their
-  own draft order.
-- `DELETE`: admin only.
-- `status`: cannot be changed directly by table update; must go through an
-  order status RPC.
-
-`order_status_events`:
-
-- `SELECT`: same order visibility rules as the parent order.
-- `INSERT`: only internal order status flows.
-- `UPDATE`: no direct user policy.
-- `DELETE`: no direct user policy.
-
-## Production Safety Requirements
-
-Before applying the prepared migration:
-
-1. Create or use a staging Supabase branch/project.
-2. Apply the migration on staging.
-3. Validate with at least two establishments and different users:
-   - admin;
-   - operacao;
-   - producao;
-   - estoque;
-   - fiscal;
-   - entrega;
-   - cliente.
-4. Exercise these flows end to end:
-   - create order;
-   - add item;
-   - accept order;
-   - advance order status;
-   - production finish;
-   - separation finish;
-   - billing/shipping status;
-   - cancellation;
-   - reopen.
-5. Run:
-   - `npm run supabase:contract`
-   - `npm run orders:rls:ci`
-   - `npm run tenant:writes:ci`
-   - `npm run lint`
-   - `npm run typecheck`
-   - `npm run build`
-6. Schedule a low-traffic production window.
-7. Monitor Vercel runtime errors and Supabase logs immediately after the
-   migration.
-
-## Prepared Migration
-
-The cutover SQL is versioned at:
-
-`supabase/migrations/20260803213227_consolidate_order_rls_p0.sql`
-
-It creates private helper functions, status/timeline guard triggers, marks the
-known order status RPC flows as internal, drops historical duplicate policies,
-and recreates a compact canonical policy set.
-
-## Rollback Approach
-
-If production behavior regresses after the cutover:
-
-1. Stop new manual testing on orders.
-2. Restore the previous policies from the Supabase migration history or a
-   staging clone.
-3. Disable the new guard triggers:
-
-```sql
-drop trigger if exists gestify_require_order_status_flow on public.orders;
-drop trigger if exists gestify_require_order_event_flow on public.order_status_events;
+```text
+supabase/migrations/20260803213227_consolidate_order_rls_p0.sql
 ```
 
-4. Re-run the smoke test above.
+Automated drill:
 
-The migration does not alter or delete order data.
+```bash
+npm run orders:rls:drill
+```
+
+The cutover must first run in an isolated Supabase staging project. The repository
+drill uses a disposable PostgreSQL instance with Supabase-compatible database
+roles and `auth.uid()`/`auth.role()` semantics; it does not use production data
+or credentials. Do not apply the migration directly to production.
+
+Latest approved automated evidence:
+
+```text
+docs/operations/order-rls-cutover-evidence.md
+```
+
+## Why the original draft was revised
+
+The live inventory found more than policy-count noise:
+
+- `orders` had 21 permissive policies;
+- `order_status_events` had 19 permissive policies;
+- `authenticated` retained broad table privileges, including direct writes and
+  operational privileges that are not needed by the application;
+- two `AFTER INSERT` triggers could create duplicate initial timeline events;
+- an `AFTER UPDATE OF status` trigger duplicated events already written by the
+  lifecycle RPCs;
+- the prepared role helper read only `memberships`, although the application
+  also has `establishment_memberships`;
+- the event SELECT rules did not consistently enforce `visible_to_client`;
+- cancellation and reopen metadata were not guaranteed to be persisted in the
+  same transaction as their status change.
+
+The connected project currently has one order and two events. No existing data
+is deleted or rewritten by the cutover.
+
+## Canonical authorization model
+
+### Orders
+
+Authenticated sessions are read-only on `public.orders`.
+
+They receive only:
+
+- `SELECT`, filtered by tenant, role and ownership.
+
+They do not receive direct authenticated policies or grants for:
+
+- `INSERT`;
+- `UPDATE`, including lifecycle metadata;
+- `DELETE`.
+
+Order creation continues through the service-role-only
+`create_order_with_items` server flow. Status, cancellation and reopen mutations
+continue through reviewed SECURITY DEFINER RPCs.
+
+The canonical row rules are:
+
+- staff roles can read all orders in a tenant where they have active membership;
+- clients can read only orders they created or that belong to their customer
+  identity;
+- identity, lifecycle status and metadata cannot be changed directly by an
+  authenticated Data API session;
+- every lifecycle mutation must pass through a reviewed RPC.
+
+### Timeline
+
+Authenticated users receive `SELECT` only on `order_status_events`.
+
+- staff can read tenant timeline events;
+- clients can read only events for their own orders where
+  `visible_to_client = true`;
+- no authenticated user can insert, alter or delete timeline rows directly;
+- approved SECURITY DEFINER lifecycle functions write exactly one event.
+
+### Membership compatibility
+
+The tenant role helper evaluates active membership from both:
+
+```text
+memberships
+establishment_memberships
+```
+
+It supports `memberships.unit_id` with fallback to `establishment_id` and uses a
+deterministic role precedence. An additive partial expression index covers the
+actual helper lookup. No historical index is removed by this migration.
+
+## Lifecycle integrity
+
+The migration installs or refreshes the canonical RPC behavior for:
+
+```text
+accept_order
+advance_order_status
+cancel_order
+reopen_order
+```
+
+The database validates the order tenant, active membership, role, transition,
+input length and current status under a row lock.
+
+`cancel_order` commits these values atomically:
+
+```text
+status = cancelado
+canceled_by
+canceled_at
+cancel_reason
+timeline event
+```
+
+`reopen_order` commits atomically:
+
+```text
+status = aceitou_pedido
+reopened_by
+reopened_at
+timeline event
+```
+
+The migration removes duplicate historical triggers and keeps one canonical
+initial-order event trigger. Status changes no longer depend on an automatic
+`AFTER UPDATE` event trigger; every approved lifecycle function must write its
+own explicit event.
+
+## Compatibility with the connected pre-cutover database
+
+The connected project still exposes the older `cancel_order` and `reopen_order`
+implementations, which change status and timeline but do not persist all
+lifecycle metadata.
+
+Until staging receives this migration, the current Server Actions:
+
+1. call the official RPC;
+2. read the order back;
+3. accept the operation immediately when the RPC persisted the metadata;
+4. use a session-scoped legacy metadata fallback only when the old RPC did not.
+
+The fallback does not use `service_role` and does not add a new Preview secret
+dependency. After the v3 cutover, the RPC persists the metadata atomically and
+the fallback is not executed. Because authenticated sessions then have no
+`UPDATE` policy or grant, a regression that tries to use the fallback fails
+closed.
+
+## Automated two-tenant drill
+
+Workflow:
+
+```text
+.github/workflows/order-rls-cutover.yml
+```
+
+The workflow creates a disposable PostgreSQL 17 database and applies:
+
+1. a Supabase-compatible pre-cutover fixture containing duplicate policies,
+   broad grants and duplicate timeline triggers;
+2. the real cutover migration from the repository;
+3. a SQL authorization matrix using actual `authenticated` database sessions;
+4. a report-level contract check that opens the generated JSON evidence.
+
+The drill fails unless it proves all of the following:
+
+- exactly one SELECT policy on `orders`;
+- exactly one SELECT policy on `order_status_events`;
+- no direct authenticated order INSERT, UPDATE or DELETE;
+- no authenticated column-level UPDATE privilege on `orders`;
+- no direct authenticated timeline write;
+- no table grants for `anon` or `PUBLIC`;
+- exactly one initial event per order;
+- no duplicate status event trigger;
+- hidden events are invisible to clients;
+- Tenant A cannot read or mutate Tenant B;
+- a user present only in `establishment_memberships` is authorized correctly;
+- client lifecycle and cross-tenant RPC attempts are rejected;
+- cancel/reopen metadata and events are persisted by their RPC transaction;
+- the extended audit contract reports `gestify-order-rls-v3`.
+
+The workflow then parses the report and independently requires:
+
+```text
+ok = true
+ordersPolicies = 1
+eventPolicies = 1
+auditVersion = gestify-order-rls-v3
+authenticatedOrderUpdateColumns = []
+```
+
+The workflow publishes only a small JSON report; it never uses production data
+or production secrets.
+
+## Staging cutover procedure
+
+1. Create or select a Supabase staging project that contains representative
+   admin, operation, production, stock, fiscal, delivery and client users in at
+   least two tenants.
+2. Record the output of:
+
+   ```bash
+   npm run orders:rls:audit
+   ```
+
+3. Apply the migration in staging.
+4. Run:
+
+   ```bash
+   npm run orders:rls:drill
+   npm run orders:rls:audit
+   npm run supabase:contract
+   npm run readiness:strict
+   ```
+
+5. Exercise the application smoke matrix:
+
+   - create an order with and without items;
+   - accept, advance, cancel and reopen;
+   - verify one timeline entry per lifecycle action;
+   - confirm cancel/reopen metadata is written by the RPC;
+   - confirm no legacy-fallback warning appears after the cutover;
+   - confirm client-only event visibility;
+   - test two tenants and a multi-tenant user;
+   - confirm production, separation, billing and delivery transitions;
+   - verify realtime updates and current Server Actions.
+
+6. Re-run Supabase security and performance advisors.
+7. Compare representative query plans with `EXPLAIN (ANALYZE, BUFFERS)`.
+8. Promote only in a maintenance window with a verified backup and a tested
+   rollback decision.
+
+## Production release gates
+
+Do not promote while any of these remain unresolved:
+
+- credential rotation and incident containment from issue #15;
+- absence of a separate staging project;
+- failed or missing two-tenant application smoke tests;
+- incomplete Vercel server-side secrets;
+- failed backup/restore evidence;
+- an unexpected increase in RLS audit findings;
+- any timeline duplication or cross-tenant visibility;
+- any legacy metadata fallback observed after applying v3.
+
+## Rollback principle
+
+The migration is intentionally data-preserving. A rollback does not require
+restoring order rows, but it does require re-establishing the previous policies,
+grants and triggers from the pre-cutover schema snapshot.
+
+Do not improvise a rollback by granting `ALL` to `authenticated` or by creating a
+`USING (true)` policy. If staging exposes a functional incompatibility, stop the
+promotion, preserve the audit output and amend the migration before retrying.

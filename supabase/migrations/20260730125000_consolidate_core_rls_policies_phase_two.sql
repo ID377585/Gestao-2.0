@@ -1,5 +1,120 @@
 begin;
 
+-- Reconstruct operational tables that exist in the hosted database but were
+-- historically created outside versioned migrations. Keeping these contracts
+-- in the replayable history is required before consolidating their RLS.
+create table if not exists public.stock_movements (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null,
+  product_id uuid not null,
+  unit_label text not null,
+  qty_delta numeric not null,
+  reason text not null default 'adjustment',
+  source text not null default 'api',
+  created_at timestamptz not null default now(),
+  created_by uuid null,
+  constraint fk_stock_movements_establishment
+    foreign key (establishment_id)
+    references public.establishments(id)
+    on delete cascade,
+  constraint fk_stock_movements_product
+    foreign key (product_id)
+    references public.products(id)
+    on delete cascade
+);
+
+create index if not exists idx_stock_movements_establishment_id
+  on public.stock_movements (establishment_id);
+create index if not exists idx_stock_movements_product_id
+  on public.stock_movements (product_id);
+
+create table if not exists public.customers (
+  user_id uuid primary key,
+  establishment_id uuid not null,
+  full_name text not null,
+  phone text null,
+  created_at timestamptz not null default now(),
+  constraint customers_user_id_fkey
+    foreign key (user_id)
+    references auth.users(id)
+    on delete cascade
+);
+
+create index if not exists customers_establishment_id_idx
+  on public.customers (establishment_id);
+
+create table if not exists public.inventory_counts (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null,
+  started_at timestamptz not null default now(),
+  ended_at timestamptz not null default now(),
+  created_by uuid not null,
+  notes text null,
+  created_at timestamptz not null default now(),
+  finished_at timestamptz null,
+  total_items integer null,
+  total_products integer null,
+  constraint inventory_counts_establishment_id_fkey
+    foreign key (establishment_id)
+    references public.establishments(id),
+  constraint inventory_counts_created_by_fkey
+    foreign key (created_by)
+    references auth.users(id)
+);
+
+create index if not exists idx_inventory_counts_created_by
+  on public.inventory_counts (created_by);
+create index if not exists idx_inventory_counts_estab
+  on public.inventory_counts (establishment_id);
+create index if not exists idx_inventory_counts_estab_created
+  on public.inventory_counts (establishment_id, started_at desc);
+
+create table if not exists public.inventory_count_items (
+  id uuid primary key default gen_random_uuid(),
+  inventory_count_id uuid not null,
+  product_id uuid not null,
+  unit_label text not null,
+  counted_qty numeric not null,
+  current_stock_before numeric null,
+  diff_qty numeric not null,
+  created_at timestamptz not null default now(),
+  product_name text null,
+  status text null,
+  error_message text null,
+  constraint inventory_count_items_inventory_count_id_fkey
+    foreign key (inventory_count_id)
+    references public.inventory_counts(id)
+    on delete cascade,
+  constraint inventory_count_items_product_id_fkey
+    foreign key (product_id)
+    references public.products(id)
+);
+
+create index if not exists idx_inventory_count_items_count
+  on public.inventory_count_items (inventory_count_id);
+create index if not exists idx_inventory_count_items_product
+  on public.inventory_count_items (product_id);
+
+alter table public.stock_movements enable row level security;
+alter table public.customers enable row level security;
+alter table public.inventory_counts enable row level security;
+alter table public.inventory_count_items enable row level security;
+
+revoke all privileges on table public.stock_movements from anon;
+revoke all privileges on table public.customers from anon;
+revoke all privileges on table public.inventory_counts from anon;
+revoke all privileges on table public.inventory_count_items from anon;
+
+grant select, insert, update, delete on table public.stock_movements to authenticated;
+grant select, insert, update, delete on table public.customers to authenticated;
+grant select, insert, update, delete on table public.inventory_counts to authenticated;
+grant select, insert, update, delete on table public.inventory_count_items to authenticated;
+
+grant select, insert, update, delete on table public.stock_movements to service_role;
+grant select, insert, update, delete on table public.customers to service_role;
+grant select, insert, update, delete on table public.inventory_counts to service_role;
+grant select, insert, update, delete on table public.inventory_count_items to service_role;
+
 -- Normalize tenant helper functions used by RLS policies.
 create or replace function private.gestify_is_establishment_member(p_establishment_id uuid)
 returns boolean
@@ -127,6 +242,9 @@ drop policy if exists "Users can insert stock movements for their establishment"
 drop policy if exists "Users can read stock movements of their establishment" on public.stock_movements;
 drop policy if exists "Users can update stock movements of their establishment" on public.stock_movements;
 drop policy if exists "insert_stock_movements_by_establishment" on public.stock_movements;
+drop policy if exists "stock_movements_member_select" on public.stock_movements;
+drop policy if exists "stock_movements_member_insert" on public.stock_movements;
+drop policy if exists "stock_movements_member_update" on public.stock_movements;
 
 create policy "stock_movements_member_select"
 on public.stock_movements
@@ -154,6 +272,10 @@ drop policy if exists "customers_select_authenticated" on public.customers;
 drop policy if exists "customers_select_by_establishment" on public.customers;
 drop policy if exists "customers_update_blocked" on public.customers;
 drop policy if exists "customers_upsert_admin" on public.customers;
+drop policy if exists "customers_member_select" on public.customers;
+drop policy if exists "customers_member_insert" on public.customers;
+drop policy if exists "customers_admin_update" on public.customers;
+drop policy if exists "customers_admin_delete" on public.customers;
 
 create policy "customers_member_select"
 on public.customers
@@ -190,6 +312,9 @@ drop policy if exists "inventory_counts_select_own_establishment" on public.inve
 drop policy if exists "select inventory_counts by membership" on public.inventory_counts;
 drop policy if exists "select_inventory_counts_by_establishment" on public.inventory_counts;
 drop policy if exists "inventory_counts_update_member" on public.inventory_counts;
+drop policy if exists "inventory_counts_member_select" on public.inventory_counts;
+drop policy if exists "inventory_counts_member_insert" on public.inventory_counts;
+drop policy if exists "inventory_counts_member_update" on public.inventory_counts;
 
 create policy "inventory_counts_member_select"
 on public.inventory_counts
@@ -218,6 +343,9 @@ drop policy if exists "inventory_count_items_select_member" on public.inventory_
 drop policy if exists "inventory_count_items_select_own_establishment" on public.inventory_count_items;
 drop policy if exists "select inventory_count_items by membership" on public.inventory_count_items;
 drop policy if exists "inventory_count_items_update_member" on public.inventory_count_items;
+drop policy if exists "inventory_count_items_member_select" on public.inventory_count_items;
+drop policy if exists "inventory_count_items_member_insert" on public.inventory_count_items;
+drop policy if exists "inventory_count_items_member_update" on public.inventory_count_items;
 
 create policy "inventory_count_items_member_select"
 on public.inventory_count_items

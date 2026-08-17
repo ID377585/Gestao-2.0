@@ -712,8 +712,8 @@ export async function advanceOrder(
 
 /**
  * ✅ Cancelar pedido
- * Agora: chama RPC cancel_order (status + timeline)
- * Depois: atualiza canceled_by/canceled_at/cancel_reason (sem mudar status)
+ * A RPC canônica grava status, metadados e timeline na mesma transação.
+ * O fallback server-side existe apenas enquanto o banco conectado usa a RPC legada.
  */
 export async function cancelOrder(
   orderId: string,
@@ -758,17 +758,50 @@ export async function cancelOrder(
 
       if (rpcErr) throw normalizePgError(rpcErr);
 
-      const { error: metaErr } = await supabase
+      const { data: persistedOrder, error: persistedErr } = await supabase
         .from("orders")
-        .update({
-          canceled_by: userData.user.id,
-          canceled_at: new Date().toISOString(),
-          cancel_reason: trimmed,
-        })
+        .select("canceled_by, canceled_at, cancel_reason")
         .eq("id", orderId)
-        .eq("establishment_id", establishmentId);
+        .eq("establishment_id", establishmentId)
+        .maybeSingle();
 
-      if (metaErr) throw new Error(metaErr.message);
+      if (persistedErr || !persistedOrder) {
+        throw new Error(
+          persistedErr?.message ?? "Pedido não encontrado após cancelamento."
+        );
+      }
+
+      const rpcPersistedMetadata =
+        persistedOrder.canceled_by === userData.user.id &&
+        persistedOrder.canceled_at !== null &&
+        persistedOrder.canceled_at !== order.canceled_at &&
+        persistedOrder.cancel_reason === trimmed;
+
+      if (!rpcPersistedMetadata) {
+        const { data: legacyUpdatedOrder, error: legacyUpdateErr } =
+          await supabase
+            .from("orders")
+            .update({
+              canceled_by: userData.user.id,
+              canceled_at: new Date().toISOString(),
+              cancel_reason: trimmed,
+            })
+            .eq("id", orderId)
+            .eq("establishment_id", establishmentId)
+            .select("id")
+            .maybeSingle();
+
+        if (legacyUpdateErr || !legacyUpdatedOrder) {
+          throw new Error(
+            legacyUpdateErr?.message ??
+              "Falha ao persistir metadados do cancelamento."
+          );
+        }
+
+        console.warn(
+          "[orders.cancel] Fallback legado de metadados executado; aplique o cutover RLS v3 no staging."
+        );
+      }
 
       return {
         orderNumber: order.order_number ?? null,
@@ -797,8 +830,8 @@ export async function cancelOrder(
 
 /**
  * ✅ Reabrir pedido (cancelado -> aceitou_pedido)
- * Agora: chama RPC reopen_order (status + timeline)
- * Depois: atualiza reopened_by/reopened_at (sem mudar status)
+ * A RPC canônica grava status, metadados e timeline na mesma transação.
+ * O fallback server-side existe apenas enquanto o banco conectado usa a RPC legada.
  *
  * OBS: no banco deixamos "só admin". Aqui também deixo só admin pra UX.
  */
@@ -843,16 +876,48 @@ export async function reopenOrder(
 
       if (rpcErr) throw normalizePgError(rpcErr);
 
-      const { error: metaErr } = await supabase
+      const { data: persistedOrder, error: persistedErr } = await supabase
         .from("orders")
-        .update({
-          reopened_by: userData.user.id,
-          reopened_at: new Date().toISOString(),
-        })
+        .select("reopened_by, reopened_at")
         .eq("id", orderId)
-        .eq("establishment_id", establishmentId);
+        .eq("establishment_id", establishmentId)
+        .maybeSingle();
 
-      if (metaErr) throw new Error(metaErr.message);
+      if (persistedErr || !persistedOrder) {
+        throw new Error(
+          persistedErr?.message ?? "Pedido não encontrado após reabertura."
+        );
+      }
+
+      const rpcPersistedMetadata =
+        persistedOrder.reopened_by === userData.user.id &&
+        persistedOrder.reopened_at !== null &&
+        persistedOrder.reopened_at !== order.reopened_at;
+
+      if (!rpcPersistedMetadata) {
+        const { data: legacyUpdatedOrder, error: legacyUpdateErr } =
+          await supabase
+            .from("orders")
+            .update({
+              reopened_by: userData.user.id,
+              reopened_at: new Date().toISOString(),
+            })
+            .eq("id", orderId)
+            .eq("establishment_id", establishmentId)
+            .select("id")
+            .maybeSingle();
+
+        if (legacyUpdateErr || !legacyUpdatedOrder) {
+          throw new Error(
+            legacyUpdateErr?.message ??
+              "Falha ao persistir metadados da reabertura."
+          );
+        }
+
+        console.warn(
+          "[orders.reopen] Fallback legado de metadados executado; aplique o cutover RLS v3 no staging."
+        );
+      }
 
       return {
         orderNumber: order.order_number ?? null,

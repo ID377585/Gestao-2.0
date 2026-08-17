@@ -1,0 +1,9 @@
+# Local Supabase configuration used only for disposable development and CI.
+# Remote staging and production projects are linked explicitly by project ref.
+project_id = "gestify-core-v1"
+
+[db]
+major_version = 17
+
+[db.seed]
+enabled = false

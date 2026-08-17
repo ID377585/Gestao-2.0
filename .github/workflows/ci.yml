@@ -46,8 +46,17 @@ jobs:
       - name: Production dependency audit
         run: npm run audit
 
+      - name: Excel export compatibility smoke test
+        run: npm run excel:smoke
+
       - name: Tenant write audit
         run: npm run tenant:writes:ci
+
+      - name: Runtime import boundary audit
+        run: npm run runtime:imports:check
+
+      - name: Gestify Core security audit
+        run: npm run core:security:audit
 
       - name: Production readiness static check
         run: npm run readiness:check

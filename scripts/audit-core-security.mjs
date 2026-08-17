@@ -1,0 +1,343 @@
+#!/usr/bin/env node
+
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
+import { extname, join, relative, resolve } from "node:path";
+import process from "node:process";
+
+const root = process.cwd();
+const failures = [];
+const notes = [];
+const LEGACY_SUPABASE_AUTH_HELPERS = "@supabase/auth-helpers-nextjs";
+
+function addFailure(message) {
+  failures.push(message);
+}
+
+function readText(path) {
+  return readFileSync(resolve(root, path), "utf8");
+}
+
+function assertFileContains(path, snippets) {
+  if (!existsSync(resolve(root, path))) {
+    addFailure(`${path}: arquivo obrigatório ausente.`);
+    return;
+  }
+
+  const source = readText(path);
+  for (const snippet of snippets) {
+    if (!source.includes(snippet)) {
+      addFailure(`${path}: conteúdo obrigatório ausente: ${snippet}`);
+    }
+  }
+}
+
+function walkFiles(directory) {
+  const absolute = resolve(root, directory);
+  if (!existsSync(absolute)) return [];
+
+  const files = [];
+  for (const entry of readdirSync(absolute)) {
+    const path = join(absolute, entry);
+    const stat = statSync(path);
+
+    if (stat.isDirectory()) {
+      files.push(...walkFiles(relative(root, path)));
+    } else {
+      files.push(path);
+    }
+  }
+
+  return files;
+}
+
+if (existsSync(resolve(root, "update-user-password.js"))) {
+  addFailure(
+    "update-user-password.js não pode existir no repositório; use uma operação administrativa auditada e server-side."
+  );
+}
+
+const supabaseTemp = resolve(root, "supabase/.temp");
+if (existsSync(supabaseTemp) && readdirSync(supabaseTemp).length > 0) {
+  addFailure("supabase/.temp contém arquivos rastreáveis; remova-os do Git.");
+}
+
+const sourceExtensions = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"]);
+const executableFiles = [
+  ...walkFiles("src"),
+  ...readdirSync(root)
+    .map((entry) => resolve(root, entry))
+    .filter((path) => {
+      try {
+        return statSync(path).isFile() && sourceExtensions.has(extname(path));
+      } catch {
+        return false;
+      }
+    }),
+].filter((path) => sourceExtensions.has(extname(path)));
+
+const jwtPattern = /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/;
+const publicSecretPattern =
+  /NEXT_PUBLIC_[A-Z0-9_]*(?:SECRET|SERVICE_ROLE|PRIVATE|PASSWORD|TOKEN)/;
+// Require a real identifier boundary before password/newPassword. This catches
+// assignments such as `const password = "..."` and `{ password: "..." }`
+// without flagging labels such as `reset_password: "Redefinição de senha"`.
+const hardcodedPasswordPattern =
+  /(?<![A-Za-z0-9_])(?:newPassword|password)\s*[:=]\s*["'][^"'\n]{8,}["']/i;
+
+const passwordPatternCases = [
+  { source: 'const password = "secret-value";', expected: true },
+  { source: '{ newPassword: "secret-value" }', expected: true },
+  { source: 'reset_password: "Redefinição de senha"', expected: false },
+  {
+    source: '<Input name="password" type="password" placeholder="••••••••" />',
+    expected: false,
+  },
+];
+
+for (const testCase of passwordPatternCases) {
+  hardcodedPasswordPattern.lastIndex = 0;
+  if (hardcodedPasswordPattern.test(testCase.source) !== testCase.expected) {
+    addFailure("auditoria interna: detector de senha hardcoded apresentou regressão.");
+    break;
+  }
+}
+
+for (const absolutePath of executableFiles) {
+  const path = relative(root, absolutePath).replaceAll("\\", "/");
+  const source = readFileSync(absolutePath, "utf8");
+
+  if (jwtPattern.test(source)) {
+    addFailure(`${path}: possível JWT/chave hardcoded encontrado.`);
+  }
+
+  if (publicSecretPattern.test(source)) {
+    addFailure(`${path}: segredo potencial exposto por variável NEXT_PUBLIC_*.`);
+  }
+
+  if (hardcodedPasswordPattern.test(source)) {
+    addFailure(`${path}: possível senha hardcoded encontrada.`);
+  }
+
+  if (source.includes(LEGACY_SUPABASE_AUTH_HELPERS)) {
+    addFailure(
+      `${path}: pacote Supabase Auth Helpers legado encontrado; use @supabase/ssr.`
+    );
+  }
+
+  const isClientModule = /^\s*["']use client["'];?/m.test(source);
+  if (isClientModule && source.includes("SUPABASE_SERVICE_ROLE_KEY")) {
+    addFailure(`${path}: service role referenciada em módulo client-side.`);
+  }
+}
+
+assertFileContains(".gitignore", [".env.*", "supabase/.temp/", ".vercel"]);
+assertFileContains(".vercelignore", [".env.*", "!.env.example"]);
+assertFileContains(".env.example", [
+  "SUPABASE_SERVICE_ROLE_KEY=",
+  "CRON_SECRET=",
+  "FISCAL_SYNC_SECRET=",
+  "JOB_WORKER_SECRET=",
+  "NUTRITION_CRON_SECRET=",
+  "OPERATIONAL_READINESS_SECRET=",
+]);
+
+assertFileContains("src/app/entradas/page.tsx", [
+  'redirect("/dashboard/entradas")',
+]);
+
+if (existsSync(resolve(root, "src/app/entradas/page.tsx"))) {
+  const legacyEntradas = readText("src/app/entradas/page.tsx");
+  if (legacyEntradas.includes("use client") || legacyEntradas.includes("supabase")) {
+    addFailure(
+      "src/app/entradas/page.tsx deve apenas redirecionar para a rota protegida /dashboard/entradas."
+    );
+  }
+}
+
+assertFileContains(
+  "supabase/migrations/20260810170000_harden_nutrition_notification_rpc.sql",
+  [
+    "nutrition module access denied",
+    "notification target is outside establishment",
+    "created_by",
+    "revoke all on function public.enqueue_nutrition_notification",
+  ]
+);
+
+assertFileContains(
+  "supabase/migrations/20260810172000_revoke_anon_nutrition_privileges.sql",
+  [
+    "revoke all privileges on table",
+    "from anon",
+    "nutrition\\_%",
+  ]
+);
+
+assertFileContains(
+  "supabase/migrations/20260810173500_make_technical_sheets_bucket_private.sql",
+  ["set public = false", "technical-sheets"]
+);
+
+assertFileContains(
+  "supabase/migrations/20260810175000_add_gestify_core_security_audit.sql",
+  [
+    "gestify_core_security_audit",
+    "public_tables_without_rls",
+    "anon_table_grants",
+    "internal_table_exposure",
+    "unexpected_public_buckets",
+    "critical_anon_rpcs",
+    "from public, anon, authenticated",
+    "to service_role",
+  ]
+);
+
+assertFileContains(
+  "supabase/migrations/20260810181000_expand_gestify_core_security_audit.sql",
+  [
+    "information_schema.table_privileges",
+    "g.grantee in ('anon', 'PUBLIC')",
+    "p.prosecdef = true",
+    "anon_security_definer_functions",
+    "'gestify-core-v1.1'",
+  ]
+);
+
+assertFileContains(
+  "supabase/migrations/20260810183000_enforce_append_only_audit_logs.sql",
+  [
+    "private.gestify_reject_audit_mutation",
+    "before update or delete",
+    "before truncate",
+    "mutable_audit_grants",
+    "audit_tables_missing_row_guard",
+    "audit_tables_missing_truncate_guard",
+    "'gestify-core-v1.2'",
+  ]
+);
+
+assertFileContains(
+  "supabase/migrations/20260810184500_prepare_private_avatar_storage.sql",
+  [
+    "avatar_path",
+    "avatar_updated_at",
+    "2097152",
+    "array['image/jpeg']",
+    'policy "Users can read own avatars"',
+    "production branch",
+  ]
+);
+
+assertFileContains("src/app/api/user/avatar/route.ts", [
+  "isSameOriginMutation",
+  "MAX_AVATAR_BYTES",
+  "createSignedUrl",
+  'file.type.toLowerCase() !== "image/jpeg"',
+  "signature[0] !== 0xff",
+  "avatar_path: avatarPath",
+  "avatar_url: null",
+  "removeAvatarObjects",
+]);
+
+assertFileContains("src/app/api/user/me/route.ts", [
+  "avatar_path",
+  "avatar_updated_at",
+  "buildAvatarProxyUrl",
+  'return `/api/user/avatar?v=${version}`',
+]);
+
+assertFileContains("src/components/modals/ProfileModal.tsx", [
+  'fetch("/api/user/avatar"',
+  "prepareAvatarFile",
+  "supabase.auth.refreshSession()",
+  "clearCurrentUserInfoCache()",
+]);
+
+if (existsSync(resolve(root, "src/components/modals/ProfileModal.tsx"))) {
+  const profileModal = readText("src/components/modals/ProfileModal.tsx");
+  const forbiddenClientAvatarOperations = [
+    '.storage.from("avatars")',
+    '.from("profiles")',
+    "getPublicUrl(",
+  ];
+
+  for (const operation of forbiddenClientAvatarOperations) {
+    if (profileModal.includes(operation)) {
+      addFailure(
+        `src/components/modals/ProfileModal.tsx: operação de avatar proibida no cliente: ${operation}`
+      );
+    }
+  }
+}
+
+assertFileContains("src/lib/auth/current-user.ts", [
+  "avatar?: string | null",
+  "avatar: data.avatar ?? null",
+]);
+
+assertFileContains("scripts/check-supabase-contract.mjs", [
+  '"gestify_core_security_audit"',
+  '"Contrato de segurança Gestify Core"',
+]);
+
+const packageJson = JSON.parse(readText("package.json"));
+if (packageJson.engines?.node !== "22.x") {
+  addFailure("package.json deve fixar engines.node em 22.x.");
+}
+if (!String(packageJson.scripts?.ci ?? "").includes("core:security:audit")) {
+  addFailure("package.json scripts.ci deve executar core:security:audit.");
+}
+if (
+  packageJson.dependencies?.[LEGACY_SUPABASE_AUTH_HELPERS] ||
+  packageJson.devDependencies?.[LEGACY_SUPABASE_AUTH_HELPERS]
+) {
+  addFailure(
+    `package.json não pode declarar ${LEGACY_SUPABASE_AUTH_HELPERS}; o projeto usa @supabase/ssr.`
+  );
+}
+
+const packageLockPath = resolve(root, "package-lock.json");
+if (!existsSync(packageLockPath)) {
+  addFailure("package-lock.json é obrigatório para builds reproduzíveis com npm ci.");
+} else {
+  const packageLock = readText("package-lock.json");
+  if (
+    packageLock.includes(`"${LEGACY_SUPABASE_AUTH_HELPERS}":`) ||
+    packageLock.includes(`"node_modules/${LEGACY_SUPABASE_AUTH_HELPERS}"`)
+  ) {
+    addFailure(
+      `package-lock.json ainda contém ${LEGACY_SUPABASE_AUTH_HELPERS}; regenere o lockfile.`
+    );
+  }
+}
+
+if (failures.length > 0) {
+  console.error("[core-security] Auditoria reprovada:");
+  for (const failure of failures) {
+    console.error(`- ${failure}`);
+  }
+  process.exit(1);
+}
+
+notes.push("segredos não aparecem hardcoded no código executável verificado");
+notes.push("rota legada /entradas não acessa o Supabase diretamente");
+notes.push("migrations de hardening do módulo de nutrição estão versionadas");
+notes.push("privilégios anônimos do módulo de nutrição permanecem revogados");
+notes.push("bucket technical-sheets permanece privado");
+notes.push("Supabase Auth Helpers legado está ausente do código e do lockfile");
+notes.push("contrato vivo de segurança Supabase está versionado e ligado ao CI");
+notes.push("grants herdados de PUBLIC e RPCs SECURITY DEFINER anônimas estão cobertos");
+notes.push("tabelas de auditoria críticas estão protegidas como append-only");
+notes.push("operações de avatar saíram do cliente e usam rota autenticada com URL assinada");
+notes.push("migração compatível prepara o corte seguro do bucket de avatares para privado");
+notes.push("arquivos temporários do Supabase estão fora da árvore rastreada");
+
+console.log("[core-security] Auditoria aprovada:");
+for (const note of notes) {
+  console.log(`- ${note}`);
+}

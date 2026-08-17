@@ -11,6 +11,7 @@ npm run readiness:check
 npm run lint
 npm run typecheck
 npm run audit
+npm run excel:smoke
 npm run tenant:writes:ci
 npm run runtime:imports:check
 npm run supabase:contract
@@ -99,16 +100,23 @@ Do not set `GESTIFY_NEW_SIGNUPS_ENABLED=true` or
 5. branch protection is enabled on `main`;
 6. smoke tests pass for admin, staff and customer roles.
 
-## Dependency Exceptions
+## Dependency Gate
 
-Current accepted exception after conservative `npm audit fix`:
+There is no accepted production vulnerability exception for the Excel export
+path.
 
-- `uuid <11.1.1` via `exceljs`.
+The current controlled resolution keeps `exceljs` 4.4.0 and overrides only its
+transitive `uuid` dependency to 11.1.1. The lockfile records the patched version
+and `npm run audit` now blocks production findings at `high` or `critical`.
 
-Reason: npm only offers `npm audit fix --force`, which would install an older
-breaking `exceljs` version. Keep this exception monitored and remove it when
-`exceljs` releases a non-breaking fix or when exports can be validated after a
-controlled dependency change.
+`npm run excel:smoke` creates an inventory-style workbook, converts it to the
+base64 transport format used by the application, reopens the XLSX and validates
+headers, values, number formats and the frozen header row. This gate runs in
+GitHub Actions and in the Vercel build through `npm run ci`.
+
+Package deprecation warnings remain a maintainability signal and should be
+reviewed separately, but they are not treated as permission to accept a known
+high-severity production vulnerability.
 
 ## Runtime Import Gate
 

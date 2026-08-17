@@ -4,8 +4,10 @@ export type CurrentUserInfo = {
   name: string;
   role?: string;
   sector?: string | null;
+  avatar?: string | null;
   establishmentId?: string | null;
   establishmentName?: string | null;
+  lastSignInAt?: string | null;
 };
 
 const CURRENT_USER_CACHE_MS = 10_000;
@@ -79,8 +81,10 @@ async function fetchCurrentUserInfo(): Promise<CurrentUserInfo | null> {
       name: String(data.name ?? ""),
       role: data.role ? String(data.role) : undefined,
       sector: data.sector ?? null,
+      avatar: data.avatar ?? null,
       establishmentId: data.establishmentId ?? null,
       establishmentName: data.establishmentName ?? null,
+      lastSignInAt: data.lastSignInAt ?? null,
     };
   } catch (error) {
     console.error("Erro ao carregar usuário atual:", error);

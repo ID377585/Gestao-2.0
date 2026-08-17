@@ -15,8 +15,6 @@ const requiredProductionEnv = [
   "NEXT_PUBLIC_SUPABASE_URL",
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
   "CRON_SECRET",
-  "FISCAL_SYNC_SECRET",
-  "JOB_WORKER_SECRET",
   "RESEND_API_KEY",
   "RESEND_FROM_EMAIL",
   "NEXT_PUBLIC_APP_URL",
@@ -34,6 +32,9 @@ const recommendedProductionEnv = [
 const requiredExampleKeys = [
   ...requiredProductionEnv,
   ...recommendedProductionEnv,
+  "FISCAL_SYNC_SECRET",
+  "JOB_WORKER_SECRET",
+  "NUTRITION_CRON_SECRET",
   "SUPABASE_SECRET_KEY",
   "GESTIFY_NEW_SIGNUPS_ENABLED",
   "GESTIFY_SECURITY_HARDENING_CONFIRMED",
@@ -82,6 +83,8 @@ const packageJson = readJson("package.json");
 const vercelJson = readJson("vercel.json");
 const nextConfig = readText("next.config.js");
 
+const hasConfiguredEnv = (key) => Boolean(localEnv[key] || process.env[key]);
+
 if (!envExampleExists) {
   addCheck(
     ".env.example disponível",
@@ -102,21 +105,35 @@ if (!envExampleExists) {
 for (const key of requiredProductionEnv) {
   addCheck(
     `${envFile} define ${key}`,
-    Boolean(localEnv[key] || process.env[key]),
+    hasConfiguredEnv(key),
     "Obrigatória em Production. No CI, valide com variáveis reais do ambiente."
   );
 }
 
 addCheck(
+  `${envFile} define credencial do worker`,
+  hasConfiguredEnv("JOB_WORKER_SECRET") || hasConfiguredEnv("CRON_SECRET"),
+  "Use JOB_WORKER_SECRET dedicado ou o CRON_SECRET compartilhado para autenticar /api/jobs/process."
+);
+
+addCheck(
+  `${envFile} define credencial do cron de nutrição`,
+  hasConfiguredEnv("NUTRITION_CRON_SECRET") ||
+    hasConfiguredEnv("JOB_WORKER_SECRET") ||
+    hasConfiguredEnv("CRON_SECRET"),
+  "Use NUTRITION_CRON_SECRET, JOB_WORKER_SECRET ou CRON_SECRET para autenticar o sweep de nutrição."
+);
+
+addCheck(
   `${envFile} define SUPABASE_SECRET_KEY`,
-  modernAdminEnv.some((key) => Boolean(localEnv[key] || process.env[key])),
+  modernAdminEnv.some((key) => hasConfiguredEnv(key)),
   "Defina a credencial server-side canônica SUPABASE_SECRET_KEY. Aliases antigos e chaves JWT legadas não são aceitos."
 );
 
 for (const key of recommendedProductionEnv) {
   addCheck(
     `${envFile} recomenda ${key}`,
-    Boolean(localEnv[key] || process.env[key]),
+    hasConfiguredEnv(key),
     "Recomendada para operação comercial e observabilidade.",
     "warning"
   );
@@ -164,16 +181,38 @@ addCheck(
   "Build de produção deve executar validações antes de gerar o app."
 );
 
-const cronPaths = new Set((vercelJson.crons ?? []).map((cron) => cron.path));
+const cronPaths = (vercelJson.crons ?? []).map((cron) => cron.path);
+const hasCronPath = (expectedPath) =>
+  cronPaths.some((path) => String(path).split("?")[0] === expectedPath);
+
+const fiscalCronConfigured = hasCronPath("/api/fiscal/sync");
 addCheck(
   "Cron fiscal configurado",
-  cronPaths.has("/api/fiscal/sync"),
-  "Sincronização fiscal deve ser executada por cron protegido."
+  fiscalCronConfigured,
+  fiscalCronConfigured
+    ? "Sincronização fiscal está agendada e deve permanecer protegida por segredo."
+    : "Integração fiscal está pausada até certificado/configuração operacional; a rota pode permanecer disponível sem agendamento.",
+  "warning"
 );
+
+if (fiscalCronConfigured) {
+  addCheck(
+    "Credencial do cron fiscal configurada",
+    hasConfiguredEnv("FISCAL_SYNC_SECRET") || hasConfiguredEnv("CRON_SECRET"),
+    "Use FISCAL_SYNC_SECRET dedicado ou CRON_SECRET compartilhado antes de habilitar o cron fiscal."
+  );
+}
+
 addCheck(
   "Cron do worker de jobs configurado",
-  cronPaths.has("/api/jobs/process"),
-  "Fila precisa de processamento periódico para e-mails e tarefas assíncronas.",
+  hasCronPath("/api/jobs/process"),
+  "Fila precisa de processamento periódico para e-mails e tarefas assíncronas."
+);
+
+addCheck(
+  "Cron de notificações de nutrição configurado",
+  hasCronPath("/api/nutricao/notifications/sweep"),
+  "Notificações operacionais de nutrição precisam de varredura periódica.",
   "warning"
 );
 

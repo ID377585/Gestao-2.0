@@ -45,6 +45,23 @@ create table if not exists public.inventory_count_items (
 create index if not exists idx_inventory_count_items_count on public.inventory_count_items(inventory_count_id);
 create index if not exists idx_inventory_count_items_product on public.inventory_count_items(product_id);
 
+create table if not exists public.shipping_carriers (
+  id uuid primary key default gen_random_uuid(),
+  establishment_id uuid not null references public.establishments(id) on delete cascade,
+  name text not null,
+  phone text,
+  email text,
+  address text,
+  vehicle_type text,
+  has_refrigeration boolean not null default false,
+  initial_temp_c numeric,
+  delivery_temp_c numeric,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists shipping_carriers_establishment_id_idx on public.shipping_carriers(establishment_id);
+
 create table if not exists public.order_billing_drafts (
   id uuid primary key default gen_random_uuid(),
   establishment_id uuid not null references public.establishments(id),
@@ -126,7 +143,8 @@ create index if not exists idx_inventory_movements_product_id on public.inventor
 create index if not exists inventory_movements_label_id_idx on public.inventory_movements(label_id);
 
 -- Fail closed during reconstruction. Canonical tenant policies are installed by
--- the immediately-following consolidation migrations.
+-- the immediately-following consolidation migrations. Shipping carriers keep a
+-- small tenant-scoped policy set because no later migration creates them fresh.
 do $$
 declare
   table_name text;
@@ -135,6 +153,7 @@ begin
     'customers',
     'inventory_counts',
     'inventory_count_items',
+    'shipping_carriers',
     'order_billing_drafts',
     'fiscal_company_profiles',
     'inventory_movements'
@@ -150,8 +169,31 @@ end $$;
 grant select, insert, update, delete on table public.customers to authenticated;
 grant select, insert, update, delete on table public.inventory_counts to authenticated;
 grant select, insert, update, delete on table public.inventory_count_items to authenticated;
+grant select, insert, update, delete on table public.shipping_carriers to authenticated;
 grant select, insert, update, delete on table public.order_billing_drafts to authenticated;
 grant select, insert, update, delete on table public.fiscal_company_profiles to authenticated;
 grant select, insert, update, delete on table public.inventory_movements to authenticated;
+
+drop policy if exists shipping_carriers_select on public.shipping_carriers;
+create policy shipping_carriers_select
+on public.shipping_carriers
+for select
+to authenticated
+using ((select private.gestify_is_establishment_member(establishment_id)));
+
+drop policy if exists shipping_carriers_insert on public.shipping_carriers;
+create policy shipping_carriers_insert
+on public.shipping_carriers
+for insert
+to authenticated
+with check ((select private.gestify_is_establishment_member(establishment_id)));
+
+drop policy if exists shipping_carriers_update on public.shipping_carriers;
+create policy shipping_carriers_update
+on public.shipping_carriers
+for update
+to authenticated
+using ((select private.gestify_is_establishment_member(establishment_id)))
+with check ((select private.gestify_is_establishment_member(establishment_id)));
 
 commit;

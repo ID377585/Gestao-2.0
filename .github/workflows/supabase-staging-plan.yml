@@ -1,0 +1,152 @@
+name: Supabase staging migration plan
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gestify-supabase-staging-plan
+  cancel-in-progress: false
+
+jobs:
+  staging-plan:
+    name: Dry-run migrations against staging
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: staging
+
+    env:
+      STAGING_PROJECT_ID: ${{ vars.STAGING_PROJECT_ID }}
+      PRODUCTION_PROJECT_ID: ${{ vars.PRODUCTION_PROJECT_ID }}
+      STAGING_PROJECT_NAME: ${{ vars.STAGING_PROJECT_NAME }}
+      STAGING_EXPECTED_REGION: ${{ vars.STAGING_EXPECTED_REGION }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pinned Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: 2.111.0
+
+      - name: Validate staging configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for name in \
+            STAGING_PROJECT_ID \
+            PRODUCTION_PROJECT_ID \
+            STAGING_PROJECT_NAME \
+            STAGING_EXPECTED_REGION \
+            SUPABASE_ACCESS_TOKEN \
+            SUPABASE_DB_PASSWORD
+          do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required staging configuration: $name" >&2
+              exit 1
+            fi
+          done
+
+          if [[ "$STAGING_PROJECT_ID" == "$PRODUCTION_PROJECT_ID" ]]; then
+            echo "Refusing to run: staging project matches Production." >&2
+            exit 1
+          fi
+
+      - name: Verify target project identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts/supabase-staging-plan
+          inventory="$(mktemp)"
+          trap 'rm -f "$inventory"' EXIT
+
+          supabase projects list --output json > "$inventory"
+
+          PROJECTS_JSON="$inventory" node <<'NODE'
+          const fs = require('node:fs');
+
+          const path = process.env.PROJECTS_JSON;
+          const projects = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const stagingId = process.env.STAGING_PROJECT_ID;
+          const productionId = process.env.PRODUCTION_PROJECT_ID;
+          const expectedName = process.env.STAGING_PROJECT_NAME;
+          const expectedRegion = process.env.STAGING_EXPECTED_REGION;
+
+          if (!Array.isArray(projects)) {
+            throw new Error('Unexpected Supabase project inventory format.');
+          }
+
+          const target = projects.find((project) =>
+            [project.id, project.ref, project.project_ref].includes(stagingId)
+          );
+
+          if (!target) {
+            throw new Error('Configured staging project is not accessible to this token.');
+          }
+
+          const targetId = target.id ?? target.ref ?? target.project_ref;
+          const targetName = target.name ?? '';
+          const targetRegion = target.region ?? target.region_code ?? '';
+
+          if (targetId === productionId) {
+            throw new Error('Refusing to run: resolved target is Production.');
+          }
+          if (targetName !== expectedName) {
+            throw new Error(`Staging name mismatch: expected ${expectedName}, got ${targetName || '<empty>'}.`);
+          }
+          if (targetRegion !== expectedRegion) {
+            throw new Error(`Staging region mismatch: expected ${expectedRegion}, got ${targetRegion || '<empty>'}.`);
+          }
+
+          const evidence = {
+            ok: true,
+            project_id: targetId,
+            project_name: targetName,
+            region: targetRegion,
+            production_project_is_different: true,
+          };
+
+          fs.writeFileSync(
+            '.artifacts/supabase-staging-plan/target-validation.json',
+            `${JSON.stringify(evidence, null, 2)}\n`,
+            'utf8'
+          );
+          console.log(`Validated staging target: ${targetName} (${targetId}) in ${targetRegion}.`);
+          NODE
+
+      - name: Link staging project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link \
+            --project-ref "$STAGING_PROJECT_ID" \
+            --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Dry-run migration push
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee .artifacts/supabase-staging-plan/migration-dry-run.log
+
+      - name: Upload plan evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestify-supabase-staging-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/supabase-staging-plan/**
+          if-no-files-found: warn
+          retention-days: 30

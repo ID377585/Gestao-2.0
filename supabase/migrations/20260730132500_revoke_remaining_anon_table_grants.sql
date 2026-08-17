@@ -1,57 +1,69 @@
 begin;
 
 -- Tighten the remaining legacy SQL grants for unauthenticated Data API access.
--- RLS is enabled on the public schema tables and there are no anon/public
--- policies for these relations, so this removes only the leftover role grants.
-revoke all privileges on table public.accounts_payable from anon;
-revoke all privileges on table public.accounts_receivable from anon;
-revoke all privileges on table public.audit_logs from anon;
-revoke all privileges on table public.bank_accounts from anon;
-revoke all privileges on table public.bank_reconciliation_entries from anon;
-revoke all privileges on table public.buyer_monthly_goals from anon;
-revoke all privileges on table public.cost_centers from anon;
-revoke all privileges on table public.current_stock from anon;
-revoke all privileges on table public.current_stock_backup from anon;
-revoke all privileges on table public.current_stock_view from anon;
-revoke all privileges on table public.establishment_memberships from anon;
-revoke all privileges on table public.establishments from anon;
-revoke all privileges on table public.financial_categories from anon;
-revoke all privileges on table public.financial_history from anon;
-revoke all privileges on table public.fiscal_certificates from anon;
-revoke all privileges on table public.fiscal_nfe_inbox from anon;
-revoke all privileges on table public.fiscal_nsu_control from anon;
-revoke all privileges on table public.gestify_security_migration_audit from anon;
-revoke all privileges on table public.goods_receipt_items from anon;
-revoke all privileges on table public.goods_receipts from anon;
-revoke all privileges on table public.hr_employee_face_profiles from anon;
-revoke all privileges on table public.import_job_pages from anon;
-revoke all privileges on table public.import_jobs from anon;
-revoke all privileges on table public.inventory_current from anon;
-revoke all privileges on table public.inventory_current_stock from anon;
-revoke all privileges on table public.inventory_current_stock__deprecated from anon;
-revoke all privileges on table public.inventory_last_count_vs_current from anon;
-revoke all privileges on table public.invoice_entries from anon;
-revoke all privileges on table public.invoice_entry_drafts from anon;
-revoke all privileges on table public.invoice_entry_items from anon;
-revoke all privileges on table public.invoice_entry_pending_items from anon;
-revoke all privileges on table public.invoice_items from anon;
-revoke all privileges on table public.invoices from anon;
-revoke all privileges on table public.kds_production_view from anon;
-revoke all privileges on table public.memberships from anon;
-revoke all privileges on table public.organizations from anon;
-revoke all privileges on table public.purchase_action_queue from anon;
-revoke all privileges on table public.purchase_history from anon;
-revoke all privileges on table public.purchase_order_items from anon;
-revoke all privileges on table public.purchase_orders from anon;
-revoke all privileges on table public.purchase_request_items from anon;
-revoke all privileges on table public.purchase_requests from anon;
-revoke all privileges on table public.stocks from anon;
-revoke all privileges on table public.supplier_action_plans from anon;
-revoke all privileges on table public.supplier_contact_history from anon;
-revoke all privileges on table public.supplier_score_reviews from anon;
-revoke all privileges on table public.technical_sheet_scale_ingredients from anon;
-revoke all privileges on table public.technical_sheet_scales from anon;
-revoke all privileges on table public.units from anon;
-revoke all privileges on table public.user_access_audit_logs from anon;
+-- Some of these relations exist only in legacy Production; a clean staging/DR
+-- replay must still succeed while revoking every relation that is actually present.
+do $$
+declare
+  relation_name text;
+begin
+  foreach relation_name in array array[
+    'accounts_payable',
+    'accounts_receivable',
+    'audit_logs',
+    'bank_accounts',
+    'bank_reconciliation_entries',
+    'buyer_monthly_goals',
+    'cost_centers',
+    'current_stock',
+    'current_stock_backup',
+    'current_stock_view',
+    'establishment_memberships',
+    'establishments',
+    'financial_categories',
+    'financial_history',
+    'fiscal_certificates',
+    'fiscal_nfe_inbox',
+    'fiscal_nsu_control',
+    'gestify_security_migration_audit',
+    'goods_receipt_items',
+    'goods_receipts',
+    'hr_employee_face_profiles',
+    'import_job_pages',
+    'import_jobs',
+    'inventory_current',
+    'inventory_current_stock',
+    'inventory_current_stock__deprecated',
+    'inventory_last_count_vs_current',
+    'invoice_entries',
+    'invoice_entry_drafts',
+    'invoice_entry_items',
+    'invoice_entry_pending_items',
+    'invoice_items',
+    'invoices',
+    'kds_production_view',
+    'memberships',
+    'organizations',
+    'purchase_action_queue',
+    'purchase_history',
+    'purchase_order_items',
+    'purchase_orders',
+    'purchase_request_items',
+    'purchase_requests',
+    'stocks',
+    'supplier_action_plans',
+    'supplier_contact_history',
+    'supplier_score_reviews',
+    'technical_sheet_scale_ingredients',
+    'technical_sheet_scales',
+    'units',
+    'user_access_audit_logs'
+  ]
+  loop
+    if to_regclass(format('public.%I', relation_name)) is not null then
+      execute format('revoke all privileges on table public.%I from anon', relation_name);
+    end if;
+  end loop;
+end $$;
 
 commit;

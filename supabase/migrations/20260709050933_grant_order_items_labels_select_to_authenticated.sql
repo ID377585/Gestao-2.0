@@ -35,7 +35,7 @@ using (
     select 1
     from public.orders o
     where o.id = order_items_labels.order_id
-      and public.gestify_is_establishment_member(o.establishment_id)
+      and private.gestify_is_establishment_member(o.establishment_id)
   )
 );
 
@@ -49,7 +49,7 @@ using (
     select 1
     from public.orders o
     where o.id = order_items_labels.order_id
-      and public.gestify_has_establishment_role(
+      and private.gestify_has_establishment_role(
         o.establishment_id,
         array['admin','operacao','estoque']::text[]
       )
@@ -60,7 +60,7 @@ with check (
     select 1
     from public.orders o
     where o.id = order_items_labels.order_id
-      and public.gestify_has_establishment_role(
+      and private.gestify_has_establishment_role(
         o.establishment_id,
         array['admin','operacao','estoque']::text[]
       )
@@ -75,7 +75,7 @@ grant select on table public.order_items_labels to authenticated;
 insert into public.gestify_security_migration_audit (migration_name, notes)
 values (
   '20260709050933_grant_order_items_labels_select_to_authenticated',
-  'Reconstructed the legacy order_items_labels schema when absent, enabled fail-closed RLS, and granted authenticated SELECT under tenant-scoped policy.'
+  'Reconstructed the legacy order_items_labels schema when absent, enabled fail-closed RLS, and granted authenticated SELECT under tenant-scoped private helper policies.'
 )
 on conflict (migration_name) do nothing;
 

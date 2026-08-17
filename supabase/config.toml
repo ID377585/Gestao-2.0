@@ -1,0 +1,9 @@
+# Local Supabase CLI configuration used by CI and development.
+# Remote staging/production targets are always linked explicitly by project ref.
+project_id = "gestify"
+
+[db]
+major_version = 17
+
+[db.seed]
+enabled = false

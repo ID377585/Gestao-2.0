@@ -1,0 +1,97 @@
+name: Supabase migration integrity
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/supabase-migration-integrity.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/supabase-migration-integrity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migration-integrity:
+    name: Fresh migration replay on Postgres 17
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pinned Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: 2.111.0
+
+      - name: Validate migration filenames
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const dir = path.join(process.cwd(), 'supabase', 'migrations');
+          const files = fs.readdirSync(dir).filter((name) => name.endsWith('.sql')).sort();
+          if (files.length === 0) throw new Error('No Supabase migration files found.');
+
+          const byVersion = new Map();
+          const invalid = [];
+          const empty = [];
+
+          for (const file of files) {
+            const match = file.match(/^(\d{14})_[A-Za-z0-9_-]+\.sql$/);
+            if (!match) {
+              invalid.push(file);
+              continue;
+            }
+            const version = match[1];
+            const siblings = byVersion.get(version) ?? [];
+            siblings.push(file);
+            byVersion.set(version, siblings);
+            if (fs.statSync(path.join(dir, file)).size === 0) empty.push(file);
+          }
+
+          const duplicates = [...byVersion.entries()].filter(([, names]) => names.length > 1);
+          if (invalid.length) {
+            console.error('Invalid migration filenames:');
+            for (const file of invalid) console.error(` - ${file}`);
+          }
+          if (duplicates.length) {
+            console.error('Duplicate migration timestamps:');
+            for (const [version, names] of duplicates) console.error(` - ${version}: ${names.join(', ')}`);
+          }
+          if (empty.length) console.warn(`Empty migrations retained as history markers: ${empty.join(', ')}`);
+          if (invalid.length || duplicates.length) process.exit(1);
+          console.log(`Migration filename integrity OK (${files.length} migrations).`);
+          NODE
+
+      - name: Start disposable Supabase stack and replay migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase start --exclude studio,imgproxy,mailpit,edge-runtime,logflare,vector,realtime
+
+      - name: Lint fresh database
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db lint --local --level error --fail-on error
+
+      - name: Stop disposable stack
+        if: ${{ always() }}
+        shell: bash
+        run: supabase stop --no-backup || true

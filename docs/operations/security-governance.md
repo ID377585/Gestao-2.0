@@ -1,166 +1,152 @@
 # Governança de Segurança e Operação
 
-Este runbook separa o que pode ser automatizado por código do que exige painel,
-staging, decisão administrativa ou validação jurídica. Não execute mudanças em
-produção sem registrar evidência e plano de retorno.
+Este runbook define controles que permanecem válidos após o hardening inicial. Mudanças de segurança devem passar por branch, CI, Preview, PR, merge e validação de Production; alterações destrutivas ou de RLS ampla exigem staging e plano de retorno.
 
-## 1. Segredos Vercel e Supabase
+## 1. Secrets e credenciais
 
-Rotacione em janela controlada, nesta ordem:
+Ordem para rotação:
 
-1. Criar novos segredos no provedor de origem.
-2. Configurar os novos valores em Vercel Production, Preview e Development.
-3. Fazer um deploy de preview e validar rotas protegidas.
-4. Promover para produção.
-5. Revogar os segredos antigos.
-6. Confirmar que nenhum segredo possui prefixo `NEXT_PUBLIC_`, exceto chaves
-   publicáveis.
+1. criar a nova credencial no provedor de origem;
+2. configurar valor novo apenas nos ambientes necessários;
+3. validar Preview quando aplicável;
+4. promover e validar Production;
+5. revogar a credencial antiga;
+6. revisar logs e confirmar que nenhum valor sensível foi publicado em issue, commit, screenshot ou log compartilhado.
 
-Segredos obrigatórios:
+Contrato moderno:
 
-- `SUPABASE_SERVICE_ROLE_KEY`, somente servidor.
-- `CRON_SECRET`.
-- `FISCAL_SYNC_SECRET`.
-- `JOB_WORKER_SECRET`.
-- `RESEND_API_KEY`.
-- `RESEND_FROM_EMAIL` ou `ALERTS_FROM_EMAIL`.
-- `NEXT_PUBLIC_SUPABASE_URL`.
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` ou `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: públicos;
+- `SUPABASE_SECRET_KEY`: somente servidor;
+- `CRON_SECRET` e, quando desejado, secrets dedicados de worker/nutrição/alertas;
+- `RESEND_API_KEY` e remetentes de e-mail;
+- secrets fiscais somente quando o módulo fiscal for homologado.
 
-## 2. Supabase Auth
+Não reintroduzir chaves JWT legadas de `service_role`/`anon` como requisito de runtime. Não reutilizar o secret administrativo de Production em Development.
 
-No painel Supabase, habilitar antes de ampliar clientes:
+## 2. Auth e contas administrativas
+
+Manter:
 
 - leaked-password protection;
-- tamanho mínimo de senha;
-- política de senha forte;
-- MFA para administradores;
-- revisão da duração de sessão e refresh tokens.
+- senha mínima/política forte;
+- MFA/AAL2 em operações administrativas privilegiadas;
+- revisão periódica de administradores ativos;
+- revogação de sessões em incidente de conta;
+- monitoramento de falhas anormais de refresh/session.
 
-Essa etapa é manual porque altera configuração de Auth do projeto, não schema.
+## 3. Multiempresa, RLS e RPCs
 
-## 3. RLS e RPCs de Pedido
+Toda tabela/RPC nova que carregue dados de empresa deve ter escopo por `establishment_id` ou outra fronteira explicitamente documentada. O CI não substitui teste dinâmico.
 
-O CI executa `npm run orders:rls:ci` quando as secrets do Supabase existem.
+Antes de promover mudanças de RLS:
 
-Essa auditoria bloqueia:
+1. aplicar em staging persistente;
+2. criar dois tenants fictícios e usuários por papel;
+3. testar leitura, criação, atualização e RPCs contra tenant próprio e estrangeiro;
+4. testar membership inativa;
+5. validar `SECURITY DEFINER` com `search_path` controlado, `auth.uid()` e autorização interna;
+6. revisar grants a `authenticated`, `anon` e `public`;
+7. publicar em janela controlada e monitorar erros após o deploy.
 
-- policies novas acima do baseline atual;
-- policies em `orders` ou `order_status_events` expostas a `anon/public`;
-- RPCs sensíveis sem validações internas esperadas;
-- funções sensíveis executáveis por `anon/public`.
+## 4. Branch e release governance
 
-Para consolidar RLS de verdade:
+`main` deve permanecer privada e protegida. Política alvo:
 
-1. Criar staging com dados fictícios.
-2. Mapear matriz por papel: `cliente`, `operacao`, `producao`, `estoque`,
-   `fiscal`, `admin`, `entrega`.
-3. Substituir policies por tabela em pequenos lotes.
-4. Validar leitura, criação, atualização e timeline por papel.
-5. Testar usuário de outro estabelecimento e usuário inativo.
-6. Publicar em janela de baixo uso.
+- pull request obrigatório;
+- CI obrigatório;
+- Vercel Preview obrigatório;
+- branch atualizada antes do merge quando viável;
+- bloquear push direto, force-push e deletion;
+- resolver conversas antes do merge;
+- administradores sujeitos às mesmas regras quando o plano permitir.
 
-## 4. Testes entre Tenants
+Nunca tornar o repositório público como atalho para obter branch protection.
 
-Nunca criar usuários fictícios permanentes direto em produção para teste
-automatizado.
+## 5. Histórico sensível
 
-Fluxo recomendado:
+Remover um secret do estado atual não remove cópias históricas. Em incidente com segredo commitado:
 
-1. Projeto Supabase staging.
-2. Dois estabelecimentos fictícios.
-3. Usuário A vinculado apenas ao estabelecimento A.
-4. Usuário B vinculado apenas ao estabelecimento B.
-5. Um administrador global ou service role somente para setup.
-6. Casos mínimos:
-   - A não lê pedido de B;
-   - A não atualiza pedido de B;
-   - A não cria registro com `establishment_id` de B;
-   - A não chama RPC de pedido de B;
-   - usuário inativo perde acesso;
-   - cliente não avança status operacional.
+- revogar primeiro a credencial;
+- reescrever o histórico em clone coordenado;
+- verificar com scanner de secrets;
+- force-push somente refs controladas;
+- tratar refs internas/cache do provedor com o processo oficial de sensitive-data removal;
+- manter backup pré-saneamento isolado, sem compartilhar, apenas durante a janela de rollback/forense necessária.
 
-## 5. Branch Protection
+## 6. Backup e disaster recovery
 
-Configuração recomendada para `main`:
+Exercício obrigatório antes de escala comercial e depois periodicamente:
 
-- exigir pull request;
-- exigir CI verde;
-- bloquear force push;
-- bloquear deletion;
-- exigir branch atualizada antes do merge;
-- exigir pelo menos uma aprovação quando houver time;
-- manter administradores sujeitos às regras quando o fluxo comercial permitir.
+- confirmar política de backup/PITR conforme plano contratado;
+- restaurar banco em ambiente separado;
+- restaurar ou reconstruir Storage e validar objetos críticos;
+- medir RPO/RTO reais;
+- testar rollback de migration e deploy;
+- validar login, pedidos, estoque, financeiro e módulos vendidos;
+- registrar responsável, horário e evidência.
 
-Observação: bloquear push direto muda o fluxo atual de publicação. Antes de
-ativar, confirme que deploy via PR/merge está funcionando.
+Metas iniciais são RPO de 15 minutos e RTO de 4 horas; só podem ser tratadas como compromisso após medição real.
 
-## 6. Backup e Restauração
+## 7. Observabilidade e incidentes
 
-Checklist trimestral:
+Monitorar continuamente:
 
-- confirmar PITR conforme plano Supabase;
-- exportar backup de Storage;
-- testar restauração em projeto separado;
-- medir RPO e RTO reais;
-- documentar responsável e contatos;
-- testar rollback de migration;
-- testar rollback de deploy Vercel.
+- disponibilidade pública/5xx;
+- estado do deployment Production;
+- Auth, API, Postgres e Storage;
+- filas/jobs e dead-letter;
+- crons e erros de autenticação dos workers.
 
-Metas iniciais para piloto controlado:
+Runbook de incidente: [incident-response-runbooks.md](./incident-response-runbooks.md).
 
-- RPO: perda máxima de 15 minutos de dados.
-- RTO: recuperação do app e banco em até 4 horas.
+## 8. Dependências e supply chain
 
-Substitua esses números por métricas reais depois do primeiro teste de restore.
+- `npm audit --omit=dev --audit-level=high` deve passar antes de Production;
+- manter smoke test de Excel/exportação porque `exceljs` possui cadeia transitive relevante;
+- Dependabot deve propor updates regularmente;
+- não executar `npm audit fix --force` sem branch, revisão e testes de regressão;
+- upgrades major de GitHub Actions ou runtime devem passar pelo mesmo gate de PR/CI/Preview.
 
-Runbook detalhado: [incident-response-runbooks.md](./incident-response-runbooks.md).
+## 9. Fiscal, biometria e LGPD
 
-## 7. LGPD e Biometria
+### Fiscal
+
+O módulo fiscal só entra no escopo comercial quando certificado, ambiente, credenciais, idempotência e homologação estiverem concluídos. Até lá, manter o cron fiscal desabilitado.
+
+### Biometria
 
 Biometria facial é dado pessoal sensível. Antes de ativar comercialmente:
 
-- finalidade documentada;
-- consentimento/base legal;
-- alternativa sem biometria;
-- política de retenção;
-- descarte seguro;
+- finalidade e base legal documentadas;
+- revisão jurídica;
+- alternativa não biométrica;
+- retenção e descarte seguro;
 - bucket privado e URL assinada curta;
 - auditoria de acesso;
 - procedimento de contestação;
-- plano de incidente;
-- revisão jurídica.
+- resposta a incidente.
 
-Politica inicial: [data-retention-policy.md](./data-retention-policy.md).
+Política inicial: [data-retention-policy.md](./data-retention-policy.md).
 
-## 8. Auditoria Final
+## 10. Billing
 
-Antes de liberar clientes externos em escala:
+O controle de acesso por assinatura pode coexistir com cobrança manual no início, desde que o processo seja documentado. Se houver cobrança automatizada, adicionar ao gate comercial:
 
-- smoke test completo;
-- teste de carga;
-- teste de caos controlado;
-- pentest;
-- revisão RLS;
-- revisão fiscal;
-- revisão LGPD;
-- restauração de backup comprovada.
+- provedor homologado;
+- webhooks autenticados e idempotentes;
+- conciliação;
+- tratamento de `past_due`, cancelamento e reativação;
+- trilha de auditoria e suporte ao cliente.
 
-## 9. Comandos de Prontidão
+## 11. Auditoria final antes de escala
 
-Execute antes de qualquer promoção relevante:
+Exigir evidência para:
 
-```bash
-npm run readiness:check
-npm run lint
-npm run typecheck
-npm run tenant:writes:ci
-npm run orders:rls:ci
-npm run build
-```
-
-Quando as secrets reais estiverem disponíveis no ambiente, rode:
-
-```bash
-npm run readiness:strict
-```
+- smoke/E2E dos fluxos críticos;
+- matriz multiempresa completa;
+- teste de carga com p95/p99 e taxa de erro;
+- restore real;
+- revisão dos Supabase Advisors após mudanças de DDL;
+- revisão de dependências;
+- revisão fiscal/LGPD conforme o escopo vendido;
+- pentest antes de exposição ampla quando o risco/contratos justificarem.

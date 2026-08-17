@@ -53,7 +53,7 @@ jobs:
           const empty = [];
 
           for (const file of files) {
-            const match = file.match(/^(\d{14})_[A-Za-z0-9_-]+\.sql$/);
+            const match = file.match(/^(\d{12,14})_[A-Za-z0-9_-]+\.sql$/);
             if (!match) {
               invalid.push(file);
               continue;

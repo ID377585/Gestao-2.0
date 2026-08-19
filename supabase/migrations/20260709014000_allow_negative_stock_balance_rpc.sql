@@ -1,5 +1,10 @@
 begin;
 
+-- The foundation migration defines this signature as `returns setof stock_balances`.
+-- PostgreSQL cannot change a function return type with CREATE OR REPLACE, so a
+-- fresh migration replay must drop the old signature before recreating it.
+drop function if exists public.fn_upsert_stock_balance(uuid, uuid, numeric, text);
+
 create or replace function public.fn_upsert_stock_balance(
   p_establishment_id uuid,
   p_product_id uuid,

@@ -220,10 +220,47 @@ create index if not exists hr_time_clock_shifts_user_id_idx
 create index if not exists hr_time_clock_shifts_created_by_idx
   on public.hr_time_clock_shifts (created_by);
 
-create index if not exists hr_time_clock_adjustments_user_id_idx
-  on public.hr_time_clock_adjustments (user_id);
-create index if not exists hr_time_clock_adjustments_created_by_idx
-  on public.hr_time_clock_adjustments (created_by);
+-- hr_time_clock_adjustments has two historical shapes in deployed projects.
+-- Index whichever FK columns are actually present so both legacy Production and
+-- fresh replay remain valid without silently changing either data model.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'hr_time_clock_adjustments'
+      and column_name = 'user_id'
+  ) then
+    execute 'create index if not exists hr_time_clock_adjustments_user_id_idx on public.hr_time_clock_adjustments (user_id)';
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'hr_time_clock_adjustments'
+      and column_name = 'created_by'
+  ) then
+    execute 'create index if not exists hr_time_clock_adjustments_created_by_idx on public.hr_time_clock_adjustments (created_by)';
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'hr_time_clock_adjustments'
+      and column_name = 'target_user_id'
+  ) then
+    execute 'create index if not exists hr_time_clock_adjustments_target_user_id_idx on public.hr_time_clock_adjustments (target_user_id)';
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'hr_time_clock_adjustments'
+      and column_name = 'actor_user_id'
+  ) then
+    execute 'create index if not exists hr_time_clock_adjustments_actor_user_id_idx on public.hr_time_clock_adjustments (actor_user_id)';
+  end if;
+end $$;
 
 create index if not exists music_player_settings_created_by_idx
   on public.music_player_settings (created_by)

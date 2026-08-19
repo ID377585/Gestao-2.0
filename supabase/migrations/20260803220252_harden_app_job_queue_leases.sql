@@ -75,10 +75,11 @@ revoke all on function public.claim_app_jobs(text, integer, integer)
 grant execute on function public.claim_app_jobs(text, integer, integer)
   to service_role;
 
--- Keep the older two-argument signature available for existing callers.
+-- Keep the older two-argument signature and its historical default available for
+-- existing callers. CREATE OR REPLACE cannot remove an existing argument default.
 create or replace function public.claim_app_jobs(
   p_worker_id text,
-  p_limit integer
+  p_limit integer default 10
 )
 returns setof public.app_job_queue
 language sql

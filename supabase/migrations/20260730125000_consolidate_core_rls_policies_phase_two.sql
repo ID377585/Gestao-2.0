@@ -299,6 +299,8 @@ drop policy if exists "losses_insert_by_membership" on public.losses;
 drop policy if exists "losses_insert_same_establishment" on public.losses;
 drop policy if exists "losses_select_by_membership" on public.losses;
 drop policy if exists "losses_select_same_establishment" on public.losses;
+drop policy if exists "losses_member_select" on public.losses;
+drop policy if exists "losses_member_insert" on public.losses;
 
 create policy "losses_member_select"
 on public.losses

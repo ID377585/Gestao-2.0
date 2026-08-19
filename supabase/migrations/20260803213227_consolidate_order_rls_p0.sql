@@ -154,18 +154,17 @@ stable
 security definer
 set search_path to 'public', 'auth', 'pg_temp'
 as $$
-  select coalesce(current_setting('app.order_status_flow', true), '') = 'on'
-    and exists (
-      select 1
-      from public.orders o
-      where o.id = p_order_id
-        and o.establishment_id = coalesce(p_establishment_id, o.establishment_id)
-        and private.gestify_order_can_read(
-          o.establishment_id,
-          o.created_by,
-          o.customer_user_id
-        )
-    )
+  select exists (
+    select 1
+    from public.orders o
+    where o.id = p_order_id
+      and o.establishment_id = coalesce(p_establishment_id, o.establishment_id)
+      and private.gestify_order_can_read(
+        o.establishment_id,
+        o.created_by,
+        o.customer_user_id
+      )
+  )
 $$;
 
 revoke all on function private.gestify_order_role_for_scope(uuid)
@@ -198,17 +197,30 @@ grant execute on function private.gestify_order_can_delete(uuid)
 grant execute on function private.gestify_order_can_insert_event(uuid, uuid)
   to authenticated, service_role;
 
+-- A custom GUC can be caller-controlled and ALTER FUNCTION ... SET on a custom
+-- parameter is not portable across managed migration roles. Instead, status
+-- changes are accepted only while executing under the owner of the hardened
+-- SECURITY DEFINER transition RPCs. Direct authenticated/service_role DML keeps
+-- its own effective role and is rejected. Timeline rows created by trusted order
+-- triggers are additionally allowed when they are nested below an order trigger.
 create or replace function public.gestify_require_order_status_flow()
 returns trigger
 language plpgsql
-set search_path to 'public', 'pg_temp'
+set search_path to 'public', 'pg_catalog', 'pg_temp'
 as $$
+declare
+  v_rpc_owner name;
 begin
-  if new.status is distinct from old.status
-    and coalesce(current_setting('app.order_status_flow', true), '') <> 'on'
-  then
-    raise exception 'Status de pedido deve ser alterado pela RPC oficial'
-      using errcode = '42501';
+  if new.status is distinct from old.status then
+    select pg_get_userbyid(p.proowner)
+      into v_rpc_owner
+    from pg_proc p
+    where p.oid = to_regprocedure('public.advance_order_status(uuid,public.order_status,text)');
+
+    if v_rpc_owner is null or current_user <> v_rpc_owner then
+      raise exception 'Status de pedido deve ser alterado pela RPC oficial'
+        using errcode = '42501';
+    end if;
   end if;
 
   return new;
@@ -218,10 +230,19 @@ $$;
 create or replace function public.gestify_require_order_event_flow()
 returns trigger
 language plpgsql
-set search_path to 'public', 'pg_temp'
+set search_path to 'public', 'pg_catalog', 'pg_temp'
 as $$
+declare
+  v_rpc_owner name;
 begin
-  if coalesce(current_setting('app.order_status_flow', true), '') <> 'on' then
+  select pg_get_userbyid(p.proowner)
+    into v_rpc_owner
+  from pg_proc p
+  where p.oid = to_regprocedure('public.advance_order_status(uuid,public.order_status,text)');
+
+  if pg_trigger_depth() <= 1
+     and (v_rpc_owner is null or current_user <> v_rpc_owner)
+  then
     raise exception 'Timeline de pedido deve ser registrada pela RPC oficial'
       using errcode = '42501';
   end if;
@@ -247,53 +268,6 @@ create trigger gestify_require_order_event_flow
   before insert on public.order_status_events
   for each row
   execute function public.gestify_require_order_event_flow();
-
--- Existing RPC and trigger flows that legitimately move orders/timeline.
-alter function public.advance_order_status(uuid, public.order_status, text)
-  set app.order_status_flow to 'on';
-alter function public.cancel_order(uuid, text)
-  set app.order_status_flow to 'on';
-alter function public.reopen_order(uuid, text)
-  set app.order_status_flow to 'on';
-alter function private.accept_order_impl(uuid)
-  set app.order_status_flow to 'on';
-
-do $$
-declare
-  v_signature text;
-begin
-  for v_signature in
-    select signature
-    from (
-      values
-        ('public.advance_order(uuid)'),
-        ('public.create_invoice_from_separation(uuid)'),
-        ('public.create_pre_invoice_from_separation(uuid, uuid, text)'),
-        ('public.finalize_faturamento(uuid, text, text)'),
-        ('public.finish_order_separation(uuid, text)'),
-        ('public.mark_as_delivered(uuid)'),
-        ('public.mark_order_delivered(uuid)'),
-        ('public.reject_order(uuid, text)'),
-        ('public.send_order_to_transport(uuid, text, text)'),
-        ('public.send_to_transport(uuid)'),
-        ('public.set_order_status(uuid, public.order_status, text, boolean)'),
-        ('public.start_faturamento(uuid)'),
-        ('public.start_preparo(uuid)'),
-        ('public.start_separacao(uuid)')
-    ) as known_flows(signature)
-  loop
-    if to_regprocedure(v_signature) is not null then
-      execute format('alter function %s set app.order_status_flow to %L', v_signature, 'on');
-    end if;
-  end loop;
-end $$;
-
-alter function public.on_order_created_add_status_event()
-  set app.order_status_flow to 'on';
-alter function public.on_order_insert_create_event()
-  set app.order_status_flow to 'on';
-alter function public.on_order_status_change_create_event()
-  set app.order_status_flow to 'on';
 
 alter table public.orders enable row level security;
 alter table public.order_status_events enable row level security;

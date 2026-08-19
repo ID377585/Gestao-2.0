@@ -55,6 +55,9 @@ jobs:
       - name: Production readiness static check
         run: npm run readiness:check
 
+      - name: Deployment readiness check
+        run: npm run readiness:deployment
+
       - name: Require Supabase contract secrets on main
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_SUPABASE_CONTRACT_SECRETS != 'true' }}
         run: |

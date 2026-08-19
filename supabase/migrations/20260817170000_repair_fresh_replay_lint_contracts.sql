@@ -1,5 +1,40 @@
 begin;
 
+-- Reconstruct the order transition contract that exists in Production but was
+-- historically created outside the migration chain. Fresh environments such
+-- as staging must be reproducible from versioned migrations only.
+create table if not exists public.order_status_transitions (
+  from_status public.order_status not null,
+  to_status public.order_status not null,
+  enabled boolean not null default true,
+  primary key (from_status, to_status)
+);
+
+alter table public.order_status_transitions enable row level security;
+alter table public.order_status_transitions force row level security;
+
+revoke all on table public.order_status_transitions from public, anon, authenticated;
+grant select on table public.order_status_transitions to authenticated;
+grant all on table public.order_status_transitions to service_role;
+
+drop policy if exists gestify_order_status_transitions_read on public.order_status_transitions;
+create policy gestify_order_status_transitions_read
+on public.order_status_transitions
+for select
+to authenticated
+using (true);
+
+insert into public.order_status_transitions (from_status, to_status, enabled)
+values
+  ('pedido_criado'::public.order_status, 'aceitou_pedido'::public.order_status, true),
+  ('aceitou_pedido'::public.order_status, 'em_preparo'::public.order_status, true),
+  ('em_preparo'::public.order_status, 'em_separacao'::public.order_status, true),
+  ('em_separacao'::public.order_status, 'em_faturamento'::public.order_status, true),
+  ('em_faturamento'::public.order_status, 'em_transporte'::public.order_status, true),
+  ('em_transporte'::public.order_status, 'entregue'::public.order_status, true)
+on conflict (from_status, to_status)
+do update set enabled = excluded.enabled;
+
 -- Repair functions that remain valid at runtime in the evolved Production schema
 -- but fail static validation after a clean replay because legacy public helpers
 -- were intentionally removed. Keep authorization scoped to the order tenant.

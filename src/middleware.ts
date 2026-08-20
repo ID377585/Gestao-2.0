@@ -291,6 +291,17 @@ export async function middleware(req: NextRequest) {
     return apiCorsResponse;
   }
 
+  // Authentication pages must always remain reachable, even when Supabase Auth
+  // is degraded. Session validation on these public routes can otherwise block
+  // the middleware until Vercel's 25s invocation timeout.
+  if (isAuthRoute(pathname)) {
+    return NextResponse.next({
+      request: {
+        headers: req.headers,
+      },
+    });
+  }
+
   let supabaseResponse = NextResponse.next({
     request: {
       headers: req.headers,

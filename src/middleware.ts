@@ -309,10 +309,9 @@ export async function middleware(req: NextRequest) {
     return supabaseResponse;
   }
 
-  const {
-    data: { claims },
-    error: claimsError,
-  } = await middlewareClient.supabase.auth.getClaims();
+  const { data: claimsData, error: claimsError } =
+    await middlewareClient.supabase.auth.getClaims();
+  const claims = claimsData?.claims ?? null;
 
   supabaseResponse = middlewareClient.getResponse();
 

@@ -309,23 +309,14 @@ export async function middleware(req: NextRequest) {
     return supabaseResponse;
   }
 
-  /*
-   * Mantemos getUser() por enquanto porque o fluxo de aceite de termos depende
-   * de app_metadata. A melhoria cirúrgica aqui é reduzir escopo, endurecer
-   * redirects e evitar trabalho desnecessário fora das rotas realmente usadas.
-   *
-   * Próximo passo seguro: migrar a checagem simples de sessão para getClaims()
-   * somente depois de confirmar que o projeto usa JWT assimétrico/JWKS e que o
-   * estado de termos pode ser lido dos claims sem quebrar o fluxo atual.
-   */
   const {
-    data: { user },
-    error: userError,
-  } = await middlewareClient.supabase.auth.getUser();
+    data: { claims },
+    error: claimsError,
+  } = await middlewareClient.supabase.auth.getClaims();
 
   supabaseResponse = middlewareClient.getResponse();
 
-  if (userError && isInvalidRefreshTokenError(userError)) {
+  if (claimsError && isInvalidRefreshTokenError(claimsError)) {
     const clearedResponse = clearAuthAndTenantCookies(req, supabaseResponse);
 
     if (isProtectedRoute(pathname)) {
@@ -337,24 +328,26 @@ export async function middleware(req: NextRequest) {
     return clearedResponse;
   }
 
-  if (userError) {
-    console.warn("[middleware] sessão não pôde ser validada:", {
-      message: userError.message,
+  if (claimsError) {
+    console.warn("[middleware] sessão não pôde ser validada por claims:", {
+      message: claimsError.message,
     });
   }
 
-  if (!user && isProtectedRoute(pathname)) {
+  const userId = typeof claims?.sub === "string" ? claims.sub : null;
+
+  if (!userId && isProtectedRoute(pathname)) {
     return redirectWithCookies(req, supabaseResponse, "/login", {
       redirect: pathname,
     });
   }
 
-  if (!user) {
+  if (!userId) {
     return supabaseResponse;
   }
 
   const complianceState = getSessionTermsCompliance(
-    user.app_metadata as Record<string, unknown> | undefined
+    claims?.app_metadata as Record<string, unknown> | undefined
   );
   const acceptedCurrentTerms = hasAcceptedCurrentTerms(complianceState);
 
@@ -379,7 +372,7 @@ export async function middleware(req: NextRequest) {
   if (isProtectedRoute(pathname)) {
     const canAccessModule = await userCanAccessProtectedModule({
       supabase: middlewareClient.supabase,
-      userId: user.id,
+      userId,
       pathname,
       selectedEstablishmentId: req.cookies.get(TENANT_COOKIE_NAME)?.value ?? null,
     });

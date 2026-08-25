@@ -5,12 +5,23 @@ import path from 'node:path';
 
 const migrationsDir = path.resolve(process.cwd(), 'supabase/migrations');
 
+const orderMembershipContract = [
+  /establishment_memberships/i,
+  /memberships/i,
+  /em\.establishment_id\s*=\s*v_establishment_id/i,
+  /em\.user_id\s*=\s*v_uid/i,
+  /em\.is_active\s*=\s*true/i,
+  /m\.establishment_id\s*=\s*v_establishment_id/i,
+  /m\.user_id\s*=\s*v_uid/i,
+  /coalesce\s*\(\s*m\.is_active\s*,\s*true\s*\)\s*=\s*true/i,
+];
+
 const contracts = {
   advance_order_status: [
     /security\s+definer/i,
     /set\s+search_path/i,
     /auth\.uid\s*\(\s*\)/i,
-    /active_membership\s*\(/i,
+    ...orderMembershipContract,
     /establishment_id\s*=\s*v_establishment_id/i,
     /role cannot advance order/i,
     /for\s+update/i,
@@ -19,7 +30,7 @@ const contracts = {
     /security\s+definer/i,
     /set\s+search_path/i,
     /auth\.uid\s*\(\s*\)/i,
-    /active_membership\s*\(/i,
+    ...orderMembershipContract,
     /establishment_id\s*=\s*v_establishment_id/i,
     /only admin\/operacao can cancel/i,
     /for\s+update/i,
@@ -28,7 +39,7 @@ const contracts = {
     /security\s+definer/i,
     /set\s+search_path/i,
     /auth\.uid\s*\(\s*\)/i,
-    /active_membership\s*\(/i,
+    ...orderMembershipContract,
     /establishment_id\s*=\s*v_establishment_id/i,
     /only admin can reopen/i,
     /only canceled orders can be reopened/i,
@@ -107,6 +118,7 @@ for (const [functionName, requiredPatterns] of Object.entries(contracts)) {
   }
 
   for (const pattern of requiredPatterns) {
+    pattern.lastIndex = 0;
     if (!pattern.test(latest.definition)) {
       findings.push(`${functionName}: latest definition in ${latest.file} is missing contract pattern ${pattern}.`);
     }

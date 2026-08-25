@@ -43,6 +43,9 @@ jobs:
       - name: SECURITY DEFINER RPC audit
         run: node scripts/audit-security-definer-rpcs.mjs
 
+      - name: Proxy/auth resilience contract
+        run: node scripts/audit-proxy-auth-resilience.mjs
+
       - name: Lint
         run: npm run lint
 

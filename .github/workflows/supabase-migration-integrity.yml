@@ -36,6 +36,15 @@ jobs:
         with:
           version: 2.111.0
 
+      - name: Generate duplicate index cleanup migration name
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'agent/perf/nutrition-duplicate-indexes-20260825' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase migration new cleanup_nutrition_duplicate_indexes
+          generated="$(ls -1t supabase/migrations/*_cleanup_nutrition_duplicate_indexes.sql | head -n 1)"
+          echo "GESTIFY_GENERATED_MIGRATION=${generated}"
+
       - name: Validate migration filenames
         shell: bash
         run: |

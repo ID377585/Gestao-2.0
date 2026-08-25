@@ -40,6 +40,9 @@ jobs:
       - name: QA production guard audit
         run: node scripts/audit-qa-production-guards.mjs
 
+      - name: Order status contract audit
+        run: node scripts/audit-order-status-contract.mjs
+
       - name: Lint
         run: npm run lint
 

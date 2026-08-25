@@ -179,15 +179,35 @@ create policy technical_sheets_delete_same_establishment
     )
   );
 
--- Prevent unauthenticated callers from invoking a SECURITY DEFINER helper used by RLS.
-revoke all privileges on function public.current_user_can_manage_establishment(uuid) from public;
-revoke all privileges on function public.current_user_can_manage_establishment(uuid) from anon;
-grant execute on function public.current_user_can_manage_establishment(uuid) to authenticated;
-grant execute on function public.current_user_can_manage_establishment(uuid) to service_role;
+-- Replays contain this helper, while the current live Production schema may not.
+-- Harden it only when present so this additive migration is compatible with both states.
+do $gestify$
+begin
+  if to_regprocedure('public.current_user_can_manage_establishment(uuid)') is not null then
+    execute 'revoke all privileges on function public.current_user_can_manage_establishment(uuid) from public';
+    execute 'revoke all privileges on function public.current_user_can_manage_establishment(uuid) from anon';
+    execute 'grant execute on function public.current_user_can_manage_establishment(uuid) to authenticated';
+    execute 'grant execute on function public.current_user_can_manage_establishment(uuid) to service_role';
+  end if;
+end
+$gestify$;
 
--- Pin mutable search paths identified by the Security Advisor.
-alter function public.update_updated_at_column() set search_path = pg_catalog, public;
-alter function public.set_updated_at() set search_path = pg_catalog, public;
-alter function private.gestify_legacy_table_names() set search_path = pg_catalog, private;
+-- Pin search paths when the corresponding functions exist. Production and fresh replay
+-- are not assumed to contain the exact same legacy helper set.
+do $gestify$
+begin
+  if to_regprocedure('public.update_updated_at_column()') is not null then
+    execute 'alter function public.update_updated_at_column() set search_path = pg_catalog, public';
+  end if;
+
+  if to_regprocedure('public.set_updated_at()') is not null then
+    execute 'alter function public.set_updated_at() set search_path = pg_catalog, public';
+  end if;
+
+  if to_regprocedure('private.gestify_legacy_table_names()') is not null then
+    execute 'alter function private.gestify_legacy_table_names() set search_path = pg_catalog, private';
+  end if;
+end
+$gestify$;
 
 commit;

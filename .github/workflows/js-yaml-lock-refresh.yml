@@ -1,0 +1,36 @@
+name: JS-YAML lock refresh
+
+on:
+  push:
+    branches:
+      - agent/security/dev-dependency-audit-20260825
+    paths:
+      - package.json
+      - .github/workflows/js-yaml-lock-refresh.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Regenerate lockfile only
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Validate clean install
+        run: npm ci --ignore-scripts
+      - name: Validate full audit
+        run: npm audit --audit-level=high
+      - name: Upload regenerated lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestify-js-yaml-lock-${{ github.run_id }}-${{ github.run_attempt }}
+          path: package-lock.json
+          retention-days: 2

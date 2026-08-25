@@ -40,6 +40,9 @@ jobs:
       - name: QA production guard audit
         run: node scripts/audit-qa-production-guards.mjs
 
+      - name: SECURITY DEFINER RPC audit
+        run: node scripts/audit-security-definer-rpcs.mjs
+
       - name: Lint
         run: npm run lint
 

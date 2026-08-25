@@ -36,13 +36,6 @@ jobs:
         with:
           version: 2.111.0
 
-      - name: Generate migration name for core FK index phase one
-        shell: bash
-        run: |
-          set -euo pipefail
-          supabase migration new core_fk_indexes_phase_one
-          echo "GESTIFY_GENERATED_MIGRATION=$(ls -1t supabase/migrations/*_core_fk_indexes_phase_one.sql | head -n 1)"
-
       - name: Validate migration filenames
         shell: bash
         run: |

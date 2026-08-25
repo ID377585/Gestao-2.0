@@ -40,6 +40,9 @@ jobs:
       - name: QA production guard audit
         run: node scripts/audit-qa-production-guards.mjs
 
+      - name: Proxy/auth resilience contract
+        run: node scripts/audit-proxy-auth-resilience.mjs
+
       - name: Lint
         run: npm run lint
 

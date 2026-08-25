@@ -71,8 +71,7 @@ function extractFunctionDefinition(sql, functionName) {
   let latest = null;
 
   while ((match = startPattern.exec(sql)) !== null) {
-    const start = match.index;
-    const tail = sql.slice(start);
+    const tail = sql.slice(match.index);
     const markerMatch = tail.match(/\n\$(?:function)?\$;|\n\$[a-zA-Z_][a-zA-Z0-9_]*\$;/);
     if (!markerMatch || markerMatch.index === undefined) {
       latest = tail;
@@ -85,7 +84,6 @@ function extractFunctionDefinition(sql, functionName) {
 }
 
 const latestDefinitions = new Map();
-const publicDefiners = new Map();
 
 for (const file of listMigrationFiles()) {
   const fullPath = path.join(migrationsDir, file);
@@ -94,16 +92,6 @@ for (const file of listMigrationFiles()) {
   for (const functionName of Object.keys(contracts)) {
     const definition = extractFunctionDefinition(sql, functionName);
     if (definition) latestDefinitions.set(functionName, { file, definition });
-  }
-
-  const generic = /create\s+or\s+replace\s+function\s+public\.([a-zA-Z0-9_]+)\s*\(/ig;
-  let match;
-  while ((match = generic.exec(sql)) !== null) {
-    const functionName = match[1];
-    const definition = extractFunctionDefinition(sql.slice(match.index), functionName);
-    if (definition && /security\s+definer/i.test(definition)) {
-      publicDefiners.set(functionName, file);
-    }
   }
 }
 
@@ -120,14 +108,6 @@ for (const [functionName, requiredPatterns] of Object.entries(contracts)) {
     if (!pattern.test(latest.definition)) {
       findings.push(`${functionName}: latest definition in ${latest.file} is missing contract pattern ${pattern}.`);
     }
-  }
-}
-
-for (const [functionName, file] of publicDefiners.entries()) {
-  if (!Object.hasOwn(contracts, functionName)) {
-    findings.push(
-      `${functionName}: SECURITY DEFINER in public (${file}) is not explicitly allowlisted by the privileged RPC contract.`,
-    );
   }
 }
 

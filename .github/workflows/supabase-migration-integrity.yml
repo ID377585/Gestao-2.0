@@ -36,15 +36,6 @@ jobs:
         with:
           version: 2.111.0
 
-      - name: Generate replay drift migration name
-        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'agent/security/replay-rls-drift-20260825' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          supabase migration new fix_replay_rls_contract
-          generated="$(ls -1t supabase/migrations/*_fix_replay_rls_contract.sql | head -n 1)"
-          echo "GESTIFY_GENERATED_MIGRATION=${generated}"
-
       - name: Validate migration filenames
         shell: bash
         run: |

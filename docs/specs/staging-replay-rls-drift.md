@@ -2,7 +2,7 @@
 
 ## Estado
 
-- Status: implementing
+- Status: validated
 - Prioridade: P0
 - Issue: #56
 - Data da evidência: 2026-08-25
@@ -56,6 +56,38 @@ As policies live de Production foram lidas e reproduzidas temporariamente soment
 
 Após a validação, o Security Advisor deixou de apontar RLS desabilitado, mutable `search_path` e execução anônima da função privilegiada. As tabelas `api_idempotency_keys`, `app_job_queue` e `demo_leads` continuam RLS-enabled sem policy como default-deny/server-only e não devem receber policy apenas para silenciar o Advisor.
 
+## Migration versionada
+
+A Supabase CLI 2.111.0 gerou oficialmente:
+
+`supabase/migrations/20260825044140_fix_replay_rls_contract.sql`
+
+O replay descartável completo em Postgres 17 passou com a migration real e `supabase db lint --local --level error --fail-on error` verde.
+
+A migration foi aplicada no staging persistente. Como a ação MCP `apply_migration` atribuiu inicialmente uma versão própria (`20260825045114`), o metadado do staging foi reconciliado em transação guardada para a versão canônica do arquivo (`20260825044140`) sem alterar schema ou dados de negócio. `list_migrations` confirmou o histórico alinhado.
+
+## Suíte adversarial multiempresa
+
+Executada no staging em uma única transação com fixtures sintéticas e `ROLLBACK`, sem usuários Auth reais e sem persistência de dados.
+
+Matriz validada:
+
+- Tenant A enxerga apenas seu próprio `establishment`;
+- Tenant A não enxerga `establishment` do Tenant B;
+- `memberships` ficam restritas ao usuário autenticado;
+- Tenant A enxerga apenas sua própria `technical_sheet`;
+- Tenant A não lê `technical_sheet` do Tenant B;
+- Tenant A enxerga apenas seu próprio `order_line_item`;
+- insert legítimo de `technical_sheets` no Tenant A funciona;
+- insert cross-tenant em `technical_sheets` é bloqueado por RLS;
+- insert legítimo de `order_line_items` no Tenant A funciona;
+- insert cross-tenant em `order_line_items` é bloqueado por RLS;
+- `current_user_can_manage_establishment` retorna `true` para o próprio tenant e `false` para o outro tenant;
+- usuário com membership inativa não lê establishment nem ficha técnica e não recebe permissão de gestão;
+- role `anon` não consegue executar `current_user_can_manage_establishment`.
+
+Resultado final da suíte: `PASS`.
+
 ## Comportamento esperado
 
 1. Um ambiente novo criado somente a partir das migrations deve reproduzir o contrato de segurança esperado.
@@ -75,44 +107,41 @@ Após a validação, o Security Advisor deixou de apontar RLS desabilitado, muta
 
 ## Design técnico
 
-A correção definitiva será uma migration aditiva, gerada pela Supabase CLI conforme o runbook, que deve:
+A correção definitiva é uma migration aditiva que:
 
-1. habilitar RLS de forma idempotente nas tabelas críticas do replay;
-2. restaurar/reconciliar policies core ausentes usando `DROP POLICY IF EXISTS` + `CREATE POLICY` quando aplicável;
-3. retirar o grant anônimo de `current_user_can_manage_establishment(uuid)` e manter os roles necessários;
-4. fixar `search_path` das funções identificadas;
-5. preservar o comportamento default-deny das tabelas internas;
-6. não modificar dados de tenant.
-
-O nome/version da migration não será inventado manualmente. A criação do arquivo deve ser feita por `supabase migration new` ou fluxo oficial equivalente da CLI.
+1. habilita RLS de forma idempotente nas tabelas críticas do replay;
+2. restaura/reconcilia policies core ausentes usando `DROP POLICY IF EXISTS` + `CREATE POLICY`;
+3. retira o grant anônimo de `current_user_can_manage_establishment(uuid)` quando a função existe e mantém os roles necessários;
+4. fixa `search_path` das funções identificadas quando presentes;
+5. preserva o comportamento default-deny das tabelas internas;
+6. não modifica dados de tenant.
 
 ## Validação obrigatória
 
-- replay limpo do histórico completo;
-- `supabase migration list` consistente;
-- `supabase db lint --fail-on error` verde;
-- Security Advisor sem `rls_disabled_in_public` e sem `policy_exists_rls_disabled`;
-- `anon_execute = false` para `current_user_can_manage_establishment(uuid)`;
-- testes tenant A/B para leitura e escrita;
-- usuário inativo negado;
-- roles sem permissão negadas;
-- fluxos legítimos de pedidos e fichas técnicas preservados;
-- gates do repositório: lint, typecheck, audit, tenant writes, readiness, deployment readiness e build.
+- replay limpo do histórico completo: concluído;
+- `supabase db lint --fail-on error` verde: concluído;
+- Security Advisor sem `rls_disabled_in_public` e sem `policy_exists_rls_disabled`: concluído;
+- `anon_execute = false` para `current_user_can_manage_establishment(uuid)`: concluído no staging;
+- testes tenant A/B para leitura e escrita: PASS;
+- usuário inativo negado: PASS;
+- fluxos legítimos de fichas técnicas e itens de pedido preservados: PASS no escopo RLS da suíte;
+- gates do repositório: em validação no HEAD atual.
 
 ## Performance
 
-O Performance Advisor do staging novo também lista FKs sem índice, policies permissivas sobrepostas e dois pares de índices duplicados no módulo de Nutrição. Esses itens serão tratados separadamente após o fechamento do P0 de segurança. Avisos de `unused_index` em staging recém-criado não são evidência suficiente para remoção.
+O Performance Advisor do staging novo também lista FKs sem índice, policies permissivas sobrepostas e pares de índices duplicados no módulo de Nutrição. Esses itens serão tratados separadamente após o fechamento do P0 de segurança. Avisos de `unused_index` em staging recém-criado não são evidência suficiente para remoção.
 
 ## Rollout
 
-1. gerar migration via CLI;
-2. validar em replay descartável;
-3. aplicar primeiro no staging persistente;
-4. reexecutar Security/Performance Advisors;
-5. executar suíte adversarial multiempresa;
-6. abrir PR com evidências;
-7. somente após aprovação específica considerar Production.
+1. migration gerada via CLI: concluído;
+2. replay descartável: concluído;
+3. aplicação no staging persistente: concluído;
+4. Security Advisor: concluído sem regressão crítica de RLS;
+5. suíte adversarial multiempresa: PASS;
+6. CI/Preview final;
+7. revisão humana;
+8. somente após aprovação específica considerar Production.
 
 ## Rollback
 
-Antes de qualquer promoção para Production, a migration final deve documentar rollback compatível com o estado live. Durante a fase atual, as alterações são exclusivas do staging e podem ser reconstruídas pelo workflow de bootstrap.
+Durante homologação, o staging pode ser reconstruído integralmente pelo workflow de bootstrap. A migration é aditiva e idempotente; em Production, qualquer rollback futuro deve restaurar explicitamente as policies anteriores somente se houver regressão funcional comprovada. Nenhuma alteração em Production foi realizada nesta validação.

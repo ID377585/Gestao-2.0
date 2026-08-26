@@ -1,6 +1,6 @@
 # Production schema drift reconciliation
 
-Status: implementing
+Status: validated
 Priority: P1
 Issue: #68
 
@@ -21,7 +21,7 @@ Diferenças objetivas relevantes:
 - `public.hr_holidays` existe no staging e não existe em Production;
 - `public.hr_time_clock_adjustments` existe nos dois ambientes, porém Production mantém o contrato legado (`user_id`, `shift_id`, `work_date`, `adjustment_minutes`, `created_by`) enquanto staging possui o contrato canônico (`event_id`, `target_user_id`, `actor_user_id`, `action`, `before_data`, `after_data`);
 - `public.hr_time_clock_events` mantém uma linha em Production e não pode sofrer reconstrução destrutiva;
-- `public.hr_time_clock_adjustments` e `public.hr_time_clock_settings` estão vazias em Production na auditoria de 26/08/2026;
+- `public.hr_time_clock_adjustments` e `public.hr_time_clock_settings` estavam vazias em Production na auditoria de 26/08/2026;
 - a aplicação da #66 não deixou efeitos parciais.
 
 ## Problema
@@ -30,24 +30,24 @@ O replay atual representa o contrato desejado, mas Production possui uma linhage
 
 ## Comportamento esperado
 
-Uma nova migration de reconciliação deve convergir Production para os pré-requisitos necessários sem apagar dados ou substituir tabelas existentes. O resultado deve permitir aplicar/confirmar os oito índices da migration #66 e preservar o runtime atual.
+A migration de reconciliação deve convergir Production para os pré-requisitos necessários sem apagar dados ou substituir tabelas existentes. O resultado deve permitir aplicar/confirmar os oito índices da migration #66 e preservar o runtime atual.
 
 ## Invariantes de segurança e tenant
 
 - nenhuma tabela existente com dados será recriada ou truncada;
 - nenhuma coluna será removida;
 - RLS deve permanecer habilitada em todas as tabelas públicas envolvidas;
-- novas tabelas usam as mesmas policies tenant-aware do replay canônico;
+- novas tabelas usam policies tenant-aware equivalentes ao contrato canônico;
 - `anon` não recebe privilégios novos;
-- `authenticated` recebe somente os grants já previstos pelo contrato canônico;
-- a reconciliação do contrato legado de `hr_time_clock_adjustments` deve abortar se existirem linhas no momento da execução, para impedir transformação implícita ou perda semântica;
-- a migration deve ser idempotente quanto à existência dos objetos esperados;
+- `authenticated` recebe somente os grants necessários ao contrato;
+- a reconciliação do contrato legado de `hr_time_clock_adjustments` aborta se existirem linhas no momento da execução, impedindo transformação implícita ou perda semântica;
+- a migration é idempotente quanto à existência dos objetos esperados;
 - Production não será alterada sem aprovação humana específica.
 
 ## Design técnico
 
-1. Criar, somente se ausentes, `hr_employee_schedules`, `hr_bank_hours` e `hr_holidays` com constraints, RLS, grants e policies equivalentes ao replay canônico.
-2. Em `hr_time_clock_events`, adicionar somente campos canônicos ausentes que não exigem reescrita de dados e relaxar `NOT NULL` de `shift_id`/`created_by` apenas se necessário para compatibilidade futura; a linha existente deve permanecer intacta.
+1. Criar, somente se ausentes, `hr_employee_schedules`, `hr_bank_hours` e `hr_holidays` com constraints, RLS, grants e policies equivalentes ao contrato canônico.
+2. Em `hr_time_clock_events`, adicionar somente campos canônicos ausentes que não exigem reescrita de dados e relaxar `NOT NULL` de `shift_id`/`created_by` apenas quando necessário para compatibilidade futura; a linha existente deve permanecer intacta.
 3. Em `hr_time_clock_adjustments`:
    - detectar o contrato legado pela presença de `user_id`/`adjustment_minutes` e ausência de `event_id`;
    - abortar se a tabela possuir qualquer linha;
@@ -64,27 +64,37 @@ Uma nova migration de reconciliação deve convergir Production para os pré-req
 - reescrever o histórico de migrations de Production;
 - remover índices sinalizados como `unused_index`;
 - alterar dados de ponto, biometria, usuários ou tenants;
-- promover qualquer DDL diretamente para Production nesta etapa.
+- promover qualquer DDL diretamente para Production sem autorização humana específica.
 
-## Validação
+## Validação concluída
 
-- aplicar a migration primeiro no staging persistente;
-- confirmar objetos, RLS, policies, grants e os oito índices;
-- executar Security e Performance Advisors sem regressão de segurança;
-- executar replay/fresh migration integrity e `db lint` pelo CI;
-- executar `npm run lint`, `npm run typecheck`, `npm run audit`, `npm run tenant:writes:ci`, `npm run readiness:check`, `npm run readiness:deployment` e `npm run build`;
-- validar Preview Vercel;
-- antes de Production, repetir a pré-condição read-only de contagem de `hr_time_clock_adjustments`; se não for zero, abortar rollout e replanejar.
+Migration homologada no staging persistente:
+
+`20260826142207_reconcile_production_hr_music_schema_drift`
+
+Evidências:
+
+- `hr_employee_schedules`, `hr_bank_hours` e `hr_holidays` presentes após a migration;
+- os oito índices da #66 presentes no staging;
+- Security Advisor sem regressão de segurança atribuível à migration;
+- Performance Advisor não aponta os FKs-alvo da #66 como sem índice;
+- `unused_index` em ambiente sem carga continua tratado apenas como informação;
+- `Supabase migration integrity`: SUCCESS, incluindo replay completo em PostgreSQL 17 e db lint;
+- `CI`: SUCCESS, incluindo QA production guard, SECURITY DEFINER RPC audit, proxy/auth resilience, lint, typecheck, dependency audit, Excel smoke, tenant write audit, readiness estático, readiness de deployment e build;
+- `Disaster recovery drill`: SUCCESS;
+- Vercel Preview do HEAD da PR: READY;
+- pré-flight read-only mais recente em Production confirmou `hr_time_clock_adjustments = 0` linhas e as três tabelas canônicas ainda ausentes, exatamente como esperado antes do rollout.
 
 ## Rollout
 
-1. homologar em staging;
-2. abrir PR com evidências e rollback;
+1. staging e gates concluídos;
+2. PR #69 aberta com evidências e rollback;
 3. obter aprovação humana específica para DDL em Supabase Production;
-4. executar pré-flight read-only em Production;
-5. aplicar a migration de reconciliação;
-6. reexecutar Advisors e confirmar os oito índices;
-7. somente depois considerar a issue #68 resolvida e a #66 concluída.
+4. repetir imediatamente antes da escrita o pré-flight de `hr_time_clock_adjustments = 0`;
+5. aplicar somente a migration de reconciliação;
+6. reexecutar Security/Performance Advisors e confirmar os oito índices, objetos e preservação de dados;
+7. obter aprovação específica para merge em `main` caso ainda não tenha sido concedida; o merge dispara Vercel Production automaticamente;
+8. somente depois considerar a issue #68 resolvida e a #66 concluída.
 
 ## Rollback
 

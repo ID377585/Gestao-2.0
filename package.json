@@ -8,6 +8,7 @@
   },
   "overrides": {
     "brace-expansion": "^2.1.3",
+    "js-yaml": "4.3.1",
     "exceljs": {
       "uuid": "11.1.1"
     },
@@ -32,9 +33,6 @@
     "tenant:writes:audit": "node scripts/audit-tenant-writes.mjs",
     "tenant:writes:ci": "node scripts/audit-tenant-writes.mjs --fail-on-findings --baseline scripts/tenant-writes-baseline.json --quiet",
     "runtime:imports:check": "node scripts/audit-runtime-imports.mjs",
-    "dr:fixture": "bash scripts/dr/run-fixture-drill.sh",
-    "dr:backup": "bash scripts/dr/create-encrypted-backup.sh",
-    "dr:restore": "bash scripts/dr/restore-encrypted-backup.sh",
     "readiness:check": "node scripts/check-production-readiness.mjs",
     "readiness:strict": "node scripts/check-production-readiness.mjs --strict",
     "readiness:deployment": "node scripts/check-deployment-readiness.mjs",

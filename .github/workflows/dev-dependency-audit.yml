@@ -1,0 +1,67 @@
+name: Development dependency audit
+
+on:
+  pull_request:
+    paths:
+      - package.json
+      - package-lock.json
+      - .github/workflows/dev-dependency-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Identify high-severity dev dependency findings
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Capture full audit
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > dev-audit.json
+          status=$?
+          set -e
+          node <<'NODE'
+          const fs = require('node:fs')
+          const report = JSON.parse(fs.readFileSync('dev-audit.json', 'utf8'))
+          const vulns = report.vulnerabilities || {}
+          const rows = Object.entries(vulns)
+            .filter(([, value]) => ['high', 'critical'].includes(value.severity))
+            .map(([name, value]) => ({
+              name,
+              severity: value.severity,
+              direct: Boolean(value.isDirect),
+              via: Array.isArray(value.via)
+                ? value.via.map((item) => typeof item === 'string' ? item : `${item.source || ''}:${item.title || ''}`)
+                : value.via,
+              range: value.range,
+              fixAvailable: value.fixAvailable,
+            }))
+          console.log(JSON.stringify({ highOrCritical: rows.length, findings: rows }, null, 2))
+          if (rows.length) process.exit(2)
+          NODE
+          exit $status
+
+      - name: Upload diagnostic audit
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestify-dev-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dev-audit.json
+          retention-days: 14

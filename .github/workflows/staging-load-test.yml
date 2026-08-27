@@ -1,0 +1,66 @@
+name: Staging controlled load test
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Staging/Preview base URL (Production is blocked)"
+        required: true
+        type: string
+      path:
+        description: "Path to test"
+        required: false
+        default: "/login"
+        type: string
+      confirmation:
+        description: "Type load:gestify-staging"
+        required: true
+        type: string
+      requests:
+        description: "Number of requests (max 2000)"
+        required: false
+        default: "100"
+        type: string
+      concurrency:
+        description: "Concurrency (max 25)"
+        required: false
+        default: "5"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  load:
+    name: Production-guarded load test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GESTIFY_LOAD_TARGET_URL: ${{ inputs.target_url }}
+      GESTIFY_LOAD_PATH: ${{ inputs.path }}
+      GESTIFY_LOAD_CONFIRMATION: ${{ inputs.confirmation }}
+      GESTIFY_LOAD_REQUESTS: ${{ inputs.requests }}
+      GESTIFY_LOAD_CONCURRENCY: ${{ inputs.concurrency }}
+      GESTIFY_LOAD_READINESS_SECRET: ${{ secrets.STAGING_OPERATIONAL_READINESS_SECRET }}
+      GESTIFY_PRODUCTION_HOSTS: gestify.app,www.gestify.app,gestao-2-0.vercel.app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run guarded load test
+        run: node scripts/ops/controlled-load.mjs | tee load-result.json
+
+      - name: Upload load evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestify-staging-load-${{ github.run_id }}-${{ github.run_attempt }}
+          path: load-result.json
+          if-no-files-found: ignore
+          retention-days: 30

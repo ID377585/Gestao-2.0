@@ -27,7 +27,9 @@ A implementação foi reaplicada sobre a `main` atual em 2026-08-27 para elimina
 - segredo do readiness nunca é impresso;
 - monitor periódico é opt-in via `GESTIFY_MONITORING_ENABLED=true`;
 - carga é somente manual (`workflow_dispatch`) e nunca agendada;
-- qualquer 5xx/429 ou taxa de erro acima do limite falha o job e preserva evidência no Actions.
+- somente os status HTTP explicitamente permitidos (por padrão, `200`) contam como sucesso;
+- qualquer status inesperado, falha de rede ou taxa de erro acima do limite reprova o job e preserva evidência no Actions;
+- Preview protegido usa apenas o bypass oficial de automação da Vercel, recebido por secret e nunca impresso.
 
 ## Métricas
 
@@ -36,6 +38,7 @@ A implementação foi reaplicada sobre a `main` atual em 2026-08-27 para elimina
 - p50, p95 e p99;
 - max latency;
 - status codes.
+- status codes permitidos e indicador booleano de bypass configurado, sem revelar o secret.
 
 ## Critério inicial de carga
 
@@ -44,6 +47,7 @@ Para smoke controlado em staging/Preview:
 - concorrência 5;
 - error rate <= 1%;
 - p95 <= 3000ms em rota pública leve.
+- status esperado `200` (ou lista explícita definida para o endpoint testado).
 
 Limites de negócio/DB mais agressivos devem ser definidos somente após baseline do staging.
 

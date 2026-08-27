@@ -1,0 +1,35 @@
+name: Gestify readiness monitor
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gestify-readiness-monitor
+  cancel-in-progress: true
+
+jobs:
+  readiness:
+    name: Readiness probe
+    if: ${{ vars.GESTIFY_MONITORING_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GESTIFY_MONITORING_URL: ${{ vars.GESTIFY_MONITORING_URL }}
+      GESTIFY_MONITORING_SECRET: ${{ secrets.GESTIFY_MONITORING_SECRET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Probe operational readiness
+        run: node scripts/ops/check-readiness.mjs

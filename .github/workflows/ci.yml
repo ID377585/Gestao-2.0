@@ -46,6 +46,12 @@ jobs:
       - name: Proxy/auth resilience contract
         run: node scripts/audit-proxy-auth-resilience.mjs
 
+      - name: Order status contract audit
+        run: node scripts/audit-order-status-contract.mjs
+
+      - name: Idempotency and concurrency contract audit
+        run: node scripts/audit-idempotency-contract.mjs
+
       - name: Lint
         run: npm run lint
 

@@ -52,6 +52,9 @@ jobs:
       - name: Idempotency and concurrency contract audit
         run: node scripts/audit-idempotency-contract.mjs
 
+      - name: Readiness monitoring and load guard audit
+        run: node scripts/audit-ops-readiness-load.mjs
+
       - name: Lint
         run: npm run lint
 

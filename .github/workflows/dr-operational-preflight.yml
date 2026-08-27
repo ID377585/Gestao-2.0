@@ -1,0 +1,94 @@
+name: DR operational preflight
+
+"on":
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/dr-operational-preflight.yml"
+      - "scripts/dr/run-operational-preflight.sh"
+      - "scripts/audit-dr-operational-preflight.mjs"
+      - "docs/specs/dr-operational-preflight-20260827.md"
+      - "docs/operations/disaster-recovery.md"
+  workflow_dispatch:
+    inputs:
+      run_operational_preflight:
+        description: "Run synthetic runner + off-site round-trip only (no Production DB access)"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gestify-dr-operational-preflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract-audit:
+    name: DR preflight safety contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Audit no-Production preflight contract
+        run: node scripts/audit-dr-operational-preflight.mjs
+
+  operational-preflight:
+    name: Synthetic off-site round-trip
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.run_operational_preflight == true
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - gestify-dr
+    environment: disaster-recovery
+    timeout-minutes: 20
+    env:
+      BACKUP_PASSPHRASE: ${{ secrets.GESTIFY_DR_BACKUP_PASSPHRASE }}
+      GESTIFY_DR_S3_ENDPOINT: ${{ secrets.GESTIFY_DR_S3_ENDPOINT }}
+      GESTIFY_DR_S3_BUCKET: ${{ secrets.GESTIFY_DR_S3_BUCKET }}
+      GESTIFY_DR_S3_ACCESS_KEY_ID: ${{ secrets.GESTIFY_DR_S3_ACCESS_KEY_ID }}
+      GESTIFY_DR_S3_SECRET_ACCESS_KEY: ${{ secrets.GESTIFY_DR_S3_SECRET_ACCESS_KEY }}
+      GESTIFY_DR_S3_REGION: ${{ secrets.GESTIFY_DR_S3_REGION }}
+      GESTIFY_DR_S3_PREFIX: ${{ vars.GESTIFY_DR_S3_PREFIX }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run synthetic off-site preflight
+        id: preflight
+        env:
+          DR_PREFLIGHT_REPORT_DIR: ${{ runner.temp }}/gestify-dr-preflight-report
+        run: bash scripts/dr/run-operational-preflight.sh
+
+      - name: Upload preflight evidence only
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestify-dr-operational-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gestify-dr-preflight-report/dr-operational-preflight-*.json
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Remove local preflight material
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf "${RUNNER_TEMP}/gestify-dr-preflight-report"

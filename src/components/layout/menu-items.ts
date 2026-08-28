@@ -3,6 +3,7 @@ import {
   ArrowLeftRight,
   BadgeDollarSign,
   BarChart3,
+  BookOpen,
   Box,
   Boxes,
   Building2,
@@ -114,6 +115,11 @@ export const menuSections: MenuSectionConfig[] = [
         label: "Produtos",
         href: "/dashboard/produtos",
         icon: Box,
+      },
+      {
+        label: "Catálogo",
+        href: "/estoque/catalogo",
+        icon: BookOpen,
       },
       {
         label: "Transferências",

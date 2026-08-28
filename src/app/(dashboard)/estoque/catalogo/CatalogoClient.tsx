@@ -36,6 +36,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
+import { CatalogPrintPages } from "./CatalogPrintPages";
+
 export type CatalogItem = {
   id: string;
   name: string;
@@ -387,7 +389,7 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
 
   return (
     <div className="catalog-print-root space-y-6">
-      <div className="catalog-print-header">
+      <div className="hidden catalog-no-print">
         <div>
           <p className="text-[9pt] font-semibold uppercase tracking-[0.16em] text-slate-500">Gestify · Estoque</p>
           <h1 className="mt-1 text-[20pt] font-bold text-slate-950">Catálogo de utensílios e equipamentos</h1>
@@ -438,7 +440,7 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
       </CardContent></Card>
 
       {visibleItems.length ? (
-        <section className="catalog-grid grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <section className="catalog-no-print catalog-grid grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {visibleItems.map((item) => (
             <Card key={item.id} className="catalog-card group overflow-hidden bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:bg-slate-950">
               <div className="catalog-card-image relative aspect-[4/3] overflow-hidden"><ItemPhoto item={item} /><Badge className="absolute left-3 top-3 border border-white/70 bg-white/90 text-slate-700 shadow-sm">{item.category}</Badge>
@@ -459,7 +461,9 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
         <Card className="catalog-no-print border-dashed"><CardContent className="flex min-h-72 flex-col items-center justify-center gap-4 text-center"><div className="rounded-full bg-blue-50 p-5 text-blue-600"><Package className="h-10 w-10" /></div><div><h2 className="text-lg font-semibold">{items.length ? "Nenhum item encontrado" : "Seu catálogo ainda está vazio"}</h2><p className="mt-1 max-w-md text-sm text-muted-foreground">{items.length ? "Altere a busca ou os filtros." : "Cadastre o primeiro utensílio, louça ou equipamento usando as fotos que você já preparou."}</p></div>{!items.length ? <Button onClick={createItem}><Plus className="h-4 w-4" /> Cadastrar primeiro item</Button> : null}</CardContent></Card>
       )}
 
-      <div className="catalog-print-footer">Gestify · {establishmentName} · {visibleItems.length} itens impressos</div>
+      <CatalogPrintPages establishmentName={establishmentName} generatedLabel={generatedLabel} items={visibleItems} />
+
+      <div className="hidden catalog-no-print">Gestify · {establishmentName} · {visibleItems.length} itens impressos</div>
 
       <Dialog open={open} onOpenChange={changeOpen}>
         <DialogContent className="catalog-no-print max-h-[94vh] overflow-y-auto sm:max-w-3xl">

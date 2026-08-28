@@ -231,7 +231,8 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
   const [processingPhoto, setProcessingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     return () => {
@@ -466,10 +467,14 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
           <form onSubmit={submit} className="space-y-5">
             <div className="grid gap-5 md:grid-cols-[250px_minmax(0,1fr)]">
               <div className="space-y-3"><Label>Foto do item {!editing ? "*" : ""}</Label><div className="relative aspect-square overflow-hidden rounded-2xl border border-dashed bg-slate-50"><ItemPhoto preview={preview} />{processingPhoto ? <div className="absolute inset-0 flex items-center justify-center bg-white/80"><Loader2 className="h-6 w-6 animate-spin text-blue-600" /></div> : null}</div>
-                <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" capture="environment" className="hidden" onChange={choosePhoto} />
-                <Button type="button" variant="outline" className="w-full" disabled={processingPhoto || saving} onClick={() => fileRef.current?.click()}><Upload className="h-4 w-4" />{preview ? "Trocar foto" : "Selecionar foto"}</Button>
+                <input ref={galleryInputRef} type="file" accept="image/*,.heic,.heif" className="hidden" onChange={choosePhoto} />
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={choosePhoto} />
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <Button type="button" variant="outline" className="w-full" disabled={processingPhoto || saving} onClick={() => galleryInputRef.current?.click()}><Upload className="h-4 w-4" />{preview ? "Trocar pela galeria" : "Escolher da galeria"}</Button>
+                  <Button type="button" variant="outline" className="w-full" disabled={processingPhoto || saving} onClick={() => cameraInputRef.current?.click()}><Camera className="h-4 w-4" />{preview ? "Tirar nova foto" : "Tirar foto"}</Button>
+                </div>
                 {preview ? <Button type="button" variant="ghost" className="w-full text-red-600" disabled={saving} onClick={() => { setPhoto(null); setPreview(null); setRemovePhoto(true); }}><Trash2 className="h-4 w-4" /> Remover foto</Button> : null}
-                <p className="text-xs leading-5 text-muted-foreground">JPG, PNG, WebP ou HEIC. A foto é otimizada automaticamente.</p>
+                <p className="text-xs leading-5 text-muted-foreground">No celular, escolha uma imagem da galeria ou tire uma nova foto. JPG, PNG, WebP ou HEIC; a imagem é otimizada automaticamente.</p>
               </div>
               <div className="space-y-4">
                 <Field label="Nome do produto *"><Input value={form.name} onChange={(event) => setField("name", event.target.value)} placeholder="Ex.: Panela Grano aço inox 18 cm" maxLength={180} required autoFocus /></Field>

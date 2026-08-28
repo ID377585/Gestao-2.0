@@ -25,7 +25,7 @@ type Props = {
   items: CatalogPrintItem[];
 };
 
-const ITEMS_PER_PAGE = 6;
+const ITEMS_PER_PAGE = 9;
 
 function photoUrl(item: CatalogPrintItem) {
   if (!item.photo_path) return null;
@@ -115,7 +115,7 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
 
           <footer className="catalog-print-page-footer">
             <span>Gestify · {establishmentName}</span>
-            <span>6 itens por folha A4 · última folha pode conter menos itens</span>
+            <span>9 itens por folha A4 · última folha pode conter menos itens</span>
           </footer>
         </section>
       ))}
@@ -138,8 +138,8 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
           .catalog-print-page{
             box-sizing:border-box!important;
             display:grid!important;
-            grid-template-rows:14mm minmax(0,1fr) 6mm!important;
-            row-gap:3mm!important;
+            grid-template-rows:11mm minmax(0,1fr) 5mm!important;
+            row-gap:2.2mm!important;
             width:100%!important;
             height:260mm!important;
             max-height:260mm!important;
@@ -159,61 +159,62 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
             display:flex!important;
             align-items:flex-end!important;
             justify-content:space-between!important;
-            gap:6mm!important;
+            gap:5mm!important;
             min-width:0!important;
-            padding-bottom:2.5mm!important;
+            padding-bottom:2mm!important;
             border-bottom:1px solid #cbd5e1!important;
           }
           .catalog-print-page-header h1{
-            margin:.7mm 0 0!important;
-            font-size:15pt!important;
+            margin:.5mm 0 0!important;
+            font-size:13pt!important;
             line-height:1.05!important;
             font-weight:800!important;
             color:#0f172a!important;
           }
           .catalog-print-page-header p{
-            margin:.8mm 0 0!important;
-            font-size:7.3pt!important;
-            line-height:1.2!important;
+            margin:.5mm 0 0!important;
+            font-size:6.7pt!important;
+            line-height:1.15!important;
             color:#64748b!important;
           }
           .catalog-print-eyebrow{
             margin:0!important;
-            font-size:6.7pt!important;
+            font-size:6.1pt!important;
             font-weight:700!important;
-            letter-spacing:.14em!important;
+            letter-spacing:.13em!important;
             text-transform:uppercase!important;
           }
           .catalog-print-page-summary{
             display:flex!important;
             flex-direction:column!important;
             align-items:flex-end!important;
-            gap:.8mm!important;
+            gap:.5mm!important;
             flex:0 0 auto!important;
-            font-size:7.3pt!important;
+            font-size:6.7pt!important;
             color:#64748b!important;
           }
           .catalog-print-page-summary strong{
-            font-size:8.2pt!important;
+            font-size:7.6pt!important;
             color:#334155!important;
           }
           .catalog-print-page-grid{
             display:grid!important;
             grid-template-columns:repeat(3,minmax(0,1fr))!important;
-            grid-template-rows:repeat(2,minmax(0,1fr))!important;
-            gap:3.5mm!important;
+            grid-template-rows:repeat(3,62mm)!important;
+            gap:2.8mm!important;
+            align-content:start!important;
             min-height:0!important;
             overflow:hidden!important;
           }
           .catalog-print-item{
             display:grid!important;
-            grid-template-rows:44mm minmax(0,1fr)!important;
+            grid-template-rows:26mm 36mm!important;
             min-width:0!important;
             min-height:0!important;
-            height:100%!important;
+            height:62mm!important;
             overflow:hidden!important;
             border:1px solid #cbd5e1!important;
-            border-radius:2.5mm!important;
+            border-radius:2.2mm!important;
             background:#fff!important;
             box-shadow:none!important;
             break-inside:avoid!important;
@@ -237,39 +238,40 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
             color:#94a3b8!important;
           }
           .catalog-print-item-placeholder svg{
-            width:12mm!important;
-            height:12mm!important;
+            width:9mm!important;
+            height:9mm!important;
           }
           .catalog-print-category{
             position:absolute!important;
-            top:2mm!important;
-            left:2mm!important;
+            top:1.4mm!important;
+            left:1.4mm!important;
             z-index:2!important;
-            max-width:48mm!important;
+            max-width:47mm!important;
             overflow:hidden!important;
             text-overflow:ellipsis!important;
             white-space:nowrap!important;
             border:1px solid rgba(255,255,255,.9)!important;
             border-radius:999px!important;
             background:rgba(255,255,255,.92)!important;
-            padding:.7mm 1.5mm!important;
-            font-size:6.2pt!important;
+            padding:.5mm 1.2mm!important;
+            font-size:5.7pt!important;
             font-weight:600!important;
             color:#334155!important;
           }
           .catalog-print-item-body{
             display:grid!important;
-            grid-template-rows:auto minmax(0,1fr) auto!important;
-            gap:1.6mm!important;
+            grid-template-rows:auto auto auto!important;
+            align-content:start!important;
+            gap:1.1mm!important;
             min-height:0!important;
             overflow:hidden!important;
-            padding:2.5mm!important;
+            padding:1.8mm 2mm!important;
           }
           .catalog-print-item-heading{
             display:flex!important;
             align-items:flex-start!important;
             justify-content:space-between!important;
-            gap:1.8mm!important;
+            gap:1.4mm!important;
             min-width:0!important;
           }
           .catalog-print-item-heading>div{
@@ -281,31 +283,31 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
             overflow:hidden!important;
             -webkit-box-orient:vertical!important;
             -webkit-line-clamp:2!important;
-            font-size:8.8pt!important;
-            line-height:1.2!important;
+            font-size:8.1pt!important;
+            line-height:1.12!important;
             font-weight:750!important;
             color:#0f172a!important;
           }
           .catalog-print-item-heading p{
-            margin:1mm 0 0!important;
+            margin:.6mm 0 0!important;
             overflow:hidden!important;
             text-overflow:ellipsis!important;
             white-space:nowrap!important;
-            font-size:6.7pt!important;
-            line-height:1.2!important;
+            font-size:6.1pt!important;
+            line-height:1.15!important;
             color:#64748b!important;
           }
           .catalog-print-condition{
             flex:0 0 auto!important;
-            max-width:18mm!important;
+            max-width:17mm!important;
             overflow:hidden!important;
             text-overflow:ellipsis!important;
             white-space:nowrap!important;
             border:1px solid #bfdbfe!important;
             border-radius:999px!important;
             background:#eff6ff!important;
-            padding:.6mm 1.2mm!important;
-            font-size:5.8pt!important;
+            padding:.45mm 1mm!important;
+            font-size:5.2pt!important;
             font-weight:600!important;
             color:#1d4ed8!important;
           }
@@ -315,66 +317,66 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
             margin:0!important;
             overflow:hidden!important;
             -webkit-box-orient:vertical!important;
-            -webkit-line-clamp:3!important;
-            font-size:6.7pt!important;
-            line-height:1.3!important;
+            -webkit-line-clamp:2!important;
+            font-size:6.1pt!important;
+            line-height:1.2!important;
             color:#475569!important;
           }
           .catalog-print-item-stock{
             display:flex!important;
             align-items:flex-end!important;
             justify-content:space-between!important;
-            gap:2mm!important;
+            gap:1.5mm!important;
             min-width:0!important;
-            padding-top:1.8mm!important;
+            padding-top:1.2mm!important;
             border-top:1px solid #e2e8f0!important;
           }
           .catalog-print-item-stock>div>span{
             display:block!important;
-            margin-bottom:.8mm!important;
-            font-size:5.6pt!important;
+            margin-bottom:.5mm!important;
+            font-size:5.1pt!important;
             font-weight:700!important;
-            letter-spacing:.08em!important;
+            letter-spacing:.07em!important;
             text-transform:uppercase!important;
             color:#94a3b8!important;
           }
           .catalog-print-item-stock strong{
             display:block!important;
-            font-size:12pt!important;
+            font-size:10pt!important;
             line-height:1!important;
             color:#1d4ed8!important;
           }
           .catalog-print-item-stock small{
-            font-size:6.7pt!important;
+            font-size:6.1pt!important;
             font-weight:600!important;
             color:#64748b!important;
           }
           .catalog-print-item-stock p{
             display:-webkit-box!important;
-            max-width:30mm!important;
+            max-width:28mm!important;
             margin:0!important;
             overflow:hidden!important;
             -webkit-box-orient:vertical!important;
-            -webkit-line-clamp:2!important;
+            -webkit-line-clamp:1!important;
             text-align:right!important;
-            font-size:6pt!important;
-            line-height:1.25!important;
+            font-size:5.6pt!important;
+            line-height:1.15!important;
             color:#64748b!important;
           }
           .catalog-print-item-stock p svg{
             display:inline-block!important;
-            width:2.8mm!important;
-            height:2.8mm!important;
-            vertical-align:-.5mm!important;
+            width:2.4mm!important;
+            height:2.4mm!important;
+            vertical-align:-.4mm!important;
           }
           .catalog-print-page-footer{
             display:flex!important;
             align-items:flex-end!important;
             justify-content:space-between!important;
             gap:4mm!important;
-            padding-top:2mm!important;
+            padding-top:1.5mm!important;
             border-top:1px solid #e2e8f0!important;
-            font-size:6.2pt!important;
+            font-size:5.8pt!important;
             color:#64748b!important;
           }
         }

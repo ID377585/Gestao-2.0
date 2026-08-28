@@ -1,0 +1,72 @@
+name: Apply six-item A4 catalog print layout
+
+on:
+  push:
+    branches:
+      - fix/catalogo-print-six-per-a4-20260828
+    paths:
+      - .github/workflows/fix-catalog-print-six-per-a4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/catalogo-print-six-per-a4-20260828
+          fetch-depth: 0
+
+      - name: Connect dedicated print pages to the catalog
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          component = Path("src/app/(dashboard)/estoque/catalogo/CatalogoClient.tsx")
+          text = component.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  'import { Textarea } from "@/components/ui/textarea";\n',
+                  'import { Textarea } from "@/components/ui/textarea";\n\nimport { CatalogPrintPages } from "./CatalogPrintPages";\n',
+                  "CatalogPrintPages import",
+              ),
+              (
+                  '      <div className="catalog-print-header">\n',
+                  '      <div className="hidden catalog-no-print">\n',
+                  "legacy print header",
+              ),
+              (
+                  '        <section className="catalog-grid grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">\n',
+                  '        <section className="catalog-no-print catalog-grid grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">\n',
+                  "screen catalog grid",
+              ),
+              (
+                  '      <div className="catalog-print-footer">Gestify · {establishmentName} · {visibleItems.length} itens impressos</div>\n',
+                  '      <CatalogPrintPages establishmentName={establishmentName} generatedLabel={generatedLabel} items={visibleItems} />\n\n      <div className="hidden catalog-no-print">Gestify · {establishmentName} · {visibleItems.length} itens impressos</div>\n',
+                  "legacy print footer",
+              ),
+          ]
+
+          for old, new, label in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one {label} block, found {count}.")
+              text = text.replace(old, new, 1)
+
+          component.write_text(text, encoding="utf-8")
+          Path(".github/workflows/fix-catalog-print-six-per-a4.yml").unlink()
+          PY
+
+      - name: Commit print pagination fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "src/app/(dashboard)/estoque/catalogo/CatalogoClient.tsx" ".github/workflows/fix-catalog-print-six-per-a4.yml"
+          git commit -m "fix(estoque): print six catalog items per A4 page"
+          git push origin HEAD:fix/catalogo-print-six-per-a4-20260828

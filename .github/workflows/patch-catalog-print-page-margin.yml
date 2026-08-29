@@ -1,0 +1,49 @@
+name: Apply zero-margin A4 catalog print patch
+
+on:
+  push:
+    branches:
+      - fix/catalogo-print-twelve-per-a4-20260828
+    paths:
+      - .github/workflows/patch-catalog-print-page-margin.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/catalogo-print-twelve-per-a4-20260828
+          fetch-depth: 0
+
+      - name: Update global print page margin
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          component = Path("src/app/(dashboard)/estoque/catalogo/CatalogoClient.tsx")
+          text = component.read_text(encoding="utf-8")
+          old = "@page{size:A4 portrait;margin:9mm}"
+          new = "@page{size:A4 portrait;margin:0}"
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f"Expected one print margin rule, found {count}.")
+          component.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          workflow = Path(".github/workflows/patch-catalog-print-page-margin.yml")
+          workflow.unlink()
+          PY
+
+      - name: Commit print margin patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "src/app/(dashboard)/estoque/catalogo/CatalogoClient.tsx" ".github/workflows/patch-catalog-print-page-margin.yml"
+          git commit -m "fix(estoque): remove browser print margins from catalog"
+          git push origin HEAD:fix/catalogo-print-twelve-per-a4-20260828

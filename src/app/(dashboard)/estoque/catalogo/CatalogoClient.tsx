@@ -497,7 +497,7 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
       <style jsx global>{`
         .catalog-print-header,.catalog-print-footer{display:none}
         @media print{
-          @page{size:A4 portrait;margin:9mm}
+          @page{size:A4 portrait;margin:0}
           html,body{background:#fff!important}
           body *{visibility:hidden!important}
           .catalog-print-root,.catalog-print-root *{visibility:visible!important}

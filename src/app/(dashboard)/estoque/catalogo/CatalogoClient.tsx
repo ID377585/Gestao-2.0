@@ -6,6 +6,8 @@ import {
   BookOpen,
   Boxes,
   Camera,
+  Check,
+  CheckSquare2,
   ImagePlus,
   Layers3,
   Loader2,
@@ -17,6 +19,7 @@ import {
   Search,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -37,6 +40,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 import { CatalogPrintPages } from "./CatalogPrintPages";
+import { CatalogSelectionPrintPages } from "./CatalogSelectionPrintPages";
 
 export type CatalogItem = {
   id: string;
@@ -233,6 +237,8 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
   const [processingPhoto, setProcessingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -241,6 +247,17 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
       if (preview?.startsWith("blob:")) URL.revokeObjectURL(preview);
     };
   }, [preview]);
+
+  useEffect(() => {
+    const clearPrintMode = () => {
+      document.documentElement.removeAttribute("data-catalog-print-mode");
+    };
+    window.addEventListener("afterprint", clearPrintMode);
+    return () => {
+      window.removeEventListener("afterprint", clearPrintMode);
+      clearPrintMode();
+    };
+  }, []);
 
   const visibleItems = useMemo(() => {
     const needle = normalized(query);
@@ -255,6 +272,11 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
       return a.name.localeCompare(b.name, "pt-BR");
     });
   }, [category, items, query, sort]);
+
+  const selectedItems = useMemo(
+    () => items.filter((item) => selectedIds.has(item.id)),
+    [items, selectedIds]
+  );
 
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
   const generatedLabel = new Intl.DateTimeFormat("pt-BR", {
@@ -324,6 +346,48 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
     }
   }
 
+  function startSelection() {
+    setSelectedIds(new Set());
+    setSelectionMode(true);
+  }
+
+  function cancelSelection() {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }
+
+  function toggleSelected(itemId: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
+  function selectVisibleItems() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      visibleItems.forEach((item) => next.add(item.id));
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  function printCatalog(mode: "all" | "selection") {
+    if (mode === "selection" && !selectedItems.length) {
+      toast.error("Selecione pelo menos um item para imprimir.");
+      return;
+    }
+    document.documentElement.dataset.catalogPrintMode = mode;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => window.print());
+    });
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const quantity = Number(form.quantity);
@@ -379,6 +443,12 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
       const payload = (await response.json()) as { deleted?: boolean; error?: string };
       if (!response.ok || !payload.deleted) throw new Error(payload.error ?? "Não foi possível excluir o item.");
       setItems((current) => current.filter((row) => row.id !== item.id));
+      setSelectedIds((current) => {
+        if (!current.has(item.id)) return current;
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
       toast.success("Item excluído do catálogo.");
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : "Não foi possível excluir o item.");
@@ -404,12 +474,30 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
           title="Catálogo"
           description="Cadastre utensílios, louças, talheres e equipamentos em um catálogo visual por empresa, com fotos, quantidades e impressão em A4/PDF."
           actions={
-            <>
-              <Button type="button" variant="outline" onClick={() => window.print()} disabled={!items.length}>
-                <Printer className="h-4 w-4" /> Imprimir / Salvar PDF
-              </Button>
-              <Button type="button" onClick={createItem}><Plus className="h-4 w-4" /> Novo item</Button>
-            </>
+            selectionMode ? (
+              <>
+                <Button type="button" variant="outline" onClick={cancelSelection}>
+                  <X className="h-4 w-4" /> Cancelar seleção
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => printCatalog("selection")}
+                  disabled={!selectedItems.length}
+                >
+                  <Printer className="h-4 w-4" /> Imprimir Seleção ({selectedItems.length})
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button type="button" variant="outline" onClick={startSelection} disabled={!items.length}>
+                  <CheckSquare2 className="h-4 w-4" /> Seleção
+                </Button>
+                <Button type="button" variant="outline" onClick={() => printCatalog("all")} disabled={!items.length}>
+                  <Printer className="h-4 w-4" /> Imprimir / Salvar PDF
+                </Button>
+                <Button type="button" onClick={createItem}><Plus className="h-4 w-4" /> Novo item</Button>
+              </>
+            )
           }
         />
       </div>
@@ -439,15 +527,62 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
         <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="name">Nome (A–Z)</option><option value="quantity">Maior quantidade</option><option value="recent">Atualizados recentemente</option></select>
       </CardContent></Card>
 
+      {selectionMode ? (
+        <Card className="catalog-no-print border-blue-200 bg-blue-50/70 dark:border-blue-900 dark:bg-blue-950/30">
+          <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="font-semibold text-blue-950 dark:text-blue-100">Seleção de itens</p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                {selectedItems.length} {selectedItems.length === 1 ? "item selecionado" : "itens selecionados"}. Toque nos cards para adicionar ou remover.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={selectVisibleItems} disabled={!visibleItems.length}>
+                <CheckSquare2 className="h-4 w-4" /> Selecionar visíveis
+              </Button>
+              <Button type="button" variant="ghost" onClick={clearSelection} disabled={!selectedItems.length}>
+                Limpar
+              </Button>
+              <Button type="button" onClick={() => printCatalog("selection")} disabled={!selectedItems.length}>
+                <Printer className="h-4 w-4" /> Imprimir Seleção
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {visibleItems.length ? (
         <section className="catalog-no-print catalog-grid grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {visibleItems.map((item) => (
-            <Card key={item.id} className="catalog-card group overflow-hidden bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:bg-slate-950">
+            <Card
+              key={item.id}
+              role={selectionMode ? "checkbox" : undefined}
+              aria-checked={selectionMode ? selectedIds.has(item.id) : undefined}
+              aria-label={selectionMode ? `${selectedIds.has(item.id) ? "Remover" : "Selecionar"} ${item.name}` : undefined}
+              tabIndex={selectionMode ? 0 : undefined}
+              onClick={selectionMode ? () => toggleSelected(item.id) : undefined}
+              onKeyDown={selectionMode ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  toggleSelected(item.id);
+                }
+              } : undefined}
+              className={`catalog-card group overflow-hidden bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:bg-slate-950 ${selectionMode ? "cursor-pointer select-none ring-offset-2 dark:ring-offset-slate-950" : ""} ${selectedIds.has(item.id) ? "ring-2 ring-blue-500 shadow-lg" : ""}`}
+            >
               <div className="catalog-card-image relative aspect-[4/3] overflow-hidden"><ItemPhoto item={item} /><Badge className="absolute left-3 top-3 border border-white/70 bg-white/90 text-slate-700 shadow-sm">{item.category}</Badge>
-                <div className="catalog-no-print absolute right-3 top-3 flex gap-1 sm:opacity-0 sm:group-hover:opacity-100">
-                  <Button type="button" size="icon" variant="secondary" className="h-8 w-8 bg-white/95" onClick={() => editItem(item)} aria-label={`Editar ${item.name}`}><Pencil className="h-4 w-4" /></Button>
-                  <Button type="button" size="icon" variant="destructive" className="h-8 w-8" disabled={deleting === item.id} onClick={() => void removeItem(item)} aria-label={`Excluir ${item.name}`}>{deleting === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</Button>
-                </div>
+                {selectionMode ? (
+                  <div
+                    className={`catalog-no-print absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border-2 shadow-sm transition ${selectedIds.has(item.id) ? "border-blue-600 bg-blue-600 text-white" : "border-white bg-white/95 text-transparent"}`}
+                    aria-hidden="true"
+                  >
+                    <Check className="h-5 w-5" />
+                  </div>
+                ) : (
+                  <div className="catalog-no-print absolute right-3 top-3 flex gap-1 sm:opacity-0 sm:group-hover:opacity-100">
+                    <Button type="button" size="icon" variant="secondary" className="h-8 w-8 bg-white/95" onClick={() => editItem(item)} aria-label={`Editar ${item.name}`}><Pencil className="h-4 w-4" /></Button>
+                    <Button type="button" size="icon" variant="destructive" className="h-8 w-8" disabled={deleting === item.id} onClick={() => void removeItem(item)} aria-label={`Excluir ${item.name}`}>{deleting === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</Button>
+                  </div>
+                )}
               </div>
               <CardHeader className="catalog-card-header space-y-2 p-4 pb-2"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><CardTitle className="catalog-card-title text-base leading-snug">{item.name}</CardTitle>{item.brand || item.model ? <CardDescription className="mt-1">{[item.brand, item.model].filter(Boolean).join(" · ")}</CardDescription> : null}</div><Badge variant="outline" className={`catalog-condition shrink-0 ${conditionClass(item.item_condition)}`}>{item.item_condition}</Badge></div></CardHeader>
               <CardContent className="catalog-card-content space-y-3 p-4 pt-2">
@@ -462,6 +597,7 @@ export function CatalogoClient({ establishmentName, generatedAt, initialItems, i
       )}
 
       <CatalogPrintPages establishmentName={establishmentName} generatedLabel={generatedLabel} items={visibleItems} />
+      <CatalogSelectionPrintPages items={selectedItems} />
 
       <div className="hidden catalog-no-print">Gestify · {establishmentName} · {visibleItems.length} itens impressos</div>
 

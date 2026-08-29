@@ -25,7 +25,7 @@ type Props = {
   items: CatalogPrintItem[];
 };
 
-const ITEMS_PER_PAGE = 9;
+const ITEMS_PER_PAGE = 12;
 
 function photoUrl(item: CatalogPrintItem) {
   if (!item.photo_path) return null;
@@ -33,7 +33,7 @@ function photoUrl(item: CatalogPrintItem) {
   return `/api/estoque/catalogo/foto?${params.toString()}`;
 }
 
-export function CatalogPrintPages({ establishmentName, generatedLabel, items }: Props) {
+export function CatalogPrintPages({ items }: Props) {
   const pages = useMemo(() => {
     const result: CatalogPrintItem[][] = [];
     for (let index = 0; index < items.length; index += ITEMS_PER_PAGE) {
@@ -48,18 +48,6 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
     <div className="catalog-print-pages" aria-hidden="true">
       {pages.map((page, pageIndex) => (
         <section className="catalog-print-page" key={`catalog-print-page-${pageIndex + 1}`}>
-          <header className="catalog-print-page-header">
-            <div>
-              <p className="catalog-print-eyebrow">Gestify · Estoque</p>
-              <h1>Catálogo de utensílios e equipamentos</h1>
-              <p>{establishmentName} · Gerado em {generatedLabel}</p>
-            </div>
-            <div className="catalog-print-page-summary">
-              <strong>{items.length} itens</strong>
-              <span>Página {pageIndex + 1} de {pages.length}</span>
-            </div>
-          </header>
-
           <div className="catalog-print-page-grid">
             {page.map((item) => {
               const src = photoUrl(item);
@@ -112,22 +100,24 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
               );
             })}
           </div>
-
-          <footer className="catalog-print-page-footer">
-            <span>Gestify · {establishmentName}</span>
-            <span>9 itens por folha A4 · última folha pode conter menos itens</span>
-          </footer>
         </section>
       ))}
 
       <style jsx global>{`
+        @page{size:A4 portrait;margin:0}
         .catalog-print-pages{display:none}
         @media print{
+          html,body{
+            width:210mm!important;
+            margin:0!important;
+            padding:0!important;
+            background:#fff!important;
+          }
           .catalog-print-pages{
             display:block!important;
             position:absolute!important;
             inset:0 auto auto 0!important;
-            width:100%!important;
+            width:210mm!important;
             margin:0!important;
             padding:0!important;
             color:#0f172a!important;
@@ -137,14 +127,13 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
           }
           .catalog-print-page{
             box-sizing:border-box!important;
-            display:grid!important;
-            grid-template-rows:11mm minmax(0,1fr) 5mm!important;
-            row-gap:2.2mm!important;
-            width:100%!important;
-            height:260mm!important;
-            max-height:260mm!important;
+            display:flex!important;
+            width:210mm!important;
+            height:297mm!important;
             margin:0!important;
-            padding:0!important;
+            padding:6mm!important;
+            align-items:center!important;
+            justify-content:center!important;
             overflow:hidden!important;
             break-inside:avoid!important;
             page-break-inside:avoid!important;
@@ -155,66 +144,26 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
             break-after:auto!important;
             page-break-after:auto!important;
           }
-          .catalog-print-page-header{
-            display:flex!important;
-            align-items:flex-end!important;
-            justify-content:space-between!important;
-            gap:5mm!important;
-            min-width:0!important;
-            padding-bottom:2mm!important;
-            border-bottom:1px solid #cbd5e1!important;
-          }
-          .catalog-print-page-header h1{
-            margin:.5mm 0 0!important;
-            font-size:13pt!important;
-            line-height:1.05!important;
-            font-weight:800!important;
-            color:#0f172a!important;
-          }
-          .catalog-print-page-header p{
-            margin:.5mm 0 0!important;
-            font-size:6.7pt!important;
-            line-height:1.15!important;
-            color:#64748b!important;
-          }
-          .catalog-print-eyebrow{
-            margin:0!important;
-            font-size:6.1pt!important;
-            font-weight:700!important;
-            letter-spacing:.13em!important;
-            text-transform:uppercase!important;
-          }
-          .catalog-print-page-summary{
-            display:flex!important;
-            flex-direction:column!important;
-            align-items:flex-end!important;
-            gap:.5mm!important;
-            flex:0 0 auto!important;
-            font-size:6.7pt!important;
-            color:#64748b!important;
-          }
-          .catalog-print-page-summary strong{
-            font-size:7.6pt!important;
-            color:#334155!important;
-          }
           .catalog-print-page-grid{
             display:grid!important;
+            width:100%!important;
             grid-template-columns:repeat(3,minmax(0,1fr))!important;
-            grid-template-rows:repeat(3,62mm)!important;
-            gap:2.8mm!important;
-            align-content:start!important;
+            grid-template-rows:repeat(4,59mm)!important;
+            gap:2.2mm!important;
+            align-content:center!important;
+            justify-content:center!important;
             min-height:0!important;
             overflow:hidden!important;
           }
           .catalog-print-item{
             display:grid!important;
-            grid-template-rows:26mm 36mm!important;
+            grid-template-rows:24mm 35mm!important;
             min-width:0!important;
             min-height:0!important;
-            height:62mm!important;
+            height:59mm!important;
             overflow:hidden!important;
             border:1px solid #cbd5e1!important;
-            border-radius:2.2mm!important;
+            border-radius:2mm!important;
             background:#fff!important;
             box-shadow:none!important;
             break-inside:avoid!important;
@@ -238,13 +187,13 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
             color:#94a3b8!important;
           }
           .catalog-print-item-placeholder svg{
-            width:9mm!important;
-            height:9mm!important;
+            width:8mm!important;
+            height:8mm!important;
           }
           .catalog-print-category{
             position:absolute!important;
-            top:1.4mm!important;
-            left:1.4mm!important;
+            top:1.2mm!important;
+            left:1.2mm!important;
             z-index:2!important;
             max-width:47mm!important;
             overflow:hidden!important;
@@ -253,25 +202,26 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
             border:1px solid rgba(255,255,255,.9)!important;
             border-radius:999px!important;
             background:rgba(255,255,255,.92)!important;
-            padding:.5mm 1.2mm!important;
-            font-size:5.7pt!important;
+            padding:.4mm 1mm!important;
+            font-size:5.3pt!important;
             font-weight:600!important;
             color:#334155!important;
           }
           .catalog-print-item-body{
-            display:grid!important;
-            grid-template-rows:auto auto auto!important;
-            align-content:start!important;
-            gap:1.1mm!important;
+            display:flex!important;
+            flex-direction:column!important;
+            align-items:stretch!important;
+            justify-content:flex-start!important;
+            gap:.55mm!important;
             min-height:0!important;
             overflow:hidden!important;
-            padding:1.8mm 2mm!important;
+            padding:1.35mm 1.6mm!important;
           }
           .catalog-print-item-heading{
             display:flex!important;
             align-items:flex-start!important;
             justify-content:space-between!important;
-            gap:1.4mm!important;
+            gap:1.1mm!important;
             min-width:0!important;
           }
           .catalog-print-item-heading>div{
@@ -283,31 +233,31 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
             overflow:hidden!important;
             -webkit-box-orient:vertical!important;
             -webkit-line-clamp:2!important;
-            font-size:8.1pt!important;
-            line-height:1.12!important;
+            font-size:7.5pt!important;
+            line-height:1.08!important;
             font-weight:750!important;
             color:#0f172a!important;
           }
           .catalog-print-item-heading p{
-            margin:.6mm 0 0!important;
+            margin:.4mm 0 0!important;
             overflow:hidden!important;
             text-overflow:ellipsis!important;
             white-space:nowrap!important;
-            font-size:6.1pt!important;
-            line-height:1.15!important;
+            font-size:5.5pt!important;
+            line-height:1.1!important;
             color:#64748b!important;
           }
           .catalog-print-condition{
             flex:0 0 auto!important;
-            max-width:17mm!important;
+            max-width:16mm!important;
             overflow:hidden!important;
             text-overflow:ellipsis!important;
             white-space:nowrap!important;
             border:1px solid #bfdbfe!important;
             border-radius:999px!important;
             background:#eff6ff!important;
-            padding:.45mm 1mm!important;
-            font-size:5.2pt!important;
+            padding:.35mm .85mm!important;
+            font-size:4.8pt!important;
             font-weight:600!important;
             color:#1d4ed8!important;
           }
@@ -317,67 +267,61 @@ export function CatalogPrintPages({ establishmentName, generatedLabel, items }: 
             margin:0!important;
             overflow:hidden!important;
             -webkit-box-orient:vertical!important;
-            -webkit-line-clamp:2!important;
-            font-size:6.1pt!important;
-            line-height:1.2!important;
+            -webkit-line-clamp:1!important;
+            font-size:5.35pt!important;
+            line-height:1.12!important;
             color:#475569!important;
           }
           .catalog-print-item-stock{
             display:flex!important;
             align-items:flex-end!important;
             justify-content:space-between!important;
-            gap:1.5mm!important;
+            gap:1.2mm!important;
             min-width:0!important;
-            padding-top:1.2mm!important;
+            min-height:0!important;
+            margin:0!important;
+            padding-top:.6mm!important;
             border-top:1px solid #e2e8f0!important;
           }
           .catalog-print-item-stock>div>span{
             display:block!important;
-            margin-bottom:.5mm!important;
-            font-size:5.1pt!important;
+            margin:0 0 .25mm!important;
+            font-size:4.45pt!important;
             font-weight:700!important;
-            letter-spacing:.07em!important;
+            line-height:1!important;
+            letter-spacing:.06em!important;
             text-transform:uppercase!important;
             color:#94a3b8!important;
           }
           .catalog-print-item-stock strong{
             display:block!important;
-            font-size:10pt!important;
-            line-height:1!important;
+            margin:0!important;
+            font-size:8.4pt!important;
+            line-height:.95!important;
             color:#1d4ed8!important;
           }
           .catalog-print-item-stock small{
-            font-size:6.1pt!important;
+            font-size:5.45pt!important;
             font-weight:600!important;
             color:#64748b!important;
           }
           .catalog-print-item-stock p{
             display:-webkit-box!important;
-            max-width:28mm!important;
+            max-width:27mm!important;
             margin:0!important;
             overflow:hidden!important;
             -webkit-box-orient:vertical!important;
             -webkit-line-clamp:1!important;
             text-align:right!important;
-            font-size:5.6pt!important;
-            line-height:1.15!important;
+            font-size:4.9pt!important;
+            line-height:1.05!important;
             color:#64748b!important;
           }
           .catalog-print-item-stock p svg{
             display:inline-block!important;
-            width:2.4mm!important;
-            height:2.4mm!important;
-            vertical-align:-.4mm!important;
-          }
-          .catalog-print-page-footer{
-            display:flex!important;
-            align-items:flex-end!important;
-            justify-content:space-between!important;
-            gap:4mm!important;
-            padding-top:1.5mm!important;
-            border-top:1px solid #e2e8f0!important;
-            font-size:5.8pt!important;
-            color:#64748b!important;
+            width:2.1mm!important;
+            height:2.1mm!important;
+            vertical-align:-.35mm!important;
           }
         }
       `}</style>

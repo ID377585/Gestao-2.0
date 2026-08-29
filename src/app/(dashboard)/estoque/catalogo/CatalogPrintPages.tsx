@@ -45,7 +45,7 @@ export function CatalogPrintPages({ items }: Props) {
   if (!pages.length) return null;
 
   return (
-    <div className="catalog-print-pages" aria-hidden="true">
+    <div className="catalog-print-pages catalog-print-pages-all" aria-hidden="true">
       {pages.map((page, pageIndex) => (
         <section className="catalog-print-page" key={`catalog-print-page-${pageIndex + 1}`}>
           <div className="catalog-print-page-grid">
@@ -107,6 +107,7 @@ export function CatalogPrintPages({ items }: Props) {
         @page{size:A4 portrait;margin:0}
         .catalog-print-pages{display:none}
         @media print{
+          html[data-catalog-print-mode="selection"] .catalog-print-pages-all{display:none!important}
           html,body{
             width:210mm!important;
             margin:0!important;

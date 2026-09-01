@@ -52,6 +52,24 @@ revoke all on table public.user_access_logs from anon, authenticated;
 grant select, insert on table public.user_terms_acceptances to service_role;
 grant select, insert on table public.user_access_logs to service_role;
 
+drop policy if exists user_terms_acceptances_no_direct_access on public.user_terms_acceptances;
+create policy user_terms_acceptances_no_direct_access
+  on public.user_terms_acceptances
+  as restrictive
+  for all
+  to anon, authenticated
+  using (false)
+  with check (false);
+
+drop policy if exists user_access_logs_no_direct_access on public.user_access_logs;
+create policy user_access_logs_no_direct_access
+  on public.user_access_logs
+  as restrictive
+  for all
+  to anon, authenticated
+  using (false)
+  with check (false);
+
 comment on table public.user_terms_acceptances is
   'Append-only server-side ledger of explicit legal terms acceptances.';
 comment on table public.user_access_logs is

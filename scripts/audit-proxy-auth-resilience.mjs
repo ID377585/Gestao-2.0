@@ -12,7 +12,7 @@ const compliancePath = resolve(root, "src/lib/auth/terms-compliance.server.ts");
 const complianceRoutePath = resolve(root, "src/app/api/auth/compliance/route.ts");
 const complianceMigrationPath = resolve(
   root,
-  "supabase/migrations/20260901075700_create_auth_compliance_ledgers.sql"
+  "supabase/migrations/20260901110313_create_auth_compliance_ledgers.sql"
 );
 
 const findings = [];

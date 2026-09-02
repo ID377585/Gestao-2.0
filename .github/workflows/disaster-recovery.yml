@@ -79,7 +79,7 @@ jobs:
 
       - name: Upload fixture restore report
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gestify-dr-fixture-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: .artifacts/dr-fixture/restore-report-*.json
@@ -287,7 +287,7 @@ jobs:
 
       - name: Upload DR evidence only
         if: ${{ always() && steps.mode.outputs.restore == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gestify-live-dr-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/gestify-dr-reports/restore-report-*.json

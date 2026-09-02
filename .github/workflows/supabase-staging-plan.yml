@@ -144,7 +144,7 @@ jobs:
 
       - name: Upload plan evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gestify-supabase-staging-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: .artifacts/supabase-staging-plan/**

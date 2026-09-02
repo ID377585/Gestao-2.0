@@ -15,6 +15,7 @@ export type AlertEmailResult = {
 };
 
 const RESEND_API_URL = "https://api.resend.com/emails";
+const RESEND_TIMEOUT_MS = 8_000;
 
 function stripHtml(html: string) {
   return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -87,6 +88,7 @@ export async function sendAlertEmail(
         html: input.html,
         text: input.text?.trim() || stripHtml(input.html),
       }),
+      signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -103,10 +105,11 @@ export async function sendAlertEmail(
       ok: true,
       id: data?.id ?? null,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : null;
     return {
       ok: false,
-      error: error?.message ?? "Erro inesperado ao enviar e-mail.",
+      error: message ?? "Erro inesperado ao enviar e-mail.",
     };
   }
 }

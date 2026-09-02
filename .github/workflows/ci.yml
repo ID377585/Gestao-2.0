@@ -55,6 +55,9 @@ jobs:
       - name: Readiness monitoring and load guard audit
         run: node scripts/audit-ops-readiness-load.mjs
 
+      - name: Disaster recovery contract audit
+        run: npm run core:security:audit
+
       - name: Lint
         run: npm run lint
 

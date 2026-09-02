@@ -19,8 +19,13 @@ requireCondition(load.includes("load:gestify-staging"), "load confirmation guard
 requireCondition(load.includes("ubwbnpckbwtllitonpjj"), "Production Supabase project guard missing");
 requireCondition(load.includes("p95") && load.includes("p99") && load.includes("errorRate"), "load metrics incomplete");
 requireCondition(load.includes("http:") && load.includes("https:"), "load protocol guard missing");
+requireCondition(load.includes("GESTIFY_LOAD_ALLOWED_STATUSES"), "load allowed-status contract missing");
+requireCondition(load.includes("allowedStatuses.has(response.status)"), "unexpected HTTP statuses must count as errors");
+requireCondition(load.includes("x-vercel-protection-bypass"), "Vercel automation bypass header missing");
 requireCondition(loadWorkflow.includes("workflow_dispatch"), "load workflow must be manual only");
 requireCondition(!loadWorkflow.includes("schedule:"), "load workflow must never be scheduled");
+requireCondition(loadWorkflow.includes("allowed_statuses"), "load workflow allowed-status input missing");
+requireCondition(loadWorkflow.includes("VERCEL_AUTOMATION_BYPASS_SECRET"), "load workflow Vercel bypass secret missing");
 requireCondition(monitorWorkflow.includes("GESTIFY_MONITORING_ENABLED"), "monitor must be opt-in");
 requireCondition(monitorWorkflow.includes("*/15 * * * *"), "monitor cadence must remain explicit");
 requireCondition(monitor.includes("x-operational-readiness-secret"), "monitor must use protected readiness endpoint");

@@ -26,6 +26,11 @@ on:
         required: false
         default: "5"
         type: string
+      allowed_statuses:
+        description: "Comma-separated HTTP success statuses"
+        required: false
+        default: "200"
+        type: string
 
 permissions:
   contents: read
@@ -41,7 +46,9 @@ jobs:
       GESTIFY_LOAD_CONFIRMATION: ${{ inputs.confirmation }}
       GESTIFY_LOAD_REQUESTS: ${{ inputs.requests }}
       GESTIFY_LOAD_CONCURRENCY: ${{ inputs.concurrency }}
+      GESTIFY_LOAD_ALLOWED_STATUSES: ${{ inputs.allowed_statuses }}
       GESTIFY_LOAD_READINESS_SECRET: ${{ secrets.STAGING_OPERATIONAL_READINESS_SECRET }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
       GESTIFY_PRODUCTION_HOSTS: gestify.app,www.gestify.app,gestao-2-0.vercel.app
 
     steps:

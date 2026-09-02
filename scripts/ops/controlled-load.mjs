@@ -8,6 +8,18 @@ const concurrency = Number(process.env.GESTIFY_LOAD_CONCURRENCY || 5);
 const maxErrorRate = Number(process.env.GESTIFY_LOAD_MAX_ERROR_RATE || 0.01);
 const maxP95Ms = Number(process.env.GESTIFY_LOAD_MAX_P95_MS || 3000);
 const readinessSecret = process.env.GESTIFY_LOAD_READINESS_SECRET?.trim();
+const vercelAutomationBypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
+const allowedStatusesRaw = process.env.GESTIFY_LOAD_ALLOWED_STATUSES?.trim() || "200";
+const allowedStatusTokens = allowedStatusesRaw.split(",").map((value) => value.trim());
+
+if (
+  allowedStatusTokens.length === 0 ||
+  allowedStatusTokens.some((value) => !/^\d{3}$/.test(value) || Number(value) < 100 || Number(value) > 599)
+) {
+  throw new Error("GESTIFY_LOAD_ALLOWED_STATUSES must be a comma-separated list of HTTP status codes (100-599)");
+}
+
+const allowedStatuses = new Set(allowedStatusTokens.map(Number));
 
 if (!targetRaw) throw new Error("GESTIFY_LOAD_TARGET_URL is required");
 if (confirmation !== "load:gestify-staging") {
@@ -58,8 +70,11 @@ async function worker() {
     const timeoutId = setTimeout(() => controller.abort(), 10_000);
     const started = performance.now();
     try {
-      const headers = { "user-agent": "gestify-controlled-load/1.1" };
+      const headers = { "user-agent": "gestify-controlled-load/1.2" };
       if (readinessSecret) headers["x-operational-readiness-secret"] = readinessSecret;
+      if (vercelAutomationBypassSecret) {
+        headers["x-vercel-protection-bypass"] = vercelAutomationBypassSecret;
+      }
       const response = await fetch(target, {
         method: "GET",
         headers,
@@ -70,7 +85,7 @@ async function worker() {
       const duration = performance.now() - started;
       durations.push(duration);
       statuses.set(response.status, (statuses.get(response.status) || 0) + 1);
-      if (response.status >= 500 || response.status === 429) errors += 1;
+      if (!allowedStatuses.has(response.status)) errors += 1;
     } catch {
       durations.push(performance.now() - started);
       errors += 1;
@@ -96,6 +111,8 @@ const result = {
     max: durations.length ? Math.max(...durations) : null,
   },
   statuses: Object.fromEntries([...statuses.entries()].map(([key, value]) => [String(key), value])),
+  allowedStatuses: [...allowedStatuses].sort((a, b) => a - b),
+  protectionBypassConfigured: Boolean(vercelAutomationBypassSecret),
   thresholds: { maxErrorRate, maxP95Ms },
   generatedAt: new Date().toISOString(),
 };

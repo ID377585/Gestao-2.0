@@ -1,10 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import {
-  TERMS_REQUIRED_QUERY_VALUE,
-  hasAcceptedCurrentTerms,
-  readTermsComplianceFromMetadata,
-} from "@/lib/auth/terms-config";
 import { createClient as createSupabaseMiddlewareClient } from "@/utils/supabase/middleware";
 import { TENANT_COOKIE_NAME } from "@/lib/tenant/constants";
 import {
@@ -12,7 +7,6 @@ import {
   getModuleKeyForPathname,
 } from "@/lib/tenant/module-routes";
 
-const DEFAULT_AUTH_REDIRECT = "/dashboard/pedidos";
 const API_CORS_METHODS = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
 const API_CORS_HEADERS = [
   "authorization",
@@ -109,31 +103,6 @@ function isProtectedRoute(pathname: string) {
     pathname.startsWith("/compras") ||
     pathname.startsWith("/financeiro")
   );
-}
-
-function safeRedirect(raw: string | null) {
-  if (!raw) return DEFAULT_AUTH_REDIRECT;
-
-  try {
-    if (raw.startsWith("http://") || raw.startsWith("https://")) {
-      return DEFAULT_AUTH_REDIRECT;
-    }
-
-    if (!raw.startsWith("/")) return DEFAULT_AUTH_REDIRECT;
-
-    const url = new URL(raw, "http://local");
-    if (url.pathname.startsWith("//")) return DEFAULT_AUTH_REDIRECT;
-
-    return `${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return DEFAULT_AUTH_REDIRECT;
-  }
-}
-
-function getSessionTermsCompliance(
-  metadata: Record<string, unknown> | null | undefined
-) {
-  return readTermsComplianceFromMetadata(metadata ?? {});
 }
 
 function copyResponseCookies(source: NextResponse, target: NextResponse) {
@@ -356,29 +325,9 @@ export async function middleware(req: NextRequest) {
     return supabaseResponse;
   }
 
-  const complianceState = getSessionTermsCompliance(
-    claims?.app_metadata as Record<string, unknown> | undefined
-  );
-  const acceptedCurrentTerms = hasAcceptedCurrentTerms(complianceState);
-
-  if (isProtectedRoute(pathname) && !acceptedCurrentTerms) {
-    return redirectWithCookies(req, supabaseResponse, "/login", {
-      redirect: pathname,
-      terms: TERMS_REQUIRED_QUERY_VALUE,
-    });
-  }
-
-  if (isAuthRoute(pathname) && acceptedCurrentTerms) {
-    const requestedRedirect = safeRedirect(
-      req.nextUrl.searchParams.get("redirect")
-    );
-
-    return copyResponseCookies(
-      supabaseResponse,
-      NextResponse.redirect(new URL(requestedRedirect, req.url))
-    );
-  }
-
+  // Terms compliance is intentionally not derived from JWT/app_metadata here.
+  // Protected server layouts consult the authoritative append-only ledger and
+  // redirect to the explicit consent UI when the current version is missing.
   if (isProtectedRoute(pathname)) {
     const canAccessModule = await userCanAccessProtectedModule({
       supabase: middlewareClient.supabase,

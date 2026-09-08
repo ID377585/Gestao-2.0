@@ -17,6 +17,7 @@ type ProductCatalogCacheEntry = {
 const productCatalogCache = new Map<string, ProductCatalogCacheEntry>();
 
 function readProductCatalogCache(establishmentId: string) {
+  // Tenant contract: establishmentId originates from getAuthenticatedTenantUserOrThrow.
   const now = Date.now();
   const cached = productCatalogCache.get(establishmentId);
 
@@ -32,6 +33,7 @@ function readProductCatalogCache(establishmentId: string) {
 }
 
 function writeProductCatalogCache(establishmentId: string, data: unknown[]) {
+  // Tenant contract: establishmentId originates from getAuthenticatedTenantUserOrThrow.
   const now = Date.now();
 
   if (productCatalogCache.size >= PRODUCT_CATALOG_CACHE_MAX_TENANTS) {

@@ -25,43 +25,43 @@ if (!url.hostname) fail('host do banco de origem ausente')
 if (!url.username) fail('usuário do banco de origem ausente')
 if (!url.password) fail('senha do banco de origem ausente')
 
-const port = url.port || '5432'
 const host = url.hostname.toLowerCase()
 const isSupavisor = host.endsWith('.pooler.supabase.com')
 const isDirectSupabase = host.startsWith('db.') && host.endsWith('.supabase.co')
 
-if (port === '6543') {
-  fail('transaction pooler :6543 não é aceito para pg_dump; use Direct connection ou Session pooler :5432')
+if (!isSupavisor && !isDirectSupabase) {
+  fail('host da origem não corresponde a Direct connection nem ao Supabase pooler esperado')
 }
 
-if (port !== '5432') {
-  fail(`porta ${port} não é aceita para o backup lógico; use :5432`)
-}
-
-if (isSupavisor && expectedProjectRef) {
-  const expectedUsername = `postgres.${expectedProjectRef}`
-  if (decodeURIComponent(url.username) !== expectedUsername) {
-    fail(`Session pooler deve usar o usuário postgres.<project-ref>; esperado ${expectedUsername}`)
+if (isSupavisor) {
+  if (!expectedProjectRef) {
+    fail('GESTIFY_DR_SOURCE_PROJECT_REF é obrigatório para normalizar conexão via Supavisor')
   }
-}
 
-if (isDirectSupabase && expectedProjectRef) {
-  const expectedHost = `db.${expectedProjectRef}.supabase.co`
-  if (host !== expectedHost) {
-    fail(`host Direct connection não corresponde ao projeto esperado ${expectedProjectRef}`)
-  }
-  if (decodeURIComponent(url.username) !== 'postgres') {
-    fail('Direct connection deve usar o usuário postgres')
+  // A mesma credencial do banco funciona no Session pooler. Ajustamos apenas
+  // roteamento/usuário em memória, sem alterar ou imprimir o secret original.
+  url.port = '5432'
+  url.username = `postgres.${expectedProjectRef}`
+} else {
+  url.port = '5432'
+  if (expectedProjectRef) {
+    const expectedHost = `db.${expectedProjectRef}.supabase.co`
+    if (host !== expectedHost) {
+      fail(`host Direct connection não corresponde ao projeto esperado ${expectedProjectRef}`)
+    }
   }
 }
 
 const sslmode = (url.searchParams.get('sslmode') || '').toLowerCase()
 if (!['require', 'verify-ca', 'verify-full'].includes(sslmode)) {
-  fail('SSL obrigatório: adicione sslmode=require (ou verify-ca/verify-full) à URL de backup')
+  url.searchParams.set('sslmode', 'require')
 }
 
-if (!isSupavisor && !isDirectSupabase) {
-  fail('host da origem não corresponde a Direct connection nem ao Supabase Session pooler esperado')
-}
+const finalSslmode = url.searchParams.get('sslmode')
+console.error(
+  `[dr-preflight] Origem normalizada com segurança. modo=${isSupavisor ? 'session-pooler' : 'direct'} ssl=${finalSslmode} porta=5432`,
+)
 
-console.log(`[dr-preflight] Origem de backup aceita. modo=${isSupavisor ? 'session-pooler' : 'direct'} ssl=${sslmode} porta=${port}`)
+// stdout é reservado exclusivamente para consumo por command substitution.
+// O chamador usa set +x e nunca imprime este valor.
+process.stdout.write(url.toString())

@@ -73,7 +73,12 @@ requireIncludes("src/app/globals.css", [
 ]);
 
 requireIncludes("src/app/loading.tsx", ["aria-busy=", 'role="status"']);
-requireIncludes("src/app/not-found.tsx", ["Erro 404", "focus-visible:ring-2"]);
+requireIncludes("src/app/not-found.tsx", [
+  "Página 404 não encontrada",
+  'aria-labelledby="error-title error-description"',
+  'href="/dashboard/pedidos"',
+  'href="/"',
+]);
 requireIncludes("src/app/error.tsx", ["min-h-11", "focus-visible:ring-2"]);
 requireIncludes("src/app/global-error.tsx", ["min-h-11", "focus-visible:ring-2"]);
 

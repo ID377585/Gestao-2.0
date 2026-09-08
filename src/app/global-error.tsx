@@ -16,11 +16,16 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
     <html lang="pt-BR">
       <body>
         <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-12 text-white">
-          <section className="w-full max-w-lg rounded-2xl border border-white/10 bg-white/10 p-8 text-center shadow-xl">
+          <section
+            className="w-full max-w-lg rounded-2xl border border-white/10 bg-white/10 p-8 text-center shadow-xl"
+            aria-labelledby="global-error-title"
+          >
             <p className="text-sm font-medium uppercase tracking-wide text-red-300">
               Erro crítico
             </p>
-            <h1 className="mt-3 text-2xl font-semibold">A Gestify encontrou um problema.</h1>
+            <h1 id="global-error-title" className="mt-3 text-2xl font-semibold">
+              A Gestify encontrou um problema.
+            </h1>
             <p className="mt-3 text-sm leading-6 text-slate-200">
               Atualize a página ou tente novamente. O detalhe técnico foi registrado nos logs.
             </p>
@@ -32,7 +37,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
             <button
               type="button"
               onClick={reset}
-              className="mt-6 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-slate-200"
+              className="mt-6 min-h-11 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             >
               Tentar novamente
             </button>

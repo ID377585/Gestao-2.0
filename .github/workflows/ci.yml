@@ -55,6 +55,9 @@ jobs:
       - name: Readiness monitoring and load guard audit
         run: node scripts/audit-ops-readiness-load.mjs
 
+      - name: Frontend readiness audit
+        run: node scripts/audit-frontend-readiness.mjs
+
       - name: Lint
         run: npm run lint
 

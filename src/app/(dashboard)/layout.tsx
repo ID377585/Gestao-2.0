@@ -84,6 +84,13 @@ export default async function DashboardLayout({
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100 md:min-h-screen md:overflow-visible">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[130] focus:rounded-lg focus:bg-white focus:px-4 focus:py-3 focus:text-sm focus:font-semibold focus:text-slate-900 focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-600 dark:focus:bg-slate-900 dark:focus:text-white"
+      >
+        Pular para o conteúdo principal
+      </a>
+
       <div className="flex h-full">
         <aside
           className="
@@ -108,7 +115,11 @@ export default async function DashboardLayout({
 
           <InventoryMonthEndReminder />
 
-          <main className="min-h-0 flex-1 overflow-y-auto px-3 pb-5 pt-4 sm:px-4 md:p-8 md:pt-24">
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="min-h-0 flex-1 scroll-mt-24 overflow-y-auto px-3 pb-5 pt-4 focus:outline-none sm:px-4 md:p-8 md:pt-24"
+          >
             {children}
           </main>
         </div>

@@ -39,6 +39,9 @@ else
   fail "Supabase CLI ausente. Execute npm ci antes do backup."
 fi
 
+SUPABASE_DB_URL="$(node "$ROOT_DIR/scripts/dr/validate-source-db-url.mjs")"
+export SUPABASE_DB_URL
+
 psql_exec() {
   if command -v psql >/dev/null 2>&1; then
     PGCONNECT_TIMEOUT=15 psql "$@"
@@ -237,7 +240,7 @@ const manifest = {
   },
   sourceControl: {
     repository: process.env.DR_MANIFEST_GITHUB_REPOSITORY,
-    commit: process.env.DR_MANIFEST_GITHUB_SHA,
+    commit: process.env.GITHUB_SHA || process.env.DR_MANIFEST_GITHUB_SHA,
     runId: process.env.DR_MANIFEST_GITHUB_RUN_ID,
   },
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
@@ -21,12 +21,12 @@ export function SidebarMobile() {
   const panelRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  const closeMenu = (restoreFocus = true) => {
+  const closeMenu = useCallback((restoreFocus = true) => {
     setOpen(false);
     if (restoreFocus) {
       window.requestAnimationFrame(() => triggerRef.current?.focus());
     }
-  };
+  }, []);
 
   useEffect(() => {
     setOpen(false);
@@ -79,7 +79,7 @@ export function SidebarMobile() {
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open]);
+  }, [open, closeMenu]);
 
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(href + "/");

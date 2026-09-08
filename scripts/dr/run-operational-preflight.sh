@@ -53,7 +53,12 @@ export AWS_DEFAULT_REGION="${GESTIFY_DR_S3_REGION:-us-east-1}"
 
 endpoint_args=()
 if [[ -n "${GESTIFY_DR_S3_ENDPOINT:-}" ]]; then
-  endpoint_args=(--endpoint-url "$GESTIFY_DR_S3_ENDPOINT")
+  normalized_endpoint="${GESTIFY_DR_S3_ENDPOINT%/}"
+  bucket_suffix="/${GESTIFY_DR_S3_BUCKET}"
+  if [[ "$normalized_endpoint" == *"$bucket_suffix" ]]; then
+    normalized_endpoint="${normalized_endpoint%"$bucket_suffix"}"
+  fi
+  endpoint_args=(--endpoint-url "$normalized_endpoint")
 fi
 
 prefix="${GESTIFY_DR_S3_PREFIX:-gestify/daily}"

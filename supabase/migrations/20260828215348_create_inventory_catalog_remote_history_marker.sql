@@ -1,0 +1,3 @@
+-- Historical migration marker only.
+-- This version was applied remotely before the repository adopted the canonical timestamp.
+-- Intentionally contains no DDL/DML: preserves Supabase migration-history reproducibility without reapplying schema changes.

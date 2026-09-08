@@ -1,0 +1,2 @@
+-- Production history marker for the append-only grants migration applied on 2026-09-02.
+-- Canonical SQL remains in 20260901110454_harden_auth_compliance_append_only_grants.sql.

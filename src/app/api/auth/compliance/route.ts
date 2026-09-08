@@ -6,7 +6,6 @@ import {
   CURRENT_TERMS_DOCUMENT_VERSION,
   CURRENT_TERMS_UPDATED_AT,
   hasAcceptedCurrentTerms,
-  readTermsComplianceFromMetadata,
 } from "@/lib/auth/terms-config";
 import {
   getUserTermsComplianceState,
@@ -86,12 +85,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const sessionState = readTermsComplianceFromMetadata(
-      user.app_metadata as Record<string, unknown> | undefined
-    );
-    const state = hasAcceptedCurrentTerms(sessionState)
-      ? sessionState
-      : await getUserTermsComplianceState(user.id);
+    const state = await getUserTermsComplianceState(user.id);
 
     return NextResponse.json(
       {
@@ -137,16 +131,18 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const acceptTerms = Boolean(body?.acceptTerms);
+    const acceptTerms = body?.acceptTerms === true;
     const source =
       typeof body?.source === "string" && body.source.trim()
-        ? body.source.trim()
+        ? body.source.trim().slice(0, 120)
         : "login";
     const path =
-      typeof body?.path === "string" && body.path.trim() ? body.path.trim() : "/login";
+      typeof body?.path === "string" && body.path.trim()
+        ? body.path.trim().slice(0, 500)
+        : "/login";
     const redirectPath =
       typeof body?.redirectPath === "string" && body.redirectPath.trim()
-        ? body.redirectPath.trim()
+        ? body.redirectPath.trim().slice(0, 500)
         : null;
 
     if (!acceptTerms) {
@@ -156,16 +152,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const sessionState = readTermsComplianceFromMetadata(
-      user.app_metadata as Record<string, unknown> | undefined
-    );
+    const previousState = await getUserTermsComplianceState(user.id);
 
-    if (hasAcceptedCurrentTerms(sessionState)) {
+    if (hasAcceptedCurrentTerms(previousState)) {
       return NextResponse.json(
         {
           ok: true,
           skipped: true,
-          acceptedAt: sessionState?.current_terms_accepted_at ?? null,
+          acceptedAt: previousState?.current_terms_accepted_at ?? null,
           currentTermsTitle: CURRENT_TERMS_DOCUMENT_TITLE,
           currentTermsVersion: CURRENT_TERMS_DOCUMENT_VERSION,
           currentTermsUpdatedAt: CURRENT_TERMS_UPDATED_AT,

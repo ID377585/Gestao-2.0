@@ -1,0 +1,4 @@
+-- Production history marker.
+-- The auth compliance ledger schema was applied to Production on 2026-09-02
+-- through the controlled Supabase rollout before the application cutover.
+-- Canonical DDL remains in 20260901110313_create_auth_compliance_ledgers.sql.

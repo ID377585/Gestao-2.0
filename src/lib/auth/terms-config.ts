@@ -4,7 +4,6 @@ export const CURRENT_TERMS_DOCUMENT_VERSION = "v1.3";
 export const CURRENT_TERMS_UPDATED_AT = "23/04/2026";
 export const CURRENT_TERMS_VERSION_ID = "saas-v1.3-2026-04-23";
 export const TERMS_REQUIRED_QUERY_VALUE = "required";
-export const TERMS_COMPLIANCE_METADATA_KEY = "gestify_compliance";
 
 export type TermsComplianceState = {
   current_terms_slug?: string | null;
@@ -30,57 +29,15 @@ export function hasAcceptedCurrentTerms(
   );
 }
 
+/**
+ * Compatibilidade temporária para consumidores antigos.
+ *
+ * Compliance não é mais lido de Supabase Auth metadata. A fonte autoritativa é
+ * o ledger append-only consultado por `/api/auth/compliance` e pelos guards
+ * server-side. Retornar `null` força esses consumidores a consultar o ledger.
+ */
 export function readTermsComplianceFromMetadata(
-  appMetadata: Record<string, unknown> | null | undefined
+  _appMetadata: Record<string, unknown> | null | undefined
 ): TermsComplianceState | null {
-  const rawValue = appMetadata?.[TERMS_COMPLIANCE_METADATA_KEY];
-
-  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
-    return null;
-  }
-
-  const compliance = rawValue as Record<string, unknown>;
-
-  return {
-    current_terms_slug:
-      typeof compliance.current_terms_slug === "string"
-        ? compliance.current_terms_slug
-        : null,
-    current_terms_title:
-      typeof compliance.current_terms_title === "string"
-        ? compliance.current_terms_title
-        : null,
-    current_terms_version:
-      typeof compliance.current_terms_version === "string"
-        ? compliance.current_terms_version
-        : null,
-    current_terms_accepted_at:
-      typeof compliance.current_terms_accepted_at === "string"
-        ? compliance.current_terms_accepted_at
-        : null,
-    first_access_at:
-      typeof compliance.first_access_at === "string"
-        ? compliance.first_access_at
-        : null,
-    last_access_at:
-      typeof compliance.last_access_at === "string"
-        ? compliance.last_access_at
-        : null,
-    first_login_at:
-      typeof compliance.first_login_at === "string"
-        ? compliance.first_login_at
-        : null,
-    last_login_at:
-      typeof compliance.last_login_at === "string"
-        ? compliance.last_login_at
-        : null,
-    last_access_path:
-      typeof compliance.last_access_path === "string"
-        ? compliance.last_access_path
-        : null,
-    last_compliance_event_at:
-      typeof compliance.last_compliance_event_at === "string"
-        ? compliance.last_compliance_event_at
-        : null,
-  };
+  return null;
 }

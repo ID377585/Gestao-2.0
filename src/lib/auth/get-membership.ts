@@ -61,10 +61,6 @@ async function getSelectedEstablishmentId() {
   return cookieStore.get(TENANT_COOKIE_NAME)?.value ?? null;
 }
 
-function getUserAppMetadata(user: any) {
-  return (user?.app_metadata ?? {}) as Record<string, unknown>;
-}
-
 /**
  * Fonte única: public.memberships.
  *
@@ -96,7 +92,6 @@ export async function getActiveMembershipOrRedirect(
     userId: user.id,
     redirectPath: "/dashboard/pedidos",
     loginPath: redirectToLogin,
-    appMetadata: getUserAppMetadata(user),
   });
 
   const selectedEstablishmentId = await getSelectedEstablishmentId();

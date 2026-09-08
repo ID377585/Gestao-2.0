@@ -1,6 +1,6 @@
 # Frontend readiness 100 — 2026-09-08
 
-Status: implementing
+Status: validating
 Priority: commercial readiness / UX
 Scope: frontend and interface only
 
@@ -58,8 +58,9 @@ Turn the Gestify frontend readiness score into an auditable release contract wit
 ### Regression prevention
 
 - `scripts/audit-frontend-readiness.mjs` statically verifies the critical contract;
-- `npm run frontend:readiness:audit` is part of the main `npm run ci` chain;
-- standard lint, typecheck, dependency audit, tenant audit, readiness checks and Next build remain mandatory.
+- the primary GitHub CI workflow executes the audit as a mandatory step before lint/typecheck/build completion;
+- the dependency manifest remains unchanged by this frontend-only work;
+- standard lint, typecheck, production dependency audit, tenant audit, readiness checks and Next build remain mandatory.
 
 ## Acceptance gates
 
@@ -75,4 +76,4 @@ Turn the Gestify frontend readiness score into an auditable release contract wit
 
 ## Rollback
 
-Revert the PR. No data migration, schema rollback or tenant repair is required because this scope changes only frontend/interface files, one static CI audit and documentation.
+Revert the PR. No data migration, schema rollback or tenant repair is required because this scope changes only frontend/interface files, one static CI audit, the CI workflow and documentation.

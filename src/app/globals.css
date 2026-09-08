@@ -243,3 +243,39 @@
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Feedback de navegação interna sem bloquear interação. */
+@keyframes gestify-navigation-progress {
+  0% {
+    transform: translateX(-120%);
+  }
+  55% {
+    transform: translateX(90%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.navigation-progress__bar {
+  animation: gestify-navigation-progress 1.15s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Respeita a preferência do sistema e evita animações desnecessárias. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .navigation-progress__bar {
+    width: 72%;
+    transform: translateX(0);
+    animation: none !important;
+  }
+}

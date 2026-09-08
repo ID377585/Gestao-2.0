@@ -4,6 +4,7 @@ import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { CookieBanner } from "@/components/legal/CookieBanner";
 import { MusicPlayerHost } from "@/components/layout/MusicPlayerHost";
+import { NavigationProgress } from "@/components/layout/NavigationProgress";
 import { PrecoVendaMedioEnhancer } from "@/components/PrecoVendaMedioEnhancer";
 import { PrecoVendaMedioPersistentExtras } from "@/components/PrecoVendaMedioPersistentExtras";
 import { SITE_URL } from "@/lib/legal-content";
@@ -38,6 +39,7 @@ export default function RootLayout({
     <html lang="pt-BR" suppressHydrationWarning>
       <body className={inter.className}>
         <Providers>
+          <NavigationProgress />
           <PrecoVendaMedioEnhancer />
           <PrecoVendaMedioPersistentExtras />
           <MusicPlayerHost />

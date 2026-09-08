@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const rawUrl = process.env.SUPABASE_DB_URL || process.env.GESTIFY_DR_SOURCE_DB_URL
-const expectedProjectRef = process.env.GESTIFY_DR_SOURCE_PROJECT_REF || ''
+const expectedProjectRef = process.env.GESTIFY_DR_SOURCE_PROJECT_REF || 'ubwbnpckbwtllitonpjj'
 
 function fail(message) {
   console.error(`[dr-preflight] ERRO: ${message}`)
@@ -41,21 +41,15 @@ if (!isSupavisor && !isDirectSupabase) {
 }
 
 if (isSupavisor) {
-  if (!expectedProjectRef) {
-    fail('GESTIFY_DR_SOURCE_PROJECT_REF é obrigatório para normalizar conexão via Supavisor')
-  }
-
   // A mesma credencial do banco funciona no Session pooler. Ajustamos apenas
   // roteamento/usuário em memória, sem alterar ou imprimir o secret original.
   url.port = '5432'
   url.username = `postgres.${expectedProjectRef}`
 } else {
   url.port = '5432'
-  if (expectedProjectRef) {
-    const expectedHost = `db.${expectedProjectRef}.supabase.co`
-    if (host !== expectedHost) {
-      fail(`host Direct connection não corresponde ao projeto esperado ${expectedProjectRef}`)
-    }
+  const expectedHost = `db.${expectedProjectRef}.supabase.co`
+  if (host !== expectedHost) {
+    fail(`host Direct connection não corresponde ao projeto esperado ${expectedProjectRef}`)
   }
 }
 

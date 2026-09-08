@@ -6,6 +6,55 @@ import { rateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
+const PRODUCT_CATALOG_CACHE_TTL_MS = 15_000;
+const PRODUCT_CATALOG_CACHE_MAX_TENANTS = 100;
+
+type ProductCatalogCacheEntry = {
+  expiresAt: number;
+  data: unknown[];
+};
+
+const productCatalogCache = new Map<string, ProductCatalogCacheEntry>();
+
+function readProductCatalogCache(establishmentId: string) {
+  // Tenant contract: establishmentId originates from getAuthenticatedTenantUserOrThrow.
+  const now = Date.now();
+  const cached = productCatalogCache.get(establishmentId);
+
+  if (cached && cached.expiresAt > now) {
+    return cached.data;
+  }
+
+  if (cached) {
+    productCatalogCache.delete(establishmentId);
+  }
+
+  return null;
+}
+
+function writeProductCatalogCache(establishmentId: string, data: unknown[]) {
+  // Tenant contract: establishmentId originates from getAuthenticatedTenantUserOrThrow.
+  const now = Date.now();
+
+  if (productCatalogCache.size >= PRODUCT_CATALOG_CACHE_MAX_TENANTS) {
+    for (const [tenantId, entry] of productCatalogCache) {
+      if (entry.expiresAt <= now) {
+        productCatalogCache.delete(tenantId);
+      }
+    }
+  }
+
+  if (productCatalogCache.size >= PRODUCT_CATALOG_CACHE_MAX_TENANTS) {
+    const oldestTenantId = productCatalogCache.keys().next().value as string | undefined;
+    if (oldestTenantId) productCatalogCache.delete(oldestTenantId);
+  }
+
+  productCatalogCache.set(establishmentId, {
+    data,
+    expiresAt: now + PRODUCT_CATALOG_CACHE_TTL_MS,
+  });
+}
+
 export async function GET(request: Request) {
   try {
     const limited = rateLimit(request, {
@@ -28,6 +77,14 @@ export async function GET(request: Request) {
     }
 
     const establishmentId = tenantContext.tenant.establishmentId;
+    const cachedCatalog = readProductCatalogCache(establishmentId);
+
+    if (cachedCatalog) {
+      return NextResponse.json(cachedCatalog, {
+        status: 200,
+        headers: privateCacheHeaders(30),
+      });
+    }
 
     const { data, error } = await supabase
       .from("products")
@@ -61,7 +118,10 @@ export async function GET(request: Request) {
       );
     }
 
-    return NextResponse.json(data ?? [], {
+    const catalog = data ?? [];
+    writeProductCatalogCache(establishmentId, catalog);
+
+    return NextResponse.json(catalog, {
       status: 200,
       headers: privateCacheHeaders(30),
     });

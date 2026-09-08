@@ -26,6 +26,13 @@ if (!url.username) fail('usuário do banco de origem ausente')
 if (!url.password) fail('senha do banco de origem ausente')
 
 const host = url.hostname.toLowerCase()
+const isLocal = ['127.0.0.1', 'localhost', '::1'].includes(host)
+if (isLocal) {
+  console.error('[dr-preflight] Origem local/fixture preservada.')
+  process.stdout.write(url.toString())
+  process.exit(0)
+}
+
 const isSupavisor = host.endsWith('.pooler.supabase.com')
 const isDirectSupabase = host.startsWith('db.') && host.endsWith('.supabase.co')
 

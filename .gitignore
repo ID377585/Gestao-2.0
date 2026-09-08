@@ -66,6 +66,13 @@ Thumbs.db
 # =========================
 *.bak
 next.config.ts.bak
+
+# Disaster recovery artifacts (never commit backups or encrypted bundles)
+.artifacts/
+.backups/
+*.tar.gz.gpg
+*.gpg.sha256
+*.gpg.metadata.json
 .vercel
 
 Gestao-2.0/

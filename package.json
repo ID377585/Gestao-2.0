@@ -33,6 +33,7 @@
     "tenant:writes:audit": "node scripts/audit-tenant-writes.mjs",
     "tenant:writes:ci": "node scripts/audit-tenant-writes.mjs --fail-on-findings --baseline scripts/tenant-writes-baseline.json --quiet",
     "runtime:imports:check": "node scripts/audit-runtime-imports.mjs",
+    "core:security:audit": "node scripts/audit-disaster-recovery.mjs && node scripts/audit-dr-operational-preflight.mjs",
     "dr:fixture": "bash scripts/dr/run-fixture-drill.sh",
     "dr:backup": "bash scripts/dr/create-encrypted-backup.sh",
     "dr:restore": "bash scripts/dr/restore-encrypted-backup.sh",

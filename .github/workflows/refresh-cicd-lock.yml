@@ -1,0 +1,43 @@
+name: Refresh CI/CD lockfile
+
+on:
+  push:
+    branches:
+      - agent/ops/cicd-readiness-100-20260909
+    paths:
+      - package.json
+      - .github/workflows/refresh-cicd-lock.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: agent/ops/cicd-readiness-100-20260909
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Refresh lockfile only
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Verify full dependency audit
+        run: npm audit --audit-level=high
+      - name: Commit refreshed lockfile
+        shell: bash
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "Lockfile already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "security(ci): refresh audited lockfile"
+          git push origin HEAD:agent/ops/cicd-readiness-100-20260909

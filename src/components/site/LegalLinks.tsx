@@ -12,10 +12,20 @@ type LegalLinksProps = {
   variant?: "footer" | "auth";
 };
 
-const dataGovernanceLink = {
-  href: "/governanca-e-protecao-de-dados",
-  label: "Governança e Proteção de Dados",
-} as const;
+const complementaryLegalLinks = [
+  {
+    href: "/governanca-e-protecao-de-dados",
+    label: "Governança e Proteção de Dados",
+  },
+  {
+    href: "/dpa",
+    label: "DPA",
+  },
+  {
+    href: "/seguranca-da-informacao",
+    label: "Segurança da Informação",
+  },
+] as const;
 
 export function LegalLinks({
   className,
@@ -24,8 +34,8 @@ export function LegalLinks({
 }: LegalLinksProps) {
   const links =
     variant === "auth"
-      ? [...authLegalNavigationLinks, dataGovernanceLink]
-      : [...legalNavigationLinks, dataGovernanceLink];
+      ? [...authLegalNavigationLinks, ...complementaryLegalLinks]
+      : [...legalNavigationLinks, ...complementaryLegalLinks];
 
   return (
     <nav aria-label="Links jurídicos" className={className}>

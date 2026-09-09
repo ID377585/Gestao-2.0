@@ -1,0 +1,32 @@
+name: LGPD and compliance readiness
+
+on:
+  pull_request:
+    paths:
+      - 'docs/compliance/**'
+      - 'docs/security/LGPD_INCIDENT_RESPONSE_RUNBOOK.md'
+      - 'src/lib/data-governance-content.ts'
+      - 'scripts/audit-lgpd-readiness.mjs'
+      - '.github/workflows/lgpd-compliance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compliance:
+    name: LGPD operational readiness audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Audit LGPD/compliance controls
+        run: node scripts/audit-lgpd-readiness.mjs

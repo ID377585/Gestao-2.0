@@ -25,19 +25,27 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Modernize official Actions
+        shell: bash
+        run: |
+          find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 | xargs -0 sed -i \
+            -e 's#actions/checkout@v4#actions/checkout@v7#g' \
+            -e 's#actions/setup-node@v4#actions/setup-node@v7#g' \
+            -e 's#actions/upload-artifact@v4#actions/upload-artifact@v7#g' \
+            -e 's#actions/download-artifact@v4#actions/download-artifact@v8#g'
       - name: Refresh lockfile only
         run: npm install --package-lock-only --ignore-scripts
       - name: Verify full dependency audit
         run: npm audit --audit-level=high
-      - name: Commit refreshed lockfile
+      - name: Commit refreshed CI/CD files
         shell: bash
         run: |
-          if git diff --quiet -- package-lock.json; then
-            echo "Lockfile already current."
+          if git diff --quiet; then
+            echo "CI/CD files already current."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json
-          git commit -m "security(ci): refresh audited lockfile"
+          git add package-lock.json .github/workflows
+          git commit -m "ci: modernize Actions and refresh audited lockfile"
           git push origin HEAD:agent/ops/cicd-readiness-100-20260909

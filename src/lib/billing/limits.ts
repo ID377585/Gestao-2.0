@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getBillingPlan } from "@/lib/billing/plans";
 import { getCompanySubscriptionStatusWithClient } from "@/lib/billing/subscription-status";
+import { getEstablishmentEntitlement } from "@/lib/compliance/legal.server";
 
 export type BillingLimitKind =
   | "users"
@@ -29,11 +30,7 @@ async function countActiveUsers(params: {
     .eq("establishment_id", params.establishmentId)
     .eq("is_active", true);
 
-  if (error) {
-    console.error("Erro ao contar usuários ativos do plano:", error);
-    throw new Error("Não foi possível validar o limite de usuários do plano.");
-  }
-
+  if (error) throw new Error("Não foi possível validar o limite de usuários do plano.");
   return count ?? 0;
 }
 
@@ -47,11 +44,7 @@ async function countActiveProducts(params: {
     .eq("establishment_id", params.establishmentId)
     .eq("is_active", true);
 
-  if (error) {
-    console.error("Erro ao contar produtos ativos do plano:", error);
-    throw new Error("Não foi possível validar o limite de produtos do plano.");
-  }
-
+  if (error) throw new Error("Não foi possível validar o limite de produtos do plano.");
   return count ?? 0;
 }
 
@@ -64,11 +57,7 @@ async function countOrders(params: {
     .select("*", { count: "exact", head: true })
     .eq("establishment_id", params.establishmentId);
 
-  if (error) {
-    console.error("Erro ao contar pedidos do plano:", error);
-    throw new Error("Não foi possível validar o limite de pedidos do plano.");
-  }
-
+  if (error) throw new Error("Não foi possível validar o limite de pedidos do plano.");
   return count ?? 0;
 }
 
@@ -81,13 +70,7 @@ async function countTechnicalSheets(params: {
     .select("*", { count: "exact", head: true })
     .eq("establishment_id", params.establishmentId);
 
-  if (error) {
-    console.error("Erro ao contar fichas técnicas do plano:", error);
-    throw new Error(
-      "Não foi possível validar o limite de fichas técnicas do plano."
-    );
-  }
-
+  if (error) throw new Error("Não foi possível validar o limite de fichas técnicas do plano.");
   return count ?? 0;
 }
 
@@ -101,12 +84,20 @@ async function countUserEstablishments(params: {
     .eq("user_id", params.userId)
     .eq("is_active", true);
 
-  if (error) {
-    console.error("Erro ao contar empresas ativas do usuário:", error);
-    throw new Error("Não foi possível validar o limite de empresas do plano.");
-  }
-
+  if (error) throw new Error("Não foi possível validar o limite de empresas do plano.");
   return count ?? 0;
+}
+
+function entitlementLimit(
+  entitlement: Awaited<ReturnType<typeof getEstablishmentEntitlement>>,
+  kind: BillingLimitKind
+) {
+  if (!entitlement) return undefined;
+  if (kind === "users") return entitlement.max_users as number | null;
+  if (kind === "establishments") return entitlement.max_establishments as number | null;
+  if (kind === "products") return entitlement.max_products as number | null;
+  if (kind === "orders") return entitlement.max_orders as number | null;
+  return entitlement.max_technical_sheets as number | null;
 }
 
 export async function getBillingLimitCheck(params: {
@@ -114,12 +105,13 @@ export async function getBillingLimitCheck(params: {
   establishmentId: string;
   kind: Exclude<BillingLimitKind, "establishments">;
 }): Promise<BillingLimitCheck> {
-  const subscription = await getCompanySubscriptionStatusWithClient(
-    params.supabaseAdmin,
-    params.establishmentId
-  );
+  const [subscription, entitlement] = await Promise.all([
+    getCompanySubscriptionStatusWithClient(params.supabaseAdmin, params.establishmentId),
+    getEstablishmentEntitlement(params.establishmentId),
+  ]);
   const plan = getBillingPlan(subscription.planSlug);
-  const limit = plan?.limits[params.kind] ?? null;
+  const negotiatedLimit = entitlementLimit(entitlement, params.kind);
+  const limit = negotiatedLimit !== undefined ? negotiatedLimit : plan?.limits[params.kind] ?? null;
 
   const current =
     params.kind === "users"
@@ -135,7 +127,9 @@ export async function getBillingLimitCheck(params: {
     allowed: limit === null || current < limit,
     current,
     limit,
-    planName: plan?.name ?? "Plano não configurado",
+    planName: entitlement?.contract_type
+      ? `${plan?.name ?? entitlement.plan_reference ?? "Plano"} - contrato especial`
+      : plan?.name ?? "Plano não configurado",
     planSlug: subscription.planSlug,
   };
 }
@@ -146,7 +140,6 @@ export async function assertBillingLimitAvailable(params: {
   kind: Exclude<BillingLimitKind, "establishments">;
 }) {
   const check = await getBillingLimitCheck(params);
-
   if (!check.allowed) {
     const label =
       check.kind === "users"
@@ -160,7 +153,6 @@ export async function assertBillingLimitAvailable(params: {
       `Limite de ${label} atingido no plano ${check.planName}. Uso atual: ${check.current}/${check.limit}.`
     );
   }
-
   return check;
 }
 
@@ -169,12 +161,16 @@ export async function assertEstablishmentCreationLimitAvailable(params: {
   referenceEstablishmentId: string;
   userId: string;
 }) {
-  const subscription = await getCompanySubscriptionStatusWithClient(
-    params.supabaseAdmin,
-    params.referenceEstablishmentId
-  );
+  const [subscription, entitlement] = await Promise.all([
+    getCompanySubscriptionStatusWithClient(
+      params.supabaseAdmin,
+      params.referenceEstablishmentId
+    ),
+    getEstablishmentEntitlement(params.referenceEstablishmentId),
+  ]);
   const plan = getBillingPlan(subscription.planSlug);
-  const limit = plan?.limits.establishments ?? null;
+  const negotiatedLimit = entitlementLimit(entitlement, "establishments");
+  const limit = negotiatedLimit !== undefined ? negotiatedLimit : plan?.limits.establishments ?? null;
   const current = await countUserEstablishments(params);
 
   const check: BillingLimitCheck = {
@@ -182,7 +178,9 @@ export async function assertEstablishmentCreationLimitAvailable(params: {
     allowed: limit === null || current < limit,
     current,
     limit,
-    planName: plan?.name ?? "Plano não configurado",
+    planName: entitlement?.contract_type
+      ? `${plan?.name ?? entitlement.plan_reference ?? "Plano"} - contrato especial`
+      : plan?.name ?? "Plano não configurado",
     planSlug: subscription.planSlug,
   };
 

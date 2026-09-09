@@ -36,7 +36,6 @@ export function SidebarMobile() {
     };
 
     if (open) window.addEventListener("keydown", onKeyDown);
-
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
@@ -49,11 +48,13 @@ export function SidebarMobile() {
         type="button"
         variant="ghost"
         size="icon"
-        className="md:hidden h-10 w-10 text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-800"
+        className="h-11 w-11 text-gray-700 hover:bg-gray-100 hover:text-gray-900 md:hidden dark:text-slate-200 dark:hover:bg-slate-800"
         aria-label="Abrir menu"
+        aria-expanded={open}
+        aria-controls="gestify-mobile-navigation"
         onClick={() => setOpen(true)}
       >
-        <Menu className="h-5 w-5" />
+        <Menu className="h-5 w-5" aria-hidden="true" />
       </Button>
 
       {open && (
@@ -65,7 +66,11 @@ export function SidebarMobile() {
             onClick={() => setOpen(false)}
           />
 
-          <aside className="fixed left-0 top-0 flex h-full w-[300px] flex-col border-r border-gray-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-950">
+          <aside
+            id="gestify-mobile-navigation"
+            aria-label="Menu principal"
+            className="fixed left-0 top-0 flex h-full w-[min(300px,88vw)] flex-col border-r border-gray-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-950"
+          >
             <div className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200 px-4 dark:border-slate-800">
               <GestifyMark size={40} compact />
 
@@ -75,19 +80,17 @@ export function SidebarMobile() {
                 size="icon"
                 aria-label="Fechar menu"
                 onClick={() => setOpen(false)}
-                className="h-8 w-8 text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                className="h-11 w-11 text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-800"
               >
-                <X className="h-5 w-5" />
+                <X className="h-5 w-5" aria-hidden="true" />
               </Button>
             </div>
 
-            <nav className="flex-1 overflow-y-auto px-3 py-4">
+            <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Navegação mobile">
               <div className="space-y-3">
                 {menuSections.map((section, sectionIndex) => {
                   const SectionIcon = section.icon;
-                  const sectionActive = section.items.some((item) =>
-                    isActive(item.href)
-                  );
+                  const sectionActive = section.items.some((item) => isActive(item.href));
 
                   return (
                     <div key={section.key} className="space-y-2">
@@ -99,7 +102,7 @@ export function SidebarMobile() {
                             : "border-transparent text-gray-700 dark:text-slate-300"
                         )}
                       >
-                        <SectionIcon className="h-4 w-4 shrink-0" />
+                        <SectionIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
                         <span>{section.label}</span>
                       </div>
 
@@ -113,21 +116,20 @@ export function SidebarMobile() {
                               key={item.href}
                               href={item.href}
                               onClick={() => setOpen(false)}
+                              aria-current={active ? "page" : undefined}
+                              className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-950"
                             >
-                              <Button
-                                variant="ghost"
+                              <span
                                 className={cn(
-                                  "h-12 w-full justify-start gap-3 rounded-xl border px-4 transition-all duration-200",
+                                  "flex h-12 w-full items-center justify-start gap-3 rounded-xl border px-4 text-sm font-medium transition-all duration-200",
                                   active
-                                    ? "border-blue-200 bg-blue-50 text-blue-700 shadow-sm hover:bg-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-800"
+                                    ? "border-blue-200 bg-blue-50 text-blue-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                                     : "border-transparent text-gray-700 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                                 )}
                               >
-                                <Icon className="h-4 w-4 shrink-0" />
-                                <span className="text-sm font-medium">
-                                  {item.label}
-                                </span>
-                              </Button>
+                                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                                <span>{item.label}</span>
+                              </span>
                             </Link>
                           );
                         })}

@@ -1,6 +1,6 @@
 # Spec — Supabase RPC security readiness 100%
 
-Status: implementing
+Status: validated
 Updated: 2026-09-09
 Priority: P0 security hardening
 
@@ -40,12 +40,24 @@ Uma implementação privilegiada diretamente no schema exposto aumenta a superf�
 
 Restaurar na árvore versionada a migration já aplicada em staging sob a mesma versão `20260902143000`, mover as implementações privilegiadas de `public` para `private`, recriar fachadas públicas `SECURITY INVOKER` e atualizar a auditoria estática para falhar caso uma futura migration volte a deixar essas RPCs como `SECURITY DEFINER` públicas.
 
+## Evidência de validação
+
+- Staging: `public_authenticated_security_definer_count = 0`.
+- Staging: `public_anon_security_definer_count = 0`.
+- Staging: cinco fachadas alvo `SECURITY INVOKER`; implementações privilegiadas em `private.*_impl`.
+- Staging: `order_belongs_to_user` permanece `service_role` only.
+- Staging: zero tabelas públicas sem RLS.
+- Staging Security Advisor: zero WARN `authenticated_security_definer_function_executable`.
+- Production read-only: cinco WARN alvo permanecem inalterados até promoção autorizada.
+- A migration versionada preserva exatamente a versão já aplicada em staging: `20260902143000`.
+- O gate de dependências de produção também foi endurecido com versões corrigidas de Next.js, `sharp` e `@xmldom/xmldom`; o lockfile foi regenerado de forma reproduzível sem desabilitar o `npm audit`.
+
 ## Testes e critérios de aceitação
 
 - auditoria estática `audit-security-definer-rpcs.mjs` verde;
 - lint verde;
 - typecheck verde;
-- dependency audit verde;
+- dependency audit de produção verde;
 - tenant writes audit verde;
 - readiness check/deployment verde;
 - build verde;
@@ -63,7 +75,7 @@ Restaurar na árvore versionada a migration já aplicada em staging sob a mesma 
 2. Preservar migration histórica exata já aplicada em staging.
 3. Validar estado físico e grants em staging.
 4. Rerodar Security Advisor e gates de CI.
-5. Abrir PR pronta para revisão.
+5. PR pronta para revisão somente após todos os gates finais do HEAD definitivo.
 6. Production somente após autorização humana específica para merge e DDL/promoção.
 
 ## Rollback

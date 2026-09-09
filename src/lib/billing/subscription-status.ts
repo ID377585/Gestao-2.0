@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getEstablishmentEntitlement } from "@/lib/compliance/legal.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type SubscriptionStatus =
@@ -16,6 +17,7 @@ export type CompanySubscriptionStatus = {
   planSlug: string | null;
   currentPeriodEnd: string | null;
   canAccessSystem: boolean;
+  billingPolicy?: string | null;
 };
 
 const ACCESS_ALLOWED_STATUSES: SubscriptionStatus[] = ["trialing", "active", "not_configured"];
@@ -25,13 +27,19 @@ export async function getCompanySubscriptionStatusWithClient(
   establishmentId: string
 ): Promise<CompanySubscriptionStatus> {
   try {
-    const { data, error } = await supabase
-      .from("company_subscriptions")
-      .select("status, plan_slug, current_period_end")
-      .eq("establishment_id", establishmentId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const [subscriptionResult, entitlement] = await Promise.all([
+      supabase
+        .from("company_subscriptions")
+        .select("status, plan_slug, current_period_end")
+        .eq("establishment_id", establishmentId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      getEstablishmentEntitlement(establishmentId),
+    ]);
+
+    const { data, error } = subscriptionResult;
+    const complimentary = entitlement?.billing_policy === "complimentary";
 
     if (error) {
       const code = String((error as any)?.code ?? "");
@@ -39,9 +47,10 @@ export async function getCompanySubscriptionStatusWithClient(
         return {
           establishmentId,
           status: "not_configured",
-          planSlug: null,
+          planSlug: entitlement?.plan_reference ? String(entitlement.plan_reference) : null,
           currentPeriodEnd: null,
           canAccessSystem: true,
+          billingPolicy: entitlement?.billing_policy ?? null,
         };
       }
 
@@ -49,9 +58,10 @@ export async function getCompanySubscriptionStatusWithClient(
       return {
         establishmentId,
         status: "not_configured",
-        planSlug: null,
+        planSlug: entitlement?.plan_reference ? String(entitlement.plan_reference) : null,
         currentPeriodEnd: null,
         canAccessSystem: true,
+        billingPolicy: entitlement?.billing_policy ?? null,
       };
     }
 
@@ -60,9 +70,18 @@ export async function getCompanySubscriptionStatusWithClient(
     return {
       establishmentId,
       status,
-      planSlug: data?.plan_slug ? String(data.plan_slug) : null,
-      currentPeriodEnd: data?.current_period_end ? String(data.current_period_end) : null,
-      canAccessSystem: ACCESS_ALLOWED_STATUSES.includes(status),
+      planSlug: entitlement?.plan_reference
+        ? String(entitlement.plan_reference)
+        : data?.plan_slug
+          ? String(data.plan_slug)
+          : null,
+      currentPeriodEnd: complimentary
+        ? null
+        : data?.current_period_end
+          ? String(data.current_period_end)
+          : null,
+      canAccessSystem: complimentary || ACCESS_ALLOWED_STATUSES.includes(status),
+      billingPolicy: entitlement?.billing_policy ?? null,
     };
   } catch (error) {
     console.error("[getCompanySubscriptionStatus] unexpected error:", error);
@@ -72,6 +91,7 @@ export async function getCompanySubscriptionStatusWithClient(
       planSlug: null,
       currentPeriodEnd: null,
       canAccessSystem: true,
+      billingPolicy: null,
     };
   }
 }

@@ -35,7 +35,6 @@ jobs:
         run: |
           set +e
           npm audit --json > dev-audit.json
-          status=$?
           set -e
           node <<'NODE'
           const fs = require('node:fs')
@@ -56,7 +55,6 @@ jobs:
           console.log(JSON.stringify({ highOrCritical: rows.length, findings: rows }, null, 2))
           if (rows.length) process.exit(2)
           NODE
-          exit $status
 
       - name: Upload diagnostic audit
         if: ${{ always() }}

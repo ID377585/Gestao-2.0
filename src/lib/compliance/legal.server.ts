@@ -18,6 +18,7 @@ export async function listLegalDocuments() {
     .select(
       "document_type,version_id,version_label,title,slug,status,effective_at,published_at,requires_acceptance,requires_reacceptance,metadata"
     )
+    .eq("status", "published")
     .order("document_type")
     .order("created_at", { ascending: false });
 

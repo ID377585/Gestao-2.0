@@ -61,7 +61,7 @@ begin
     new.accepted_at,
     new.accepted_source,
     new.accepted_from_path,
-    nullif(new.ip_address, '')::inet,
+    new.ip_address,
     new.user_agent,
     new.auth_session_id,
     false,

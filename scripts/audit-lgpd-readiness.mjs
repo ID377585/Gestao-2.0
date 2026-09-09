@@ -10,6 +10,8 @@ const requiredFiles = [
   'docs/compliance/SUBPROCESSOR_TRANSFER_REGISTER.md',
   'docs/compliance/RETENTION_DELETION_LEGAL_HOLD.md',
   'docs/compliance/CONSUMER_AND_SAAS_CONTRACT_GUARDRAILS.md',
+  'docs/legal/DPA_VNEXT_DRAFT.md',
+  'docs/legal/TERMS_VNEXT_CHANGESET.md',
   'docs/security/LGPD_INCIDENT_RESPONSE_RUNBOOK.md',
   'src/lib/data-governance-content.ts',
 ];
@@ -34,6 +36,8 @@ const dsar = corpus.get('docs/compliance/DSAR_RUNBOOK.md') || '';
 const ropa = corpus.get('docs/compliance/ROPA_PROCESSING_REGISTER.md') || '';
 const ripd = corpus.get('docs/compliance/RIPD_DPIA_STANDARD.md') || '';
 const contract = corpus.get('docs/compliance/CONSUMER_AND_SAAS_CONTRACT_GUARDRAILS.md') || '';
+const dpaDraft = corpus.get('docs/legal/DPA_VNEXT_DRAFT.md') || '';
+const termsDraft = corpus.get('docs/legal/TERMS_VNEXT_CHANGESET.md') || '';
 
 const requireText = (label, text, patterns) => {
   for (const pattern of patterns) {
@@ -114,6 +118,26 @@ requireText('contract guardrails', contract, [
   /Evidence of acceptance/,
   /Legal review gate/,
   /100% secure/i,
+]);
+
+requireText('DPA vNext draft', dpaDraft, [
+  /instruções documentadas/i,
+  /instrução aparentar violar/i,
+  /24 horas/i,
+  /Resolução CD\/ANPD nº 19\/2024/i,
+  /Suboperadores/i,
+  /RIPD/i,
+  /Ordens judiciais/i,
+  /não publicar sem revisão jurídica/i,
+]);
+
+requireText('Terms vNext changeset', termsDraft, [
+  /aceite afirmativo/i,
+  /CDC/i,
+  /biometria facial/i,
+  /Responsabilidade/i,
+  /CURRENT_TERMS_VERSION_ID/,
+  /revisão jurídica brasileira/i,
 ]);
 
 // Guard against accidental legal overclaims in the public governance policy.

@@ -26,10 +26,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -67,6 +67,9 @@ jobs:
       - name: Production dependency audit
         run: npm run audit
 
+      - name: Full dependency audit
+        run: npm run audit:all
+
       - name: Excel export smoke
         run: npm run excel:smoke
 
@@ -92,10 +95,10 @@ jobs:
 
     steps:
       - name: Checkout trusted main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm

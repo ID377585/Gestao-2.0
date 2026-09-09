@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   principalMenuItems,
@@ -11,6 +12,12 @@ import {
 type Props = {
   onNavigate?: () => void;
 };
+
+const privacyMenuItem = {
+  label: "Privacidade e Dados",
+  href: "/dashboard/admin/privacidade",
+  icon: ShieldCheck,
+} as const;
 
 export function SidebarNav({ onNavigate }: Props) {
   const pathname = usePathname();
@@ -56,7 +63,7 @@ export function SidebarNav({ onNavigate }: Props) {
         </div>
 
         <div className="flex flex-col gap-1">
-          {administracaoMenuItems.map((item) => {
+          {[...administracaoMenuItems, privacyMenuItem].map((item) => {
             const active = isActive(item.href);
             const Icon = item.icon;
 

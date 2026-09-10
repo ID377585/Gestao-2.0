@@ -32,6 +32,15 @@ function toBoolean(checked: CheckedState) {
   return checked === true;
 }
 
+const legalLinks = [
+  ["/termos-de-uso", CURRENT_TERMS_DOCUMENT_TITLE],
+  ["/politica-de-privacidade", "Política de Privacidade"],
+  ["/politica-de-cookies", "Política de Cookies"],
+  ["/governanca-e-protecao-de-dados", "Governança e Proteção de Dados"],
+  ["/seguranca-da-informacao", "Segurança da Informação"],
+  ["/dpa", "DPA / Tratamento de Dados"],
+] as const;
+
 export function ConsentCheckbox({
   id = "legal-consent",
   value,
@@ -40,7 +49,7 @@ export function ConsentCheckbox({
   required = true,
   disabled = false,
   className,
-  helperText = "Use este componente em formulários públicos que dependam de aceite contratual ou consentimento informado.",
+  helperText = "Este aceite é obrigatório quando o acesso depende da versão jurídica vigente.",
   secondaryConsent,
 }: ConsentCheckboxProps) {
   const helperId = `${id}-helper`;
@@ -61,31 +70,21 @@ export function ConsentCheckbox({
           className="mt-0.5"
         />
 
-        <div className="space-y-1">
-          <Label
-            htmlFor={id}
-            className="cursor-pointer text-sm font-medium leading-6 text-slate-800"
-          >
-            Li e aceito os{" "}
-            <Link
-              href="/termos-de-uso"
-              className="text-blue-700 underline underline-offset-4 transition hover:text-blue-800"
-            >
-              {CURRENT_TERMS_DOCUMENT_TITLE}
-            </Link>{" "}
-            e a{" "}
-            <Link
-              href="/politica-de-privacidade"
-              className="text-blue-700 underline underline-offset-4 transition hover:text-blue-800"
-            >
-              Política de Privacidade
-            </Link>
-            .
+        <div className="space-y-2">
+          <Label htmlFor={id} className="cursor-pointer text-sm font-medium leading-6 text-slate-800">
+            Declaro que li, estou ciente e aceito integralmente os termos, regras e políticas vigentes da Gestify aplicáveis ao uso da plataforma.
           </Label>
-
-          <p id={helperId} className="text-xs leading-5 text-slate-500">
-            {helperText}
+          <p className="text-xs leading-5 text-slate-600">
+            Documentos integrantes: {legalLinks.map(([href, label], index) => (
+              <span key={href}>
+                {index > 0 ? ", " : ""}
+                <Link href={href} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline underline-offset-4 hover:text-blue-800">
+                  {label}
+                </Link>
+              </span>
+            ))}.
           </p>
+          <p id={helperId} className="text-xs leading-5 text-slate-500">{helperText}</p>
         </div>
       </div>
 
@@ -94,35 +93,20 @@ export function ConsentCheckbox({
           <Checkbox
             id={secondaryConsent.id || `${id}-marketing`}
             checked={secondaryConsent.value}
-            onCheckedChange={(checked) =>
-              secondaryConsent.onChange(toBoolean(checked))
-            }
+            onCheckedChange={(checked) => secondaryConsent.onChange(toBoolean(checked))}
             disabled={disabled}
             className="mt-0.5"
           />
-
           <div className="space-y-1">
-            <Label
-              htmlFor={secondaryConsent.id || `${id}-marketing`}
-              className="cursor-pointer text-sm font-medium leading-6 text-slate-700"
-            >
-              {secondaryConsent.label ||
-                "Aceito receber comunicações comerciais e institucionais da Gestify."}
+            <Label htmlFor={secondaryConsent.id || `${id}-marketing`} className="cursor-pointer text-sm font-medium leading-6 text-slate-700">
+              {secondaryConsent.label || "Aceito receber comunicações comerciais e institucionais da Gestify."}
             </Label>
-            {secondaryConsent.description ? (
-              <p className="text-xs leading-5 text-slate-500">
-                {secondaryConsent.description}
-              </p>
-            ) : null}
+            {secondaryConsent.description ? <p className="text-xs leading-5 text-slate-500">{secondaryConsent.description}</p> : null}
           </div>
         </div>
       ) : null}
 
-      {error ? (
-        <p id={errorId} className="text-sm font-medium text-red-600">
-          {error}
-        </p>
-      ) : null}
+      {error ? <p id={errorId} className="text-sm font-medium text-red-600">{error}</p> : null}
     </div>
   );
 }

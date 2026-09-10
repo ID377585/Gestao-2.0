@@ -73,12 +73,15 @@ jobs:
       - name: OSS license compliance audit
         run: npm run licenses:audit
 
-      - name: Upload OSS license audit evidence
+      - name: Upload OSS compliance evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: oss-license-audit-${{ github.run_id }}
-          path: artifacts/compliance/oss-license-audit.json
+          name: oss-compliance-${{ github.run_id }}
+          path: |
+            artifacts/compliance/oss-license-audit.json
+            artifacts/compliance/oss-sbom.json
+            artifacts/compliance/THIRD_PARTY_NOTICES.md
           if-no-files-found: error
           retention-days: 90
 

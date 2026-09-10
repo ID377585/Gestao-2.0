@@ -1,11 +1,9 @@
 import { LegalPageLayout } from "@/components/legal/LegalPageLayout";
-import {
-  createLegalPageMetadata,
-  termsOfUseDocument,
-} from "@/lib/legal-content";
+import { createLegalPageMetadata } from "@/lib/legal-content";
+import { termsOfUseDocumentV21 } from "@/lib/legal-terms-v2.1";
 
-export const metadata = createLegalPageMetadata(termsOfUseDocument);
+export const metadata = createLegalPageMetadata(termsOfUseDocumentV21);
 
 export default function TermsOfUsePage() {
-  return <LegalPageLayout document={termsOfUseDocument} />;
+  return <LegalPageLayout document={termsOfUseDocumentV21} />;
 }

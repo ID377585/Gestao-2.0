@@ -1,35 +1,35 @@
--- Register Gestify Terms of Service v2.1 as the current published login gate.
+-- Register Gestify Terms of Service v2.1 as the published version that requires reacceptance.
 -- Existing v1.3 acceptances remain immutable evidence; users must accept v2.1.
 
 begin;
 
 update public.legal_document_versions
 set
-  status = 'superseded',
-  effective_to = '2026-09-10 13:50:00+00',
-  is_current = false,
-  metadata = coalesce(metadata, '{}'::jsonb) || '{"superseded_by":"saas-v2.1-2026-09-10"}'::jsonb
+  status = 'retired',
+  metadata = coalesce(metadata, '{}'::jsonb) || '{"superseded_by":"saas-v2.1-2026-09-10"}'::jsonb,
+  updated_at = now()
 where document_type = 'terms'
-  and is_current = true;
+  and status = 'published'
+  and version_id <> 'saas-v2.1-2026-09-10';
 
 insert into public.legal_document_versions (
   document_type,
   version_id,
   version_label,
   title,
-  public_path,
+  slug,
   status,
+  effective_at,
   published_at,
-  effective_from,
   requires_acceptance,
-  is_current,
+  requires_reacceptance,
   metadata
 ) values (
   'terms',
   'saas-v2.1-2026-09-10',
   'v2.1',
   'Termos do Serviço',
-  '/termos-de-uso',
+  'termos-de-uso',
   'published',
   '2026-09-10 13:50:00+00',
   '2026-09-10 13:50:00+00',
@@ -40,12 +40,13 @@ insert into public.legal_document_versions (
 on conflict (version_id) do update set
   version_label = excluded.version_label,
   title = excluded.title,
-  public_path = excluded.public_path,
+  slug = excluded.slug,
   status = excluded.status,
+  effective_at = excluded.effective_at,
   published_at = excluded.published_at,
-  effective_from = excluded.effective_from,
   requires_acceptance = excluded.requires_acceptance,
-  is_current = excluded.is_current,
-  metadata = excluded.metadata;
+  requires_reacceptance = excluded.requires_reacceptance,
+  metadata = excluded.metadata,
+  updated_at = now();
 
 commit;

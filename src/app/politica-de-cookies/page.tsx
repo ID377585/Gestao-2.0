@@ -1,11 +1,9 @@
 import { LegalPageLayout } from "@/components/legal/LegalPageLayout";
-import {
-  cookiePolicyDocument,
-  createLegalPageMetadata,
-} from "@/lib/legal-content";
+import { createLegalPageMetadata } from "@/lib/legal-content";
+import { cookiePolicyDocumentV21 } from "@/lib/legal-privacy-cookies-v2.1";
 
-export const metadata = createLegalPageMetadata(cookiePolicyDocument);
+export const metadata = createLegalPageMetadata(cookiePolicyDocumentV21);
 
 export default function CookiePolicyPage() {
-  return <LegalPageLayout document={cookiePolicyDocument} />;
+  return <LegalPageLayout document={cookiePolicyDocumentV21} />;
 }

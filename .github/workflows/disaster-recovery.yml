@@ -108,6 +108,7 @@ jobs:
 
     env:
       SUPABASE_DB_URL: ${{ secrets.GESTIFY_DR_SOURCE_DB_URL }}
+      GESTIFY_DR_SOURCE_PROJECT_REF: ubwbnpckbwtllitonpjj
       BACKUP_PASSPHRASE: ${{ secrets.GESTIFY_DR_BACKUP_PASSPHRASE }}
       GESTIFY_DR_S3_ENDPOINT: ${{ secrets.GESTIFY_DR_S3_ENDPOINT }}
       GESTIFY_DR_S3_BUCKET: ${{ secrets.GESTIFY_DR_S3_BUCKET }}

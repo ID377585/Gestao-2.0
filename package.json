@@ -39,10 +39,11 @@
     "dr:fixture": "bash scripts/dr/run-fixture-drill.sh",
     "dr:backup": "bash scripts/dr/create-encrypted-backup.sh",
     "dr:restore": "bash scripts/dr/restore-encrypted-backup.sh",
+    "dr:db-url:test": "node scripts/dr/normalize-supabase-dr-db-url.mjs --self-test",
     "readiness:check": "node scripts/check-production-readiness.mjs",
     "readiness:strict": "node scripts/check-production-readiness.mjs --strict",
     "readiness:deployment": "node scripts/check-deployment-readiness.mjs",
-    "ci": "npm run lint && npm run typecheck && npm run audit && npm run excel:smoke && npm run tenant:writes:ci && npm run runtime:imports:check && npm run readiness:check && npm run readiness:deployment && npm run build",
+    "ci": "npm run dr:db-url:test && npm run lint && npm run typecheck && npm run audit && npm run excel:smoke && npm run tenant:writes:ci && npm run runtime:imports:check && npm run readiness:check && npm run readiness:deployment && npm run build",
     "postinstall": "node scripts/enforce-production-freeze.js"
   },
   "dependencies": {

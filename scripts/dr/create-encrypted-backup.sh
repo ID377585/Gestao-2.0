@@ -31,6 +31,10 @@ require_command tar
 require_command sha256sum
 require_command node
 
+DR_DB_URL="$(node "$ROOT_DIR/scripts/dr/normalize-supabase-dr-db-url.mjs" \
+  "$SUPABASE_DB_URL" \
+  "${GESTIFY_DR_SOURCE_PROJECT_REF:-}")" || fail "não foi possível normalizar a conexão do banco para DR"
+
 if [[ -x "$ROOT_DIR/node_modules/.bin/supabase" ]]; then
   SUPABASE_CMD=("$ROOT_DIR/node_modules/.bin/supabase")
 elif command -v supabase >/dev/null 2>&1; then
@@ -58,6 +62,11 @@ safe_name() {
   printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-'
 }
 
+printf '[dr-backup] Validando conectividade read-only da origem...\n'
+psql_exec "$DR_DB_URL" -X -A -t -v ON_ERROR_STOP=1 \
+  -c "select current_database();" >/dev/null || \
+  fail "conexão DR com a origem falhou; valide a credencial e o modo de conexão sem publicar o segredo"
+
 mkdir -p "$BACKUP_OUTPUT_DIR"
 BACKUP_OUTPUT_DIR="$(cd "$BACKUP_OUTPUT_DIR" && pwd)"
 
@@ -77,16 +86,16 @@ METADATA_PATH="$ENCRYPTED_PATH.metadata.json"
 
 printf '[dr-backup] Gerando dump lógico oficial do Supabase...\n'
 "${SUPABASE_CMD[@]}" db dump \
-  --db-url "$SUPABASE_DB_URL" \
+  --db-url "$DR_DB_URL" \
   -f "$WORK_DIR/roles.sql" \
   --role-only
 
 "${SUPABASE_CMD[@]}" db dump \
-  --db-url "$SUPABASE_DB_URL" \
+  --db-url "$DR_DB_URL" \
   -f "$WORK_DIR/schema.sql"
 
 "${SUPABASE_CMD[@]}" db dump \
-  --db-url "$SUPABASE_DB_URL" \
+  --db-url "$DR_DB_URL" \
   -f "$WORK_DIR/data.sql" \
   --use-copy \
   --data-only \
@@ -94,12 +103,12 @@ printf '[dr-backup] Gerando dump lógico oficial do Supabase...\n'
   -x "storage.vector_indexes"
 
 "${SUPABASE_CMD[@]}" db dump \
-  --db-url "$SUPABASE_DB_URL" \
+  --db-url "$DR_DB_URL" \
   -f "$WORK_DIR/history-schema.sql" \
   --schema supabase_migrations
 
 "${SUPABASE_CMD[@]}" db dump \
-  --db-url "$SUPABASE_DB_URL" \
+  --db-url "$DR_DB_URL" \
   -f "$WORK_DIR/history-data.sql" \
   --use-copy \
   --data-only \
@@ -114,11 +123,11 @@ for required_file in \
   [[ -s "$WORK_DIR/$required_file" ]] || fail "dump vazio ou ausente: $required_file"
 done
 
-SOURCE_VERSION="$(psql_exec "$SUPABASE_DB_URL" -X -A -t -v ON_ERROR_STOP=1 \
+SOURCE_VERSION="$(psql_exec "$DR_DB_URL" -X -A -t -v ON_ERROR_STOP=1 \
   -c "select current_setting('server_version');" | tr -d '\r' | tail -n 1)"
-SOURCE_DATABASE_SIZE="$(psql_exec "$SUPABASE_DB_URL" -X -A -t -v ON_ERROR_STOP=1 \
+SOURCE_DATABASE_SIZE="$(psql_exec "$DR_DB_URL" -X -A -t -v ON_ERROR_STOP=1 \
   -c "select pg_database_size(current_database());" | tr -d '\r' | tail -n 1)"
-PUBLIC_TABLES_WITHOUT_RLS="$(psql_exec "$SUPABASE_DB_URL" -X -A -t -v ON_ERROR_STOP=1 -c "
+PUBLIC_TABLES_WITHOUT_RLS="$(psql_exec "$DR_DB_URL" -X -A -t -v ON_ERROR_STOP=1 -c "
   select count(*)
   from pg_catalog.pg_class relation
   join pg_catalog.pg_namespace namespace
@@ -127,7 +136,7 @@ PUBLIC_TABLES_WITHOUT_RLS="$(psql_exec "$SUPABASE_DB_URL" -X -A -t -v ON_ERROR_S
     and relation.relkind = 'r'
     and relation.relrowsecurity = false;
 " | tr -d '\r' | tail -n 1)"
-ANONYMOUS_PUBLIC_TABLE_GRANTS="$(psql_exec "$SUPABASE_DB_URL" -X -A -t -v ON_ERROR_STOP=1 -c "
+ANONYMOUS_PUBLIC_TABLE_GRANTS="$(psql_exec "$DR_DB_URL" -X -A -t -v ON_ERROR_STOP=1 -c "
   select count(*)
   from information_schema.table_privileges privilege
   where privilege.table_schema = 'public'
@@ -142,11 +151,11 @@ fi
 COUNTS_FILE="$WORK_DIR/critical-counts.tsv"
 : > "$COUNTS_FILE"
 for table_name in establishments memberships profiles products orders audit_logs; do
-  exists="$(psql_exec "$SUPABASE_DB_URL" -X -A -t -v ON_ERROR_STOP=1 \
+  exists="$(psql_exec "$DR_DB_URL" -X -A -t -v ON_ERROR_STOP=1 \
     -c "select to_regclass('public.${table_name}') is not null;" | tr -d '\r' | tail -n 1)"
 
   if [[ "$exists" == "t" ]]; then
-    row_count="$(psql_exec "$SUPABASE_DB_URL" -X -A -t -v ON_ERROR_STOP=1 \
+    row_count="$(psql_exec "$DR_DB_URL" -X -A -t -v ON_ERROR_STOP=1 \
       -c "select count(*) from public.${table_name};" | tr -d '\r' | tail -n 1)"
     printf '%s\t%s\n' "$table_name" "$row_count" >> "$COUNTS_FILE"
   else

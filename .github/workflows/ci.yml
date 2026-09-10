@@ -73,6 +73,15 @@ jobs:
       - name: OSS license compliance audit
         run: npm run licenses:audit
 
+      - name: Upload OSS license audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oss-license-audit-${{ github.run_id }}
+          path: artifacts/compliance/oss-license-audit.json
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Excel export smoke
         run: npm run excel:smoke
 

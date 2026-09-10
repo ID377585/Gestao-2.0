@@ -70,6 +70,9 @@ jobs:
       - name: Full dependency audit
         run: npm run audit:all
 
+      - name: OSS license compliance audit
+        run: npm run licenses:audit
+
       - name: Excel export smoke
         run: npm run excel:smoke
 

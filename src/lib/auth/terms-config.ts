@@ -1,8 +1,8 @@
 export const CURRENT_TERMS_DOCUMENT_SLUG = "/termos-de-uso";
 export const CURRENT_TERMS_DOCUMENT_TITLE = "Termos do Serviço";
-export const CURRENT_TERMS_DOCUMENT_VERSION = "v1.3";
-export const CURRENT_TERMS_UPDATED_AT = "23/04/2026";
-export const CURRENT_TERMS_VERSION_ID = "saas-v1.3-2026-04-23";
+export const CURRENT_TERMS_DOCUMENT_VERSION = "v2.1";
+export const CURRENT_TERMS_UPDATED_AT = "10/09/2026";
+export const CURRENT_TERMS_VERSION_ID = "saas-v2.1-2026-09-10";
 export const TERMS_REQUIRED_QUERY_VALUE = "required";
 
 export type TermsComplianceState = {

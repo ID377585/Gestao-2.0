@@ -1,118 +1,95 @@
 # Production Readiness Matrix
 
-This matrix turns the hardening audit into repeatable operating criteria.
+Status operacional atualizado em 2026-08-17. Esta matriz é um gate de release, não uma declaração de segurança absoluta.
 
-## Automated Checks
+## Automated checks
 
-Run before production promotion:
+Production deve executar:
 
 ```bash
-npm run readiness:check
-npm run lint
-npm run typecheck
 npm run audit
+npm run excel:smoke
 npm run tenant:writes:ci
 npm run runtime:imports:check
-npm run supabase:contract
-npm run orders:rls:ci
+npm run readiness:check
+npm run readiness:deployment
 npm run build
 ```
 
-Use strict mode only when production secrets are available in the execution
-environment:
+No Vercel Production, `readiness:deployment` executa `readiness:strict`. GitHub CI também executa contrato Supabase e auditoria RLS/RPC quando os secrets de CI estão presentes.
 
-```bash
-npm run readiness:strict
-```
+## Current gate status
 
-## P0 Status
-
-| Item | Current handling | Remaining external action |
+| Gate | Estado atual | Evidência / próximo passo |
 | --- | --- | --- |
-| Order RLS consolidation | Cutover migration prepared and versioned | Apply only in staging first, then production window |
-| Tenant isolation tests | Tenant write audit blocks new unscoped writes | Create real two-tenant staging fixtures |
-| Leaked password protection | Documented as required | Enable in Supabase Auth dashboard |
-| Secrets completeness | `.env.example` and readiness script updated | Configure/rotate in Vercel and Supabase dashboards |
-| Invalid refresh tokens | Middleware cleanup already implemented | Monitor runtime logs after deploys |
-| Direct order status writes | Cutover trigger prepared | Apply after staging validates legacy order flows |
-| SECURITY DEFINER RPCs | Order RLS audit checks definitions and grants | Keep grants reviewed after each DB migration |
-| Job queue leases | Lease columns, lock token and cleanup are versioned | Apply migration and monitor dead jobs |
-| Staging environment | Runbook exists | Create separate Supabase project/branch and Vercel Preview env |
-| Branch protection | Documented as required | Enable in GitHub repository settings |
+| Secrets/Auth/MFA | Verde | Credenciais modernas, rotação concluída, leaked-password protection e MFA/AAL2 administrativo habilitados |
+| Production strict readiness | Verde | Production validada com `failed=0`; warnings não bloqueantes permanecem explícitos |
+| Dependency production audit | Verde | Audit de dependências de produção no nível `high` passa; ExcelJS/uuid coberto por smoke |
+| Monitoring básico | Verde/Amarelo | Watch contínuo cobre disponibilidade pública, Vercel e Supabase; continuar evoluindo SLA/alertas nativos |
+| Sensitive-history purge | Amarelo | Histórico das branches reescrito; concluir GitHub Support para PR refs/cache/GC e verificação final do scanner |
+| Branch protection | Vermelho externo | `main` continua sem proteção formal; habilitar plano/configuração GitHub compatível sem tornar repo público |
+| Persistent staging | Vermelho externo | Criar branch/projeto Supabase persistente isolado após confirmação de custo |
+| Tenant isolation | Amarelo forte | Testes adversariais passaram no Preview da Core; repetir matriz completa no staging persistente |
+| Order RLS consolidation | Amarelo | Cutover aplicado e testado no Preview; não promover até staging persistente + regressão + janela controlada |
+| Backup/restore | Vermelho | Executar restore real de DB + Storage, medir RPO/RTO e rollback |
+| Load/performance | Vermelho | Rodar somente no staging; usar Supabase Advisors e workload real para decidir índices/pool/policies |
+| Fiscal | Pausado por escopo | Sem cron até certificado/homologação; vira gate se o recurso for vendido |
+| Biometria/LGPD | Pausado por escopo | Não liberar comercialmente sem revisão jurídica e controles de dado sensível |
+| Billing | Amarelo por escopo | Entitlements/planos existem; cobrança manual precisa processo; automação de pagamento vira gate se ofertada |
+| Documentation/runtime alignment | Amarelo | Contrato de secrets atualizado; alinhar Node 22 também nas Project Settings da Vercel quando houver acesso à configuração |
 
-## Cron Matrix
+## Cron matrix atual
 
-| Route | Method | Schedule | Secret | Purpose |
-| --- | --- | --- | --- | --- |
-| `/api/jobs/process` | `GET` or `POST` | not scheduled until secrets are confirmed | `JOB_WORKER_SECRET` or `CRON_SECRET` | Process queued alert/email jobs and runtime cleanup |
-| `/api/fiscal/sync` | `GET` | `0 5 * * *` | `FISCAL_SYNC_SECRET` or `CRON_SECRET` | Fiscal document sync |
-| `/api/notifications/stock-count-reminders` | `GET` or manual | not scheduled yet | `ALERTS_CRON_SECRET` or `CRON_SECRET` | Inventory reminder notifications |
-| `/api/alerts/orders/overdue` | `GET` or manual | not scheduled yet | `ALERTS_CRON_SECRET` or `CRON_SECRET` | Overdue order alerts |
+| Rota | Schedule | Credencial | Estado |
+| --- | --- | --- | --- |
+| `/api/jobs/process?limit=20` | `30 5 * * *` | `JOB_WORKER_SECRET` ou `CRON_SECRET` | ativo |
+| `/api/nutricao/notifications/sweep` | `45 5 * * *` | `NUTRITION_CRON_SECRET`, `JOB_WORKER_SECRET` ou `CRON_SECRET` | ativo |
+| `/api/fiscal/sync` | sem schedule | `FISCAL_SYNC_SECRET` ou `CRON_SECRET` | pausado até homologação fiscal |
 
-After `JOB_WORKER_SECRET` or `CRON_SECRET` is confirmed in Vercel Production,
-add this cron if the Vercel plan supports the interval:
+Frequência dos workers deve ser revista contra o SLA comercial antes de volume relevante.
 
-```json
-{
-  "path": "/api/jobs/process",
-  "schedule": "*/10 * * * *"
-}
-```
+## Multi-tenant acceptance matrix
 
-Keep `GESTIFY_ALERT_EMAIL_QUEUE_ENABLED=false` until the worker runs frequently
-enough for the desired SLA. If the plan does not support 10-minute cron, use an
-allowed interval or an external scheduler that sends `Authorization: Bearer`.
+No staging persistente, exercitar no mínimo:
 
-## RPO and RTO Targets
+- `operacao`: leitura/escrita/RPC apenas no tenant permitido;
+- `cliente`: apenas recursos próprios/permitidos;
+- membership inativa: sem acesso;
+- tenant A nunca lê/altera tenant B;
+- criação com `establishment_id` estrangeiro é negada;
+- RPCs rejeitam tenant ou papel indevido;
+- `admin`, `producao`, `estoque`, `fiscal` e `entrega`: matriz de permissões específica do produto.
 
-Initial targets for pilot customers:
+## RPO / RTO
 
-- RPO: 15 minutes for database data.
-- RTO: 4 hours for app plus database restore.
-- Storage restore: same business day for non-critical attachments.
+Metas iniciais, ainda não comprovadas por exercício real:
 
-Before broad commercialization, validate real restore timing and replace these
-targets with measured values.
+- RPO: 15 minutos para banco;
+- RTO: 4 horas para app + banco;
+- Storage não crítico: mesmo dia útil.
 
-## Biometric Governance Gate
+Substituir por valores medidos antes de compromisso contratual.
 
-Face-based clock-in remains internal-control only until all items are complete:
+## Release gate
 
-- documented purpose and legal basis;
-- non-biometric alternative;
-- private bucket and short signed URLs;
-- retention and deletion policy;
-- consent/notice flow when required;
-- admin-only access with audit trail;
-- false-positive dispute workflow;
-- incident response plan.
+Não liberar cadastros/comercialização ampla até todos os gates aplicáveis abaixo estarem verdes:
 
-## Release Gate
+1. sensitive-data removal do incidente concluído no GitHub;
+2. branch protection de `main` ativa;
+3. staging persistente isolado;
+4. matriz multiempresa completa aprovada;
+5. order RLS homologado no staging e promovido de forma controlada;
+6. restore de DB/Storage medido;
+7. monitoring/alertas ativos;
+8. Production `readiness:strict` verde;
+9. produção sem vulnerabilidade `high` conhecida no `npm audit --omit=dev` ou com exceção formal e mitigação explícita;
+10. teste de carga aprovado;
+11. fiscal/biometria/billing concluídos somente quando fizerem parte do escopo comercial vendido.
 
-Do not set `GESTIFY_NEW_SIGNUPS_ENABLED=true` or
-`GESTIFY_SECURITY_HARDENING_CONFIRMED=true` until:
+## Dependency policy
 
-1. staging uses a separate Supabase project/branch;
-2. order RLS cutover passes on staging;
-3. backup restore has been tested;
-4. Vercel production variables pass `npm run readiness:strict`;
-5. branch protection is enabled on `main`;
-6. smoke tests pass for admin, staff and customer roles.
+A exceção histórica de `uuid <11.1.1` via `exceljs` foi removida. O Gestify força `uuid 11.1.1` nessa cadeia e valida round-trip XLSX/base64 no `excel:smoke`. Dependabot acompanha atualizações futuras. Não usar `npm audit fix --force` como procedimento automático.
 
-## Dependency Exceptions
+## Runtime import gate
 
-Current accepted exception after conservative `npm audit fix`:
-
-- `uuid <11.1.1` via `exceljs`.
-
-Reason: npm only offers `npm audit fix --force`, which would install an older
-breaking `exceljs` version. Keep this exception monitored and remove it when
-`exceljs` releases a non-breaking fix or when exports can be validated after a
-controlled dependency change.
-
-## Runtime Import Gate
-
-`npm run runtime:imports:check` fails when heavy server-side packages are
-statically imported by client components or middleware/proxy files. Keep OCR,
-PDF, Excel, SOAP and fiscal cryptography in server-only code paths or dynamic
-route-level imports.
+`npm run runtime:imports:check` deve manter OCR, PDF, Excel, SOAP e criptografia fiscal fora de bundles client/middleware por import estático. Warnings do Next/Edge devem ser tratados de forma controlada, sem substituir testes reais.

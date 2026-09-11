@@ -3,7 +3,6 @@
 
 begin;
 
--- Sensitive operational buckets must remain private.
 update storage.buckets
 set public = false
 where id in (
@@ -29,68 +28,88 @@ drop policy if exists technical_sheet_images_authenticated_delete on storage.obj
 drop policy if exists technical_sheet_images_authenticated_insert on storage.objects;
 drop policy if exists technical_sheet_images_authenticated_update on storage.objects;
 
--- Read access: active member of the establishment encoded in path segment 1.
-drop policy if exists gestify_sensitive_storage_member_select on storage.objects;
-create policy gestify_sensitive_storage_member_select
-on storage.objects
-for select
-to authenticated
+-- Fiscal certificate/XML objects are restricted to fiscal/admin roles.
+drop policy if exists gestify_fiscal_storage_select on storage.objects;
+create policy gestify_fiscal_storage_select on storage.objects
+for select to authenticated
 using (
-  bucket_id in ('fiscal-certificates','fiscal-nfe-xmls','invoice-entry-files','technical-sheet-images','technical-sheets')
+  bucket_id in ('fiscal-certificates','fiscal-nfe-xmls')
+  and (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  and private.gestify_has_establishment_role(((storage.foldername(name))[1])::uuid, array['admin','fiscal'])
+);
+
+drop policy if exists gestify_fiscal_storage_insert on storage.objects;
+create policy gestify_fiscal_storage_insert on storage.objects
+for insert to authenticated
+with check (
+  bucket_id in ('fiscal-certificates','fiscal-nfe-xmls')
+  and (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  and private.gestify_has_establishment_role(((storage.foldername(name))[1])::uuid, array['admin','fiscal'])
+);
+
+drop policy if exists gestify_fiscal_storage_update on storage.objects;
+create policy gestify_fiscal_storage_update on storage.objects
+for update to authenticated
+using (
+  bucket_id in ('fiscal-certificates','fiscal-nfe-xmls')
+  and (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  and private.gestify_has_establishment_role(((storage.foldername(name))[1])::uuid, array['admin','fiscal'])
+)
+with check (
+  bucket_id in ('fiscal-certificates','fiscal-nfe-xmls')
+  and (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  and private.gestify_has_establishment_role(((storage.foldername(name))[1])::uuid, array['admin','fiscal'])
+);
+
+drop policy if exists gestify_fiscal_storage_delete on storage.objects;
+create policy gestify_fiscal_storage_delete on storage.objects
+for delete to authenticated
+using (
+  bucket_id in ('fiscal-certificates','fiscal-nfe-xmls')
+  and (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  and private.gestify_has_establishment_role(((storage.foldername(name))[1])::uuid, array['admin','fiscal'])
+);
+
+-- Other sensitive operational files: active tenant members can read; staff can write.
+drop policy if exists gestify_operational_storage_member_select on storage.objects;
+create policy gestify_operational_storage_member_select on storage.objects
+for select to authenticated
+using (
+  bucket_id in ('invoice-entry-files','technical-sheet-images','technical-sheets')
   and (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
   and private.gestify_is_establishment_member(((storage.foldername(name))[1])::uuid)
 );
 
--- Write access: staff roles only, and the tenant cannot be changed by UPDATE.
-drop policy if exists gestify_sensitive_storage_staff_insert on storage.objects;
-create policy gestify_sensitive_storage_staff_insert
-on storage.objects
-for insert
-to authenticated
+drop policy if exists gestify_operational_storage_staff_insert on storage.objects;
+create policy gestify_operational_storage_staff_insert on storage.objects
+for insert to authenticated
 with check (
-  bucket_id in ('fiscal-certificates','fiscal-nfe-xmls','invoice-entry-files','technical-sheet-images','technical-sheets')
+  bucket_id in ('invoice-entry-files','technical-sheet-images','technical-sheets')
   and (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-  and private.gestify_has_establishment_role(
-    ((storage.foldername(name))[1])::uuid,
-    array['admin','operacao','estoque','fiscal']
-  )
+  and private.gestify_has_establishment_role(((storage.foldername(name))[1])::uuid, array['admin','operacao','estoque','fiscal'])
 );
 
-drop policy if exists gestify_sensitive_storage_staff_update on storage.objects;
-create policy gestify_sensitive_storage_staff_update
-on storage.objects
-for update
-to authenticated
+drop policy if exists gestify_operational_storage_staff_update on storage.objects;
+create policy gestify_operational_storage_staff_update on storage.objects
+for update to authenticated
 using (
-  bucket_id in ('fiscal-certificates','fiscal-nfe-xmls','invoice-entry-files','technical-sheet-images','technical-sheets')
+  bucket_id in ('invoice-entry-files','technical-sheet-images','technical-sheets')
   and (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-  and private.gestify_has_establishment_role(
-    ((storage.foldername(name))[1])::uuid,
-    array['admin','operacao','estoque','fiscal']
-  )
+  and private.gestify_has_establishment_role(((storage.foldername(name))[1])::uuid, array['admin','operacao','estoque','fiscal'])
 )
 with check (
-  bucket_id in ('fiscal-certificates','fiscal-nfe-xmls','invoice-entry-files','technical-sheet-images','technical-sheets')
+  bucket_id in ('invoice-entry-files','technical-sheet-images','technical-sheets')
   and (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-  and private.gestify_has_establishment_role(
-    ((storage.foldername(name))[1])::uuid,
-    array['admin','operacao','estoque','fiscal']
-  )
+  and private.gestify_has_establishment_role(((storage.foldername(name))[1])::uuid, array['admin','operacao','estoque','fiscal'])
 );
 
--- Deletion remains admin-only. This policy authorizes deletion but performs none.
-drop policy if exists gestify_sensitive_storage_admin_delete on storage.objects;
-create policy gestify_sensitive_storage_admin_delete
-on storage.objects
-for delete
-to authenticated
+drop policy if exists gestify_operational_storage_admin_delete on storage.objects;
+create policy gestify_operational_storage_admin_delete on storage.objects
+for delete to authenticated
 using (
-  bucket_id in ('fiscal-certificates','fiscal-nfe-xmls','invoice-entry-files','technical-sheet-images','technical-sheets')
+  bucket_id in ('invoice-entry-files','technical-sheet-images','technical-sheets')
   and (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-  and private.gestify_has_establishment_role(
-    ((storage.foldername(name))[1])::uuid,
-    array['admin']
-  )
+  and private.gestify_has_establishment_role(((storage.foldername(name))[1])::uuid, array['admin'])
 );
 
 commit;

@@ -3,6 +3,7 @@ export type CurrentUserInfo = {
   email: string;
   name: string;
   role?: string;
+  avatar?: string | null;
   sector?: string | null;
   establishmentId?: string | null;
   establishmentName?: string | null;
@@ -78,6 +79,7 @@ async function fetchCurrentUserInfo(): Promise<CurrentUserInfo | null> {
       email: String(data.email ?? ""),
       name: String(data.name ?? ""),
       role: data.role ? String(data.role) : undefined,
+      avatar: data.avatar ? String(data.avatar) : null,
       sector: data.sector ?? null,
       establishmentId: data.establishmentId ?? null,
       establishmentName: data.establishmentName ?? null,

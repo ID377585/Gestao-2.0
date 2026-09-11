@@ -11,10 +11,10 @@
     "dev": "next dev", "build": "next build --webpack", "start": "next start", "lint": "eslint src --max-warnings=0", "typecheck": "tsc --noEmit",
     "audit": "npm audit --omit=dev --audit-level=high", "audit:all": "npm audit --audit-level=high", "licenses:audit": "node scripts/audit-licenses.mjs",
     "excel:smoke": "node scripts/test-excel-export.mjs", "supabase:contract": "node scripts/check-supabase-contract.mjs", "orders:rls:audit": "node scripts/audit-order-rls.mjs", "orders:rls:ci": "node scripts/audit-order-rls.mjs --baseline scripts/order-rls-baseline.json --fail-on-worse",
-    "supabase:legacy-tenant:audit": "node scripts/audit-legacy-tenant.mjs", "supabase:legacy-tenant:backfill": "node scripts/audit-legacy-tenant.mjs --apply", "tenant:writes:audit": "node scripts/audit-tenant-writes.mjs", "tenant:writes:ci": "node scripts/audit-tenant-writes.mjs --fail-on-findings --baseline scripts/tenant-writes-baseline.json --quiet", "runtime:imports:check": "node scripts/audit-runtime-imports.mjs",
+    "supabase:legacy-tenant:audit": "node scripts/audit-legacy-tenant.mjs", "supabase:legacy-tenant:backfill": "node scripts/audit-legacy-tenant.mjs --apply", "tenant:writes:audit": "node scripts/audit-tenant-writes.mjs", "tenant:writes:ci": "node scripts/audit-tenant-writes.mjs --fail-on-findings --baseline scripts/tenant-writes-baseline.json --quiet", "runtime:imports:check": "node scripts/audit-runtime-imports.mjs", "server:boundaries:check": "node scripts/audit-server-boundaries.mjs",
     "dr:fixture": "bash scripts/dr/run-fixture-drill.sh", "dr:backup": "bash scripts/dr/create-encrypted-backup.sh", "dr:restore": "bash scripts/dr/restore-encrypted-backup.sh",
     "readiness:check": "node scripts/check-production-readiness.mjs", "readiness:strict": "node scripts/check-production-readiness.mjs --strict", "readiness:deployment": "node scripts/check-deployment-readiness.mjs",
-    "ci": "npm run lint && npm run typecheck && npm run audit && npm run licenses:audit && npm run excel:smoke && npm run tenant:writes:ci && npm run runtime:imports:check && npm run readiness:check && npm run readiness:deployment && npm run build",
+    "ci": "npm run lint && npm run typecheck && npm run audit && npm run licenses:audit && npm run excel:smoke && npm run tenant:writes:ci && npm run runtime:imports:check && npm run server:boundaries:check && npm run readiness:check && npm run readiness:deployment && npm run build",
     "postinstall": "node scripts/enforce-production-freeze.js"
   },
   "dependencies": {

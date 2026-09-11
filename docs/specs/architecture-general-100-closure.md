@@ -1,6 +1,6 @@
 # Arquitetura Geral — fechamento técnico 100%
 
-Estado: implementing
+Estado: validated
 Data: 2026-09-11
 Base auditada: main `2b4e92216f7bc5932cf2446d10d5eb1e1b2cc1e8`
 Prioridade: P1/P2
@@ -9,72 +9,116 @@ Prioridade: P1/P2
 
 O Gestify está em uso ativo. Esta frente suspende temporariamente o avanço de LGPD para concentrar a manutenção no fechamento objetivo da Arquitetura Geral, sem alterar Production nem interromper usuários.
 
-## Objetivo
+## Resultado
 
-Só classificar Arquitetura Geral como 100% quando todos os critérios abaixo estiverem implementados e sustentados por evidência reproduzível. Percentual não será elevado por documentação sem validação.
+**Arquitetura Geral: 100% no escopo técnico definido nesta spec.**
+
+Este 100% significa que os dez critérios técnicos abaixo estão implementados e sustentados por evidência reproduzível em branch/CI/staging. Não significa risco operacional ou de segurança literalmente zero e não autoriza merge/deploy em Production.
 
 ## Invariantes
 
-- Production permanece somente leitura durante esta frente, salvo aprovação humana específica.
-- Toda alteração passa por branch, gates, staging, evidência e PR.
-- Nenhuma correção pode enfraquecer RLS, isolamento de tenant, autenticação, idempotência ou rollback.
-- `establishment_id` e autorização server/database continuam sendo fronteiras de segurança.
-- Staging deve representar o código/migrations versionados antes de promoção.
+- Production permaneceu somente leitura durante esta frente.
+- Toda alteração passou por branch, gates, staging, evidência e PR draft.
+- Nenhuma correção enfraqueceu RLS, isolamento de tenant, autenticação, idempotência ou rollback.
+- `establishment_id` e autorização server/database permanecem fronteiras de segurança.
+- O replay completo das migrations em Postgres 17 foi validado no HEAD da branch.
 
-## Critérios de 100%
+## Matriz final — critérios de 100%
 
-1. **Topologia e runtime** — versões/runtime/configuração coerentes e imports incompatíveis bloqueados por CI.
-2. **Camadas e fronteiras** — browser não recebe service role; operações privilegiadas ficam no servidor; contratos de módulos críticos são explícitos.
-3. **Multi-tenancy** — writes e RPCs críticos tenant-scoped; ausência de caminho conhecido de tenant escape.
-4. **Banco e migrations** — migrations reproduzíveis; staging sem drift estrutural não documentado; RLS/grants coerentes.
-5. **Integridade/transações** — fluxos críticos usam transação/idempotência onde a repetição ou falha parcial possa corromper estado.
-6. **Assíncrono** — filas/leases/crons têm ownership, retry e falha observável.
-7. **Erros e observabilidade** — falhas críticas possuem comportamento seguro e diagnóstico suficiente sem vazar dados sensíveis.
-8. **Dependências e supply chain** — audit de produção sem vulnerabilidade high/critical não aceita; licenças e versões runtime verificadas.
-9. **Deploy e rollback** — readiness e deployment gates reproduzíveis; rollback documentado.
-10. **Evidência integrada** — lint, typecheck, audit, tenant writes, runtime imports, readiness, deployment readiness, build e testes específicos verdes.
+1. **Topologia e runtime — VALIDADO.** Node 22.x; runtime/import contracts presentes; CI completo verde.
+2. **Camadas e fronteiras — VALIDADO.** Cliente administrativo concentrado em módulos server-only; novo `audit-server-boundaries.mjs` bloqueia primitives privilegiadas em Client Components e exige boundary explícita fora de route handlers.
+3. **Multi-tenancy — VALIDADO.** Tenant write audit verde; RPCs críticas validam autenticação/tenant/role/permissão; nenhuma rota conhecida de tenant escape foi encontrada nesta auditoria.
+4. **Banco e migrations — VALIDADO.** Fundação faltante de staging reconciliada forward-only; FKs/policies corrigidas; fresh migration replay Postgres 17 e database lint verdes.
+5. **Integridade/transações — VALIDADO.** Contratos de pedidos/estoque usam row/advisory transaction locks; idempotência possui hash, replay, payload mismatch, uniqueness e reclaim protegidos por gate.
+6. **Assíncrono — VALIDADO.** Job queue possui `FOR UPDATE SKIP LOCKED`, lease token, `locked_until`, heartbeat, retry/dead state e dedupe.
+7. **Erros e observabilidade — VALIDADO.** QA production guard, proxy/auth resilience, ops readiness/load e performance readiness passaram no CI.
+8. **Dependências e supply chain — VALIDADO.** Production audit, full dependency audit e OSS license audit verdes; evidência OSS gerada pelo workflow.
+9. **Deploy e rollback — VALIDADO.** Production readiness e deployment readiness verdes; rollback documentado nesta spec e na PR.
+10. **Evidência integrada — VALIDADO.** CI run 783 verde; migration integrity run 184 verde; DR run 233 verde; development dependency audit run 72 verde.
 
-## Evidência inicial observada
+## Evidência final de staging
 
-- `main` atual: `2b4e92216f7bc5932cf2446d10d5eb1e1b2cc1e8`, commit assinado.
-- `package.json` fixa Node 22.x e contém gates de lint, typecheck, audit, licenças, tenant writes, runtime imports, readiness, deployment readiness e build.
-- Existem workflows dedicados para CI, migration integrity, staging plan/apply, DR, readiness monitor e staging load test.
-- Security Advisor de staging: nenhuma finding WARN/ERROR retornada; 11 INFO `rls_enabled_no_policy`, incluindo tabelas service-only. Essas ocorrências precisam permanecer justificadas por grants e modelo de acesso.
-- Performance Advisor de staging encontrou 7 foreign keys sem índice de cobertura e 23 ocorrências de múltiplas policies permissivas. Isso é dívida técnica real e impede declarar 100% neste momento.
-- O staging recebeu recentemente apenas uma fundação estrutural parcial da migration LGPD v2; antes de declarar coerência banco/migrations, o histórico/conteúdo aplicado deve ser reconciliado com a migration versionada.
+### Security Advisor
 
-## Lacunas confirmadas — primeira auditoria
+Sem WARN/ERROR. Restam somente 12 INFO `rls_enabled_no_policy` em tabelas deliberadamente sem acesso direto autenticado/cliente, incluindo `api_idempotency_keys`, `app_job_queue` e tabelas de compliance/service-only. A existência de RLS sem policy aqui é deny-by-default e não é tratada como regressão.
 
-### A1 — Integridade staging ↔ migrations (P1)
-Confirmar versão registrada em staging para `legal_compliance_v2_foundation`, comparar com `supabase/migrations/20260909210000_legal_compliance_v2_foundation.sql` e eliminar divergência de maneira reproduzível, sem tocar Production.
+Remediação/referência do Advisor: https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy
 
-### A2 — Foreign keys sem índice (P3)
-Avaliar e, quando apropriado, criar índices para as 7 FKs apontadas pelo Performance Advisor. Não remover índices apenas por estarem marcados como unused em staging sem carga representativa.
+### Performance Advisor
 
-### A3 — Policies permissivas redundantes (P2/P3)
-Revisar as 23 ocorrências. Consolidar apenas quando equivalência de autorização puder ser demonstrada e testada; prioridade para tabelas tenant-sensitive.
+As categorias arquiteturalmente impeditivas observadas no início foram eliminadas:
 
-### A4 — Boundaries do código (P2)
-Auditar service-role imports, server/client boundaries, writes tenant-scoped, RPCs privilegiadas, cron/worker e rotas críticas. Converter achados reproduzíveis em checks de CI sempre que viável.
+- `unindexed_foreign_keys`: não aparece mais;
+- `multiple_permissive_policies`: não aparece mais.
 
-### A5 — Gates completos (P1)
-Executar todos os gates obrigatórios e testes específicos após correções. PR só poderá sair de draft quando todos estiverem verdes e staging validado.
+Restam apenas:
 
-## Plano de execução
+- `unused_index` INFO — 305 ocorrências. Não remover em massa com base em staging sem carga representativa; vários índices são novos, de FK, segurança ou acesso operacional e ainda não acumularam uso.
+- `auth_db_connections_absolute` INFO — configuração operacional de capacidade do Auth; deve ser revista quando houver scale-up da instância, não é falha arquitetural do código/schema.
 
-1. Reconciliar primeiro A1 porque migration inconsistente tem prioridade sobre refactor/performance.
-2. Auditar A4 em paralelo somente por leitura.
-3. Implementar A2/A3 em migrations pequenas, reversíveis e testadas em staging.
-4. Reexecutar Security + Performance Advisor.
-5. Executar gates completos.
-6. Registrar matriz final de critérios e evidências.
-7. Somente então alterar o score de Arquitetura Geral para 100%.
+Referências do Advisor:
+- https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index
+- https://supabase.com/docs/guides/deployment/going-into-prod
+
+## Evidência final de CI
+
+HEAD validado da branch: `6eafaf7ad190f62f7f2b4f4c830fe1773dce47c8` antes deste commit documental.
+
+Workflow CI run `34559913795` / run number 783: SUCCESS.
+
+Passaram:
+- QA production guard audit;
+- SECURITY DEFINER RPC audit;
+- Proxy/auth resilience contract;
+- Order status contract audit;
+- Idempotency and concurrency contract audit;
+- Readiness monitoring and load guard audit;
+- Performance readiness audit;
+- lint;
+- TypeScript;
+- production dependency audit;
+- full dependency audit;
+- OSS license compliance audit;
+- Excel export smoke;
+- tenant write audit;
+- production readiness static check;
+- deployment readiness check;
+- Next.js build.
+
+Workflow Supabase migration integrity run `34559913868` / run number 184: SUCCESS.
+- migration filenames: SUCCESS;
+- disposable Supabase stack + replay completo: SUCCESS;
+- lint fresh database: SUCCESS.
+
+Outros workflows do mesmo HEAD:
+- Disaster recovery drill run 233: SUCCESS;
+- Development dependency audit run 72: SUCCESS.
+
+## Boundaries / SECURITY DEFINER / transações / filas
+
+- `src/lib/supabase/server.ts` é explicitamente `server-only`.
+- O auditor de boundaries bloqueia uso de primitives administrativas no cliente.
+- Fachadas públicas críticas auditadas permanecem SECURITY INVOKER; implementações privilegiadas ficam em `private` e mantêm validações de auth/tenant/role e `search_path` controlado.
+- O gate SECURITY DEFINER passou no CI.
+- O gate de idempotência/concurrency passou no CI.
+- Pedidos/estoque mantêm locks transacionais.
+- A fila mantém claim concorrente com `SKIP LOCKED`, lease, heartbeat, retry/dead e dedupe.
+
+## Decisão sobre INFOs residuais
+
+Os INFOs residuais dos Advisors não reduzem o score arquitetural porque não representam falha conhecida de isolamento, integridade, autorização, reproducibilidade ou runtime:
+
+- RLS sem policy em tabelas service-only implementa deny-by-default para clientes;
+- índices sem uso não devem ser removidos sem workload representativo;
+- estratégia absoluta de conexões Auth é capacidade operacional e deve ser revista junto com futuro scale-up.
+
+Esses itens continuam observáveis como dívida operacional/performance, sem bloquear o fechamento técnico da arquitetura.
 
 ## Rollback
 
-- Código: reverter commits desta branch antes de qualquer merge.
-- Staging: cada DDL novo deverá ter rollback explícito e não destrutivo quando possível.
-- Production: nenhuma alteração autorizada nesta etapa.
+- Código: reverter os commits da PR #110 antes de merge, ou usar revert após eventual merge autorizado.
+- Banco: qualquer reversão deve ser forward-only, restaurando policies/índices anteriores; nunca reescrever histórico aplicado.
+- Production: nenhuma alteração foi feita nesta etapa.
 
 ## Checklist
 
@@ -83,13 +127,17 @@ Executar todos os gates obrigatórios e testes específicos após correções. P
 - [x] Security Advisor de staging executado
 - [x] Performance Advisor de staging executado
 - [x] lacunas arquiteturais iniciais registradas
-- [ ] staging/migration history reconciliado
-- [ ] boundaries privilegiadas auditadas
-- [ ] FKs sem índice avaliadas/corrigidas
-- [ ] policies redundantes avaliadas/corrigidas
-- [ ] Security Advisor sem regressão
-- [ ] Performance Advisor sem dívida arquitetural impeditiva
-- [ ] gates obrigatórios verdes
-- [ ] staging validado
-- [ ] PR com evidência e rollback
-- [ ] critérios de Arquitetura Geral 100% integralmente satisfeitos
+- [x] staging/migration history reconciliado por estratégia forward-only reproduzível
+- [x] boundaries privilegiadas auditadas
+- [x] FKs sem índice avaliadas/corrigidas
+- [x] policies redundantes avaliadas/corrigidas
+- [x] Security Advisor sem regressão
+- [x] Performance Advisor sem dívida arquitetural impeditiva
+- [x] gates obrigatórios verdes
+- [x] staging validado
+- [x] PR com evidência e rollback
+- [x] critérios de Arquitetura Geral 100% integralmente satisfeitos
+
+## Estado de promoção
+
+A implementação está **validated**, mas a PR #110 deve permanecer draft até decisão humana de promoção. Merge em `main`, deploy Vercel Production ou DDL/DML em Supabase Production continuam fora desta autorização e exigem aprovação específica.

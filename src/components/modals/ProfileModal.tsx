@@ -1,8 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Camera, Loader2, Trash2 } from "lucide-react";
-
+import { useEffect, useRef, useState } from "react";
+import { Camera, Loader2, Trash2, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
@@ -10,431 +9,40 @@ import { supabase } from "@/lib/supabase";
 const MAX_ORIGINAL_AVATAR_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_AVATAR_BYTES = 2 * 1024 * 1024;
 const AVATAR_MAX_DIMENSION = 1200;
-const AVATAR_ACCEPT = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "image/heic",
-  "image/heif",
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".webp",
-  ".gif",
-  ".heic",
-  ".heif",
-].join(",");
+const AVATAR_ACCEPT = ["image/jpeg","image/png","image/webp","image/gif","image/heic","image/heif",".jpg",".jpeg",".png",".webp",".gif",".heic",".heif"].join(",");
 
-interface ProfileModalProps {
-  open: boolean;
-  onClose: () => void;
-  onAvatarUpdated?: (avatarUrl: string | null) => void;
-  user: {
-    id?: string;
-    name: string;
-    email: string;
-    avatar?: string | null;
-    role?: string | null;
-    sector?: string | null;
-    establishmentId?: string | null;
-    establishmentName?: string | null;
-    lastSignInAt?: string | null;
-  };
-}
+interface ProfileModalProps { open:boolean; onClose:()=>void; onAvatarUpdated?:(avatarUrl:string|null)=>void; user:{ id?:string; name:string; email:string; avatar?:string|null; role?:string|null; sector?:string|null; establishmentId?:string|null; establishmentName?:string|null; lastSignInAt?:string|null; }; }
+function getRoleLabel(role?:string|null){switch(String(role??"").trim()){case"admin":return"Administrador";case"operacao":return"Operação";case"producao":return"Produção";case"estoque":return"Estoque";case"fiscal":return"Fiscal";case"entrega":return"Entrega";case"cliente":return"Cliente";default:return"Usuário";}}
+function formatDate(value?:string|null){if(!value)return"—";const date=new Date(value);if(Number.isNaN(date.getTime()))return"—";return new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short"}).format(date);}
+function getInitials(name?:string|null){const safe=String(name??"").trim();if(!safe)return"U";return safe.split(" ").filter(Boolean).slice(0,2).map(i=>i[0]?.toUpperCase()??"").join("");}
+function getFileExtension(file:File){return file.name.split(".").pop()?.toLowerCase()??"";}
+function isHeicFile(file:File){const e=getFileExtension(file);return file.type==="image/heic"||file.type==="image/heif"||e==="heic"||e==="heif";}
+function isSupportedAvatarFile(file:File){return file.type.startsWith("image/")||["jpg","jpeg","png","webp","gif","heic","heif"].includes(getFileExtension(file));}
+function getAvatarPath(userId:string){return `${userId}/avatar-${Date.now()}.jpg`;}
+async function convertHeicToJpeg(file:File){const heic2any=(await import("heic2any")).default as unknown as (o:{blob:Blob;toType:string;quality?:number})=>Promise<Blob|Blob[]>;const converted=await heic2any({blob:file,toType:"image/jpeg",quality:.9});const blob=Array.isArray(converted)?converted[0]:converted;return new File([blob],file.name.replace(/\.(heic|heif)$/i,".jpg"),{type:"image/jpeg"});}
+function loadImage(file:File){return new Promise<HTMLImageElement>((resolve,reject)=>{const image=new Image();const url=URL.createObjectURL(file);image.onload=()=>{URL.revokeObjectURL(url);resolve(image)};image.onerror=()=>{URL.revokeObjectURL(url);reject(new Error("Não foi possível ler a imagem."))};image.src=url;});}
+function canvasToBlob(canvas:HTMLCanvasElement,quality:number){return new Promise<Blob>((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error("Não foi possível processar a imagem.")),"image/jpeg",quality));}
+async function compressAvatarFile(file:File){const image=await loadImage(file);const scale=Math.min(1,AVATAR_MAX_DIMENSION/Math.max(image.naturalWidth,image.naturalHeight));const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));const ctx=canvas.getContext("2d");if(!ctx)throw new Error("Não foi possível processar a imagem.");ctx.drawImage(image,0,0,canvas.width,canvas.height);let last:Blob|null=null;for(const quality of [.88,.82,.76,.7,.64,.58]){const blob=await canvasToBlob(canvas,quality);last=blob;if(blob.size<=MAX_UPLOAD_AVATAR_BYTES)return new File([blob],"avatar.jpg",{type:"image/jpeg"});}if(!last)throw new Error("Não foi possível processar a imagem.");return new File([last],"avatar.jpg",{type:"image/jpeg"});}
+async function prepareAvatarFile(file:File){return compressAvatarFile(isHeicFile(file)?await convertHeicToJpeg(file):file);}
 
-function getRoleLabel(role?: string | null) {
-  switch (String(role ?? "").trim()) {
-    case "admin":
-      return "Administrador";
-    case "operacao":
-      return "Operação";
-    case "producao":
-      return "Produção";
-    case "estoque":
-      return "Estoque";
-    case "fiscal":
-      return "Fiscal";
-    case "entrega":
-      return "Entrega";
-    case "cliente":
-      return "Cliente";
-    default:
-      return "Usuário";
-  }
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return "—";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
-}
-
-function getInitials(name?: string | null) {
-  const safeName = String(name ?? "").trim();
-  if (!safeName) return "U";
-
-  return safeName
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((item) => item[0]?.toUpperCase() ?? "")
-    .join("");
-}
-
-function getFileExtension(file: File) {
-  return file.name.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function isHeicFile(file: File) {
-  const extension = getFileExtension(file);
-  return (
-    file.type === "image/heic" ||
-    file.type === "image/heif" ||
-    extension === "heic" ||
-    extension === "heif"
-  );
-}
-
-function isSupportedAvatarFile(file: File) {
-  const extension = getFileExtension(file);
-  const supportedExtensions = ["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"];
-  return file.type.startsWith("image/") || supportedExtensions.includes(extension);
-}
-
-function getAvatarPath(userId: string) {
-  return `${userId}/avatar-${Date.now()}.jpg`;
-}
-
-async function convertHeicToJpeg(file: File) {
-  const heic2any = (await import("heic2any")).default as unknown as (options: {
-    blob: Blob;
-    toType: string;
-    quality?: number;
-  }) => Promise<Blob | Blob[]>;
-
-  const converted = await heic2any({
-    blob: file,
-    toType: "image/jpeg",
-    quality: 0.9,
-  });
-
-  const blob = Array.isArray(converted) ? converted[0] : converted;
-  return new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), {
-    type: "image/jpeg",
-  });
-}
-
-function loadImage(file: File) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-    const objectUrl = URL.createObjectURL(file);
-
-    image.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      resolve(image);
-    };
-
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error("Não foi possível ler a imagem."));
-    };
-
-    image.src = objectUrl;
-  });
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement, quality: number) {
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new Error("Não foi possível processar a imagem."));
-          return;
-        }
-
-        resolve(blob);
-      },
-      "image/jpeg",
-      quality
-    );
-  });
-}
-
-async function compressAvatarFile(file: File) {
-  const image = await loadImage(file);
-  const scale = Math.min(
-    1,
-    AVATAR_MAX_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight)
-  );
-  const width = Math.max(1, Math.round(image.naturalWidth * scale));
-  const height = Math.max(1, Math.round(image.naturalHeight * scale));
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Não foi possível processar a imagem.");
-
-  context.drawImage(image, 0, 0, width, height);
-
-  const qualities = [0.88, 0.82, 0.76, 0.7, 0.64, 0.58];
-  let lastBlob: Blob | null = null;
-
-  for (const quality of qualities) {
-    const blob = await canvasToBlob(canvas, quality);
-    lastBlob = blob;
-
-    if (blob.size <= MAX_UPLOAD_AVATAR_BYTES) {
-      return new File([blob], "avatar.jpg", { type: "image/jpeg" });
-    }
-  }
-
-  if (!lastBlob) throw new Error("Não foi possível processar a imagem.");
-  return new File([lastBlob], "avatar.jpg", { type: "image/jpeg" });
-}
-
-async function prepareAvatarFile(file: File) {
-  const readableFile = isHeicFile(file) ? await convertHeicToJpeg(file) : file;
-  return compressAvatarFile(readableFile);
-}
-
-export function ProfileModal({
-  open,
-  onClose,
-  onAvatarUpdated,
-  user,
-}: ProfileModalProps) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(user.avatar ?? null);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [avatarError, setAvatarError] = useState<string | null>(null);
-
-  if (!open) return null;
-
-  const getCurrentUserId = async () => {
-    if (user.id) return user.id;
-
-    const {
-      data: { user: authUser },
-      error,
-    } = await supabase.auth.getUser();
-
-    if (error || !authUser?.id) {
-      throw error ?? new Error("Usuário não autenticado.");
-    }
-
-    return authUser.id;
-  };
-
-  const updateAvatar = async (nextAvatarUrl: string | null) => {
-    const userId = await getCurrentUserId();
-
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .update({ avatar_url: nextAvatarUrl })
-      .eq("id", userId);
-
-    if (profileError) throw profileError;
-
-    const { error: metadataError } = await supabase.auth.updateUser({
-      data: { avatar_url: nextAvatarUrl },
-    });
-
-    if (metadataError) throw metadataError;
-
-    setAvatarUrl(nextAvatarUrl);
-    onAvatarUpdated?.(nextAvatarUrl);
-  };
-
-  const handleAvatarUpload = async (file?: File | null) => {
-    if (!file || uploadingAvatar) return;
-
-    if (!isSupportedAvatarFile(file)) {
-      setAvatarError("Envie uma imagem válida: HEIC, PNG, JPG, WebP ou GIF.");
-      return;
-    }
-
-    if (file.size > MAX_ORIGINAL_AVATAR_BYTES) {
-      setAvatarError("A imagem precisa ter até 25 MB.");
-      return;
-    }
-
-    try {
-      setUploadingAvatar(true);
-      setAvatarError(null);
-
-      const userId = await getCurrentUserId();
-      const preparedFile = await prepareAvatarFile(file);
-      const filePath = getAvatarPath(userId);
-      const { error: uploadError } = await supabase.storage
-        .from("avatars")
-        .upload(filePath, preparedFile, {
-          cacheControl: "3600",
-          contentType: "image/jpeg",
-          upsert: true,
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
-      await updateAvatar(data.publicUrl);
-    } catch (error: any) {
-      console.error("Erro ao atualizar foto de perfil:", error);
-      setAvatarError(error?.message ?? "Não foi possível atualizar a foto.");
-    } finally {
-      setUploadingAvatar(false);
-      if (inputRef.current) inputRef.current.value = "";
-    }
-  };
-
-  const handleRemoveAvatar = async () => {
-    if (uploadingAvatar) return;
-
-    try {
-      setUploadingAvatar(true);
-      setAvatarError(null);
-      await updateAvatar(null);
-    } catch (error: any) {
-      console.error("Erro ao remover foto de perfil:", error);
-      setAvatarError(error?.message ?? "Não foi possível remover a foto.");
-    } finally {
-      setUploadingAvatar(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-6 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">
-            Meu perfil
-          </h3>
-          <Button variant="ghost" onClick={onClose}>
-            Fechar
-          </Button>
-        </div>
-
-        <div className="mb-5 flex items-center gap-4 rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
-          <Avatar className="h-16 w-16">
-            <AvatarImage src={avatarUrl ?? undefined} alt={user.name || "Usuário"} />
-            <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
-          </Avatar>
-
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
-              Foto de perfil
-            </div>
-            <div className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-              HEIC, PNG, JPG, WebP ou GIF até 25 MB. A imagem é otimizada automaticamente.
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <input
-                ref={inputRef}
-                type="file"
-                accept={AVATAR_ACCEPT}
-                className="hidden"
-                onChange={(event) => void handleAvatarUpload(event.target.files?.[0])}
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => inputRef.current?.click()}
-                disabled={uploadingAvatar}
-              >
-                {uploadingAvatar ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Camera className="mr-2 h-4 w-4" />
-                )}
-                Alterar foto
-              </Button>
-
-              {avatarUrl ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void handleRemoveAvatar()}
-                  disabled={uploadingAvatar}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Remover
-                </Button>
-              ) : null}
-            </div>
-
-            {avatarError ? (
-              <div className="mt-2 text-xs text-red-600 dark:text-red-400">
-                {avatarError}
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <div className="rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
-            <div className="text-xs text-gray-500 dark:text-slate-400">Nome</div>
-            <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
-              {user.name || "Usuário"}
-            </div>
-          </div>
-
-          <div className="rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
-            <div className="text-xs text-gray-500 dark:text-slate-400">Email</div>
-            <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
-              {user.email || "-"}
-            </div>
-          </div>
-
-          <div className="rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
-            <div className="text-xs text-gray-500 dark:text-slate-400">
-              Perfil de acesso
-            </div>
-            <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
-              {getRoleLabel(user.role)}
-            </div>
-          </div>
-
-          <div className="rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
-            <div className="text-xs text-gray-500 dark:text-slate-400">Setor</div>
-            <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
-              {user.sector || "—"}
-            </div>
-          </div>
-
-          <div className="rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
-            <div className="text-xs text-gray-500 dark:text-slate-400">
-              Último acesso
-            </div>
-            <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
-              {formatDate(user.lastSignInAt)}
-            </div>
-          </div>
-
-          <div className="rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60">
-            <div className="text-xs text-gray-500 dark:text-slate-400">
-              Estabelecimento
-            </div>
-            <div className="text-sm font-medium text-gray-900 dark:text-slate-100 break-words">
-              {user.establishmentName || user.establishmentId || "—"}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <Button onClick={onClose}>Fechar</Button>
-        </div>
-      </div>
-    </div>
-  );
+export function ProfileModal({open,onClose,onAvatarUpdated,user}:ProfileModalProps){
+ const inputRef=useRef<HTMLInputElement|null>(null);const [avatarUrl,setAvatarUrl]=useState<string|null>(user.avatar??null);const [uploadingAvatar,setUploadingAvatar]=useState(false);const [avatarError,setAvatarError]=useState<string|null>(null);
+ useEffect(()=>{if(open){setAvatarUrl(user.avatar??null);setAvatarError(null);}},[open,user.avatar]);
+ useEffect(()=>{if(!open)return;const onKey=(e:KeyboardEvent)=>{if(e.key==="Escape")onClose();};window.addEventListener("keydown",onKey);return()=>window.removeEventListener("keydown",onKey);},[open,onClose]);
+ if(!open)return null;
+ const getCurrentUserId=async()=>{if(user.id)return user.id;const{data:{user:authUser},error}=await supabase.auth.getUser();if(error||!authUser?.id)throw error??new Error("Usuário não autenticado.");return authUser.id;};
+ const updateAvatar=async(next:string|null)=>{const id=await getCurrentUserId();const{error:profileError}=await supabase.from("profiles").update({avatar_url:next}).eq("id",id);if(profileError)throw profileError;const{error:metadataError}=await supabase.auth.updateUser({data:{avatar_url:next}});if(metadataError)throw metadataError;setAvatarUrl(next);onAvatarUpdated?.(next);};
+ const handleAvatarUpload=async(file?:File|null)=>{if(!file||uploadingAvatar)return;if(!isSupportedAvatarFile(file)){setAvatarError("Envie uma imagem válida: HEIC, PNG, JPG, WebP ou GIF.");return;}if(file.size>MAX_ORIGINAL_AVATAR_BYTES){setAvatarError("A imagem precisa ter até 25 MB.");return;}try{setUploadingAvatar(true);setAvatarError(null);const id=await getCurrentUserId();const prepared=await prepareAvatarFile(file);const path=getAvatarPath(id);const{error}=await supabase.storage.from("avatars").upload(path,prepared,{cacheControl:"3600",contentType:"image/jpeg",upsert:true});if(error)throw error;const{data}=supabase.storage.from("avatars").getPublicUrl(path);await updateAvatar(data.publicUrl);}catch(error:any){console.error("Erro ao atualizar foto de perfil:",error);setAvatarError(error?.message??"Não foi possível atualizar a foto.");}finally{setUploadingAvatar(false);if(inputRef.current)inputRef.current.value="";}};
+ const handleRemoveAvatar=async()=>{if(uploadingAvatar)return;try{setUploadingAvatar(true);setAvatarError(null);await updateAvatar(null);}catch(error:any){console.error("Erro ao remover foto de perfil:",error);setAvatarError(error?.message??"Não foi possível remover a foto.");}finally{setUploadingAvatar(false);}};
+ const Field=({label,children}:{label:string;children:React.ReactNode})=><div className="rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60"><div className="text-xs text-gray-500 dark:text-slate-400">{label}</div><div className="break-words text-sm font-medium text-gray-900 dark:text-slate-100">{children}</div></div>;
+ return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-2 sm:p-4" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+  <div role="dialog" aria-modal="true" aria-labelledby="profile-modal-title" className="flex max-h-[calc(100dvh-1rem)] w-full max-w-md flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900 sm:max-h-[calc(100dvh-2rem)]">
+   <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-gray-100 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900"><h3 id="profile-modal-title" className="text-base font-semibold text-gray-900 dark:text-slate-100">Meu perfil</h3><Button type="button" variant="ghost" size="icon" aria-label="Fechar perfil" onClick={onClose}><X className="h-5 w-5"/></Button></div>
+   <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+    <div className="mb-5 flex items-center gap-4 rounded-md border border-gray-200 p-3 dark:border-slate-700 dark:bg-slate-800/60"><Avatar className="h-16 w-16 shrink-0"><AvatarImage src={avatarUrl??undefined} alt={user.name||"Usuário"}/><AvatarFallback>{getInitials(user.name)}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><div className="text-sm font-medium text-gray-900 dark:text-slate-100">Foto de perfil</div><div className="mt-1 text-xs text-gray-500 dark:text-slate-400">HEIC, PNG, JPG, WebP ou GIF até 25 MB. A imagem é otimizada automaticamente.</div><div className="mt-3 flex flex-wrap gap-2"><input ref={inputRef} type="file" accept={AVATAR_ACCEPT} className="hidden" onChange={e=>void handleAvatarUpload(e.target.files?.[0])}/><Button type="button" size="sm" variant="outline" onClick={()=>inputRef.current?.click()} disabled={uploadingAvatar}>{uploadingAvatar?<Loader2 className="mr-2 h-4 w-4 animate-spin"/>:<Camera className="mr-2 h-4 w-4"/>}Alterar foto</Button>{avatarUrl?<Button type="button" size="sm" variant="ghost" onClick={()=>void handleRemoveAvatar()} disabled={uploadingAvatar}><Trash2 className="mr-2 h-4 w-4"/>Remover</Button>:null}</div>{avatarError?<div className="mt-2 text-xs text-red-600 dark:text-red-400">{avatarError}</div>:null}</div></div>
+    <div className="space-y-3"><Field label="Nome">{user.name||"Usuário"}</Field><Field label="Email">{user.email||"-"}</Field><Field label="Perfil de acesso">{getRoleLabel(user.role)}</Field><Field label="Setor">{user.sector||"—"}</Field><Field label="Último acesso">{formatDate(user.lastSignInAt)}</Field><Field label="Estabelecimento">{user.establishmentName||user.establishmentId||"—"}</Field></div>
+   </div>
+   <div className="shrink-0 border-t border-gray-100 bg-white px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] dark:border-slate-800 dark:bg-slate-900"><div className="flex justify-end"><Button onClick={onClose}>Fechar</Button></div></div>
+  </div>
+ </div>;
 }

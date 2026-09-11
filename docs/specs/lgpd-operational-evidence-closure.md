@@ -1,12 +1,29 @@
 # LGPD Operational Evidence Closure
 
-Status: **proposed**  
+Status: **implementing — staging foundation validated**  
 Priority: **P2 — compliance / commercial readiness**  
 Owner: Kratelis / Gestify
 
 ## Contexto e evidência
 
 A fundação técnica de compliance já existe no Gestify: Termos v2.1 e reaceite obrigatório, Privacy Center, DPA/políticas, ledger de aceite, fluxo de solicitações de titulares, registro de subprocessadores, incidentes, offboarding/exportação e política inicial de retenção. A lacuna restante é transformar controles documentados e implementados em evidência operacional verificável antes da comercialização ampla.
+
+## Evidência de staging — 2026-09-10
+
+Foi detectado que o staging persistente `tuncavkhjazruijujatb` ainda não continha as tabelas da fundação LGPD v2 presentes na `main`. A fundação estrutural foi aplicada **somente em staging**, sem tocar Production/Santino.
+
+Validações executadas após a aplicação:
+
+- tabelas `legal_document_versions`, `legal_acceptances`, `data_subject_requests`, `security_incidents`, `subprocessors`, `data_retention_policies`, `tenant_offboarding` e `tenant_offboarding_events` presentes;
+- RLS habilitado nas oito tabelas;
+- `anon` sem `SELECT` e `authenticated` sem `SELECT` nessas tabelas;
+- `service_role` com acesso server-side necessário;
+- Security Advisor executado após DDL: as novas tabelas aparecem como `RLS enabled, no policy`, comportamento intencional para tabelas service-only sem grants de cliente; o mesmo lint já ocorre em fundações service-only como `api_idempotency_keys` e `app_job_queue`;
+- smoke DSAR sintético executado dentro de transação com `ROLLBACK`: inserção de solicitação `access`, status `received` e `due_at` funcionou sem persistir dado de teste.
+
+A execução acima valida o **schema e o caminho de persistência**, mas ainda não equivale ao DSAR ponta a ponta autenticado pela aplicação. O critério de DSAR completo permanece aberto.
+
+Referência do lint informativo do Supabase: https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy
 
 ## Problema
 
@@ -47,7 +64,7 @@ Executar primeiro em staging com dados sintéticos:
 9. testar tentativa tenant A -> tenant B e exigir negação;
 10. arquivar evidência não sensível do teste e referência para evidência privada.
 
-Critério: nenhuma etapa pode depender de edição manual direta no banco.
+Critério: nenhuma etapa pode depender de edição manual direta no banco. O smoke transacional de 2026-09-10 foi diagnóstico de schema e não satisfaz este critério completo.
 
 ## Retenção e exclusão
 
@@ -113,18 +130,22 @@ A revisão deve produzir data, versão, responsável e pendências; não armazen
 
 ## Critérios de aceitação
 
-- [ ] DSAR de acesso/exportação executado ponta a ponta em staging e evidenciado.
+- [x] Fundação estrutural LGPD v2 aplicada e validada no staging persistente.
+- [x] RLS e grants service-only das novas tabelas conferidos em staging.
+- [x] Security Advisor reexecutado após DDL e resultado classificado.
+- [x] Smoke de persistência DSAR executado com dados sintéticos e rollback.
+- [ ] DSAR de acesso/exportação executado ponta a ponta pela aplicação em staging e evidenciado.
 - [ ] DSAR de correção executado em staging.
 - [ ] DSAR de eliminação/anonimização testado, inclusive exceção por retenção legal.
-- [ ] Teste adversarial tenant A x tenant B aprovado.
+- [ ] Teste adversarial tenant A x tenant B aprovado no fluxo autenticado.
 - [ ] Matriz de retenção revisada e aprovada juridicamente.
 - [ ] Rotina de retenção/exclusão validada em staging antes de qualquer produção.
 - [ ] Registro de subprocessadores reconciliado com fornecedores reais e evidências externas.
 - [ ] Runbook de incidente exercitado em tabletop.
-- [ ] Biometria continua bloqueada comercialmente até fechamento do gate.
+- [x] Biometria continua bloqueada comercialmente até fechamento do gate.
 - [ ] Decisão formal sobre RIPD de biometria registrada.
 - [ ] Revisão jurídica brasileira final registrada por versão/data/responsável.
-- [ ] Nenhuma evidência sensível ou segredo foi commitado.
+- [x] Nenhuma evidência sensível ou segredo foi commitado por esta execução.
 
 ## Gates técnicos
 
@@ -151,7 +172,7 @@ Antes de considerar qualquer implementação associada pronta para revisão:
 
 ## Rollback
 
-Este documento não altera runtime, banco ou produção. Mudanças futuras devem possuir rollback específico e preservar a continuidade da Santino.
+A alteração de staging adicionou somente estruturas novas de compliance sem dados reais e sem impacto em Production. Não remover essas estruturas enquanto o código da `main` depender delas. Qualquer promoção futura para Production deve usar a migration versionada completa e exigir aprovação humana específica.
 
 ## Definição de 100%
 

@@ -15,13 +15,8 @@ function readPublicSupabaseEnv(): SupabasePublicEnv {
 function getMissingPublicEnvNames(env: SupabasePublicEnv) {
   const missing: string[] = [];
 
-  if (!env.supabaseUrl) {
-    missing.push("NEXT_PUBLIC_SUPABASE_URL");
-  }
-
-  if (!env.supabaseKey) {
-    missing.push("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
-  }
+  if (!env.supabaseUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL");
+  if (!env.supabaseKey) missing.push("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
 
   return missing;
 }
@@ -44,19 +39,4 @@ export function getRequiredSupabasePublicEnv() {
     supabaseUrl: env.supabaseUrl as string,
     supabaseKey: env.supabaseKey as string,
   };
-}
-
-export function getRequiredSupabaseServiceRoleKey() {
-  // Security baseline: only the canonical modern sb_secret_* credential is
-  // accepted. Legacy aliases and JWT-based service_role fallbacks are
-  // intentionally unsupported after the incident migration.
-  const adminKey = process.env.SUPABASE_SECRET_KEY;
-
-  if (!adminKey) {
-    throw new Error(
-      "Configuração Supabase admin incompleta. Defina uma SUPABASE_SECRET_KEY moderna apenas em ambiente server-side seguro."
-    );
-  }
-
-  return adminKey;
 }

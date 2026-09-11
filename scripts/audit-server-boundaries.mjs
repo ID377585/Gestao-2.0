@@ -39,6 +39,11 @@ function isRouteHandler(path) {
   return /(^|\/)app\/api\/.+\/route\.[cm]?[jt]s$/.test(path.replaceAll("\\", "/"));
 }
 
+function isServerAction(text) {
+  const directive = firstDirective(text);
+  return directive === '"use server";' || directive === "'use server';";
+}
+
 const findings = [];
 for (const file of walk("src")) {
   const rel = relative(process.cwd(), file).replaceAll("\\", "/");
@@ -51,9 +56,10 @@ for (const file of walk("src")) {
     continue;
   }
 
-  // API route handlers are server-only by Next.js contract. Other privileged modules
-  // must explicitly import server-only so accidental client imports fail at build time.
-  if (!isRouteHandler(rel) && !/^import\s+["']server-only["'];/m.test(text)) {
+  // API route handlers and files with a top-level `use server` directive are
+  // explicit Next.js server boundaries. Other privileged modules must import
+  // server-only so accidental client imports fail at build time.
+  if (!isRouteHandler(rel) && !isServerAction(text) && !/^import\s+["']server-only["'];/m.test(text)) {
     findings.push(`${rel}: privileged Supabase primitive without explicit server-only boundary`);
   }
 }

@@ -3,10 +3,8 @@ import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 
-import {
-  getRequiredSupabasePublicEnv,
-  getRequiredSupabaseServiceRoleKey,
-} from "./config";
+import { getRequiredSupabasePublicEnv } from "./config";
+import { getRequiredSupabaseServiceRoleKey } from "./secret.server";
 
 type CookieStore = Awaited<ReturnType<typeof cookies>>;
 

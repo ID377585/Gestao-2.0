@@ -3,6 +3,8 @@
 
 begin;
 
+-- Buckets are created by application/runtime flows in some environments. Only
+-- harden rows that already exist so fresh migration replay stays deterministic.
 update storage.buckets
 set public = false
 where id in (

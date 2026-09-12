@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Production recorded architecture_fk_indexes_versioned as 20260911041508.
+-- Canonical DDL is 20260911050000_architecture_fk_indexes.sql.
+-- Intentionally no DDL/DML.

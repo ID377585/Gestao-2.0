@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Production recorded realtime_order_publication_alignment as 20260911125302.
+-- Canonical DDL is 20260911130000_realtime_order_publication_alignment.sql.
+-- Intentionally no DDL/DML.

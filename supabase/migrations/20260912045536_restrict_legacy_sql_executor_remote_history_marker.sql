@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Production recorded restrict_legacy_sql_executor under runtime version 20260912045536.
+-- Canonical replay DDL is versioned at 20260912045526.
+-- Intentionally no DDL/DML.

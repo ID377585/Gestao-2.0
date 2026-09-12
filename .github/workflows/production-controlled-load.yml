@@ -1,0 +1,72 @@
+name: Production controlled read-only load test
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Digite exatamente load:gestify-production:controlled"
+        required: true
+        type: string
+      path:
+        description: "Read-only path (/ or /login)"
+        required: false
+        default: "/login"
+        type: choice
+        options:
+          - /login
+          - /
+      requests:
+        description: "Requests (max 200)"
+        required: false
+        default: "120"
+        type: string
+      concurrency:
+        description: "Concurrency (max 3)"
+        required: false
+        default: "3"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gestify-production-controlled-load
+  cancel-in-progress: false
+
+jobs:
+  load:
+    name: Safe Production read-only load
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production
+    env:
+      GESTIFY_PROD_LOAD_CONFIRMATION: ${{ inputs.confirmation }}
+      GESTIFY_PROD_LOAD_TARGET_URL: https://www.gestify.app
+      GESTIFY_PROD_LOAD_PATH: ${{ inputs.path }}
+      GESTIFY_PROD_LOAD_REQUESTS: ${{ inputs.requests }}
+      GESTIFY_PROD_LOAD_CONCURRENCY: ${{ inputs.concurrency }}
+      GESTIFY_PROD_LOAD_MAX_ERROR_RATE: "0.01"
+      GESTIFY_PROD_LOAD_MAX_P95_MS: "3000"
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Run controlled read-only Production load
+        run: node scripts/ops/controlled-production-load.mjs | tee production-load-result.json
+
+      - name: Upload evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: gestify-production-controlled-load-${{ github.run_id }}-${{ github.run_attempt }}
+          path: production-load-result.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Staging recorded architecture_user_module_permissions_rls_final as 20260911034418.
+-- Canonical architecture migrations reproduce the final policy contract.
+-- Intentionally no DDL/DML.

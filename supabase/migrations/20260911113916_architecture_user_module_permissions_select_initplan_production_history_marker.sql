@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Production recorded architecture_user_module_permissions_select_initplan as 20260911113916.
+-- Canonical replay is represented by the versioned architecture RLS migration set.
+-- Intentionally no DDL/DML.

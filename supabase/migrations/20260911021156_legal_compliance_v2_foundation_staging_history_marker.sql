@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Staging recorded legal_compliance_v2_foundation as 20260911021156.
+-- Canonical DDL is 20260909210000_legal_compliance_v2_foundation.sql.
+-- Intentionally no DDL/DML.

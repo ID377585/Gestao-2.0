@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Production recorded architecture_rls_policy_consolidation_final as 20260911113904.
+-- Canonical DDL is 20260911061000_architecture_rls_policy_consolidation_final.sql.
+-- Intentionally no DDL/DML.

@@ -1,0 +1,5 @@
+-- Historical migration marker only.
+-- Production recorded this lease hardening under runtime version 20260912045052.
+-- The canonical DDL is already versioned in:
+--   20260803220252_harden_app_job_queue_leases.sql
+-- Intentionally contains no DDL/DML so fresh replay does not reapply the same change.

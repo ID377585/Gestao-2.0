@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Staging recorded architecture_rls_policy_consolidation as 20260911034341.
+-- Canonical architecture RLS replay is versioned in the 20260911061000/062000 migration set.
+-- Intentionally no DDL/DML.

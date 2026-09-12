@@ -57,9 +57,6 @@ async function resolveAuthenticatedUser(request: Request) {
     data: { user },
     error,
   } = await supabase.auth.getUser();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
 
   if (error || !user) {
     return {
@@ -70,7 +67,7 @@ async function resolveAuthenticatedUser(request: Request) {
 
   return {
     user,
-    accessToken: session?.access_token ?? null,
+    accessToken: null,
   };
 }
 

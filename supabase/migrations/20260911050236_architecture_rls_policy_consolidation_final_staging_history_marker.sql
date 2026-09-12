@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Staging recorded architecture_rls_policy_consolidation_final_versioned as 20260911050236.
+-- Canonical DDL is represented by 20260911061000 and 20260911062000.
+-- Intentionally no DDL/DML.

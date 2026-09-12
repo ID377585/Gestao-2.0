@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Staging recorded enforce_contract_capacity under runtime version 20260912050055.
+-- Canonical forward replay DDL is versioned at 20260912114537.
+-- Intentionally no DDL/DML.

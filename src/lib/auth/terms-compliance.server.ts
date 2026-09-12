@@ -95,14 +95,17 @@ async function getTelemetry(params?: {
   path?: string | null;
 }): Promise<RequestTelemetry> {
   const currentHeaders = params?.headersOverride ?? (await headers());
-  let accessToken = params?.accessToken ?? null;
+  let authSessionId = extractSessionId(params?.accessToken);
 
-  if (!accessToken) {
+  if (!authSessionId) {
     const supabase = await createSupabaseServerClient();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    accessToken = session?.access_token ?? null;
+    const { data: claimsData, error: claimsError } =
+      await supabase.auth.getClaims();
+    const claimedSessionId = claimsData?.claims?.session_id;
+
+    if (!claimsError && typeof claimedSessionId === "string") {
+      authSessionId = claimedSessionId.trim() || null;
+    }
   }
 
   return {
@@ -112,7 +115,7 @@ async function getTelemetry(params?: {
     ),
     userAgent: getHeader(currentHeaders, "user-agent"),
     path: params?.path ?? null,
-    authSessionId: extractSessionId(accessToken),
+    authSessionId,
   };
 }
 

@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Staging recorded storage_tenant_hardening as 20260911124345.
+-- Canonical DDL is 20260911124000_storage_tenant_hardening.sql.
+-- Intentionally no DDL/DML.

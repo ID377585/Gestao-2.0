@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Staging recorded architecture_compliance_foundation_reconciliation as 20260911034325.
+-- The canonical replay contract is represented by the versioned legal/compliance and architecture migrations in this repository.
+-- Intentionally no DDL/DML.

@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Staging recorded architecture_user_module_permissions_rls_consolidation as 20260911034405.
+-- The final user_module_permissions RLS contract is represented by canonical architecture migrations.
+-- Intentionally no DDL/DML.

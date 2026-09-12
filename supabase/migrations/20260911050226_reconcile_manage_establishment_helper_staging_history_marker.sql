@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Staging recorded reconcile_manage_establishment_helper as 20260911050226.
+-- Canonical DDL is 20260911060000_reconcile_manage_establishment_helper.sql.
+-- Intentionally no DDL/DML.

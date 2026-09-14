@@ -149,14 +149,73 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          supabase db push --linked --dry-run 2>&1 \
+          supabase db push --linked --dry-run --include-all 2>&1 \
             | tee .artifacts/supabase-staging-apply/pre-apply-dry-run.log
+
+      - name: Validate one-time historical catch-up allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(mktemp)"
+          actual="$(mktemp)"
+          trap 'rm -f "$expected" "$actual"' EXIT
+
+          cat > "$expected" <<'EOF'
+          20260825045423_harden_nutrition_notification_rpc.sql
+          20260828214500_harden_inventory_catalog_module_access.sql
+          20260828215348_create_inventory_catalog_remote_history_marker.sql
+          20260828215401_index_inventory_catalog_audit_users_remote_history_marker.sql
+          20260828215411_harden_inventory_catalog_module_access_remote_history_marker.sql
+          20260902133545_production_history_marker_create_auth_compliance_ledgers.sql
+          20260902133555_production_history_marker_harden_auth_compliance_append_only_grants.sql
+          20260909205900_prepare_legal_document_ledgers.sql
+          20260909210000_legal_compliance_v2_foundation.sql
+          20260909211500_harden_legal_compliance_ledgers.sql
+          20260910050000_align_order_rls_audit_with_private_impl.sql
+          20260910135000_publish_terms_v2_1.sql
+          20260911041508_architecture_fk_indexes_production_history_marker.sql
+          20260911050000_architecture_fk_indexes.sql
+          20260911060000_reconcile_manage_establishment_helper.sql
+          20260911061000_architecture_rls_policy_consolidation_final.sql
+          20260911062000_architecture_rls_policy_consolidation_remaining.sql
+          20260911113826_architecture_manage_establishment_helper_production_history_marker.sql
+          20260911113904_architecture_rls_policy_consolidation_final_production_history_marker.sql
+          20260911113916_architecture_user_module_permissions_select_initplan_production_history_marker.sql
+          20260911114028_architecture_rls_policy_consolidation_remaining_production_history_marker.sql
+          20260911124000_storage_tenant_hardening.sql
+          20260911124448_storage_tenant_hardening_production_history_marker.sql
+          20260911125302_realtime_order_publication_production_history_marker.sql
+          20260911130000_realtime_order_publication_alignment.sql
+          20260911134139_publish_terms_v2_1_reconcile.sql
+          20260912045052_harden_app_job_queue_leases_remote_history_marker.sql
+          20260912045242_public_demo_leads_and_rpc_execute_hardening.sql
+          20260912045536_restrict_legacy_sql_executor_remote_history_marker.sql
+          EOF
+
+          sed -i 's/^          //' "$expected"
+          sort -u "$expected" -o "$expected"
+
+          grep -oE '[0-9]{14}_[A-Za-z0-9_]+\.sql' \
+            .artifacts/supabase-staging-apply/pre-apply-dry-run.log \
+            | sort -u > "$actual" || true
+
+          if [[ ! -s "$actual" ]]; then
+            echo "Dry-run did not expose an auditable migration list; refusing historical catch-up." >&2
+            exit 1
+          fi
+
+          if ! diff -u "$expected" "$actual"; then
+            echo "Historical catch-up set changed; refusing apply." >&2
+            exit 1
+          fi
+
+          cp "$actual" .artifacts/supabase-staging-apply/historical-catchup-allowlist.txt
 
       - name: Apply migrations to staging only
         shell: bash
         run: |
           set -euo pipefail
-          supabase db push --linked 2>&1 \
+          supabase db push --linked --include-all 2>&1 \
             | tee .artifacts/supabase-staging-apply/apply.log
 
       - name: Verify migration state and database lint

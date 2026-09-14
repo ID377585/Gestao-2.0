@@ -55,6 +55,15 @@ drop policy if exists inventory_catalog_items_member_update
 drop policy if exists inventory_catalog_items_member_delete
   on public.inventory_catalog_items;
 
+drop policy if exists inventory_catalog_items_module_select
+  on public.inventory_catalog_items;
+drop policy if exists inventory_catalog_items_module_insert
+  on public.inventory_catalog_items;
+drop policy if exists inventory_catalog_items_module_update
+  on public.inventory_catalog_items;
+drop policy if exists inventory_catalog_items_module_delete
+  on public.inventory_catalog_items;
+
 create policy inventory_catalog_items_module_select
 on public.inventory_catalog_items
 for select

@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Staging recorded reconcile_production_order_rls_canonical as 20260827041001.
+-- Equivalent canonical order RLS reconciliation was validated in staging; Production recorded the live reconciliation as 20260827041628.
+-- Intentionally no DDL/DML.

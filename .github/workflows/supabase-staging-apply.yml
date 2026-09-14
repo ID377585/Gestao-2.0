@@ -190,6 +190,7 @@ jobs:
           20260912045052_harden_app_job_queue_leases_remote_history_marker.sql
           20260912045242_public_demo_leads_and_rpc_execute_hardening.sql
           20260912045536_restrict_legacy_sql_executor_remote_history_marker.sql
+          20260912114537_enforce_contract_capacity_production_alignment.sql
           EOF
 
           sed -i 's/^          //' "$expected"

@@ -1,101 +1,98 @@
-# Spec — LGPD / jurídico / consentimento hardening
+# Spec — LGPD / jurídico / compliance operacional hardening
 
-Status: implementing
-Priority: P1/P2
-Date: 2026-09-02
+Status: implementing — controls implemented, legal/vendor verification pending
+Priority: P1
+Updated: 2026-09-09
 
 ## Contexto
 
-O Gestify é um SaaS B2B multiempresa utilizado por estabelecimentos de alimentação e pode tratar dados de representantes, usuários, colaboradores, fornecedores e outros titulares. Em parte dos tratamentos a NT Solution/Gestify atua como Controladora; nos dados inseridos pelo cliente para operação do estabelecimento, em regra, o cliente atua como Controlador e a Gestify como Operadora.
+O Gestify é SaaS multiempresa e trata dados de representantes, usuários, colaboradores, fornecedores e outros titulares. A NT Solution/Gestify atua como Controladora em tratamentos próprios e, em regra, como Operadora para dados inseridos pelo cliente em seu tenant.
 
-A base jurídica pública já inclui Política de Privacidade, Termos do Serviço, DPA, Política de Cookies e Política de Acessibilidade. O endurecimento atual busca reduzir ambiguidades e alinhar cláusulas, processos e evidências técnicas.
+O objetivo desta rodada não é produzir cláusulas genéricas, mas alinhar regra pública, contrato, processo operacional, evidência e controle técnico às normas brasileiras aplicáveis.
 
-## Problemas observados
+## Base normativa verificada
 
-1. Retenção descrita de forma genérica, sem matriz operacional por categoria.
-2. Resposta a incidentes não explicita prazos regulatórios externos nem janela operacional interna entre Operadora e Controlador.
-3. Transferência internacional descrita genericamente, sem referência aos mecanismos aplicáveis e governança de suboperadores.
-4. DPA ainda curto para um SaaS B2B que pode tratar dados trabalhistas, financeiros, de autenticação e eventualmente dados pessoais sensíveis.
-5. Ausência de uma política pública específica de governança e proteção de dados que consolide minimização, retenção, descarte, direitos, subprocessadores, segurança, privacy by design e evidências.
-6. Necessidade de preservar coerência com o ledger append-only de aceite dos termos em evolução na PR de compliance de autenticação.
+- LGPD — Lei 13.709/2018;
+- Marco Civil da Internet — Lei 12.965/2014, inclusive retenção de registros de acesso quando a obrigação legal se aplicar;
+- CDC — Lei 8.078/1990 quando houver relação de consumo no caso concreto;
+- regulamentação vigente da ANPD, incluindo Res. 15/2024 (incidentes), Res. 18/2024 (Encarregado) e Res. 19/2024 (transferência internacional);
+- obrigações civis, fiscais, trabalhistas e setoriais conforme o tratamento/cliente.
 
-## Objetivo
+## Evidência e problemas observados
 
-Elevar a maturidade de LGPD/jurídico/consentimento sem criar promessas técnicas que a plataforma ainda não consegue comprovar. A regra de conformidade é: cláusula pública, procedimento interno e evidência técnica devem ser compatíveis.
+1. O DPA v1.3 é resumido e genérico para suboperadores, incidentes, direitos, transferências e encerramento.
+2. O Termo v1.3 contém regra ampla de aceite por uso continuado para versões futuras; alterações materiais precisam de abordagem mais robusta/versionada.
+3. Retenção precisava sair de 'pelo tempo necessário' para regra por categoria, evento, método, backup e legal hold.
+4. O fluxo de incidente precisava de relógios separados e janela interna Operadora -> Controlador.
+5. O inventário de suboperadores/países/mecanismos de transferência depende de validação dos contratos e configurações reais.
+6. Direitos de titulares precisavam de runbook com identidade, Controller/Operator, legal hold, evidência e prazo.
+7. Tratamentos de alto risco precisavam de padrão RIPD/DPIA.
+8. Biometria facial existe no código de ponto digital e, portanto, não pode ficar coberta apenas por termos genéricos.
+
+### Evidência Production sobre biometria — leitura em 09/09/2026
+
+- `hr_employee_face_profiles`: 0 perfis cadastrados;
+- eventos com `selfie_path`: 1;
+- estabelecimentos com `require_face_detection = true`: 0;
+- estabelecimentos com `require_selfie = true`: 0;
+- Storage `employee-face-profiles`: nenhum objeto retornado;
+- Storage `time-clock-selfies`: 1 objeto.
+
+Nenhum dado foi excluído ou alterado durante a auditoria.
+
+Conclusão operacional: reconhecimento facial não está configurado como requisito ativo em Production, mas o código suporta cadastro/comparação. A ativação comercial de biometria permanece bloqueada pela governança até existir RIPD, base legal, instrução contratual, retenção, controles e revisão jurídica específicos.
+
+## Controles implementados nesta branch
+
+- `docs/compliance/LGPD_CONTROL_FRAMEWORK.md`: 16 domínios de controle e release gate privacy-by-design;
+- `docs/compliance/ROPA_PROCESSING_REGISTER.md`: inventário inicial de atividades;
+- `docs/compliance/DSAR_RUNBOOK.md`: direitos dos titulares;
+- `docs/compliance/RIPD_DPIA_STANDARD.md`: avaliação de impacto e risco;
+- `docs/compliance/RETENTION_DELETION_LEGAL_HOLD.md`: retenção, eliminação, backup e legal hold;
+- `docs/compliance/SUBPROCESSOR_TRANSFER_REGISTER.md`: fornecedores e transferências;
+- `docs/compliance/CONSUMER_AND_SAAS_CONTRACT_GUARDRAILS.md`: B2B/B2C/PF/PJ e cláusulas de risco;
+- `docs/security/LGPD_INCIDENT_RESPONSE_RUNBOOK.md`: 24h interno como alvo Operadora->Controlador e suporte ao prazo regulatório de 3 dias úteis quando Gestify for Controladora e houver risco/dano relevante;
+- `src/lib/data-governance-content.ts`: política pública endurecida e versionada em 09/09/2026;
+- `docs/legal/DPA_VNEXT_DRAFT.md`: minuta detalhada para revisão jurídica;
+- `docs/legal/TERMS_VNEXT_CHANGESET.md`: mudanças necessárias antes de nova versão de Termos;
+- `scripts/audit-lgpd-readiness.mjs` + workflow dedicado: gate estático de compliance.
 
 ## Invariantes
 
-- Nenhuma cláusula exclui responsabilidade que a lei torne inderrogável.
-- Consentimento não será usado como base legal universal quando houver base mais adequada.
-- Dados pessoais sensíveis somente serão tratados quando necessários e com base legal adequada.
-- A empresa cliente permanece responsável por instruções, licitude e transparência dos dados que insere quando atua como Controladora.
-- O Gestify, quando Operador, trata dados somente segundo instruções documentadas, contrato e necessidades de segurança/continuidade permitidas em lei.
-- Dados de tenants não podem ser compartilhados entre estabelecimentos.
-- Direitos de titulares devem ter canal, identidade verificável, trilha de auditoria e resposta dentro dos prazos legais aplicáveis.
-- Incidentes devem ter registro, triagem, contenção, avaliação de risco e comunicação escalonada.
-- Transferência internacional deve observar os mecanismos aprovados pela ANPD quando aplicáveis.
-- Eliminação deve considerar backups, obrigações legais, antifraude e exercício regular de direitos.
+- nenhuma cláusula elimina responsabilidade inderrogável;
+- consentimento não é base legal universal;
+- dados sensíveis/biometria exigem tratamento específico;
+- nenhum tenant pode acessar dados de outro;
+- nenhuma solicitação de titular pode gerar cross-tenant disclosure;
+- retenção deve ter finalidade/regra e legal hold específico;
+- backup não é arquivo comercial permanente;
+- transferência internacional exige base de tratamento + mecanismo válido;
+- termos aceitos permanecem historicamente imutáveis no ledger;
+- documentos públicos não podem prometer '100% seguro', invulnerabilidade ou risco jurídico zero;
+- mudanças contratuais materiais não devem ser retroativas.
 
-## Mudanças propostas
+## Definição interna de 100% de readiness
 
-1. Criar Política de Governança e Proteção de Dados vinculada no rodapé jurídico.
-2. Atualizar Política de Privacidade para:
-   - distinguir dados pessoais, sensíveis e dados corporativos;
-   - detalhar bases legais e responsabilidades;
-   - formalizar matriz de retenção orientativa;
-   - explicitar prazos e fluxo de incidentes;
-   - detalhar transferências internacionais e suboperadores;
-   - reforçar direitos e autenticação de solicitações;
-   - prever privacy by design, minimização e descarte seguro.
-3. Atualizar DPA/Termos para:
-   - instruções documentadas;
-   - confidencialidade de pessoas autorizadas;
-   - assistência ao Controlador;
-   - suboperadores;
-   - incidentes e cooperação;
-   - devolução/eliminação;
-   - auditoria proporcional;
-   - transferências internacionais;
-   - responsabilidade de cada parte.
-4. Versionar os documentos jurídicos de forma explícita.
-5. Não alterar produção nem realizar merge automático.
+100% significa que todo controle aplicável possui:
+1. regra documentada;
+2. responsável;
+3. processo executável;
+4. evidência verificável.
 
-## Matriz orientativa de retenção
+Não significa imunidade contra processos, autuações ou interpretação divergente de autoridade/tribunal.
 
-A matriz abaixo não substitui obrigação legal específica do cliente nem prescrição aplicável a cada relação:
+## Bloqueadores antes de considerar 'released' jurídico
 
-| Categoria | Regra padrão |
-| --- | --- |
-| Conta e autenticação | durante a relação e pelo período necessário a segurança, auditoria e defesa de direitos |
-| Logs de segurança/acesso | pelo período necessário a segurança, investigação, auditoria e prevenção a fraude, com minimização |
-| Aceites/versões de termos | enquanto necessários para prova contratual, obrigação legal e defesa de direitos |
-| Dados operacionais do cliente | durante a contratação e janela técnica de devolução/eliminação definida contratualmente |
-| Backups | ciclo técnico limitado, com expiração automática quando tecnicamente suportada |
-| Cobrança/fiscal/financeiro | conforme obrigações fiscais, contábeis, regulatórias e exercício de direitos |
-| Leads/marketing | até oposição/revogação quando aplicável ou enquanto persistir base legal válida |
-| Solicitações LGPD | enquanto necessário para comprovar atendimento e exercer direitos |
-
-Prazos concretos somente devem ser prometidos quando houver mecanismo técnico/processual capaz de cumpri-los.
-
-## Incidentes
-
-- Registrar data/hora de detecção e ciência.
-- Preservar evidências e limitar acesso.
-- Identificar categorias de dados, titulares, tenants e impacto.
-- Operadora informa o Controlador sem demora indevida e, contratualmente, dentro de janela operacional compatível com a obrigação externa do Controlador.
-- Quando a Gestify atuar como Controladora e o incidente puder acarretar risco ou dano relevante, o fluxo deve suportar comunicação à ANPD e aos titulares no prazo regulamentar aplicável.
-- Manter registro do incidente mesmo quando não houver comunicação externa.
-
-## Critérios de aceitação
-
-- Conteúdo jurídico compila e renderiza sem quebrar rotas existentes.
-- Links jurídicos apontam para todos os documentos vigentes.
-- Nenhuma promessa contradiz o estado técnico conhecido.
-- Termos/DPA deixam claros papéis de Controlador/Operador.
-- Retenção, incidentes, suboperadores e transferências internacionais estão cobertos.
-- Alterações passam por lint, typecheck, audit, tenant writes, readiness, build e testes relevantes.
-- Revisão humana jurídica é obrigatória antes da publicação final da nova versão contratual.
+1. advogado brasileiro especializado revisar Termos vNext, DPA vNext, CDC/PF/PJ, responsabilidade, foro, cancelamento e biometria;
+2. validar razão social/CNPJ/endereço/canal e papel formal do Encarregado;
+3. preencher registro real de subprocessadores, países, DPAs e mecanismos de transferência a partir das contas/contratos ativos;
+4. definir comercialmente janela de exportação/eliminação pós-término e SLA que possa ser medido;
+5. decidir se/como biometria será ofertada; se sim, concluir RIPD e contrato específico antes de ativação;
+6. implementar qualquer automação adicional de DSAR/deletion que seja necessária para os volumes reais;
+7. versionar Termos/DPA futuros e testar reaceite afirmativo quando aplicável;
+8. passar CI, audit de compliance, build e Preview;
+9. revisão humana antes de merge/publicação.
 
 ## Rollback
 
-Reverter os commits da branch antes do merge. Se publicado posteriormente, restaurar a versão jurídica anterior e manter histórico/versionamento dos aceites sem apagar registros já coletados.
+Reverter a PR. Nenhuma alteração de banco, Storage ou dados de Production faz parte desta branch. Se uma futura versão contratual for publicada, rollback deve preservar os aceites históricos e nunca apagar o ledger de versões anteriores.

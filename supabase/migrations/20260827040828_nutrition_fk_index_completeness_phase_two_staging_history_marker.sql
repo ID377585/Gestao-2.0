@@ -1,0 +1,4 @@
+-- Historical migration marker only.
+-- Staging recorded nutrition_fk_index_completeness_phase_two as 20260827040828.
+-- Equivalent DDL was validated in staging; Production recorded the same reconciliation as 20260827041606.
+-- Intentionally no DDL/DML.

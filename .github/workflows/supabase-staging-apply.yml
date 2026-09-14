@@ -161,7 +161,6 @@ jobs:
           trap 'rm -f "$expected" "$actual"' EXIT
 
           cat > "$expected" <<'EOF'
-          20260825045423_harden_nutrition_notification_rpc.sql
           20260828214500_harden_inventory_catalog_module_access.sql
           20260828215348_create_inventory_catalog_remote_history_marker.sql
           20260828215401_index_inventory_catalog_audit_users_remote_history_marker.sql

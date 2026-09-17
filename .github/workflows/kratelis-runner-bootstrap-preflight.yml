@@ -1,0 +1,38 @@
+name: Kratelis runner bootstrap preflight
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/kratelis-runner-bootstrap-preflight.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  privilege-preflight:
+    runs-on: [self-hosted, linux, x64, gestify-dr]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect runner identity and bootstrap capability
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "user=$(id -un)"
+          echo "uid=$(id -u)"
+          echo "home=${HOME}"
+          uname -sr
+          if sudo -n true 2>/dev/null; then
+            echo "passwordless_sudo=yes"
+          else
+            echo "passwordless_sudo=no"
+          fi
+          if command -v systemctl >/dev/null 2>&1; then
+            echo "systemd=yes"
+          else
+            echo "systemd=no"
+          fi
+          test ! -e /opt/actions-runner-kratelis-ci || {
+            echo "kratelis_runner_dir_exists=yes"
+            exit 2
+          }
+          echo "kratelis_runner_dir_exists=no"

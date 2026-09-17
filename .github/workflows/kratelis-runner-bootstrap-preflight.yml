@@ -13,7 +13,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, gestify-dr]
     timeout-minutes: 5
     steps:
-      - name: Inspect runner identity and bootstrap capability
+      - name: Inspect runner identity and rootless bootstrap capability
         shell: bash
         run: |
           set -euo pipefail
@@ -31,8 +31,26 @@ jobs:
           else
             echo "systemd=no"
           fi
-          test ! -e /opt/actions-runner-kratelis-ci || {
-            echo "kratelis_runner_dir_exists=yes"
+          if systemctl --user is-system-running >/dev/null 2>&1; then
+            echo "user_systemd=yes"
+          else
+            echo "user_systemd=no"
+          fi
+          if command -v loginctl >/dev/null 2>&1; then
+            loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null | sed 's/^/linger=/' || true
+          else
+            echo "linger=unknown"
+          fi
+          if command -v crontab >/dev/null 2>&1; then
+            echo "crontab=yes"
+          else
+            echo "crontab=no"
+          fi
+          if command -v curl >/dev/null 2>&1; then echo "curl=yes"; else echo "curl=no"; fi
+          if command -v tar >/dev/null 2>&1; then echo "tar=yes"; else echo "tar=no"; fi
+          runner_dir="${HOME}/actions-runner-kratelis-ci"
+          test ! -e "${runner_dir}" || {
+            echo "kratelis_runner_home_dir_exists=yes"
             exit 2
           }
-          echo "kratelis_runner_dir_exists=no"
+          echo "kratelis_runner_home_dir_exists=no"

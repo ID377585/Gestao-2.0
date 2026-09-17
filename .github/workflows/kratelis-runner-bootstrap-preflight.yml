@@ -20,27 +20,24 @@ jobs:
           echo "user=$(id -un)"
           echo "uid=$(id -u)"
           uname -sr
-          if sudo -n true 2>/dev/null; then
-            echo "passwordless_sudo=yes"
-          else
-            echo "passwordless_sudo=no"
-          fi
           command -v docker >/dev/null
           docker info >/dev/null
           echo "docker_access=yes"
           docker version --format 'server={{.Server.Version}}'
-          if docker inspect kratelis-ci-runner >/dev/null 2>&1; then
-            echo "kratelis_container_exists=yes"
-            exit 2
+          test ! "$(docker inspect -f '{{.Name}}' kratelis-ci-runner 2>/dev/null || true)" || exit 2
+          test ! "$(docker volume ls -q --filter name='^kratelis-ci-data$')" || exit 3
+
+      - name: Authorize founder Mac public key for bootstrap SSH
+        shell: bash
+        env:
+          FOUNDER_MAC_PUBKEY: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFxVQZJWUE4anZdLlhydCAEoFV9VwqKipWsRtxVBRpye gestify-dr-macbook"
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${HOME}/.ssh"
+          touch "${HOME}/.ssh/authorized_keys"
+          chmod 600 "${HOME}/.ssh/authorized_keys"
+          if ! grep -qxF "${FOUNDER_MAC_PUBKEY}" "${HOME}/.ssh/authorized_keys"; then
+            printf '%s\n' "${FOUNDER_MAC_PUBKEY}" >> "${HOME}/.ssh/authorized_keys"
           fi
-          echo "kratelis_container_exists=no"
-          if docker volume inspect kratelis-ci-data >/dev/null 2>&1; then
-            echo "kratelis_volume_exists=yes"
-            exit 3
-          fi
-          echo "kratelis_volume_exists=no"
-          if docker ps --format '{{.Names}}' | grep -qx 'gestify-dr-hostgator'; then
-            echo "gestify_dr_container=yes"
-          else
-            echo "gestify_dr_container=no_or_host_service"
-          fi
+          grep -qxF "${FOUNDER_MAC_PUBKEY}" "${HOME}/.ssh/authorized_keys"
+          echo "founder_mac_key_authorized=yes"

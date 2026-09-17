@@ -168,6 +168,22 @@ export async function getGestifyCompanyUsers(establishmentId: string, requestedL
   const items = await Promise.all(
     (memberships ?? []).map(async (membership) => {
       const userId = String(membership.user_id);
+      if (process.env.GESTIFY_ADMIN_STAGING_DB_SECRET?.trim()) {
+        const { data, error: profileError } = await supabase.rpc(
+          "gestify_admin_staging_user_profile",
+          { p_user_id: userId },
+        );
+        const profile = Array.isArray(data) ? data[0] : null;
+        return {
+          userId,
+          role: membership.role,
+          active: Boolean(membership.is_active),
+          membershipCreatedAt: membership.created_at,
+          accountCreatedAt: profileError ? null : profile?.created_at ?? null,
+          lastSignInAt: profileError ? null : profile?.last_sign_in_at ?? null,
+        };
+      }
+
       const { data, error: authError } = await supabase.auth.admin.getUserById(userId);
       if (authError) {
         return {

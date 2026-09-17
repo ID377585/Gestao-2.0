@@ -53,9 +53,24 @@ export async function createSupabaseClientWithCookieHeader() {
 }
 
 export function createSupabaseAdminClient() {
-  const { supabaseUrl } = getRequiredSupabasePublicEnv();
-  const serviceRoleKey = getRequiredSupabaseServiceRoleKey();
+  const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
+  const stagingBridgeSecret = process.env.GESTIFY_ADMIN_STAGING_DB_SECRET?.trim();
 
+  if (stagingBridgeSecret) {
+    return createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+      global: {
+        headers: {
+          "x-gestify-admin-staging-secret": stagingBridgeSecret,
+        },
+      },
+    });
+  }
+
+  const serviceRoleKey = getRequiredSupabaseServiceRoleKey();
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       persistSession: false,

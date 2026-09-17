@@ -15,6 +15,8 @@ import {
 } from "@/lib/admin/gestify-admin-request.server";
 import { rateLimit } from "@/lib/security/rate-limit";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function correlationIdFrom(request: Request): string {
   const supplied = request.headers.get("x-correlation-id")?.trim();
   if (
@@ -63,9 +65,9 @@ export async function executeGestifyAdminRead<T>(params: {
     const caller = requireGestifyAdminCaller(params.request.headers.get("authorization"));
     const limited = rateLimit(params.request, {
       key: `gestify-admin:${params.action}`,
-      identifier: caller.tokenId,
-      limit: 1,
-      windowMs: 5 * 60_000,
+      identifier: caller.issuer,
+      limit: 120,
+      windowMs: 60_000,
     });
     if (limited) {
       return jsonResponse(
@@ -75,11 +77,14 @@ export async function executeGestifyAdminRead<T>(params: {
       );
     }
 
+    const requestedTarget = params.targetEstablishmentId?.trim() || null;
+    const auditTarget = requestedTarget && UUID_RE.test(requestedTarget) ? requestedTarget : null;
+
     auditContext = await beginGestifyAdminRequest({
       caller,
       correlationId,
       action: params.action,
-      targetEstablishmentId: params.targetEstablishmentId ?? null,
+      targetEstablishmentId: auditTarget,
     });
 
     const data = await params.run();

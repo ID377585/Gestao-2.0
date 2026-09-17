@@ -58,6 +58,9 @@ jobs:
       - name: Performance readiness audit
         run: node scripts/audit-performance-readiness.mjs
 
+      - name: Gestify Admin M2 security contract
+        run: npm run gestify:admin:check
+
       - name: Lint
         run: npm run lint
 

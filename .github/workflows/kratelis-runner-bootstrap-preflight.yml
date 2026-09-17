@@ -13,44 +13,34 @@ jobs:
     runs-on: [self-hosted, linux, x64, gestify-dr]
     timeout-minutes: 5
     steps:
-      - name: Inspect runner identity and rootless bootstrap capability
+      - name: Inspect Docker isolation capability
         shell: bash
         run: |
           set -euo pipefail
           echo "user=$(id -un)"
           echo "uid=$(id -u)"
-          echo "home=${HOME}"
           uname -sr
           if sudo -n true 2>/dev/null; then
             echo "passwordless_sudo=yes"
           else
             echo "passwordless_sudo=no"
           fi
-          if command -v systemctl >/dev/null 2>&1; then
-            echo "systemd=yes"
-          else
-            echo "systemd=no"
-          fi
-          if systemctl --user is-system-running >/dev/null 2>&1; then
-            echo "user_systemd=yes"
-          else
-            echo "user_systemd=no"
-          fi
-          if command -v loginctl >/dev/null 2>&1; then
-            loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null | sed 's/^/linger=/' || true
-          else
-            echo "linger=unknown"
-          fi
-          if command -v crontab >/dev/null 2>&1; then
-            echo "crontab=yes"
-          else
-            echo "crontab=no"
-          fi
-          if command -v curl >/dev/null 2>&1; then echo "curl=yes"; else echo "curl=no"; fi
-          if command -v tar >/dev/null 2>&1; then echo "tar=yes"; else echo "tar=no"; fi
-          runner_dir="${HOME}/actions-runner-kratelis-ci"
-          test ! -e "${runner_dir}" || {
-            echo "kratelis_runner_home_dir_exists=yes"
+          command -v docker >/dev/null
+          docker info >/dev/null
+          echo "docker_access=yes"
+          docker version --format 'server={{.Server.Version}}'
+          if docker inspect kratelis-ci-runner >/dev/null 2>&1; then
+            echo "kratelis_container_exists=yes"
             exit 2
-          }
-          echo "kratelis_runner_home_dir_exists=no"
+          fi
+          echo "kratelis_container_exists=no"
+          if docker volume inspect kratelis-ci-data >/dev/null 2>&1; then
+            echo "kratelis_volume_exists=yes"
+            exit 3
+          fi
+          echo "kratelis_volume_exists=no"
+          if docker ps --format '{{.Names}}' | grep -qx 'gestify-dr-hostgator'; then
+            echo "gestify_dr_container=yes"
+          else
+            echo "gestify_dr_container=no_or_host_service"
+          fi

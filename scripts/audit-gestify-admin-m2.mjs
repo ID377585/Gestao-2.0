@@ -31,6 +31,8 @@ const routeNames = [
   "user-activity",
   "enabled-modules",
   "platform-health",
+  "contractual-recurring-summary",
+  "subscription-cancellation-summary",
 ];
 
 for (const name of routeNames) {
@@ -48,9 +50,9 @@ assert(auth.includes('EXPECTED_ISSUER = "kratelis-company-os"'), "wrong M2M issu
 assert(auth.includes('EXPECTED_AUDIENCE = "gestify-admin"'), "wrong M2M audience contract");
 assert(auth.includes('REQUIRED_SCOPE = "gestify.admin.read"'), "missing read scope");
 assert(auth.includes("MAX_TOKEN_LIFETIME_SECONDS = 5 * 60"), "missing short token lifetime cap");
-assert(auth.includes('GESTIFY_ADMIN_ENABLED'), "missing global admin kill switch");
-assert(auth.includes('GESTIFY_ADMIN_READS_ENABLED'), "missing read kill switch");
-assert(auth.includes('GESTIFY_ADMIN_WRITES_ENABLED'), "missing write fail-closed guard");
+assert(auth.includes("GESTIFY_ADMIN_ENABLED"), "missing global admin kill switch");
+assert(auth.includes("GESTIFY_ADMIN_READS_ENABLED"), "missing read kill switch");
+assert(auth.includes("GESTIFY_ADMIN_WRITES_ENABLED"), "missing write fail-closed guard");
 assert(auth.includes('header.alg !== "HS256"'), "M2M algorithm not pinned");
 assert(auth.includes("timingSafeEqual"), "M2M signature comparison is not timing-safe");
 
@@ -67,17 +69,39 @@ assert(audit.includes('"audit_unavailable"'), "audit failure does not fail close
 assert(migration.includes("token_id text not null"), "audit ledger missing token id");
 assert(migration.includes("unique (token_id)"), "token id is not unique");
 assert(migration.includes("enable row level security"), "audit ledger missing RLS");
-assert(migration.includes("revoke all on table public.gestify_admin_request_log from public, anon, authenticated"), "client grants not revoked");
+assert(
+  migration.includes("revoke all on table public.gestify_admin_request_log from public, anon, authenticated"),
+  "client grants not revoked",
+);
 assert(hardening.includes("gestify_admin_request_log_no_client_access"), "missing explicit deny-all policy");
 assert(hardening.includes("security invoker"), "nutrition staging wrapper not reconciled to invoker");
 
 const combinedData = `${data}\n${extra}`;
-assert(combinedData.includes("contractual_recurring_amount_not_collected_revenue"), "financial amount semantics are ambiguous");
-assert(extra.includes("subscription_status_past_due_not_reconciled_financial_overdue"), "past_due semantics are ambiguous");
+assert(
+  combinedData.includes("contractual_recurring_amount_not_collected_revenue"),
+  "per-company financial amount semantics are ambiguous",
+);
+assert(
+  extra.includes("subscription_status_past_due_not_reconciled_financial_overdue"),
+  "past_due semantics are ambiguous",
+);
 assert(extra.includes("telemetryAvailable: false"), "module entitlement may be confused with telemetry");
+assert(
+  extra.includes("contracted_recurring_amount_not_billed_or_collected_mrr"),
+  "contracted recurring summary may be confused with MRR",
+);
+assert(
+  extra.includes("subscription_cancellations_not_financial_churn_rate"),
+  "cancellation summary may be confused with churn",
+);
+assert(extra.includes("collectedMrrAvailable: false"), "collected MRR availability must stay explicit");
+assert(extra.includes("financialChurnRateAvailable: false"), "financial churn availability must stay explicit");
 
 for (const forbidden of ["eval(", "new Function(", "child_process", "exec(", "spawn(", "arbitrary_sql"]) {
-  assert(!`${auth}\n${executor}\n${audit}\n${data}\n${extra}`.includes(forbidden), `forbidden capability present: ${forbidden}`);
+  assert(
+    !`${auth}\n${executor}\n${audit}\n${data}\n${extra}`.includes(forbidden),
+    `forbidden capability present: ${forbidden}`,
+  );
 }
 
 if (failures.length) {

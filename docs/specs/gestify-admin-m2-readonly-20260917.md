@@ -324,7 +324,7 @@ Também incorpora somente o runtime necessário do scoped staging database bridg
 - Production não recebe habilitação do bridge e não depende desse caminho;
 - a credencial de staging nunca é registrada em Git, logs ou respostas;
 - as cinco versões históricas permanecem idênticas às versões já registradas no staging;
-- a migration `20260918004000_harden_gestify_admin_staging_host_scope` é um hardening novo e explícito, aplicado primeiro em staging.
+- a migration `20260918041902_harden_gestify_admin_staging_host_scope` é um hardening novo e explícito, aplicado primeiro em staging.
 
 ### Critérios de fechamento do drift
 

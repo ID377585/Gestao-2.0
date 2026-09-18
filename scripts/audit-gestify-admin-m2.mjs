@@ -33,7 +33,7 @@ const unknownTargetAudit = read(
   "supabase/migrations/20260917221535_allow_unknown_targets_in_gestify_admin_audit.sql",
 );
 const stagingHostScope = read(
-  "supabase/migrations/20260918004000_harden_gestify_admin_staging_host_scope.sql",
+  "supabase/migrations/20260918041902_harden_gestify_admin_staging_host_scope.sql",
 );
 const supabaseServer = read("src/lib/supabase/server.ts");
 

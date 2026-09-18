@@ -49,6 +49,7 @@ type ScaleEditorProps = {
   allergens?: string | null;
   sourceUpdatedAt?: string | null;
   yieldLabel?: string | null;
+  enableWaiterSheet?: boolean;
 };
 
 function formatNumber(value: number) {
@@ -274,9 +275,12 @@ export default function ScaleEditor({
   allergens = null,
   sourceUpdatedAt = null,
   yieldLabel = null,
+  enableWaiterSheet = false,
 }: ScaleEditorProps) {
   const [showScalePage, setShowScalePage] = useState(false);
+  const [showWaiterSheet, setShowWaiterSheet] = useState(false);
   const printRef = useRef<HTMLDivElement | null>(null);
+  const waiterPrintRef = useRef<HTMLDivElement | null>(null);
 
   const scaleNumbers = useMemo(() => {
     return Array.from({ length: 10 }, (_, index) => index + 1);
@@ -390,6 +394,94 @@ export default function ScaleEditor({
         <body>
           <div class="scale-print-wrapper">
             ${printRef.current.innerHTML}
+          </div>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
+  };
+
+  const handlePrintWaiterSheet = () => {
+    if (!waiterPrintRef.current) return;
+
+    const printWindow = window.open("", "_blank", "width=1200,height=900");
+
+    if (!printWindow) {
+      alert("Não foi possível abrir a janela de impressão.");
+      return;
+    }
+
+    const styles = Array.from(
+      document.querySelectorAll('link[rel="stylesheet"], style')
+    )
+      .map((node) => node.outerHTML)
+      .join("");
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <title>Ficha para Garçons - ${escapeHtml(nome || "Ficha Técnica")}</title>
+          ${styles}
+          <style>
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+
+            @page {
+              size: A4 portrait;
+              margin: 8mm;
+            }
+
+            html,
+            body {
+              margin: 0;
+              padding: 0;
+              background: #ffffff !important;
+              color: #0f172a;
+              font-family: Arial, Helvetica, sans-serif;
+            }
+
+            body {
+              display: flex;
+              justify-content: center;
+              align-items: flex-start;
+            }
+
+            .waiter-print-page {
+              width: 194mm !important;
+              min-height: 281mm !important;
+              padding: 8mm !important;
+              box-shadow: none !important;
+              border: 0 !important;
+              border-radius: 0 !important;
+              background: #ffffff !important;
+            }
+
+            .waiter-print-wrapper {
+              width: 100% !important;
+              background: #ffffff !important;
+              border: 0 !important;
+              padding: 0 !important;
+            }
+
+            .waiter-print-button {
+              display: none !important;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="waiter-print-wrapper">
+            ${waiterPrintRef.current.innerHTML}
           </div>
         </body>
       </html>
@@ -657,6 +749,206 @@ export default function ScaleEditor({
           </div>
         </div>
       )}
+
+      {enableWaiterSheet ? (
+        <div className="space-y-4 border-t pt-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h4 className="text-lg font-semibold">Fichas para Garçons</h4>
+              <p className="text-sm text-muted-foreground">
+                Gere uma ficha para atendimento com os ingredientes sem
+                quantidades, multiplicadores ou custos.
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              aria-expanded={showWaiterSheet}
+              onClick={() => setShowWaiterSheet((prev) => !prev)}
+            >
+              {showWaiterSheet
+                ? "Ocultar ficha para garçons"
+                : "Fichas para Garçons"}
+            </Button>
+          </div>
+
+          {!showWaiterSheet ? (
+            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              Clique em “Fichas para Garçons” para visualizar e imprimir a
+              ficha de atendimento.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border bg-slate-100 p-4">
+              <div ref={waiterPrintRef}>
+                <article className="waiter-print-page mx-auto w-[794px] overflow-hidden rounded-xl bg-white p-8 text-slate-900 shadow-sm">
+                  <header className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-6">
+                    <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-emerald-700">
+                      Ficha para garçons
+                    </p>
+                    <h1 className="mt-2 break-words text-3xl font-black uppercase tracking-tight">
+                      {nome || "Ficha Técnica"}
+                    </h1>
+                    <p className="mt-2 text-sm font-semibold text-slate-600">
+                      Informações essenciais para apresentação e atendimento ao
+                      cliente.
+                    </p>
+                  </header>
+
+                  <section className="mt-4 grid grid-cols-4 gap-2 text-center">
+                    <div className="rounded-xl bg-emerald-50 p-3">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">
+                        Dificuldade
+                      </p>
+                      <p className="mt-1 text-sm font-black">
+                        {difficultyLevel || "—"}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                        Rendimento
+                      </p>
+                      <p className="mt-1 text-sm font-black">
+                        {formatYieldNumber(rendimento || 0)} {yieldUnit}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                        Peso da porção
+                      </p>
+                      <p className="mt-1 text-sm font-black">
+                        {formatNumber(portionWeight || 0)} {portionWeightUnit || "G"}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                        Temperatura
+                      </p>
+                      <p className="mt-1 text-sm font-black">
+                        {formatTemperature(temperatureCelsius)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                        Tempo de preparo
+                      </p>
+                      <p className="mt-1 text-sm font-black">
+                        {formatDuration(prepTimeMinutes)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                        Tempo de cocção
+                      </p>
+                      <p className="mt-1 text-sm font-black">
+                        {formatDuration(cookingTimeMinutes)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                        Fator de cocção
+                      </p>
+                      <p className="mt-1 text-sm font-black">
+                        {formatNumber(cookingFactorGrams ?? 0)} g
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                        Fator de correção
+                      </p>
+                      <p className="mt-1 text-sm font-black">
+                        {formatNumber(correctionFactorGrams ?? 0)} g
+                      </p>
+                    </div>
+                  </section>
+
+                  <section className="mt-5">
+                    <h2 className="text-lg font-black uppercase tracking-tight">
+                      Ingredientes
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Composição da receita, sem quantidades.
+                    </p>
+
+                    {ingredientes.length > 0 ? (
+                      <ul className="mt-3 grid grid-cols-2 gap-2">
+                        {ingredientes.map((ingredient) => (
+                          <li
+                            key={`waiter-${ingredient.id}`}
+                            className="flex min-h-10 items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold uppercase"
+                          >
+                            {ingredient.nome}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="mt-3 rounded-lg border border-dashed p-4 text-center text-sm font-semibold text-slate-500">
+                        Nenhum ingrediente cadastrado.
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="mt-5">
+                    <h2 className="text-lg font-black uppercase tracking-tight">
+                      Modo de preparo
+                    </h2>
+                    <div
+                      className="mt-3 whitespace-pre-line rounded-xl border border-slate-200 bg-slate-50 p-4 font-semibold uppercase text-slate-700"
+                      style={{
+                        fontSize: `${Math.max(preparationFontSize, 8)}px`,
+                        lineHeight: "1.45",
+                      }}
+                    >
+                      {preparationMethod || "Modo de preparo não informado."}
+                    </div>
+                  </section>
+
+                  <section className="mt-5 rounded-xl border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
+                      <span className="rounded-lg bg-emerald-100 px-2 py-1 font-black text-emerald-900">
+                        Armazenamento
+                      </span>
+                      <span>{storageInstructions || "—"}</span>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-semibold text-slate-700">
+                      <div className="rounded-lg bg-slate-50 p-2">
+                        Congelado: {shelfLifeFrozen || "—"}
+                      </div>
+                      <div className="rounded-lg bg-slate-50 p-2">
+                        Refrigerado: {shelfLifeRefrigerated || "—"}
+                      </div>
+                      <div className="rounded-lg bg-slate-50 p-2">
+                        Ambiente: {shelfLifeRoomTemp || "—"}
+                      </div>
+                    </div>
+                  </section>
+
+                  <footer className="mt-4 grid grid-cols-[1fr_auto] items-center gap-4 border-t border-slate-200 pt-4 text-sm">
+                    <div>
+                      <span className="font-black text-red-600">Alergênicos: </span>
+                      <span className="font-bold">{allergens || "—"}</span>
+                    </div>
+                    <div className="text-right text-xs font-semibold text-slate-500">
+                      Atualizada em: {formatDate(sourceUpdatedAt)}
+                    </div>
+                  </footer>
+                </article>
+              </div>
+
+              <div className="waiter-print-button mt-4 flex justify-end">
+                <Button
+                  type="button"
+                  onClick={handlePrintWaiterSheet}
+                  className="bg-emerald-600 font-semibold text-white shadow-md transition-all duration-200 hover:bg-emerald-700 hover:shadow-lg"
+                >
+                  🖨️ Imprimir ficha para garçons
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -53,7 +53,10 @@ import {
   uploadTechnicalSheetImageAction,
   type TechnicalSheetInput,
 } from "./actions";
-import { exportTechnicalSheetPdf } from "./pdf-export";
+import {
+  exportAllTechnicalSheetsPdf,
+  exportTechnicalSheetPdf,
+} from "./pdf-export";
 import {
   type ProductOption as MatcherProductOption,
   type Ingrediente as MatcherIngrediente,
@@ -1456,6 +1459,8 @@ export default function FichasTecnicasPage() {
   const [isPending, startTransition] = useTransition();
   const [uploadingImage, setUploadingImage] = useState(false);
   const [exportingPdfId, setExportingPdfId] = useState<string | null>(null);
+  const [exportingAllPdfs, setExportingAllPdfs] = useState(false);
+  const [generalPdfProgress, setGeneralPdfProgress] = useState(0);
   const [fichasTecnicas, setFichasTecnicas] = useState<FichaTecnica[]>([]);
   const [fichaSelecionada, setFichaSelecionada] = useState<FichaTecnica | null>(null);
   const [showFichaDetalhe, setShowFichaDetalhe] = useState(false);
@@ -2228,6 +2233,28 @@ export default function FichasTecnicasPage() {
     }
   };
 
+  const handleExportarTodasAsFichasPdf = async () => {
+    if (!fichasTecnicas.length) {
+      alert("Nenhuma ficha técnica cadastrada para exportar.");
+      return;
+    }
+
+    try {
+      setExportingAllPdfs(true);
+      setGeneralPdfProgress(0);
+      await exportAllTechnicalSheetsPdf(
+        fichasTecnicas,
+        (completed) => setGeneralPdfProgress(completed)
+      );
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.message ?? "Erro ao exportar o PDF geral das fichas técnicas.");
+    } finally {
+      setExportingAllPdfs(false);
+      setGeneralPdfProgress(0);
+    }
+  };
+
   const exportarRelatorioCustos = () => {
     if (!fichasTecnicas.length) {
       alert("Nenhuma ficha técnica cadastrada para exportar.");
@@ -2402,6 +2429,17 @@ export default function FichasTecnicasPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleExportarTodasAsFichasPdf}
+            disabled={loadingFichas || exportingAllPdfs}
+          >
+            {exportingAllPdfs
+              ? `Gerando PDF (${generalPdfProgress}/${fichasTecnicas.length})...`
+              : "Exp. Fichas Técnicas Geral - PDF"}
+          </Button>
+
           <Button type="button" variant="outline" onClick={exportarRelatorioCustos}>
             📊 Relatório de Custos
           </Button>
@@ -2435,6 +2473,12 @@ export default function FichasTecnicasPage() {
       {exportingPdfId ? (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
           Gerando PDF da ficha técnica...
+        </div>
+      ) : null}
+
+      {exportingAllPdfs ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+          Gerando o PDF geral com todas as fichas técnicas. Aguarde o download...
         </div>
       ) : null}
 

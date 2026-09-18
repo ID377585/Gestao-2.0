@@ -3701,6 +3701,7 @@ export default function FichasTecnicasPage() {
                 allergens={autoEditAllergens}
                 sourceUpdatedAt={fichaEditando.sourceUpdatedAt}
                 yieldLabel={fichaEditando.yieldLabel}
+                enableWaiterSheet
               />
 
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

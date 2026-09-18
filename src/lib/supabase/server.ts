@@ -53,9 +53,29 @@ export async function createSupabaseClientWithCookieHeader() {
 }
 
 export function createSupabaseAdminClient() {
-  const { supabaseUrl } = getRequiredSupabasePublicEnv();
-  const serviceRoleKey = getRequiredSupabaseServiceRoleKey();
+  const { supabaseUrl, supabaseKey } = getRequiredSupabasePublicEnv();
+  const stagingBridgeSecret = process.env.GESTIFY_ADMIN_STAGING_DB_SECRET?.trim();
 
+  if (stagingBridgeSecret) {
+    const hostname = new URL(supabaseUrl).hostname.toLowerCase();
+    if (hostname !== "tuncavkhjazruijujatb.supabase.co") {
+      throw new Error("gestify_admin_staging_bridge_wrong_supabase");
+    }
+
+    return createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+      global: {
+        headers: {
+          "x-gestify-admin-staging-secret": stagingBridgeSecret,
+        },
+      },
+    });
+  }
+
+  const serviceRoleKey = getRequiredSupabaseServiceRoleKey();
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       persistSession: false,

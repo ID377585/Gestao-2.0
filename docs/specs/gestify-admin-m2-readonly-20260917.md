@@ -1,6 +1,6 @@
 # Gestify Admin M2 — fronteira administrativa read-only
 
-Status: implementing
+Status: implementing — staging drift reconciliation in progress
 Data: 2026-09-17
 
 ## Contexto
@@ -302,3 +302,36 @@ A primeira implementação deve ser aditiva e desligada por padrão. Rollback co
 3. remover/deativar o projeto MCP staging;
 4. reverter a branch/PR;
 5. nenhum dado tenant precisa ser transformado para retornar ao estado anterior.
+
+
+## Reconciliação de drift do staging — 2026-09-18
+
+O staging aplicou cinco migrations operacionais durante a homologação M2 que ainda não estavam versionadas no GitHub. Esta branch reconcilia exatamente essas versões sem reaproveitar a branch histórica divergente:
+
+- `20260917215331_add_gestify_admin_staging_bridge`;
+- `20260917220332_fix_gestify_admin_staging_audit_restrictive_policy`;
+- `20260917220935_add_company_subscriptions_establishment_fk_for_m2_staging`;
+- `20260917221114_harden_gestify_admin_staging_bridge_advisor`;
+- `20260917221535_allow_unknown_targets_in_gestify_admin_audit`.
+
+Também incorpora somente o runtime necessário do scoped staging database bridge ao código atual da `main`.
+
+### Invariantes adicionais
+
+- o bridge só pode ser ativado quando `GESTIFY_ADMIN_STAGING_DB_SECRET` existe;
+- o runtime recusa esse bridge se `NEXT_PUBLIC_SUPABASE_URL` não apontar exatamente para `tuncavkhjazruijujatb.supabase.co`;
+- o banco também valida o hostname do projeto staging antes de aceitar o segredo;
+- Production não recebe habilitação do bridge e não depende desse caminho;
+- a credencial de staging nunca é registrada em Git, logs ou respostas;
+- as cinco versões históricas permanecem idênticas às versões já registradas no staging;
+- a migration `20260918041902_harden_gestify_admin_staging_host_scope` é um hardening novo e explícito, aplicado primeiro em staging.
+
+### Critérios de fechamento do drift
+
+1. as cinco versões ausentes existem em `supabase/migrations`;
+2. fresh replay passa;
+3. `gestify:admin:check`, lint, typecheck, audit, tenant writes, readiness e build passam;
+4. a migration de host-scope é aplicada em staging;
+5. Security Advisor não ganha regressão;
+6. o histórico remoto do staging coincide com o histórico versionado;
+7. Production/Santino permanecem sem DDL/DML.

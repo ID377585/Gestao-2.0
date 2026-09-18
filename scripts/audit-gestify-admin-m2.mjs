@@ -17,6 +17,25 @@ const migration = read("supabase/migrations/20260917062436_create_gestify_admin_
 const hardening = read(
   "supabase/migrations/20260917114744_harden_gestify_admin_and_reconcile_nutrition_staging.sql",
 );
+const stagingBridge = read(
+  "supabase/migrations/20260917215331_add_gestify_admin_staging_bridge.sql",
+);
+const stagingAuditRepair = read(
+  "supabase/migrations/20260917220332_fix_gestify_admin_staging_audit_restrictive_policy.sql",
+);
+const stagingSubscriptionFk = read(
+  "supabase/migrations/20260917220935_add_company_subscriptions_establishment_fk_for_m2_staging.sql",
+);
+const stagingBridgeHardening = read(
+  "supabase/migrations/20260917221114_harden_gestify_admin_staging_bridge_advisor.sql",
+);
+const unknownTargetAudit = read(
+  "supabase/migrations/20260917221535_allow_unknown_targets_in_gestify_admin_audit.sql",
+);
+const stagingHostScope = read(
+  "supabase/migrations/20260918041902_harden_gestify_admin_staging_host_scope.sql",
+);
+const supabaseServer = read("src/lib/supabase/server.ts");
 
 const routeNames = [
   "platform-overview",
@@ -75,6 +94,43 @@ assert(
 );
 assert(hardening.includes("gestify_admin_request_log_no_client_access"), "missing explicit deny-all policy");
 assert(hardening.includes("security invoker"), "nutrition staging wrapper not reconciled to invoker");
+
+for (const [source, label] of [
+  [stagingBridge, "staging bridge"],
+  [stagingAuditRepair, "staging audit repair"],
+  [stagingSubscriptionFk, "staging subscription fk"],
+  [stagingBridgeHardening, "staging bridge hardening"],
+  [unknownTargetAudit, "unknown-target audit"],
+]) {
+  assert(source.includes("begin;") && source.includes("commit;"), `${label} migration is not transactional`);
+}
+assert(stagingBridge.includes("gestify_admin_staging_secret_ok"), "staging bridge verifier is not versioned");
+assert(stagingBridge.includes("gestify_admin_staging_user_profile"), "staging profile bridge is not versioned");
+assert(stagingAuditRepair.includes("as restrictive"), "staging audit restrictive policy repair is missing");
+assert(
+  stagingSubscriptionFk.includes("company_subscriptions_establishment_id_fkey"),
+  "staging subscription FK history is missing",
+);
+assert(
+  unknownTargetAudit.includes("drop constraint if exists gestify_admin_request_log_target_establishment_id_fkey"),
+  "unknown-target audit history is missing",
+);
+assert(
+  stagingHostScope.includes("tuncavkhjazruijujatb.supabase.co"),
+  "staging database bridge is not host-pinned",
+);
+assert(
+  supabaseServer.includes('hostname !== "tuncavkhjazruijujatb.supabase.co"'),
+  "runtime staging bridge is not pinned to the exact staging Supabase project",
+);
+assert(
+  supabaseServer.includes('"x-gestify-admin-staging-secret": stagingBridgeSecret'),
+  "runtime staging bridge header is missing",
+);
+assert(
+  data.includes('"gestify_admin_staging_user_profile"'),
+  "company-user staging bridge is not used by the admin data service",
+);
 
 const combinedData = `${data}\n${extra}`;
 assert(

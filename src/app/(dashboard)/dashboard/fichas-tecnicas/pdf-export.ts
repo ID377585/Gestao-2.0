@@ -1,5 +1,5 @@
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { jsPDF } from "jspdf";
+import { autoTable } from "jspdf-autotable";
 
 export type PdfIngrediente = {
   id: string;
@@ -300,6 +300,414 @@ function applyTableDefaults() {
       fillColor: [248, 250, 252] as [number, number, number],
     },
   };
+}
+
+function getPdfImageUrl(ficha: TechnicalSheetPdfData) {
+  const imagePath = String(ficha.imagePath || "").trim();
+
+  if (imagePath && typeof window !== "undefined") {
+    return `${window.location.origin}/api/technical-sheet-image?path=${encodeURIComponent(
+      imagePath
+    )}`;
+  }
+
+  return ficha.imageUrl;
+}
+
+function formatPdfDecimal(value: number, digits = 3) {
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(value || 0);
+}
+
+function getGeneralSheetPricing(ficha: TechnicalSheetPdfData) {
+  const calculatedTotal = ficha.ingredientes.reduce(
+    (total, ingrediente) => total + toNumber(ingrediente.custoIngrediente),
+    0
+  );
+  const custoTotal = Number(
+    (calculatedTotal || toNumber(ficha.custoTotal)).toFixed(2)
+  );
+  const custoPorPorcaoBruto =
+    ficha.rendimento > 0
+      ? custoTotal / ficha.rendimento
+      : toNumber(ficha.custoPorPorcao);
+  const custoPorPorcao = Number(custoPorPorcaoBruto.toFixed(2));
+  const precoVenda = Number(
+    (custoPorPorcaoBruto > 0
+      ? custoPorPorcaoBruto / 0.25
+      : toNumber(ficha.precoVenda)
+    ).toFixed(2)
+  );
+
+  return { custoTotal, custoPorPorcao, precoVenda };
+}
+
+function getRecipeWeightInKg(ficha: TechnicalSheetPdfData) {
+  const correctionFactor = toNumber(ficha.correctionFactorGrams);
+  if (correctionFactor > 0) return correctionFactor;
+
+  return ficha.ingredientes.reduce((total, ingrediente) => {
+    const quantidade = toNumber(ingrediente.quantidadeUso);
+    const unidade = String(ingrediente.unidadeUso || "").trim().toUpperCase();
+
+    if (unidade === "KG") return total + quantidade;
+    if (unidade === "G") return total + quantidade / 1000;
+    return total;
+  }, 0);
+}
+
+function drawGeneralMetricCard(
+  doc: jsPDF,
+  label: string,
+  value: string,
+  x: number,
+  y: number,
+  width: number,
+  colors: {
+    fill: [number, number, number];
+    border: [number, number, number];
+    text: [number, number, number];
+  }
+) {
+  doc.setFillColor(...colors.fill);
+  doc.setDrawColor(...colors.border);
+  doc.roundedRect(x, y, width, 58, 10, 10, "FD");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(...colors.text);
+  doc.text(label.toUpperCase(), x + 12, y + 18);
+
+  doc.setFontSize(17);
+  doc.text(value, x + 12, y + 43);
+}
+
+async function drawGeneralSheetHeader(
+  doc: jsPDF,
+  ficha: TechnicalSheetPdfData,
+  marginX: number,
+  startY: number
+) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const heroWidth = pageWidth - marginX * 2;
+  const heroHeight = 132;
+  const photoWidth = 136;
+  const photoHeight = 96;
+  const photoX = pageWidth - marginX - photoWidth - 16;
+  const photoY = startY + 18;
+
+  doc.setFillColor(250, 252, 255);
+  doc.setDrawColor(219, 226, 234);
+  doc.roundedRect(marginX, startY, heroWidth, heroHeight, 12, 12, "FD");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(21);
+  doc.setTextColor(15, 23, 42);
+  const titleLines = doc
+    .splitTextToSize(ficha.nome || "Ficha Técnica", heroWidth - photoWidth - 52)
+    .slice(0, 3);
+  doc.text(titleLines, marginX + 16, startY + 32);
+
+  let textY = startY + 32 + titleLines.length * 22;
+  doc.setFontSize(10);
+  doc.setTextColor(71, 85, 105);
+  doc.text(
+    (ficha.categoria || "Sem categoria").toUpperCase(),
+    marginX + 16,
+    textY
+  );
+
+  textY += 13;
+  doc.setDrawColor(226, 232, 240);
+  doc.line(marginX + 16, textY, photoX - 14, textY);
+
+  const rendimento = toNumber(ficha.rendimento);
+  const pesoReceita = getRecipeWeightInKg(ficha);
+  const pesoPorcao =
+    toNumber(ficha.pesoPorcao) ||
+    (rendimento > 0 ? pesoReceita / rendimento : 0);
+  const unidade = String(ficha.portionWeightUnit || "KG").toUpperCase();
+  const porcaoLabel = rendimento === 1 ? "porção" : "porções";
+
+  doc.setFontSize(8.5);
+  doc.setTextColor(51, 65, 85);
+  const yieldText = `Rende: ${formatPdfDecimal(
+    rendimento,
+    Number.isInteger(rendimento) ? 0 : 1
+  )} ${porcaoLabel} de ${formatPdfDecimal(
+    pesoPorcao
+  )} ${unidade} • Peso Receita Total: ${formatPdfDecimal(
+    pesoReceita
+  )} ${unidade}`;
+  const yieldLines = doc.splitTextToSize(yieldText, photoX - marginX - 46);
+  doc.text(yieldLines, marginX + 16, textY + 15);
+
+  doc.setFillColor(241, 245, 249);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(photoX, photoY, photoWidth, photoHeight, 10, 10, "FD");
+
+  const imageUrl = getPdfImageUrl(ficha);
+  const imageData = imageUrl ? await loadImageAsDataUrl(imageUrl) : null;
+
+  if (imageData) {
+    try {
+      const props = doc.getImageProperties(imageData);
+      const ratio = Math.min(
+        (photoWidth - 4) / props.width,
+        (photoHeight - 4) / props.height
+      );
+      const renderWidth = props.width * ratio;
+      const renderHeight = props.height * ratio;
+      doc.addImage(
+        imageData,
+        props.fileType || "JPEG",
+        photoX + (photoWidth - renderWidth) / 2,
+        photoY + (photoHeight - renderHeight) / 2,
+        renderWidth,
+        renderHeight
+      );
+      return startY + heroHeight;
+    } catch (error) {
+      console.error("Erro ao inserir imagem na exportação geral:", error);
+    }
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(100, 116, 139);
+  doc.text("FOTO DA RECEITA", photoX + photoWidth / 2, photoY + 44, {
+    align: "center",
+  });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text("Imagem não cadastrada", photoX + photoWidth / 2, photoY + 58, {
+    align: "center",
+  });
+
+  return startY + heroHeight;
+}
+
+function drawGeneralPreparation(
+  doc: jsPDF,
+  preparo: string,
+  initialY: number,
+  marginX: number
+) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const contentWidth = pageWidth - marginX * 2;
+  const allLines = doc.splitTextToSize(preparo.trim() || "Não informado.", contentWidth - 24);
+  let lineIndex = 0;
+  let currentY = initialY;
+  let continuation = false;
+
+  while (lineIndex < allLines.length) {
+    if (currentY > pageHeight - 90) {
+      doc.addPage();
+      currentY = 42;
+      continuation = true;
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(15, 23, 42);
+    doc.text(
+      continuation ? "Modo de preparo (continuação)" : "Modo de preparo",
+      marginX,
+      currentY
+    );
+    currentY += 12;
+
+    const availableHeight = pageHeight - currentY - 50;
+    const linesPerPage = Math.max(1, Math.floor((availableHeight - 24) / 13));
+    const pageLines = allLines.slice(lineIndex, lineIndex + linesPerPage);
+    const boxHeight = Math.max(44, pageLines.length * 13 + 24);
+
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(219, 226, 234);
+    doc.roundedRect(marginX, currentY, contentWidth, boxHeight, 10, 10, "FD");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(17, 24, 39);
+    doc.text(pageLines, marginX + 12, currentY + 18);
+
+    lineIndex += pageLines.length;
+    currentY += boxHeight + 12;
+
+    if (lineIndex < allLines.length) {
+      doc.addPage();
+      currentY = 42;
+      continuation = true;
+    }
+  }
+}
+
+async function renderGeneralTechnicalSheet(
+  doc: jsPDF,
+  ficha: TechnicalSheetPdfData
+) {
+  const marginX = 30;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  let currentY = await drawGeneralSheetHeader(doc, ficha, marginX, 34);
+  currentY += 12;
+
+  const pricing = getGeneralSheetPricing(ficha);
+  const cardGap = 8;
+  const cardWidth = (pageWidth - marginX * 2 - cardGap * 2) / 3;
+
+  drawGeneralMetricCard(
+    doc,
+    "Custo total",
+    formatCurrency(pricing.custoTotal),
+    marginX,
+    currentY,
+    cardWidth,
+    { fill: [254, 242, 242], border: [252, 165, 165], text: [153, 27, 27] }
+  );
+  drawGeneralMetricCard(
+    doc,
+    "Custo por porção",
+    formatCurrency(pricing.custoPorPorcao),
+    marginX + cardWidth + cardGap,
+    currentY,
+    cardWidth,
+    { fill: [239, 246, 255], border: [147, 197, 253], text: [30, 64, 175] }
+  );
+  drawGeneralMetricCard(
+    doc,
+    "Preço de venda",
+    formatCurrency(pricing.precoVenda),
+    marginX + (cardWidth + cardGap) * 2,
+    currentY,
+    cardWidth,
+    { fill: [236, 253, 245], border: [134, 239, 172], text: [22, 101, 52] }
+  );
+
+  currentY += 80;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.setTextColor(15, 23, 42);
+  doc.text("Ingredientes", marginX, currentY);
+
+  autoTable(doc, {
+    startY: currentY + 10,
+    theme: "plain",
+    head: [["Ingrediente", "Qtd. utilizada", "Preço compra", "Preço qtd. utilizada"]],
+    body:
+      ficha.ingredientes.length > 0
+        ? ficha.ingredientes.map((ingrediente) => [
+            ingrediente.nome || "—",
+            `${formatPdfDecimal(toNumber(ingrediente.quantidadeUso))} ${
+              ingrediente.unidadeUso || ""
+            }`.trim(),
+            formatCurrency(toNumber(ingrediente.precoCompra)),
+            formatCurrency(toNumber(ingrediente.custoIngrediente)),
+          ])
+        : [["Nenhum ingrediente cadastrado.", "", "", ""]],
+    styles: {
+      fontSize: 8.5,
+      cellPadding: 6,
+      valign: "middle",
+      textColor: [17, 24, 39],
+      lineColor: [219, 226, 234],
+      lineWidth: 0.5,
+      overflow: "linebreak",
+    },
+    headStyles: {
+      fillColor: [248, 250, 252],
+      textColor: [51, 65, 85],
+      fontStyle: "bold",
+      halign: "center",
+    },
+    columnStyles: {
+      0: { cellWidth: 220, fontStyle: "bold" },
+      1: { cellWidth: 105, halign: "center" },
+      2: { cellWidth: 90, halign: "right" },
+      3: { cellWidth: 120.28, halign: "right", fontStyle: "bold" },
+    },
+    margin: { left: marginX, right: marginX, bottom: 48 },
+  });
+
+  currentY = getLastAutoTableY(doc, currentY) + 24;
+  if (currentY > pageHeight - 90) {
+    doc.addPage();
+    currentY = 42;
+  }
+
+  drawGeneralPreparation(doc, ficha.modoPreparo, currentY, marginX);
+}
+
+export async function createGeneralTechnicalSheetsPdf(
+  fichas: TechnicalSheetPdfData[],
+  onProgress?: (completed: number, total: number) => void
+) {
+  if (!fichas.length) {
+    throw new Error("Nenhuma ficha técnica cadastrada para exportar.");
+  }
+
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "pt",
+    format: "a4",
+  });
+  const sheetRanges: Array<{
+    nome: string;
+    startPage: number;
+    endPage: number;
+  }> = [];
+
+  for (let index = 0; index < fichas.length; index++) {
+    if (index > 0) doc.addPage();
+
+    const ficha = fichas[index];
+    const startPage = doc.getNumberOfPages();
+    await renderGeneralTechnicalSheet(doc, ficha);
+    const endPage = doc.getNumberOfPages();
+
+    sheetRanges.push({ nome: ficha.nome, startPage, endPage });
+    onProgress?.(index + 1, fichas.length);
+  }
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  sheetRanges.forEach((range, sheetIndex) => {
+    const sheetPageCount = range.endPage - range.startPage + 1;
+
+    for (let page = range.startPage; page <= range.endPage; page++) {
+      doc.setPage(page);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.6);
+      doc.line(30, pageHeight - 32, pageWidth - 30, pageHeight - 32);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text("Ficha técnica gerada automaticamente pelo sistema.", 30, pageHeight - 17);
+      doc.text(
+        `Ficha ${sheetIndex + 1}/${fichas.length} • Página ${
+          page - range.startPage + 1
+        }/${sheetPageCount}`,
+        pageWidth - 30,
+        pageHeight - 17,
+        { align: "right" }
+      );
+    }
+  });
+
+  return doc;
+}
+
+export async function exportAllTechnicalSheetsPdf(
+  fichas: TechnicalSheetPdfData[],
+  onProgress?: (completed: number, total: number) => void
+) {
+  const doc = await createGeneralTechnicalSheetsPdf(fichas, onProgress);
+  const date = new Date().toISOString().slice(0, 10);
+  doc.save(`fichas-tecnicas-geral-${date}.pdf`);
 }
 
 export async function exportTechnicalSheetPdf(

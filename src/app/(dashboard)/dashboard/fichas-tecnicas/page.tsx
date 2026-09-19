@@ -2437,7 +2437,7 @@ export default function FichasTecnicasPage() {
           >
             {exportingAllPdfs
               ? `Gerando PDF (${generalPdfProgress}/${fichasTecnicas.length})...`
-              : "Exp. Fichas Técnicas Geral - PDF"}
+              : "Exp. Fichas Operacionais Geral - PDF"}
           </Button>
 
           <Button type="button" variant="outline" onClick={exportarRelatorioCustos}>
